@@ -1,0 +1,51 @@
+=============================================================
+                  PANDUAN PAKE PONI (ISLAND)
+=============================================================
+
+Halo bro/sis! Selamat datang di Poni (Island)!
+Aplikasi ini tuh semacam widget UI asik buat Windows lu yang ngambil
+inspirasi dari Dynamic Island. Nanti dia bakal nempel manis di layar
+dan ngasih info atau jalan pintas (shortcut) dengan animasi yang 
+dijamin super smooth!
+
+-------------------------------------------------------------
+1. CARA INSTALL
+-------------------------------------------------------------
+1. Tinggal double-click aja file "island_0.1.0_x64-setup.exe".
+2. Ikutin aja deh terus (Next-next aja) sampe beres.
+3. Kalau udah, aplikasinya bakal otomatis jalan dan nempel di layar (bisa di atas atau bawah, terserah lu).
+
+-------------------------------------------------------------
+2. FITUR UTAMA ADA APA AJA NIH?
+-------------------------------------------------------------
+• Mode Santai (Idle): Kalau lagi nggak ngapa-ngapain, dia bakal pamer persentase Baterai, Wi-Fi, Suhu, sama Jam.
+• Smart Media Player: Otomatis ngedetect pas lu lagi nyetel musik (misal Spotify atau YouTube).
+   - Dia bakal nampilin judul lagu sama penyanyinya.
+   - Lu bisa KLIK KIRI poninya buat liat Cover Album sekalian tombol kontrolnya (Prev, Pause/Play, Next).
+   - Ukuran poninya juga otomatis menyesuaikan panjang pendeknya judul lagu lu, canggih kan!
+• Smart Notifications: Ngintip event Windows lu, kayak pas lu gedein/kecilin volume atau pas lagi copy-paste (Clipboard).
+• Power Actions: Menu rahasia buat ngunci (Lock), Sleep, Restart, sampe Shut Down PC lu tanpa ribet.
+
+-------------------------------------------------------------
+3. SHORTCUT & CARA PAKE (WAJIB TAU!)
+-------------------------------------------------------------
+• KLIK KIRI pas ada musik: Bikin poninya mekar (Expanded Media) buat ngeliat cover album & ngatur lagu.
+• KLIK KANAN (atau tap 2-jari di touchpad) di Poni: Buat buka "Quick Control" (Menu Power & Settings).
+• KLIK AREA KOSONG di dalem menu: Kalau lu pengen buru-buru nutup menunya.
+• SHORTCUT KEYBOARD: Lu bisa pencet "Ctrl + Shift + D" di keyboard kapan aja buat langsung nampilin Quick Control!
+
+-------------------------------------------------------------
+4. CARA CUSTOMIZE (NGATUR-NGATUR)
+-------------------------------------------------------------
+Pengen ngubah posisi atau animasi? Buka aja "Quick Control" 
+(Klik Kanan di Poni atau pake Ctrl+Shift+D), trus klik ikon "Gear / Roda Gigi" (Settings).
+Di situ lu bebas ngatur:
+- Run on Startup (Biar otomatis nyala pas PC baru idup).
+- Posisi Poni (Mau nempel di Atas atau di Bawah layar).
+- Transparansi (Bisa Solid, Glass, atau Clear).
+- Kecepatan Animasi (Mau Snappy, Smooth, atau Bouncy).
+- Nyalain/Matiin modul kayak Volume, Clipboard, atau Media Player.
+
+=============================================================
+Udah gitu aja, gampang banget kan?
+Enjoy pake Poni di Desktop lu!
