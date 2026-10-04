@@ -1,198 +1,18 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { load } from "@tauri-apps/plugin-store";
 import { motion, AnimatePresence } from "framer-motion";
-import { Music, Bell, Play, Pause, SkipBack, SkipForward, Image as ImageIcon, Zap, Volume2, Sun, Cloud, CloudRain, CloudLightning, Snowflake, Wifi, WifiOff, Clipboard, Type, Lock, Power, RotateCcw, Moon, Settings as SettingsIcon, Mail, Film, Scissors, Bluetooth } from "lucide-react";
-import { SiWhatsapp, SiTelegram, SiDiscord, SiInstagram, SiYoutube, SiX } from "@icons-pack/react-simple-icons";
+import { Music, Play, Pause, SkipBack, SkipForward, Image as ImageIcon, Zap, Volume2, Sun, Wifi, WifiOff, Lock, Power, RotateCcw, Moon, Settings as SettingsIcon, Film, Scissors, Bluetooth } from "lucide-react";
 import "./App.css";
 
-interface MediaPayload {
-  title: string;
-  artist: string;
-  is_playing: boolean;
-  thumbnail?: string | null;
-  playback_type?: number;
-}
-
-interface NotifPayload {
-  title: string;
-  body: string;
-  icon?: string;
-}
-
-function getWeatherIcon(code: number) {
-  if (code === 0 || code === 1) return <Sun size={10} className="text-yellow-400" />;
-  if (code === 2 || code === 3 || code === 45 || code === 48) return <Cloud size={10} className="text-gray-300" />;
-  if (code >= 51 && code <= 67) return <CloudRain size={10} className="text-blue-400" />;
-  if (code >= 71 && code <= 82) return <Snowflake size={10} className="text-white" />;
-  if (code >= 95) return <CloudLightning size={10} className="text-purple-400" />;
-  return <Sun size={10} className="text-yellow-400" />;
-}
-
-const NotifIcon = ({ type }: { type?: string }) => {
-  if (type === "whatsapp") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#25D366]/20 rounded-full"><SiWhatsapp size={16} color="#25D366" /></div>;
-  if (type === "telegram") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#26A5E4]/20 rounded-full"><SiTelegram size={16} color="#26A5E4" /></div>;
-  if (type === "discord") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#5865F2]/20 rounded-full"><SiDiscord size={16} color="#5865F2" /></div>;
-  if (type === "mail") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-red-500/20 rounded-full"><Mail size={16} className="text-red-400" /></div>;
-  if (type === "instagram") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#E4405F]/20 rounded-full"><SiInstagram size={16} color="#E4405F" /></div>;
-  if (type === "youtube") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#FF0000]/20 rounded-full"><SiYoutube size={16} color="#FF0000" /></div>;
-  if (type === "twitter") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white/20 rounded-full"><SiX size={14} color="#FFFFFF" /></div>;
-  if (type === "slack") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#4A154B]/20 rounded-full"><Mail size={16} className="text-purple-400" /></div>;
-  if (type === "battery") {
-    return (
-      <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-green-500/20 rounded-full">
-        <Zap size={16} className="text-green-400" />
-      </div>
-    );
-  }
-  if (type === "sun") {
-    return (
-      <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-yellow-500/20 rounded-full">
-        <Sun size={16} className="text-yellow-400" />
-      </div>
-    );
-  }
-  if (type === "moon") {
-    return (
-      <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-indigo-500/20 rounded-full">
-        <Moon size={16} className="text-indigo-400" />
-      </div>
-    );
-  }
-  if (type === "volume") {
-    return (
-      <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-gray-500/20 rounded-full">
-        <Volume2 size={16} className="text-gray-300" />
-      </div>
-    );
-  }
-  if (type === "clipboard") {
-    return (
-      <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-blue-500/20 rounded-full">
-        <Clipboard size={16} className="text-blue-400" />
-      </div>
-    );
-  }
-  if (type === "capslock") {
-    return (
-      <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-purple-500/20 rounded-full">
-        <Type size={16} className="text-purple-400" />
-      </div>
-    );
-  }
-  return (
-    <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-blue-500/20 rounded-full">
-      <Bell size={16} className="text-blue-400" />
-    </div>
-  );
-};
-
-const AudioVisualizer = ({ isPlaying, onToggle, optAccent }: { isPlaying: boolean; onToggle: () => void; optAccent?: string }) => {
-  if (!isPlaying) {
-    return (
-      <button 
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
-        className="w-6 h-6 flex items-center justify-center rounded-full bg-neutral-800 hover:bg-neutral-700 text-white shrink-0 transition-colors"
-      >
-        <Play size={12} fill="currentColor" className="ml-0.5" />
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex items-center justify-center gap-[2px] h-4 w-6 shrink-0">
-      {[0, 1, 2, 3].map((i) => (
-        <motion.div
-          key={i}
-          className={`w-[2.5px] rounded-full ${!optAccent || optAccent === "default" ? "bg-pink-400" : `bg-${optAccent}-400`}`}
-          animate={{ height: ["4px", "14px", "4px"] }}
-          transition={{
-            duration: 0.8,
-            repeat: Infinity,
-            delay: i * 0.15,
-            ease: "easeInOut",
-          }}
-        />
-      ))}
-    </div>
-  );
-};
-
-const ScrollingText = ({ text, className }: { text: string, className?: string }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const textRef = useRef<HTMLSpanElement>(null);
-  const [overflowPx, setOverflowPx] = useState(0);
-
-  useEffect(() => {
-    if (!containerRef.current || !textRef.current) return;
-
-    const checkScroll = () => {
-      const container = containerRef.current;
-      const span = textRef.current;
-      if (!container || !span) return;
-
-      // Temporarily reset any transform so we get the raw natural width
-      const prevTransform = span.style.transform;
-      span.style.transform = 'none';
-      span.style.transition = 'none';
-      // Force layout
-      void span.offsetWidth;
-
-      const overflow = span.scrollWidth - container.clientWidth;
-      setOverflowPx(overflow > 2 ? overflow : 0);
-
-      span.style.transform = prevTransform;
-    };
-
-    const ro = new ResizeObserver(checkScroll);
-    ro.observe(containerRef.current);
-    ro.observe(textRef.current);
-    // Small delay so Framer Motion layout animation finishes first
-    const timer = setTimeout(checkScroll, 100);
-
-    return () => { ro.disconnect(); clearTimeout(timer); };
-  }, [text]);
-
-  const shouldScroll = overflowPx > 0;
-  // scroll duration proportional to overflow, range 2-6s
-  const scrollDur = shouldScroll ? Math.max(2, Math.min(6, overflowPx / 25)) : 0;
-  // total cycle: 2s pause → scroll → 2s pause (handled via keyframe percentages)
-  const totalCycle = 2 + scrollDur + 2;
-  const scrollStartPct = (2 / totalCycle * 100).toFixed(1);
-  const scrollEndPct = ((2 + scrollDur) / totalCycle * 100).toFixed(1);
-
-  return (
-    <div ref={containerRef} className={`overflow-hidden whitespace-nowrap ${className}`}>
-      {shouldScroll && (
-        <style>{`
-          @keyframes marquee-pause-scroll {
-            0%, ${scrollStartPct}% { transform: translateX(0px); }
-            ${scrollEndPct}%, 100% { transform: translateX(-${overflowPx}px); }
-          }
-        `}</style>
-      )}
-      <span
-        ref={textRef}
-        style={shouldScroll ? {
-          display: 'inline-block',
-          animation: `marquee-pause-scroll ${totalCycle}s ease-in-out infinite`,
-          willChange: 'transform',
-        } : {
-          display: 'inline-block',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {text}
-      </span>
-    </div>
-  );
-};
+import { MediaPayload, NotifPayload } from "./types";
+import { NotifIcon, getWeatherIcon } from "./components/ui/NotifIcon";
+import { AudioVisualizer } from "./components/ui/AudioVisualizer";
+import { ScrollingText } from "./components/ui/ScrollingText";
+import { getTextWidth } from "./utils/text";
 
 export default function App() {
   const [media, setMedia] = useState<MediaPayload | null>(null);
@@ -209,7 +29,6 @@ export default function App() {
 
     const active = currentNotifRef.current;
     if (active?.icon === "sun" || active?.icon === "moon") {
-      // Protect greeting: queue everything else
       setNotifQueue(q => {
         const filtered = q.filter(n => n.icon !== newNotif.icon);
         return [...filtered, newNotif];
@@ -228,7 +47,6 @@ export default function App() {
 
 
 
-  // Auto dismiss paused media after 5 seconds
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     if (media && !isPlaying) {
@@ -258,6 +76,7 @@ export default function App() {
   const [store, setStore] = useState<any>(null);
   const [isAutostart, setIsAutostart] = useState(false);
   const [showGreeting, setShowGreeting] = useState(true);
+  const [isBooting, setIsBooting] = useState(true);
 
   const resetCollapseTimer = () => {
     if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
@@ -284,11 +103,14 @@ export default function App() {
   const [optOpacity, setOptOpacity] = useState<number>(1.0);
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy"|"smooth"|"bouncy">("smooth");
   const [optAccent, setOptAccent] = useState<"default"|"pink"|"blue"|"green">("default");
+  const [optNotifTime, setOptNotifTime] = useState<number>(5);
   
   const optVolumeRef = useRef(optVolume);
   useEffect(() => { optVolumeRef.current = optVolume; }, [optVolume]);
   const optClipboardRef = useRef(optClipboard);
   useEffect(() => { optClipboardRef.current = optClipboard; }, [optClipboard]);
+  const optNotifTimeRef = useRef(optNotifTime);
+  useEffect(() => { optNotifTimeRef.current = optNotifTime; }, [optNotifTime]);
   const lastMediaPayloadRef = useRef<MediaPayload | null>(null);
   const optMediaRef = useRef(optMedia);
   useEffect(() => {
@@ -338,7 +160,6 @@ export default function App() {
     setupShortcut();
 
     const initSettings = async () => {
-      // Pre-fetch system info immediately on startup in background
       invoke<[string, string]>("get_system_info").then(res => {
         setWifiName(res[0]);
         setBtName(res[1]);
@@ -359,6 +180,7 @@ export default function App() {
         const o = await s.get('opt_opacity'); if (o !== null) setOptOpacity(o as number);
         const a = await s.get('opt_anim_speed'); if (a !== null) setOptAnimSpeed(a as string as any);
         const acc = await s.get('opt_accent'); if (acc !== null) setOptAccent(acc as string as any);
+        const nt = await s.get('opt_notif_time'); if (nt !== null) setOptNotifTime(nt as number);
         
         const auto = await isEnabled();
         setIsAutostart(auto);
@@ -372,7 +194,10 @@ export default function App() {
       try {
         const s = await load('settings.json', { autoSave: true });
         const greet = await s.get('show_greeting');
-        if (greet === false) return; // Skip greeting if disabled
+        if (greet === false) {
+          setIsBooting(false);
+          return;
+        }
         
         const username = await invoke<string>("get_username");
         const hour = new Date().getHours();
@@ -386,6 +211,8 @@ export default function App() {
         });
       } catch (e) {
         console.error("Failed to get username", e);
+      } finally {
+        setIsBooting(false);
       }
     };
     bootGreeting();
@@ -448,8 +275,7 @@ export default function App() {
 
     const unlistenBattery = listen<{is_charging: boolean, percent: number}>("battery-update", (event) => {
       setBattery((prev) => {
-        // Only show notification if charging state changed (from unplugged to plugged in, or vice versa)
-        // We use the previous state to detect a real change, not just a percentage tick.
+
         if (prev && prev.is_charging !== event.payload.is_charging) {
           if (event.payload.is_charging) {
             showNotif({ title: "Charging", body: `${event.payload.percent}%`, icon: "battery" });
@@ -503,11 +329,9 @@ export default function App() {
     };
   }, []);
 
-  // Proses antrean notifikasi (satu per satu, 3 detik)
   useEffect(() => {
     if (!notif && notifQueue.length > 0) {
       let nextNotif = notifQueue[0];
-      // Skip if it got disabled while in queue
       if (nextNotif.icon === "volume" && !optVolumeRef.current) {
         setNotifQueue(q => q.slice(1));
         return;
@@ -519,25 +343,22 @@ export default function App() {
       setNotif(nextNotif);
       setNotifQueue(q => q.slice(1));
     } else if (notif) {
-      let duration = 3000;
+      let duration = optNotifTimeRef.current * 1000;
       if (notif.icon === "clipboard") duration = 1000;
-      if (notif.icon === "sun" || notif.icon === "moon") duration = 5000; // Give greeting more time
+      if (notif.icon === "sun" || notif.icon === "moon") duration = 5000;
       
       const timer = setTimeout(() => {
-        setNotif(null); // Just set to null, the effect will re-run and pick up the next from queue
-      }, duration);
+        setNotif(null);      }, duration);
       return () => clearTimeout(timer);
     }
   }, [notif, notifQueue]);
 
   const handleNotifClick = async () => {
     const active = notif;
-    setNotif(null); // Dismiss the notification right away
-    if (!active) return;
+    setNotif(null);    if (!active) return;
     
     const title = active.title.toLowerCase();
     
-    // Mapping nama aplikasi ke URL Protocol / Web
     let url = "";
     if (title.includes("whatsapp")) url = "whatsapp://";
     else if (title.includes("telegram")) url = "tg://";
@@ -558,7 +379,6 @@ export default function App() {
         await invoke("plugin:opener|open", { path: url });
       } catch (e) {
         console.error("Failed to open app:", e);
-        // Fallback for some links if opener fails
         window.location.href = url;
       }
     }
@@ -567,7 +387,6 @@ export default function App() {
   const handleMediaControl = async (action: string) => {
     try {
       await invoke("smtc_action", { action });
-      // Optimistic update for UI feel
       if (action === "toggle") setIsPlaying(!isPlaying);
     } catch (e) {
       console.error(e);
@@ -579,15 +398,6 @@ export default function App() {
   const isSingleLine = notif && (!notif.body || notif.body.trim() === "");
   const isSmallNotif = notif?.icon === "battery" || notif?.icon === "volume" || notif?.icon === "capslock";
   const isMediumNotif = notif?.title === "On Battery" || notif?.icon === "clipboard" || isSingleLine;
-  const getTextWidth = (text: string, font: string = "14px Inter, sans-serif") => {
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (context) {
-      context.font = font;
-      return context.measureText(text).width;
-    }
-    return text.length * 8; // Fallback
-  };
 
   const getDynamicWidth = () => {
     if (media && isExpanded) {
@@ -595,29 +405,24 @@ export default function App() {
       const artistWidth = getTextWidth(media.artist || "", "14px Inter, sans-serif");
       const maxTextWidth = Math.max(titleWidth, artistWidth);
       const topRowWidth = 48 + 56 + 16 + maxTextWidth + 16;
-      const bottomRowWidth = 248; // minimum width to fit controls
-      return Math.min(380, Math.max(bottomRowWidth, Math.ceil(topRowWidth)));
+      const bottomRowWidth = 248;
+      return Math.min(330, Math.max(bottomRowWidth, Math.ceil(topRowWidth)));
     }
     
-    // Media Only (not expanded)
     if (media && !notif && !isExpanded) {
       const titleWidth = getTextWidth(media.title || "", "bold 14px Inter, sans-serif");
       const artistWidth = getTextWidth(media.artist || "", "11px Inter, sans-serif");
       const maxTextWidth = Math.max(titleWidth, artistWidth);
-      // px-4(32) + icon(32) + gap-3(12) + visualizer(24) + tiny buffer
-      return Math.min(380, Math.ceil(32 + 32 + 12 + 24 + maxTextWidth + 8)); 
+      return Math.min(260, Math.ceil(16 + 32 + 8 + 24 + maxTextWidth + 8)); 
     }
     
-    // Normal Large Notif
     if (notif && !isSmallNotif && !isMediumNotif && !media) {
       const titleWidth = getTextWidth(notif.title || "", "bold 14px Inter, sans-serif");
       const bodyWidth = getTextWidth(notif.body || "", "14px Inter, sans-serif");
       const maxTextWidth = Math.max(titleWidth, bodyWidth);
-      // px-4(32) + icon(32) + gap-3(12) + tight buffer
-      return Math.min(380, Math.ceil(32 + 32 + 12 + maxTextWidth + 4));
+      return Math.min(260, Math.ceil(32 + 32 + 12 + maxTextWidth + 4));
     }
     
-    // Notif Media
     if (notif && media && !isSmallNotif) {
       const mediaTitle = getTextWidth(media.title || "", "bold 14px Inter, sans-serif");
       const mediaArtist = getTextWidth(media.artist || "", "11px Inter, sans-serif");
@@ -626,29 +431,28 @@ export default function App() {
       
       const maxMedia = Math.max(mediaTitle, mediaArtist) + 32 + 32 + 12; 
       const maxNotif = Math.max(notifTitle, notifBody) + 32 + 32 + 12;
-      return Math.min(380, Math.max(maxMedia, maxNotif) + 16);
+      return Math.min(260, Math.max(maxMedia, maxNotif) + 16);
     }
     
-    // Small/Medium Notifs
     if (notif) {
       const titleWidth = getTextWidth(notif.title || "", "bold 14px Inter, sans-serif");
       const bodyWidth = notif.body ? getTextWidth(notif.body, "14px Inter, sans-serif") : 0;
       
-      let baseWidth = 32 + 32 + 12; // px-4 + icon + gap-3
-      if (notif.body) baseWidth += 8; // gap-2 between title and body in small notif
+      let baseWidth = 32 + 32 + 12;
+      if (notif.body) baseWidth += 8;
 
       if (notif.icon === "clipboard") return 215;
       
-      return Math.min(380, Math.ceil(baseWidth + titleWidth + bodyWidth + 8)); // tight buffer
+      return Math.min(260, Math.ceil(baseWidth + titleWidth + bodyWidth + 8));
     }
 
-    return 350; // Fallback
+    return 350;
   };
-
-  const dynamicWidth = getDynamicWidth();
-
+  const dynamicWidth = React.useMemo(() => getDynamicWidth(), [media, notif, isExpanded, isSmallNotif, isMediumNotif]);
   let variant = "idle";
-  if (notif && media) {
+  if (isBooting) {
+    variant = "hidden";
+  } else if (notif && media) {
     variant = isSmallNotif ? "notif_small_media" : "notif_media";
   } else if (notif) {
     if (notif.icon === "volume") variant = "notif_volume";
@@ -675,20 +479,20 @@ export default function App() {
   const startY = isBot ? 20 : -20;
   
   const variants = {
-    initialState: { width: 0, height: 0, y: startY, opacity: 0, borderRadius: radius("24px") },
-    hidden: { width: 0, height: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("24px") },
-    idle: { width: 172, height: 32, y: 0, opacity: 1, borderRadius: radius("16px") },
-    media: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("24px") },
-    media_expanded: { width: dynamicWidth, height: 160, y: 0, opacity: 1, borderRadius: radius("32px") },
-    notif: { width: dynamicWidth, height: 80, y: 0, opacity: 1, borderRadius: radius("28px") },
-    notif_media: { width: dynamicWidth, height: 124, y: 0, opacity: 1, borderRadius: radius("32px") },
-    notif_small: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("24px") },
-    notif_volume: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("24px") },
-    notif_clipboard: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("24px") },
-    notif_medium: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("24px") },
-    notif_small_media: { width: dynamicWidth, height: 96, y: 0, opacity: 1, borderRadius: radius("28px") },
-    quick_control: { width: 280, height: 310, y: 0, opacity: 1, borderRadius: radius("32px") },
-    settings: { width: 340, height: 500, y: 0, opacity: 1, borderRadius: radius("32px") },
+    initialState: { width: 0, height: 0, y: startY, opacity: 0, borderRadius: radius("16px") },
+    hidden: { width: 0, height: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
+    idle: { width: 172, height: 32, y: 0, opacity: 1, borderRadius: radius("12px") },
+    media: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
+    media_expanded: { width: dynamicWidth, height: 140, y: 0, opacity: 1, borderRadius: radius("20px") },
+    notif: { width: dynamicWidth, height: 80, y: 0, opacity: 1, borderRadius: radius("20px") },
+    notif_media: { width: dynamicWidth, height: 124, y: 0, opacity: 1, borderRadius: radius("20px") },
+    notif_small: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
+    notif_volume: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
+    notif_clipboard: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
+    notif_medium: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
+    notif_small_media: { width: dynamicWidth, height: 96, y: 0, opacity: 1, borderRadius: radius("20px") },
+    quick_control: { width: 280, height: 310, y: 0, opacity: 1, borderRadius: radius("24px") },
+    settings: { width: 340, height: 500, y: 0, opacity: 1, borderRadius: radius("24px") },
   };
 
   let smoothSpring: any = { type: "spring", stiffness: 400, damping: 28, mass: 0.8 };
@@ -719,10 +523,6 @@ export default function App() {
         animate={variant}
         variants={variants}
         transition={smoothSpring}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setIsQuickControl(prev => !prev);
-        }}
         onMouseMove={resetCollapseTimer}
         onMouseEnter={() => {
           if (media) setIsExpanded(true);
@@ -740,6 +540,24 @@ export default function App() {
         onMouseLeave={() => {
           setIsExpanded(false);
           if (!isSettings) setIsQuickControl(false);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (notif) {
+            setNotif(null);
+          } else if (isQuickControl || isSettings) {
+            setIsQuickControl(false);
+            setIsSettings(false);
+          } else {
+            setIsExpanded(false);
+            setIsQuickControl(true);
+            invoke<[string, string]>("get_system_info").then(res => {
+              setWifiName(res[0]);
+              setBtName(res[1]);
+            }).catch(console.error);
+            invoke<number>("get_master_volume").then(v => setSoundLevel(Math.round(v * 100))).catch(console.error);
+            invoke<number>("get_brightness").then(b => setDisplayLevel(b)).catch(console.error);
+          }
         }}
         className={`shadow-[0_0_20px_rgba(0,0,0,0.5)] overflow-hidden text-white ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 ${optOpacity === 1.0 ? "bg-black" : optOpacity === 0.8 ? "bg-black/80 backdrop-blur-md" : "bg-black/50 backdrop-blur-lg"}`}
       >
@@ -794,7 +612,6 @@ export default function App() {
                 quickControlTimerRef.current = setTimeout(() => setIsQuickControl(false), 2000);
               }}
             >
-              {/* Header */}
               <div className="flex justify-between items-center px-1 mb-3">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"></div>
@@ -810,7 +627,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Row 1: Power Icons */}
                 <div className="flex gap-2">
                   <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "lock" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center justify-center cursor-pointer transition-colors border border-white/5 shadow-sm">
                     <Lock size={18} className="text-neutral-300" />
@@ -826,7 +642,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Row 2: Wi-Fi & Bluetooth */}
                 <div className="flex gap-2">
                   <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "wifi" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center px-3 gap-3 cursor-pointer transition-colors border border-white/5 shadow-sm">
                     <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.2)] shrink-0">
@@ -851,7 +666,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Row 3: Screenshot & Settings */}
                 <div className="flex gap-2">
                   <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "screenshot" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center px-3 cursor-pointer transition-colors border border-white/5 shadow-sm">
                     <div className="flex items-center gap-2">
@@ -871,9 +685,7 @@ export default function App() {
                   </div>
                 </div>
                 
-                {/* Sliders Area */}
               <div className="flex flex-col gap-1.5 px-1 mb-2">
-                {/* Display Slider */}
                 <div className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2 text-neutral-400">
@@ -882,10 +694,9 @@ export default function App() {
                     </div>
                     <span className="text-[11px] text-neutral-500 font-medium">{displayLevel}%</span>
                   </div>
-                  <input type="range" min="0" max="100" value={displayLevel} onChange={(e) => setDisplayLevel(Number(e.target.value))} onMouseUp={(e) => invoke("set_brightness", { level: Number(e.currentTarget.value) })} onTouchEnd={(e) => invoke("set_brightness", { level: Number(e.currentTarget.value) })} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-125 transition-all" style={{ background: `linear-gradient(to right, white ${displayLevel}%, #262626 ${displayLevel}%)` }} />
+                  <input type="range" min="0" max="100" value={displayLevel} onChange={(e) => { const v = Number(e.target.value); setDisplayLevel(v); invoke("set_brightness", { level: v }); }} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-125 transition-all" style={{ background: `linear-gradient(to right, white ${displayLevel}%, #262626 ${displayLevel}%)` }} />
                 </div>
                 
-                {/* Sound Slider */}
                 <div className="flex flex-col gap-1.5 mt-1">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2 text-neutral-400">
@@ -934,6 +745,14 @@ export default function App() {
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-[13px] font-medium text-neutral-200">Boot Greeting</span>
                       <button onClick={async (e) => { e.stopPropagation(); const next = !showGreeting; setShowGreeting(next); if (store) await store.set('show_greeting', next); }} className={`w-9 h-5 rounded-full relative transition-colors ${showGreeting ? 'bg-green-500' : 'bg-neutral-600'}`}><div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${showGreeting ? 'translate-x-4' : 'translate-x-0'}`} /></button>
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-[13px] font-medium text-neutral-200">Notif Duration</span>
+                      <div className="flex bg-white/10 rounded-lg p-1 gap-1">
+                        <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(3); if (store) await store.set('opt_notif_time', 3); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optNotifTime === 3 ? 'bg-white text-black' : 'text-neutral-400'}`}>3s</button>
+                        <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(5); if (store) await store.set('opt_notif_time', 5); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optNotifTime === 5 ? 'bg-white text-black' : 'text-neutral-400'}`}>5s</button>
+                        <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(7); if (store) await store.set('opt_notif_time', 7); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optNotifTime === 7 ? 'bg-white text-black' : 'text-neutral-400'}`}>7s</button>
+                      </div>
                     </div>
                   </div>
 
@@ -996,7 +815,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={fadeTransition}
-              className="absolute inset-0 flex items-center justify-between px-4 cursor-pointer"
+              className="absolute inset-0 flex items-center justify-between gap-2 px-2 cursor-pointer"
             >
               <div className="flex items-center gap-2 overflow-hidden">
                 <div className="w-8 h-8 bg-neutral-800 rounded-md flex items-center justify-center shrink-0 overflow-hidden">
@@ -1024,7 +843,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={fadeTransition}
-              className="absolute inset-0 flex flex-col px-6 py-5 justify-between cursor-pointer"
+              className="absolute inset-0 flex flex-col px-4 py-4 justify-between cursor-pointer"
             >
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-neutral-800 rounded-xl flex items-center justify-center shrink-0 overflow-hidden">
@@ -1040,12 +859,12 @@ export default function App() {
                 </div>
               </div>
               
-              <div className="flex items-center justify-center gap-8 mt-2 cursor-default" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-center gap-8 cursor-default" onClick={(e) => e.stopPropagation()}>
                 <button onClick={(e) => { e.stopPropagation(); handleMediaControl("prev"); }} className="w-10 h-10 flex items-center justify-center hover:bg-neutral-800 rounded-full transition-colors shrink-0">
                   <SkipBack size={24} className="text-white" fill="currentColor" />
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); handleMediaControl("toggle"); }} className="w-14 h-14 flex items-center justify-center bg-white text-black hover:bg-neutral-200 rounded-full transition-colors shrink-0">
-                  {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" className="ml-1" />}
+                <button onClick={(e) => { e.stopPropagation(); handleMediaControl("toggle"); }} className="w-12 h-12 flex items-center justify-center bg-white text-black hover:bg-neutral-200 rounded-full transition-colors shrink-0">
+                  {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}
                 </button>
                 <button onClick={(e) => { e.stopPropagation(); handleMediaControl("next"); }} className="w-10 h-10 flex items-center justify-center hover:bg-neutral-800 rounded-full transition-colors shrink-0">
                   <SkipForward size={24} className="text-white" fill="currentColor" />

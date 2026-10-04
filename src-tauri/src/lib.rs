@@ -151,13 +151,21 @@ fn get_master_volume() -> f32 {
 
 #[tauri::command]
 fn get_brightness() -> u8 {
-    use std::process::Command;
-    use std::os::windows::process::CommandExt;
+    use wmi::WMIConnection;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    #[allow(non_snake_case)]
+    struct WmiMonitorBrightness {
+        CurrentBrightness: u8,
+    }
+
     let mut brightness = 50;
-    if let Ok(output) = Command::new("powershell").creation_flags(0x08000000).args(["-NoProfile", "-Command", "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness"]).output() {
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if let Ok(b) = stdout.parse::<u8>() {
-            brightness = b;
+    if let Ok(wmi_con) = WMIConnection::with_namespace_path("ROOT\\WMI") {
+        if let Ok(results) = wmi_con.raw_query::<WmiMonitorBrightness>("SELECT CurrentBrightness FROM WmiMonitorBrightness") {
+            if let Some(result) = results.first() {
+                brightness = result.CurrentBrightness;
+            }
         }
     }
     brightness
@@ -165,10 +173,33 @@ fn get_brightness() -> u8 {
 
 #[tauri::command]
 fn set_brightness(level: u8) {
-    use std::process::Command;
-    use std::os::windows::process::CommandExt;
-    let cmd = format!("(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, {})", level);
-    let _ = Command::new("powershell").creation_flags(0x08000000).args(["-NoProfile", "-Command", &cmd]).spawn();
+    use wmi::WMIConnection;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Deserialize)]
+    #[allow(non_snake_case)]
+    struct WmiMonitorBrightnessMethods {
+        __Path: String,
+    }
+
+    #[derive(Serialize)]
+    #[allow(non_snake_case)]
+    struct SetBrightnessParams {
+        Timeout: u32,
+        Brightness: u8,
+    }
+
+    if let Ok(wmi_con) = WMIConnection::with_namespace_path("ROOT\\WMI") {
+        if let Ok(results) = wmi_con.raw_query::<WmiMonitorBrightnessMethods>("SELECT * FROM WmiMonitorBrightnessMethods") {
+            if let Some(monitor) = results.first() {
+                let params = SetBrightnessParams {
+                    Timeout: 1,
+                    Brightness: level,
+                };
+                let _ = wmi_con.exec_instance_method::<WmiMonitorBrightnessMethods, ()>(&monitor.__Path, "WmiSetBrightness", &params);
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -239,7 +270,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
         .plugin(tauri_plugin_opener::init())
-        .manage(PillSize(std::sync::Mutex::new((120.0, 35.0, false)))) // Default idle size
+        .manage(PillSize(std::sync::Mutex::new((120.0, 35.0, false))))
         .invoke_handler(tauri::generate_handler![
             set_pill_hover,
             test_smtc,
@@ -499,12 +530,38 @@ pub fn run() {
                             if let Ok(info) = session.TryGetMediaPropertiesAsync().and_then(|r| r.get()) {
                                 title = info.Title().unwrap_or_default().to_string();
                                 artist = info.Artist().unwrap_or_default().to_string();
+                                if artist.trim().is_empty() {
+                                    // Try to extract website name from the title (e.g. "Video Name - YouTube")
+                                    if let Some(idx) = title.rfind(" - ") {
+                                        artist = title[idx + 3..].trim().to_string();
+                                        title = title[..idx].trim().to_string();
+                                    } else if let Some(idx) = title.rfind(" | ") {
+                                        artist = title[idx + 3..].trim().to_string();
+                                        title = title[..idx].trim().to_string();
+                                    } else if let Some(idx) = title.rfind(" • ") {
+                                        artist = title[idx + 3..].trim().to_string();
+                                        title = title[..idx].trim().to_string();
+                                    } else {
+                                        let mut app = session.SourceAppUserModelId().unwrap_or_default().to_string();
+                                        let app_lower = app.to_lowercase();
+                                        if app_lower.contains("msedge") || app_lower.contains("edge") {
+                                            app = "Microsoft Edge".to_string();
+                                        } else if app_lower.contains("chrome") {
+                                            app = "Google Chrome".to_string();
+                                        } else if app_lower.contains("firefox") {
+                                            app = "Firefox".to_string();
+                                        } else if app_lower.contains("brave") {
+                                            app = "Brave Browser".to_string();
+                                        }
+                                        artist = app;
+                                    }
+                                }
                                 
                                 if title != last_title || artist != last_artist {
                                     thumbnail_retries = 0;
                                 }
                                 
-                                let needs_thumbnail = last_thumbnail.is_none() && thumbnail_retries < 5;
+                                let needs_thumbnail = last_thumbnail.is_none() && thumbnail_retries < 50;
                                 if title != last_title || artist != last_artist || needs_thumbnail {
                                     if let Ok(thumb_ref) = info.Thumbnail() {
                                         if let Ok(stream) = thumb_ref.OpenReadAsync().and_then(|r| r.get()) {

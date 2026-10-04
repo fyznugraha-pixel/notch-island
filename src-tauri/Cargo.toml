@@ -1,8 +1,8 @@
 [package]
-name = "island"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+name = "notch"
+version = "1.1.0"
+description = "Notch Island for Windows"
+authors = ["Faiz Anak Telkom University"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "island_lib"
+name = "notch_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -44,6 +44,7 @@ tauri-plugin-global-shortcut = "2.4.0"
 tauri-plugin-clipboard-manager = "2.4.1"
 tauri-plugin-store = "2.5.0"
 tauri-plugin-updater = "2.13.1"
+wmi = "0.18.4"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

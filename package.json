@@ -1,7 +1,9 @@
 {
-  "name": "island",
+  "name": "notch",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.1.0",
+  "description": "Dynamic Island Notch for Windows, Edition 2026",
+  "author": "faiz",
   "type": "module",
   "scripts": {
     "dev": "vite",
