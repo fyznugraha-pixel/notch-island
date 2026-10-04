@@ -310,7 +310,7 @@ export default function App() {
       else if (lower.includes("discord")) iconType = "discord";
       else if (lower.includes("mail") || lower.includes("outlook")) iconType = "mail";
       else if (lower.includes("instagram")) iconType = "instagram";
-      else if (lower.includes("twitter") || lower.includes("x ")) iconType = "twitter";
+      else if (lower.includes("x") || lower.includes("x")) iconType = "x";
       else if (lower.includes("youtube")) iconType = "youtube";
       else if (lower.includes("slack") || lower.includes("teams")) iconType = "slack";
       
@@ -370,7 +370,7 @@ export default function App() {
     else if (title.includes("line")) url = "line://";
     else if (title.includes("mail") || title.includes("outlook")) url = "mailto:";
     else if (title.includes("instagram")) url = "https://instagram.com";
-    else if (title.includes("twitter") || title.includes("x")) url = "https://twitter.com";
+    else if (title.includes("x") || title.includes("x")) url = "https://x.com";
     else if (title.includes("facebook")) url = "https://facebook.com";
     else if (title.includes("youtube")) url = "https://youtube.com";
 
