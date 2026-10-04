@@ -442,7 +442,7 @@ pub fn run() {
                     }
                     
                     // Real Notifications Check
-                    use windows::UI::Notifications::Management::{UserNotificationListener, UserNotificationListenerAccessStatus};
+                    use windows::UI::Notifications::Management::UserNotificationListenerAccessStatus;
                     if let Some(listener) = &notif_listener {
                         if let Ok(status) = listener.RequestAccessAsync().and_then(|r| r.get()) {
                             if status == UserNotificationListenerAccessStatus::Allowed {
@@ -522,7 +522,7 @@ pub fn run() {
                     let mut title = String::new();
                     let mut artist = String::new();
                     let mut is_playing = false;
-                    let mut playback_type = 1;
+                    let playback_type = 1;
                     
                     if let Some(manager) = &smtc_manager {
                         if let Ok(session) = manager.GetCurrentSession() {
