@@ -291,12 +291,12 @@ pub fn run() {
             use tauri::menu::{Menu, MenuItem};
             use tauri::tray::TrayIconBuilder;
             
-            let quit_i = MenuItem::with_id(app, "quit", "Quit Dynamic Island", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Quit Notch Island", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_i])?;
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Windows Dynamic Island")
+                .tooltip("Notch Island")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| {
