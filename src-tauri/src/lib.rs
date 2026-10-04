@@ -295,6 +295,7 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&quit_i])?;
 
             let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Windows Dynamic Island")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
