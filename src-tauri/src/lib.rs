@@ -552,6 +552,22 @@ pub fn run() {
                                             app = "Firefox".to_string();
                                         } else if app_lower.contains("brave") {
                                             app = "Brave Browser".to_string();
+                                        } else if app_lower.contains("opera") {
+                                            app = "Opera Browser".to_string();
+                                        } else if app_lower.contains("vivaldi") {
+                                            app = "Vivaldi".to_string();
+                                        } else if app_lower.contains("arc") {
+                                            app = "Arc Browser".to_string();
+                                        } else if app_lower.contains("zen") {
+                                            app = "Zen Browser".to_string();
+                                        } else if app_lower.contains("yandex") {
+                                            app = "Yandex Browser".to_string();
+                                        } else if app_lower.contains("thorium") {
+                                            app = "Thorium Browser".to_string();
+                                        } else if app_lower.contains("waterfox") {
+                                            app = "Waterfox".to_string();
+                                        } else if app_lower.contains("safari") {
+                                            app = "Safari".to_string();
                                         }
                                         artist = app;
                                     }

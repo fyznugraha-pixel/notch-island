@@ -17,7 +17,7 @@ export const NotifIcon = ({ type }: { type?: string }) => {
   if (type === "mail") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-red-500/20 rounded-full"><Mail size={16} className="text-red-400" /></div>;
   if (type === "instagram") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#E4405F]/20 rounded-full"><SiInstagram size={16} color="#E4405F" /></div>;
   if (type === "youtube") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#FF0000]/20 rounded-full"><SiYoutube size={16} color="#FF0000" /></div>;
-  if (type === "twitter") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white/20 rounded-full"><SiX size={14} color="#FFFFFF" /></div>;
+  if (type === "x") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-white/20 rounded-full"><SiX size={14} color="#FFFFFF" /></div>;
   if (type === "slack") return <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[#4A154B]/20 rounded-full"><Mail size={16} className="text-purple-400" /></div>;
   if (type === "battery") {
     return (
