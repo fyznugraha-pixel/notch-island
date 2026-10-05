@@ -495,10 +495,10 @@ export default function App() {
     settings: { width: 340, height: 500, y: 0, opacity: 1, borderRadius: radius("24px") },
   };
 
-  let smoothSpring: any = { type: "spring", stiffness: 400, damping: 28, mass: 0.8 };
-  if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 500, damping: 30, mass: 0.8 };
-  if (optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 300, damping: 15, mass: 0.8 };
-  const fadeTransition: any = { duration: 0.2, ease: "easeInOut" };
+  let smoothSpring: any = { type: "spring", stiffness: 350, damping: 25, mass: 0.9 }; // Apple-like smooth
+  if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 500, damping: 35, mass: 1 };
+  if (optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 280, damping: 15, mass: 0.8 };
+  const fadeTransition: any = { duration: 0.2, ease: "easeOut" };
 
   useEffect(() => {
     const currentSize = variants[variant as keyof typeof variants];
@@ -559,7 +559,7 @@ export default function App() {
             invoke<number>("get_brightness").then(b => setDisplayLevel(b)).catch(console.error);
           }
         }}
-        className={`shadow-[0_0_20px_rgba(0,0,0,0.5)] overflow-hidden text-white ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 ${optOpacity === 1.0 ? "bg-black" : optOpacity === 0.8 ? "bg-black/80 backdrop-blur-md" : "bg-black/50 backdrop-blur-lg"}`}
+        className={`shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/10 overflow-hidden text-white ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 ${optOpacity === 1.0 ? "bg-black" : optOpacity === 0.8 ? "bg-black/80 backdrop-blur-xl" : "bg-black/60 backdrop-blur-2xl"}`}
       >
         <AnimatePresence mode="wait">
 {variant === "idle" && (
@@ -857,18 +857,23 @@ export default function App() {
                   <ScrollingText text={media!.title} className="text-lg font-bold leading-tight" />
                   <ScrollingText text={media!.artist} className="text-sm text-pink-400 leading-tight" />
                 </div>
+                {isPlaying && (
+                  <div className="flex items-center shrink-0 pr-2">
+                    <AudioVisualizer isPlaying={true} />
+                  </div>
+                )}
               </div>
               
               <div className="flex items-center justify-center gap-8 cursor-default" onClick={(e) => e.stopPropagation()}>
-                <button onClick={(e) => { e.stopPropagation(); handleMediaControl("prev"); }} className="w-10 h-10 flex items-center justify-center hover:bg-neutral-800 rounded-full transition-colors shrink-0">
+                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("prev"); }} className="w-10 h-10 flex items-center justify-center hover:bg-neutral-800 rounded-full transition-colors shrink-0">
                   <SkipBack size={24} className="text-white" fill="currentColor" />
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); handleMediaControl("toggle"); }} className="w-12 h-12 flex items-center justify-center bg-white text-black hover:bg-neutral-200 rounded-full transition-colors shrink-0">
+                </motion.button>
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("toggle"); }} className="w-12 h-12 flex items-center justify-center bg-white text-black hover:bg-neutral-200 rounded-full transition-colors shrink-0 shadow-lg">
                   {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); handleMediaControl("next"); }} className="w-10 h-10 flex items-center justify-center hover:bg-neutral-800 rounded-full transition-colors shrink-0">
+                </motion.button>
+                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("next"); }} className="w-10 h-10 flex items-center justify-center hover:bg-neutral-800 rounded-full transition-colors shrink-0">
                   <SkipForward size={24} className="text-white" fill="currentColor" />
-                </button>
+                </motion.button>
               </div>
             </motion.div>
           )}
