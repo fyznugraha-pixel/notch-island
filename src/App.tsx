@@ -572,6 +572,8 @@ export default function App() {
         }}
         className={`shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/10 overflow-hidden text-white ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 ${optOpacity === 1.0 ? "bg-black" : optOpacity === 0.8 ? "bg-black/80 backdrop-blur-xl" : "bg-black/60 backdrop-blur-2xl"}`}
       >
+        {/* Premium Noise Overlay for elegant glassmorphism */}
+        <div className="bg-noise absolute inset-0 z-0 rounded-[inherit] pointer-events-none"></div>
         <AnimatePresence mode="wait">
 {variant === "idle" && (
             <motion.div

@@ -70,6 +70,27 @@ fn smtc_action(action: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn smtc_seek(position_sec: f64) -> Result<(), String> {
+    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+    
+    // Inisialisasi COM untuk thread eksekusi command Tauri ini
+    let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .map_err(|e| e.to_string())?
+        .get()
+        .map_err(|e| e.to_string())?;
+
+    let session = manager.GetCurrentSession().map_err(|e| e.to_string())?;
+
+    let ticks = (position_sec * 10_000_000.0) as i64;
+    let _ = session.TryChangePlaybackPositionAsync(ticks).map_err(|e| e.to_string())?.get();
+    
+    Ok(())
+}
+
+#[tauri::command]
 fn set_window_position(is_bottom: bool, window: tauri::WebviewWindow) {
     if let Ok(Some(monitor)) = window.current_monitor() {
         let physical_size = monitor.size();
@@ -276,6 +297,7 @@ pub fn run() {
             test_smtc,
             test_notification_listener,
             smtc_action,
+            smtc_seek,
             update_pill_size,
             set_window_position,
             get_battery_status,
