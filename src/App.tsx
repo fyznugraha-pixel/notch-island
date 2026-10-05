@@ -43,6 +43,8 @@ export default function App() {
   const [isHidden, setIsHidden] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [mediaProgress, setMediaProgress] = useState({ position: 0, duration: 0 });
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekValue, setSeekValue] = useState(0);
   
   const collapseTimerRef = useRef<number | null>(null);
 
@@ -875,15 +877,61 @@ export default function App() {
               
               {/* Playback Controls & Progress */}
               <div className="flex flex-col gap-3 mt-1 cursor-default" onClick={(e) => e.stopPropagation()}>
-                {/* Real progress bar */}
-                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex">
-                  {mediaProgress.duration > 0 ? (
+                {/* Real progress bar (interactive) */}
+                <div 
+                  className="w-full h-3 group flex items-center cursor-pointer relative"
+                  onPointerDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+                    setIsSeeking(true);
+                    setSeekValue(percent);
+                  }}
+                  onPointerMove={(e) => {
+                    if (isSeeking) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+                      setSeekValue(percent);
+                    }
+                  }}
+                  onPointerUp={async (e) => {
+                    if (isSeeking && mediaProgress.duration > 0) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+                      const newPos = (percent / 100) * mediaProgress.duration;
+                      await invoke("smtc_seek", { position_sec: newPos });
+                      setMediaProgress(prev => ({ ...prev, position: newPos }));
+                      setIsSeeking(false);
+                    }
+                  }}
+                  onPointerLeave={async () => {
+                    if (isSeeking && mediaProgress.duration > 0) {
+                      const newPos = (seekValue / 100) * mediaProgress.duration;
+                      await invoke("smtc_seek", { position_sec: newPos });
+                      setMediaProgress(prev => ({ ...prev, position: newPos }));
+                      setIsSeeking(false);
+                    }
+                  }}
+                >
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex relative pointer-events-none">
+                    {mediaProgress.duration > 0 ? (
+                      <div 
+                        className={`h-full bg-white/70 rounded-full transition-all ${isSeeking ? 'duration-75 ease-out' : 'duration-1000 ease-linear'}`}
+                        style={{ width: `${Math.min(100, Math.max(0, isSeeking ? seekValue : (mediaProgress.position / mediaProgress.duration) * 100))}%` }}
+                      />
+                    ) : (
+                      <div className="h-full w-1/3 bg-white/30 rounded-full" />
+                    )}
+                  </div>
+                  {/* Thumb */}
+                  {mediaProgress.duration > 0 && (
                     <div 
-                      className="h-full bg-white/70 rounded-full transition-all duration-1000 ease-linear"
-                      style={{ width: `${Math.min(100, Math.max(0, (mediaProgress.position / mediaProgress.duration) * 100))}%` }}
+                      className="absolute h-2.5 w-2.5 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-all pointer-events-none"
+                      style={{ 
+                        left: `calc(${Math.min(100, Math.max(0, isSeeking ? seekValue : (mediaProgress.position / mediaProgress.duration) * 100))}% - 5px)`,
+                        transitionDuration: isSeeking ? '75ms' : '1000ms',
+                        transitionTimingFunction: isSeeking ? 'ease-out' : 'linear'
+                      }} 
                     />
-                  ) : (
-                    <div className="h-full w-1/3 bg-white/30 rounded-full" />
                   )}
                 </div>
 
