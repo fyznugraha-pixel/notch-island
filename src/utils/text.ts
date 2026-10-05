@@ -1,7 +1,7 @@
 // Cache the canvas instance outside the function so we don't create it on every render
 let cachedCanvas: HTMLCanvasElement | null = null;
 
-export const getTextWidth = (text: string, font: string = "14px Inter, sans-serif") => {
+export const getTextWidth = (text: string, font: string = "14px 'SF Pro Display', sans-serif") => {
   if (typeof document === 'undefined') return text.length * 8; // SSR fallback
   
   if (!cachedCanvas) {

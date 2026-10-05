@@ -413,8 +413,8 @@ export default function App() {
 
   const getDynamicWidth = () => {
     if (media && isExpanded) {
-      const titleWidth = getTextWidth(media.title || "", "bold 18px Inter, sans-serif");
-      const artistWidth = getTextWidth(media.artist || "", "14px Inter, sans-serif");
+      const titleWidth = getTextWidth(media.title || "", "bold 18px 'SF Pro Display', sans-serif");
+      const artistWidth = getTextWidth(media.artist || "", "14px 'SF Pro Display', sans-serif");
       const maxTextWidth = Math.max(titleWidth, artistWidth);
       const topRowWidth = 48 + 56 + 16 + maxTextWidth + 16;
       const bottomRowWidth = 248;
@@ -422,24 +422,24 @@ export default function App() {
     }
     
     if (media && !notif && !isExpanded) {
-      const titleWidth = getTextWidth(media.title || "", "bold 14px Inter, sans-serif");
-      const artistWidth = getTextWidth(media.artist || "", "11px Inter, sans-serif");
+      const titleWidth = getTextWidth(media.title || "", "bold 14px 'SF Pro Display', sans-serif");
+      const artistWidth = getTextWidth(media.artist || "", "11px 'SF Pro Display', sans-serif");
       const maxTextWidth = Math.max(titleWidth, artistWidth);
       return Math.min(260, Math.ceil(16 + 32 + 8 + 24 + maxTextWidth + 8)); 
     }
     
     if (notif && !isSmallNotif && !isMediumNotif && !media) {
-      const titleWidth = getTextWidth(notif.title || "", "bold 14px Inter, sans-serif");
-      const bodyWidth = getTextWidth(notif.body || "", "14px Inter, sans-serif");
+      const titleWidth = getTextWidth(notif.title || "", "bold 14px 'SF Pro Display', sans-serif");
+      const bodyWidth = getTextWidth(notif.body || "", "14px 'SF Pro Display', sans-serif");
       const maxTextWidth = Math.max(titleWidth, bodyWidth);
       return Math.min(260, Math.ceil(32 + 32 + 12 + maxTextWidth + 4));
     }
     
     if (notif && media && !isSmallNotif) {
-      const mediaTitle = getTextWidth(media.title || "", "bold 14px Inter, sans-serif");
-      const mediaArtist = getTextWidth(media.artist || "", "11px Inter, sans-serif");
-      const notifTitle = getTextWidth(notif.title || "", "bold 14px Inter, sans-serif");
-      const notifBody = notif.body ? getTextWidth(notif.body, "14px Inter, sans-serif") : 0;
+      const mediaTitle = getTextWidth(media.title || "", "bold 14px 'SF Pro Display', sans-serif");
+      const mediaArtist = getTextWidth(media.artist || "", "11px 'SF Pro Display', sans-serif");
+      const notifTitle = getTextWidth(notif.title || "", "bold 14px 'SF Pro Display', sans-serif");
+      const notifBody = notif.body ? getTextWidth(notif.body, "14px 'SF Pro Display', sans-serif") : 0;
       
       const maxMedia = Math.max(mediaTitle, mediaArtist) + 32 + 32 + 12; 
       const maxNotif = Math.max(notifTitle, notifBody) + 32 + 32 + 12;
@@ -447,8 +447,8 @@ export default function App() {
     }
     
     if (notif) {
-      const titleWidth = getTextWidth(notif.title || "", "bold 14px Inter, sans-serif");
-      const bodyWidth = notif.body ? getTextWidth(notif.body, "14px Inter, sans-serif") : 0;
+      const titleWidth = getTextWidth(notif.title || "", "bold 14px 'SF Pro Display', sans-serif");
+      const bodyWidth = notif.body ? getTextWidth(notif.body, "14px 'SF Pro Display', sans-serif") : 0;
       
       let baseWidth = 32 + 32 + 12;
       if (notif.body) baseWidth += 8;
