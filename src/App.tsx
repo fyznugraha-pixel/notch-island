@@ -598,26 +598,26 @@ export default function App() {
               onClick={() => setIsQuickControl(true)}
             >
               <div className="flex items-center gap-0.5 shrink-0">
-                <span className={`text-[10px] font-bold ${battery?.is_charging ? "text-green-400" : "text-white"}`}>
+                <span className={`text-[10px] font-bold leading-none ${battery?.is_charging ? "text-green-400" : "text-white"}`}>
                   {battery ? battery.percent : '--'}
                 </span>
                 <Zap size={10} className={`${battery?.is_charging ? "text-green-400" : "text-white"} -translate-y-[0.5px]`} />
               </div>
 
               {isOnline ? (
-                <Wifi size={10} className="text-white shrink-0" />
+                <Wifi size={10} className="text-white shrink-0 translate-y-[0.5px]" />
               ) : (
-                <WifiOff size={10} className="text-neutral-500 shrink-0" />
+                <WifiOff size={10} className="text-neutral-500 shrink-0 translate-y-[0.5px]" />
               )}
 
               {weather && (
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0 translate-y-[0.5px]">
                   {getWeatherIcon(weather.code)}
-                  <span className="text-[10px] font-bold text-neutral-300">{weather.temp}</span>
+                  <span className="text-[10px] font-bold leading-none text-neutral-300">{weather.temp}</span>
                 </div>
               )}
               
-              <div className="text-[10px] font-bold text-neutral-300 shrink-0">
+              <div className="text-[10px] font-bold leading-none text-neutral-300 shrink-0 translate-y-[0.5px]">
                 {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
             </motion.div>
