@@ -598,10 +598,10 @@ export default function App() {
               onClick={() => setIsQuickControl(true)}
             >
               <div className="flex items-center gap-0.5 shrink-0">
-                <span className="text-[10px] font-bold text-green-400">
+                <span className={`text-[10px] font-bold ${battery?.is_charging ? "text-green-400" : "text-white"}`}>
                   {battery ? battery.percent : '--'}
                 </span>
-                <Zap size={10} className={battery?.is_charging ? "text-white" : "text-neutral-500"} />
+                <Zap size={10} className={`${battery?.is_charging ? "text-green-400" : "text-white"} -translate-y-[0.5px]`} />
               </div>
 
               {isOnline ? (
