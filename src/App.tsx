@@ -586,39 +586,24 @@ export default function App() {
               className="absolute inset-0 flex items-center justify-center gap-2 cursor-pointer hover:bg-white/5 transition-colors"
               onClick={() => setIsQuickControl(true)}
             >
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="flex items-center opacity-90 hover:opacity-100 transition-opacity">
-                  {/* Battery Body */}
-                  <div className="w-[28px] h-[13px] rounded-[4px] border border-white/30 flex items-center justify-start p-[1px] relative">
-                    
-                    {/* Background Text (White, visible in empty areas) */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <span className="text-[9px] font-bold text-white leading-none tracking-tighter" style={{ marginTop: '0.5px' }}>
-                        {battery ? battery.percent : '--'}
-                      </span>
-                    </div>
-
-                    {/* Dynamic Fill Layer (Clips the inner text) */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-[10px] font-medium text-white tracking-tight">
+                  {battery ? `${battery.percent}%` : '--%'}
+                </span>
+                <div className="flex items-center opacity-90">
+                  <div className="w-[18px] h-[9px] rounded-[3px] border border-white/40 flex items-center p-[1px]">
                     <div 
-                      className={`h-full rounded-[2px] transition-all overflow-hidden relative z-10 ${battery?.is_charging ? 'bg-[#34C759]' : 'bg-white'}`} 
+                      className={`h-full rounded-[1.5px] transition-all ${battery?.is_charging ? 'bg-[#34C759]' : 'bg-white'}`} 
                       style={{ width: `${battery ? battery.percent : 0}%` }}
-                    >
-                      {/* Foreground Text (Black, perfectly aligned) */}
-                      <div className="absolute top-0 bottom-0 left-0 flex items-center justify-center pointer-events-none" style={{ width: '24px' }}>
-                        <span className="text-[9px] font-bold text-black leading-none tracking-tighter" style={{ marginTop: '0.5px' }}>
-                          {battery ? battery.percent : '--'}
-                        </span>
-                      </div>
-                    </div>
+                    />
                   </div>
-                  {/* Battery Nub */}
-                  <div className="w-[1.5px] h-[4px] bg-white/40 rounded-r-[1px] ml-[1px]" />
+                  <div className="w-[1px] h-[3px] bg-white/40 rounded-r-[1px] ml-[1px]" />
                 </div>
-                {battery?.is_charging && <Zap size={10} className="text-[#34C759] ml-0.5" />}
+                {battery?.is_charging && <Zap size={10} className="text-[#34C759]" />}
                 {isOnline ? (
-                  <Wifi size={12} className="text-white/80 ml-0.5" />
+                  <Wifi size={11} className="text-white/80 ml-0.5" />
                 ) : (
-                  <WifiOff size={12} className="text-neutral-500 ml-0.5" />
+                  <WifiOff size={11} className="text-neutral-500 ml-0.5" />
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
