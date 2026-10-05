@@ -42,6 +42,7 @@ export default function App() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [mediaProgress, setMediaProgress] = useState({ position: 0, duration: 0 });
   
   const collapseTimerRef = useRef<number | null>(null);
 
@@ -260,6 +261,9 @@ export default function App() {
   useEffect(() => {
     const unlistenMedia = listen<MediaPayload>("media-update", (event) => {
       lastMediaPayloadRef.current = event.payload;
+      if (event.payload.position !== undefined && event.payload.duration !== undefined) {
+        setMediaProgress({ position: event.payload.position, duration: event.payload.duration });
+      }
       if (!optMediaRef.current) {
         setMedia(null);
         return;
@@ -271,6 +275,10 @@ export default function App() {
         setMedia(null);
         setIsExpanded(false);
       }
+    });
+
+    const unlistenProgress = listen<{position: number, duration: number}>("media-progress", (event) => {
+      setMediaProgress(event.payload);
     });
 
     const unlistenBattery = listen<{is_charging: boolean, percent: number}>("battery-update", (event) => {
@@ -321,6 +329,7 @@ export default function App() {
 
     return () => {
       unlistenMedia.then((f) => f());
+      unlistenProgress.then((f) => f());
       unlistenBattery.then((f) => f());
       unlistenVolume.then((f) => f());
       unlistenClipboard.then((f) => f());
@@ -866,14 +875,12 @@ export default function App() {
               
               {/* Playback Controls & Progress */}
               <div className="flex flex-col gap-3 mt-1 cursor-default" onClick={(e) => e.stopPropagation()}>
-                {/* Subtle progress bar simulation */}
+                {/* Real progress bar */}
                 <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex">
-                  {isPlaying ? (
-                    <motion.div 
-                      initial={{ width: "0%" }}
-                      animate={{ width: "100%" }}
-                      transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-                      className="h-full bg-white/70 rounded-full"
+                  {mediaProgress.duration > 0 ? (
+                    <div 
+                      className="h-full bg-white/70 rounded-full transition-all duration-1000 ease-linear"
+                      style={{ width: `${Math.min(100, Math.max(0, (mediaProgress.position / mediaProgress.duration) * 100))}%` }}
                     />
                   ) : (
                     <div className="h-full w-1/3 bg-white/30 rounded-full" />

@@ -4,6 +4,8 @@ export interface MediaPayload {
   is_playing: boolean;
   thumbnail?: string | null;
   playback_type?: number;
+  position?: number;
+  duration?: number;
 }
 
 export interface NotifPayload {

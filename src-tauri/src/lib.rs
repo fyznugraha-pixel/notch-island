@@ -384,6 +384,9 @@ pub fn run() {
                 let mut last_is_charging = false;
                 let mut last_battery_percent = 255;
                 let mut last_volume = -1.0;
+                let mut last_progress_emit = std::time::Instant::now();
+                let mut last_position = -1.0;
+                let mut last_duration = -1.0;
                 let mut thumbnail_retries = 0;
                 let mut seen_notifs = std::collections::HashSet::<u32>::new();
                 let mut counter = 0;
@@ -523,6 +526,8 @@ pub fn run() {
                     let mut artist = String::new();
                     let mut is_playing = false;
                     let playback_type = 1;
+                    let mut position_sec = 0.0;
+                    let mut duration_sec = 0.0;
                     
                     if let Some(manager) = &smtc_manager {
                         if let Ok(session) = manager.GetCurrentSession() {
@@ -610,6 +615,11 @@ pub fn run() {
                                 }
                             }
                             
+                            if let Ok(timeline) = session.GetTimelineProperties() {
+                                position_sec = timeline.Position().unwrap_or_default().Duration as f64 / 10_000_000.0;
+                                duration_sec = timeline.EndTime().unwrap_or_default().Duration as f64 / 10_000_000.0;
+                            }
+                            
                             // If title changed, update the thumbnail
                             if title != last_title || artist != last_artist {
                                 last_thumbnail = thumbnail_b64;
@@ -640,6 +650,8 @@ pub fn run() {
                             is_playing: bool,
                             thumbnail: Option<String>,
                             playback_type: i32,
+                            position: f64,
+                            duration: f64,
                         }
                         
                         let _ = app_handle.emit("media-update", MediaPayload { 
@@ -648,6 +660,26 @@ pub fn run() {
                             is_playing,
                             thumbnail: last_thumbnail.clone(),
                             playback_type: last_playback_type,
+                            position: position_sec,
+                            duration: duration_sec,
+                        });
+                    }
+                    
+                    let now = std::time::Instant::now();
+                    if is_playing && (now.duration_since(last_progress_emit).as_millis() >= 1000 || (position_sec - last_position).abs() > 2.0 || (duration_sec - last_duration).abs() > 1.0) {
+                        last_progress_emit = now;
+                        last_position = position_sec;
+                        last_duration = duration_sec;
+                        
+                        #[derive(serde::Serialize, Clone)]
+                        struct ProgressPayload {
+                            position: f64,
+                            duration: f64,
+                        }
+                        
+                        let _ = app_handle.emit("media-progress", ProgressPayload { 
+                            position: position_sec, 
+                            duration: duration_sec 
                         });
                     }
                 }
