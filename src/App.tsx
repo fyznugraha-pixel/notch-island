@@ -605,9 +605,9 @@ export default function App() {
               </div>
 
               {isOnline ? (
-                <Wifi size={10} className="text-white shrink-0 translate-y-[0.5px]" />
+                <Wifi size={10} className="text-white shrink-0 -translate-y-[0.5px]" />
               ) : (
-                <WifiOff size={10} className="text-neutral-500 shrink-0 translate-y-[0.5px]" />
+                <WifiOff size={10} className="text-neutral-500 shrink-0 -translate-y-[0.5px]" />
               )}
 
               {weather && (
