@@ -459,12 +459,12 @@ export default function App() {
     }
 
     // Default to idle width calculation
-    let idleWidth = 50; // Base width for Battery + Wifi
+    let idleWidth = 55; // Base width for Battery + Zap + Wifi
     if (weather) {
-      idleWidth += 32 + 8; // Weather + gap
+      idleWidth += 45; // Weather
     }
-    idleWidth += 30; // Time
-    idleWidth += 24; // Padding and center gap
+    idleWidth += 35; // Time
+    idleWidth += 32; // px-3 padding and center safety gap
 
     return idleWidth;
   };
@@ -595,10 +595,12 @@ export default function App() {
               onClick={() => setIsQuickControl(true)}
             >
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[10px] font-bold text-green-400">
-                  {battery ? `${battery.percent}%` : '--%'}
-                </span>
-                <Zap size={10} className={battery?.is_charging ? "text-green-400" : "text-neutral-500"} />
+                <div className="flex items-center gap-0.5">
+                  <span className="text-[10px] font-bold text-green-400">
+                    {battery ? battery.percent : '--'}
+                  </span>
+                  <Zap size={10} className={battery?.is_charging ? "text-white" : "text-neutral-500"} />
+                </div>
                 {isOnline ? (
                   <Wifi size={10} className="text-white ml-0.5" />
                 ) : (
