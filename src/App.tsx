@@ -494,7 +494,7 @@ export default function App() {
     hidden: { width: 0, height: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
     idle: { width: 172, height: 32, y: 0, opacity: 1, borderRadius: radius("12px") },
     media: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
-    media_expanded: { width: dynamicWidth, height: 164, y: 0, opacity: 1, borderRadius: radius("24px") },
+    media_expanded: { width: dynamicWidth, height: 200, y: 0, opacity: 1, borderRadius: radius("24px") },
     notif: { width: dynamicWidth, height: 80, y: 0, opacity: 1, borderRadius: radius("20px") },
     notif_media: { width: dynamicWidth, height: 124, y: 0, opacity: 1, borderRadius: radius("20px") },
     notif_small: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
@@ -945,6 +945,44 @@ export default function App() {
                   <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("next"); }} className="w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10">
                     <SkipForward size={22} fill="currentColor" />
                   </motion.button>
+                </div>
+
+                {/* Volume Slider */}
+                <div className="flex items-center gap-3 mt-1.5 w-full cursor-default" onClick={(e) => e.stopPropagation()}>
+                  <Volume2 size={16} className="text-white/50 shrink-0" />
+                  <div 
+                    className="flex-1 h-4 group flex items-center cursor-pointer relative"
+                    onPointerDown={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+                      setSoundLevel(Math.round(percent));
+                      invoke("set_master_volume", { level: percent / 100.0 });
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    }}
+                    onPointerMove={(e) => {
+                      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+                        setSoundLevel(Math.round(percent));
+                        invoke("set_master_volume", { level: percent / 100.0 });
+                      }
+                    }}
+                    onPointerUp={(e) => {
+                      e.currentTarget.releasePointerCapture(e.pointerId);
+                    }}
+                  >
+                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex relative pointer-events-none">
+                      <div 
+                        className="h-full bg-white/70 rounded-full"
+                        style={{ width: `${soundLevel}%` }}
+                      />
+                    </div>
+                    {/* Thumb */}
+                    <div 
+                      className="absolute h-2.5 w-2.5 bg-white rounded-full opacity-0 group-hover:opacity-100 pointer-events-none shadow-md"
+                      style={{ left: `calc(${soundLevel}% - 5px)` }} 
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>
