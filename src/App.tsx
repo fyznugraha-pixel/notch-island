@@ -467,7 +467,7 @@ export default function App() {
     }
     idleWidth += 30; // Time(30)
     idleWidth += (gaps * 10); // gap-2.5 = 10px per gap
-    idleWidth += 24; // padding left & right total
+    idleWidth += 12; // Reduced padding left & right total
 
     return idleWidth;
   };
@@ -594,7 +594,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={fadeTransition}
-              className="absolute inset-0 flex items-center justify-center gap-2.5 px-3 cursor-pointer hover:bg-white/5 transition-colors"
+              className="absolute inset-0 flex items-center justify-center gap-2.5 px-2 cursor-pointer hover:bg-white/5 transition-colors"
               onClick={() => setIsQuickControl(true)}
             >
               <div className="flex items-center gap-0.5 shrink-0">
