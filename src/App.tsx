@@ -846,34 +846,51 @@ export default function App() {
               className="absolute inset-0 flex flex-col px-4 py-4 justify-between cursor-pointer"
             >
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-neutral-800 rounded-xl flex items-center justify-center shrink-0 overflow-hidden">
+                <div className="w-14 h-14 bg-neutral-800/50 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-lg border border-white/10">
                   {media!.thumbnail ? (
                     <img src={media!.thumbnail} alt="Album Art" className="w-full h-full object-cover" />
                   ) : (
-                    <ImageIcon size={24} className="text-neutral-500" />
+                    <ImageIcon size={24} className="text-white/50" />
                   )}
                 </div>
                 <div className="flex flex-col overflow-hidden flex-1 min-w-0">
-                  <ScrollingText text={media!.title} className="text-lg font-bold leading-tight" />
-                  <ScrollingText text={media!.artist} className="text-sm text-pink-400 leading-tight" />
+                  <ScrollingText text={media!.title} className="text-[17px] font-semibold text-white tracking-tight leading-tight" />
+                  <ScrollingText text={media!.artist} className="text-[13px] font-medium text-white/60 mt-0.5 leading-tight" />
                 </div>
                 {isPlaying && (
-                  <div className="flex items-center shrink-0 pr-2">
+                  <div className="flex items-center shrink-0 pr-1">
                     <AudioVisualizer isPlaying={true} />
                   </div>
                 )}
               </div>
               
-              <div className="flex items-center justify-center gap-8 cursor-default" onClick={(e) => e.stopPropagation()}>
-                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("prev"); }} className="w-10 h-10 flex items-center justify-center hover:bg-neutral-800 rounded-full transition-colors shrink-0">
-                  <SkipBack size={24} className="text-white" fill="currentColor" />
-                </motion.button>
-                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("toggle"); }} className="w-12 h-12 flex items-center justify-center bg-white text-black hover:bg-neutral-200 rounded-full transition-colors shrink-0 shadow-lg">
-                  {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}
-                </motion.button>
-                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("next"); }} className="w-10 h-10 flex items-center justify-center hover:bg-neutral-800 rounded-full transition-colors shrink-0">
-                  <SkipForward size={24} className="text-white" fill="currentColor" />
-                </motion.button>
+              {/* Playback Controls & Progress */}
+              <div className="flex flex-col gap-3 mt-1 cursor-default" onClick={(e) => e.stopPropagation()}>
+                {/* Subtle progress bar simulation */}
+                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex">
+                  {isPlaying ? (
+                    <motion.div 
+                      initial={{ width: "0%" }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+                      className="h-full bg-white/70 rounded-full"
+                    />
+                  ) : (
+                    <div className="h-full w-1/3 bg-white/30 rounded-full" />
+                  )}
+                </div>
+
+                <div className="flex items-center justify-center gap-8">
+                  <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("prev"); }} className="w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10">
+                    <SkipBack size={22} fill="currentColor" />
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("toggle"); }} className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full transition-shadow shrink-0 shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_25px_rgba(255,255,255,0.5)]">
+                    {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("next"); }} className="w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10">
+                    <SkipForward size={22} fill="currentColor" />
+                  </motion.button>
+                </div>
               </div>
             </motion.div>
           )}
