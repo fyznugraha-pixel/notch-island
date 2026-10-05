@@ -921,8 +921,11 @@ export default function App() {
                   <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex relative pointer-events-none">
                     {mediaProgress.duration > 0 ? (
                       <div 
-                        className={`h-full bg-white/70 rounded-full transition-all ${isSeeking ? 'duration-75 ease-out' : 'duration-1000 ease-linear'}`}
-                        style={{ width: `${Math.min(100, Math.max(0, isSeeking ? seekValue : (mediaProgress.position / mediaProgress.duration) * 100))}%` }}
+                        className="h-full bg-white/70 rounded-full"
+                        style={{ 
+                          width: `${Math.min(100, Math.max(0, isSeeking ? seekValue : (mediaProgress.position / mediaProgress.duration) * 100))}%`,
+                          transition: isSeeking ? 'none' : 'all 1000ms linear'
+                        }}
                       />
                     ) : (
                       <div className="h-full w-1/3 bg-white/30 rounded-full" />
@@ -931,11 +934,10 @@ export default function App() {
                   {/* Thumb */}
                   {mediaProgress.duration > 0 && (
                     <div 
-                      className="absolute h-2.5 w-2.5 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-all pointer-events-none"
+                      className="absolute h-2.5 w-2.5 bg-white rounded-full opacity-0 group-hover:opacity-100 pointer-events-none"
                       style={{ 
                         left: `calc(${Math.min(100, Math.max(0, isSeeking ? seekValue : (mediaProgress.position / mediaProgress.duration) * 100))}% - 5px)`,
-                        transitionDuration: isSeeking ? '75ms' : '1000ms',
-                        transitionTimingFunction: isSeeking ? 'ease-out' : 'linear'
+                        transition: isSeeking ? 'opacity 150ms ease' : 'all 1000ms linear, opacity 150ms ease'
                       }} 
                     />
                   )}
