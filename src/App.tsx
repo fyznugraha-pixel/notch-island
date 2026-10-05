@@ -758,9 +758,6 @@ export default function App() {
               >
                 <div className="flex justify-center items-center mb-3 relative">
                   <span className="text-[13px] font-bold text-white tracking-wide">Settings</span>
-                  <button onClick={() => setIsSettings(false)} className="absolute right-0 w-5 h-5 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
-                    <X size={10} className="text-neutral-300" />
-                  </button>
                 </div>
                 
                 <div className="flex flex-col gap-3.5 px-1 overflow-y-auto no-scrollbar pb-2" onClick={(e) => e.stopPropagation()}>
