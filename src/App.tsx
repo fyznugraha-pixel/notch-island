@@ -45,6 +45,7 @@ export default function App() {
   const [mediaProgress, setMediaProgress] = useState({ position: 0, duration: 0 });
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekValue, setSeekValue] = useState(0);
+  const isAdjustingVolumeRef = useRef(false);
   
   const collapseTimerRef = useRef<number | null>(null);
 
@@ -298,7 +299,7 @@ export default function App() {
     });
 
     const unlistenVolume = listen<{level: number}>("volume-update", (event) => {
-      if (isQuickControlRef.current) return;
+      if (isQuickControlRef.current || isAdjustingVolumeRef.current) return;
       const vol = Math.round(event.payload.level * 100);
       showNotif({ title: "Volume", body: `${vol}%`, icon: "volume" });
     });
@@ -970,6 +971,7 @@ export default function App() {
                   <div 
                     className="flex-1 h-4 group flex items-center cursor-pointer relative"
                     onPointerDown={(e) => {
+                      isAdjustingVolumeRef.current = true;
                       const rect = e.currentTarget.getBoundingClientRect();
                       const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
                       setSoundLevel(Math.round(percent));
@@ -986,6 +988,7 @@ export default function App() {
                     }}
                     onPointerUp={(e) => {
                       e.currentTarget.releasePointerCapture(e.pointerId);
+                      setTimeout(() => { isAdjustingVolumeRef.current = false; }, 500);
                     }}
                   >
                     <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex relative pointer-events-none">
