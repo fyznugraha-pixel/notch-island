@@ -458,9 +458,17 @@ export default function App() {
       return Math.min(260, Math.ceil(baseWidth + titleWidth + bodyWidth + 8));
     }
 
-    return 350;
+    // Default to idle width calculation
+    let idleWidth = 50; // Base width for Battery + Wifi
+    if (weather) {
+      idleWidth += 32 + 8; // Weather + gap
+    }
+    idleWidth += 30; // Time
+    idleWidth += 24; // Padding and center gap
+
+    return idleWidth;
   };
-  const dynamicWidth = React.useMemo(() => getDynamicWidth(), [media, notif, isExpanded, isSmallNotif, isMediumNotif]);
+  const dynamicWidth = React.useMemo(() => getDynamicWidth(), [media, notif, isExpanded, isSmallNotif, isMediumNotif, weather]);
   let variant = "idle";
   if (isBooting) {
     variant = "hidden";
@@ -493,7 +501,7 @@ export default function App() {
   const variants = {
     initialState: { width: 0, height: 0, y: startY, opacity: 0, borderRadius: radius("16px") },
     hidden: { width: 0, height: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
-    idle: { width: 172, height: 32, y: 0, opacity: 1, borderRadius: radius("12px") },
+    idle: { width: dynamicWidth, height: 32, y: 0, opacity: 1, borderRadius: radius("12px") },
     media: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
     media_expanded: { width: dynamicWidth, height: 200, y: 0, opacity: 1, borderRadius: radius("24px") },
     notif: { width: dynamicWidth, height: 80, y: 0, opacity: 1, borderRadius: radius("20px") },
@@ -583,7 +591,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={fadeTransition}
-              className="absolute inset-0 flex items-center justify-center gap-2 cursor-pointer hover:bg-white/5 transition-colors"
+              className="absolute inset-0 flex items-center justify-between px-3 cursor-pointer hover:bg-white/5 transition-colors"
               onClick={() => setIsQuickControl(true)}
             >
               <div className="flex items-center gap-1.5 shrink-0">
