@@ -1,5 +1,5 @@
 import ReactDOM from "react-dom/client";
-import "@fontsource/geist-sans";
+import "@fontsource/inter";
 import "./App.css"; // Ensure styles are loaded
 import App from "./App";
 

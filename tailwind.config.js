@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Geist Sans"', 'sans-serif'],
+        sans: ['"Inter"', 'sans-serif'],
       },
     },
   },
