@@ -47,7 +47,7 @@ export const ScrollingText = ({ text, className }: { text: string, className?: s
     <div ref={containerRef} className={`overflow-hidden whitespace-nowrap ${className}`}>
       {shouldScroll && (
         <style>{`
-          @keyframes marquee-pause-scroll {
+          @keyframes marquee-pause-scroll-${Math.round(overflowPx)} {
             0%, ${scrollStartPct}% { transform: translateX(0px); }
             ${scrollEndPct}%, 100% { transform: translateX(-${overflowPx}px); }
           }
@@ -57,7 +57,7 @@ export const ScrollingText = ({ text, className }: { text: string, className?: s
         ref={textRef}
         style={shouldScroll ? {
           display: 'inline-block',
-          animation: `marquee-pause-scroll ${totalCycle}s ease-in-out infinite`,
+          animation: `marquee-pause-scroll-${Math.round(overflowPx)} ${totalCycle}s ease-in-out infinite`,
           willChange: 'transform',
         } : {
           display: 'inline-block',

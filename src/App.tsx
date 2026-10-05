@@ -696,7 +696,7 @@ export default function App() {
                       <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0">
                         <Scissors size={16} className="text-purple-400" />
                       </div>
-                      <span className="text-[11px] font-semibold text-white">Screenshot</span>
+                      <span className="text-[11px] font-semibold text-white">Snap</span>
                     </div>
                   </div>
                   <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "settings" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center px-3 cursor-pointer transition-colors border border-white/5 shadow-sm">
