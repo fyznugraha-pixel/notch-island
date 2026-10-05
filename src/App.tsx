@@ -888,28 +888,31 @@ export default function App() {
                     const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
                     setIsSeeking(true);
                     setSeekValue(percent);
+                    e.currentTarget.setPointerCapture(e.pointerId);
                   }}
                   onPointerMove={(e) => {
-                    if (isSeeking) {
+                    if (isSeeking && e.currentTarget.hasPointerCapture(e.pointerId)) {
                       const rect = e.currentTarget.getBoundingClientRect();
                       const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
                       setSeekValue(percent);
                     }
                   }}
                   onPointerUp={async (e) => {
+                    e.currentTarget.releasePointerCapture(e.pointerId);
                     if (isSeeking && mediaProgress.duration > 0) {
                       const rect = e.currentTarget.getBoundingClientRect();
                       const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
                       const newPos = (percent / 100) * mediaProgress.duration;
-                      await invoke("smtc_seek", { position_sec: newPos });
+                      await invoke("smtc_seek", { positionSec: newPos });
                       setMediaProgress(prev => ({ ...prev, position: newPos }));
                       setIsSeeking(false);
                     }
                   }}
-                  onPointerLeave={async () => {
-                    if (isSeeking && mediaProgress.duration > 0) {
+                  onPointerLeave={async (e) => {
+                    // Only trigger if we aren't capturing the pointer (i.e. not actively dragging)
+                    if (isSeeking && mediaProgress.duration > 0 && !e.currentTarget.hasPointerCapture(e.pointerId)) {
                       const newPos = (seekValue / 100) * mediaProgress.duration;
-                      await invoke("smtc_seek", { position_sec: newPos });
+                      await invoke("smtc_seek", { positionSec: newPos });
                       setMediaProgress(prev => ({ ...prev, position: newPos }));
                       setIsSeeking(false);
                     }
