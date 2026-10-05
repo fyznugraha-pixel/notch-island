@@ -587,22 +587,14 @@ export default function App() {
               onClick={() => setIsQuickControl(true)}
             >
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[10px] font-medium text-white tracking-tight">
+                <span className="text-[10px] font-bold text-green-400">
                   {battery ? `${battery.percent}%` : '--%'}
                 </span>
-                <div className="flex items-center opacity-90">
-                  <div className="w-[18px] h-[9px] rounded-[3px] border border-white/40 flex items-center p-[1px]">
-                    <div 
-                      className={`h-full rounded-[1.5px] transition-all ${battery?.is_charging ? 'bg-[#34C759]' : 'bg-white'}`} 
-                      style={{ width: `${battery ? battery.percent : 0}%` }}
-                    />
-                  </div>
-                  <div className="w-[1px] h-[3px] bg-white/40 rounded-r-[1px] ml-[1px]" />
-                </div>
+                <Zap size={10} className={battery?.is_charging ? "text-green-400" : "text-neutral-500"} />
                 {isOnline ? (
-                  <Wifi size={11} className="text-white/80 ml-0.5" />
+                  <Wifi size={10} className="text-white ml-0.5" />
                 ) : (
-                  <WifiOff size={11} className="text-neutral-500 ml-0.5" />
+                  <WifiOff size={10} className="text-neutral-500 ml-0.5" />
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
