@@ -747,7 +747,7 @@ export default function App() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={fadeTransition}
-                className="absolute inset-0 flex flex-col p-5 cursor-default"
+                className="absolute inset-0 flex flex-col p-4 cursor-default"
                 onClick={() => setIsSettings(false)}
                 onMouseEnter={() => {
                   if (quickControlTimerRef.current) clearTimeout(quickControlTimerRef.current);
@@ -756,76 +756,81 @@ export default function App() {
                   quickControlTimerRef.current = setTimeout(() => { setIsQuickControl(false); setIsSettings(false); }, 3000) as unknown as number;
                 }}
               >
-                <div className="flex justify-between items-center px-1 mb-4">
-                  <span className="text-[14px] font-extrabold text-white tracking-wide uppercase opacity-90">Preferences</span>
-                  
+                <div className="flex justify-center items-center mb-3 relative">
+                  <span className="text-[13px] font-bold text-white tracking-wide">Settings</span>
+                  <button onClick={() => setIsSettings(false)} className="absolute right-0 w-5 h-5 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
+                    <X size={10} className="text-neutral-300" />
+                  </button>
                 </div>
                 
-                <div className="flex flex-col gap-4 px-1 overflow-y-auto no-scrollbar pb-2">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[11px] font-bold text-pink-400 uppercase tracking-widest">General</span>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-[13px] font-medium text-neutral-200">Run on Startup</span>
-                      <button onClick={async (e) => { e.stopPropagation(); try { if (isAutostart) await disable(); else await enable(); setIsAutostart(!isAutostart); } catch(e) {} }} className={`w-9 h-5 rounded-full relative transition-colors ${isAutostart ? 'bg-green-500' : 'bg-neutral-600'}`}><div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${isAutostart ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[13px] font-medium text-neutral-200">Boot Greeting</span>
-                      <button onClick={async (e) => { e.stopPropagation(); const next = !showGreeting; setShowGreeting(next); if (store) await store.set('show_greeting', next); }} className={`w-9 h-5 rounded-full relative transition-colors ${showGreeting ? 'bg-green-500' : 'bg-neutral-600'}`}><div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${showGreeting ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[13px] font-medium text-neutral-200">Notif Duration</span>
-                      <div className="flex bg-white/10 rounded-lg p-1 gap-1">
-                        <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(3); if (store) await store.set('opt_notif_time', 3); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optNotifTime === 3 ? 'bg-white text-black' : 'text-neutral-400'}`}>3s</button>
-                        <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(5); if (store) await store.set('opt_notif_time', 5); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optNotifTime === 5 ? 'bg-white text-black' : 'text-neutral-400'}`}>5s</button>
-                        <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(7); if (store) await store.set('opt_notif_time', 7); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optNotifTime === 7 ? 'bg-white text-black' : 'text-neutral-400'}`}>7s</button>
+                <div className="flex flex-col gap-3.5 px-1 overflow-y-auto no-scrollbar pb-2" onClick={(e) => e.stopPropagation()}>
+                  
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1.5 px-1">General</span>
+                    <div className="bg-[#1c1c1e]/80 backdrop-blur-xl rounded-xl border border-white/5 overflow-hidden shadow-sm">
+                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
+                        <span className="text-[12px] font-medium text-neutral-200">Run on Startup</span>
+                        <button onClick={async (e) => { e.stopPropagation(); try { if (isAutostart) await disable(); else await enable(); setIsAutostart(!isAutostart); } catch(e) {} }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${isAutostart ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${isAutostart ? 'translate-x-4' : 'translate-x-0'}`} /></button>
+                      </div>
+                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
+                        <span className="text-[12px] font-medium text-neutral-200">Boot Greeting</span>
+                        <button onClick={async (e) => { e.stopPropagation(); const next = !showGreeting; setShowGreeting(next); if (store) await store.set('show_greeting', next); }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${showGreeting ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${showGreeting ? 'translate-x-4' : 'translate-x-0'}`} /></button>
+                      </div>
+                      <div className="flex items-center justify-between p-2.5">
+                        <span className="text-[12px] font-medium text-neutral-200">Notif Duration</span>
+                        <div className="flex bg-black/40 rounded-md p-0.5 gap-0.5 ring-1 ring-white/5">
+                          <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(3); if (store) await store.set('opt_notif_time', 3); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optNotifTime === 3 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>3s</button>
+                          <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(5); if (store) await store.set('opt_notif_time', 5); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optNotifTime === 5 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>5s</button>
+                          <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(7); if (store) await store.set('opt_notif_time', 7); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optNotifTime === 7 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>7s</button>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="w-full h-[1px] bg-white/10 my-1"></div>
-
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">Appearance</span>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-[13px] font-medium text-neutral-200">Position</span>
-                      <div className="flex bg-white/10 rounded-lg p-1 gap-1">
-                         <button onClick={async (e) => { e.stopPropagation(); setOptPosition('top'); if (store) await store.set('opt_position', 'top'); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optPosition === 'top' ? 'bg-white text-black' : 'text-neutral-400'}`}>Top</button>
-                         <button onClick={async (e) => { e.stopPropagation(); setOptPosition('bottom'); if (store) await store.set('opt_position', 'bottom'); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optPosition === 'bottom' ? 'bg-white text-black' : 'text-neutral-400'}`}>Bottom</button>
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1.5 px-1">Appearance</span>
+                    <div className="bg-[#1c1c1e]/80 backdrop-blur-xl rounded-xl border border-white/5 overflow-hidden shadow-sm">
+                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
+                        <span className="text-[12px] font-medium text-neutral-200">Position</span>
+                        <div className="flex bg-black/40 rounded-md p-0.5 gap-0.5 ring-1 ring-white/5">
+                           <button onClick={async (e) => { e.stopPropagation(); setOptPosition('top'); if (store) await store.set('opt_position', 'top'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optPosition === 'top' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Top</button>
+                           <button onClick={async (e) => { e.stopPropagation(); setOptPosition('bottom'); if (store) await store.set('opt_position', 'bottom'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optPosition === 'bottom' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Bottom</button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[13px] font-medium text-neutral-200">Transparency</span>
-                      <div className="flex bg-white/10 rounded-lg p-1 gap-1">
-                         <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(1.0); if (store) await store.set('opt_opacity', 1.0); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optOpacity === 1.0 ? 'bg-white text-black' : 'text-neutral-400'}`}>Solid</button>
-                         <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(0.8); if (store) await store.set('opt_opacity', 0.8); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optOpacity === 0.8 ? 'bg-white text-black' : 'text-neutral-400'}`}>Glass</button>
-                         <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(0.5); if (store) await store.set('opt_opacity', 0.5); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optOpacity === 0.5 ? 'bg-white text-black' : 'text-neutral-400'}`}>Clear</button>
+                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
+                        <span className="text-[12px] font-medium text-neutral-200">Transparency</span>
+                        <div className="flex bg-black/40 rounded-md p-0.5 gap-0.5 ring-1 ring-white/5">
+                           <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(1.0); if (store) await store.set('opt_opacity', 1.0); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optOpacity === 1.0 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Solid</button>
+                           <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(0.8); if (store) await store.set('opt_opacity', 0.8); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optOpacity === 0.8 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Glass</button>
+                           <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(0.5); if (store) await store.set('opt_opacity', 0.5); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optOpacity === 0.5 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Clear</button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[13px] font-medium text-neutral-200">Animation Speed</span>
-                      <div className="flex bg-white/10 rounded-lg p-1 gap-1">
-                         <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('snappy'); if (store) await store.set('opt_anim_speed', 'snappy'); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optAnimSpeed === 'snappy' ? 'bg-white text-black' : 'text-neutral-400'}`}>Snappy</button>
-                         <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('smooth'); if (store) await store.set('opt_anim_speed', 'smooth'); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optAnimSpeed === 'smooth' ? 'bg-white text-black' : 'text-neutral-400'}`}>Smooth</button>
-                         <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('bouncy'); if (store) await store.set('opt_anim_speed', 'bouncy'); }} className={`px-2 py-1 text-[11px] font-bold rounded-md transition-colors ${optAnimSpeed === 'bouncy' ? 'bg-white text-black' : 'text-neutral-400'}`}>Bouncy</button>
+                      <div className="flex items-center justify-between p-2.5">
+                        <span className="text-[12px] font-medium text-neutral-200">Animations</span>
+                        <div className="flex bg-black/40 rounded-md p-0.5 gap-0.5 ring-1 ring-white/5">
+                           <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('snappy'); if (store) await store.set('opt_anim_speed', 'snappy'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optAnimSpeed === 'snappy' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Snappy</button>
+                           <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('smooth'); if (store) await store.set('opt_anim_speed', 'smooth'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optAnimSpeed === 'smooth' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Smooth</button>
+                           <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('bouncy'); if (store) await store.set('opt_anim_speed', 'bouncy'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optAnimSpeed === 'bouncy' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Bouncy</button>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="w-full h-[1px] bg-white/10 my-1"></div>
-
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[11px] font-bold text-green-400 uppercase tracking-widest">Modules</span>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-[13px] font-medium text-neutral-200">Volume Monitor</span>
-                      <button onClick={async (e) => { e.stopPropagation(); const next = !optVolume; setOptVolume(next); if (store) await store.set('opt_volume', next); }} className={`w-9 h-5 rounded-full relative transition-colors ${optVolume ? 'bg-green-500' : 'bg-neutral-600'}`}><div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${optVolume ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[13px] font-medium text-neutral-200">Clipboard Monitor</span>
-                      <button onClick={async (e) => { e.stopPropagation(); const next = !optClipboard; setOptClipboard(next); if (store) await store.set('opt_clipboard', next); }} className={`w-9 h-5 rounded-full relative transition-colors ${optClipboard ? 'bg-green-500' : 'bg-neutral-600'}`}><div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${optClipboard ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[13px] font-medium text-neutral-200">Media Player</span>
-                      <button onClick={async (e) => { e.stopPropagation(); const next = !optMedia; setOptMedia(next); if (store) await store.set('opt_media', next); }} className={`w-9 h-5 rounded-full relative transition-colors ${optMedia ? 'bg-green-500' : 'bg-neutral-600'}`}><div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${optMedia ? 'translate-x-4' : 'translate-x-0'}`} /></button>
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1.5 px-1">Modules</span>
+                    <div className="bg-[#1c1c1e]/80 backdrop-blur-xl rounded-xl border border-white/5 overflow-hidden shadow-sm">
+                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
+                        <span className="text-[12px] font-medium text-neutral-200">Volume Monitor</span>
+                        <button onClick={async (e) => { e.stopPropagation(); const next = !optVolume; setOptVolume(next); if (store) await store.set('opt_volume', next); }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${optVolume ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${optVolume ? 'translate-x-4' : 'translate-x-0'}`} /></button>
+                      </div>
+                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
+                        <span className="text-[12px] font-medium text-neutral-200">Clipboard Monitor</span>
+                        <button onClick={async (e) => { e.stopPropagation(); const next = !optClipboard; setOptClipboard(next); if (store) await store.set('opt_clipboard', next); }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${optClipboard ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${optClipboard ? 'translate-x-4' : 'translate-x-0'}`} /></button>
+                      </div>
+                      <div className="flex items-center justify-between p-2.5">
+                        <span className="text-[12px] font-medium text-neutral-200">Media Player</span>
+                        <button onClick={async (e) => { e.stopPropagation(); const next = !optMedia; setOptMedia(next); if (store) await store.set('opt_media', next); }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${optMedia ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${optMedia ? 'translate-x-4' : 'translate-x-0'}`} /></button>
+                      </div>
                     </div>
                   </div>
                 </div>
