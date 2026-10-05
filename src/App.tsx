@@ -599,7 +599,6 @@ export default function App() {
                   </div>
                   <div className="w-[1px] h-[3px] bg-white/40 rounded-r-[1px] ml-[1px]" />
                 </div>
-                {battery?.is_charging && <Zap size={10} className="text-[#34C759]" />}
                 {isOnline ? (
                   <Wifi size={11} className="text-white/80 ml-0.5" />
                 ) : (
