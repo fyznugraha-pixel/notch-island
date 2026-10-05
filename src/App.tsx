@@ -459,12 +459,15 @@ export default function App() {
     }
 
     // Default to idle width calculation
-    let idleWidth = 55; // Base width for Battery + Zap + Wifi
+    let idleWidth = 46; // Battery(36) + Wifi(10)
+    let gaps = 2; // Gaps between (Batt-Wifi) and (Wifi-Time)
     if (weather) {
-      idleWidth += 45; // Weather
+      idleWidth += 36; // Weather(36)
+      gaps += 1; // Extra gap for weather
     }
-    idleWidth += 35; // Time
-    idleWidth += 32; // px-3 padding and center safety gap
+    idleWidth += 30; // Time(30)
+    idleWidth += (gaps * 10); // gap-2.5 = 10px per gap
+    idleWidth += 24; // padding left & right total
 
     return idleWidth;
   };
@@ -591,32 +594,31 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={fadeTransition}
-              className="absolute inset-0 flex items-center justify-between px-3 cursor-pointer hover:bg-white/5 transition-colors"
+              className="absolute inset-0 flex items-center justify-center gap-2.5 px-3 cursor-pointer hover:bg-white/5 transition-colors"
               onClick={() => setIsQuickControl(true)}
             >
-              <div className="flex items-center gap-1.5 shrink-0">
-                <div className="flex items-center gap-0.5">
-                  <span className="text-[10px] font-bold text-green-400">
-                    {battery ? battery.percent : '--'}
-                  </span>
-                  <Zap size={10} className={battery?.is_charging ? "text-white" : "text-neutral-500"} />
-                </div>
-                {isOnline ? (
-                  <Wifi size={10} className="text-white ml-0.5" />
-                ) : (
-                  <WifiOff size={10} className="text-neutral-500 ml-0.5" />
-                )}
+              <div className="flex items-center gap-0.5 shrink-0">
+                <span className="text-[10px] font-bold text-green-400">
+                  {battery ? battery.percent : '--'}
+                </span>
+                <Zap size={10} className={battery?.is_charging ? "text-white" : "text-neutral-500"} />
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {weather && (
-                  <div className="flex items-center gap-1">
-                    {getWeatherIcon(weather.code)}
-                    <span className="text-[10px] font-bold text-neutral-300">{weather.temp}</span>
-                  </div>
-                )}
-                <div className="text-[10px] font-bold text-neutral-300">
-                  {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+
+              {isOnline ? (
+                <Wifi size={10} className="text-white shrink-0" />
+              ) : (
+                <WifiOff size={10} className="text-neutral-500 shrink-0" />
+              )}
+
+              {weather && (
+                <div className="flex items-center gap-1 shrink-0">
+                  {getWeatherIcon(weather.code)}
+                  <span className="text-[10px] font-bold text-neutral-300">{weather.temp}</span>
                 </div>
+              )}
+              
+              <div className="text-[10px] font-bold text-neutral-300 shrink-0">
+                {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
             </motion.div>
           )}
