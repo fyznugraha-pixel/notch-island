@@ -483,7 +483,7 @@ export default function App() {
     hidden: { width: 0, height: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
     idle: { width: 172, height: 32, y: 0, opacity: 1, borderRadius: radius("12px") },
     media: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
-    media_expanded: { width: dynamicWidth, height: 140, y: 0, opacity: 1, borderRadius: radius("20px") },
+    media_expanded: { width: dynamicWidth, height: 164, y: 0, opacity: 1, borderRadius: radius("24px") },
     notif: { width: dynamicWidth, height: 80, y: 0, opacity: 1, borderRadius: radius("20px") },
     notif_media: { width: dynamicWidth, height: 124, y: 0, opacity: 1, borderRadius: radius("20px") },
     notif_small: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
@@ -859,7 +859,7 @@ export default function App() {
                 </div>
                 {isPlaying && (
                   <div className="flex items-center shrink-0 pr-1">
-                    <AudioVisualizer isPlaying={true} />
+                    <AudioVisualizer isPlaying={true} onToggle={() => handleMediaControl("toggle")} optAccent={optAccent} />
                   </div>
                 )}
               </div>
