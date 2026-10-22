@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["futures_util",[["impl&lt;T: <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.0/core/convert/trait.AsRef.html\" title=\"trait core::convert::AsRef\">AsRef</a>&lt;[<a class=\"primitive\" href=\"https://doc.rust-lang.org/1.99.0/std/primitive.u8.html\">u8</a>]&gt;&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.0/core/convert/trait.AsRef.html\" title=\"trait core::convert::AsRef\">AsRef</a>&lt;[<a class=\"primitive\" href=\"https://doc.rust-lang.org/1.99.0/std/primitive.u8.html\">u8</a>]&gt; for <a class=\"struct\" href=\"futures_util/io/struct.Window.html\" title=\"struct futures_util::io::Window\">Window</a>&lt;T&gt;",0]]],["windows_core",[["impl&lt;T: <a class=\"trait\" href=\"windows_core/trait.ComObjectInner.html\" title=\"trait windows_core::ComObjectInner\">ComObjectInner</a>&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.0/core/convert/trait.AsRef.html\" title=\"trait core::convert::AsRef\">AsRef</a>&lt;T&gt; for <a class=\"struct\" href=\"windows_core/struct.ComObject.html\" title=\"struct windows_core::ComObject\">ComObject</a>&lt;T&gt;",0]]],["windows_strings",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.99.0/core/convert/trait.AsRef.html\" title=\"trait core::convert::AsRef\">AsRef</a>&lt;<a class=\"struct\" href=\"windows_strings/struct.PCWSTR.html\" title=\"struct windows_strings::PCWSTR\">PCWSTR</a>&gt; for <a class=\"struct\" href=\"windows_strings/struct.PCWSTR.html\" title=\"struct windows_strings::PCWSTR\">PCWSTR</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[651,450,414]}

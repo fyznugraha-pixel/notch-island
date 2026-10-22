@@ -1,0 +1,10 @@
+D:\kerjaan\projek-ndiri\island\wmi_test\target\debug\deps\windows_collections-b8ba7f9907892bf5.d: C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\lib.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\bindings.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\iterable.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\map_view.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\vector_view.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\../readme.md
+
+D:\kerjaan\projek-ndiri\island\wmi_test\target\debug\deps\libwindows_collections-b8ba7f9907892bf5.rmeta: C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\lib.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\bindings.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\iterable.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\map_view.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\vector_view.rs C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\../readme.md
+
+C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\lib.rs:
+C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\bindings.rs:
+C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\iterable.rs:
+C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\map_view.rs:
+C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\vector_view.rs:
+C:\Users\faiz\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-collections-0.3.2\src\../readme.md:

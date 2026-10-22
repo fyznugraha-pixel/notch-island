@@ -1,21 +1,61 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { load } from "@tauri-apps/plugin-store";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { motion, AnimatePresence } from "framer-motion";
-import { Music, Play, Pause, SkipBack, SkipForward, Image as ImageIcon, Zap, Volume2, Sun, Wifi, WifiOff, Lock, Power, RotateCcw, Moon, Settings as SettingsIcon, Film, Scissors, Bluetooth } from "lucide-react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import {
+  Bell,
+  BellOff,
+  Gamepad2,
+  BedDouble,
+  UploadCloud,
+  ListTodo,
+} from "lucide-react";
 import "./App.css";
 
 import { MediaPayload, NotifPayload } from "./types";
-import { NotifIcon, getWeatherIcon } from "./components/ui/NotifIcon";
+import { NotifIcon } from "./components/ui/NotifIcon";
+import { MediaThumbnail, useResolvedThumbnail } from "./components/ui/MediaThumbnail";
 import { AudioVisualizer } from "./components/ui/AudioVisualizer";
 import { ScrollingText } from "./components/ui/ScrollingText";
+import { WeatherAnimation } from "./components/ui/WeatherAnimation";
+import { NotchSurface } from "./components/ui/NotchSurface";
+import { PanelFrame } from "./components/ui/PanelNavHeader";
 import { getTextWidth } from "./utils/text";
+import { LyricsData, fetchLyrics } from "./services/lyricsService";
+import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
+import { fetchCurrentWeather, subscribeWeatherChange, getCachedWeather } from "./services/weatherService";
+import { ClipboardPanel, ClipboardItem } from "./components/ui/ClipboardPanel";
+import { TodoListPanel, TodoItem } from "./components/ui/TodoListPanel";
+import { DropShelfPanel, StashedFile } from "./components/ui/DropShelfPanel";
+import { ControlCenterPanel } from "./components/ui/ControlCenterPanel";
+import { SettingsPanel } from "./components/ui/SettingsPanel";
+import {
+  IdleLayoutConfig,
+  IdleRuntimeData,
+  IdleSlotView,
+  getSavedIdleLayout,
+  parseIdleLayout,
+  measureIdleLayoutWidth,
+} from "./components/ui/IdleLayoutSetting";
+import { OnboardingCard } from "./components/ui/OnboardingCard";
+import { VolumeMixerPanel } from "./components/ui/VolumeMixerPanel";
+import { MediaExpandedPanel } from "./components/ui/MediaExpandedPanel";
+import { IdleLyrics } from "./components/ui/IdleLyrics";
+import { iosSpring } from "./utils/iosMotion";
+import { t, getLanguage, setLanguage, Language } from "./services/i18n";
+import { GreetingNotification } from "./components/ui/GreetingNotification";
 
 export default function App() {
   const [media, setMedia] = useState<MediaPayload | null>(null);
+  const mediaRef = useRef<MediaPayload | null>(null);
+  useEffect(() => { mediaRef.current = media; }, [media]);
+
   const [notif, setNotif] = useState<NotifPayload | null>(null);
   const currentNotifRef = useRef<NotifPayload | null>(null);
   
@@ -23,38 +63,157 @@ export default function App() {
     currentNotifRef.current = notif;
   }, [notif]);
 
+  const isVolumeMixerRef = useRef(false);
+  const isOcrWritingRef = useRef(false);
+  const lastExtractedTextRef = useRef<string | null>(null);
+  type FocusModeType = "Normal" | "DND" | "Gaming" | "Sleep";
+  const focusModeRef = useRef<FocusModeType>("Normal");
+  const isIdleRef = useRef(true);
+  const variantRef = useRef<string>("idle");
+  const notchPillRef = useRef<HTMLDivElement>(null);
+
   const showNotif = (newNotif: NotifPayload) => {
-    if (newNotif.icon === "volume" && !optVolumeRef.current) return;
+    if (focusModeRef.current !== "Normal" && newNotif.icon !== "battery" && !(newNotif as any).forceShow) return;
+    if (newNotif.icon === "volume" && (!optVolumeRef.current || isVolumeMixerRef.current || isQuickControlRef.current)) return;
     if (newNotif.icon === "clipboard" && !optClipboardRef.current) return;
 
     const active = currentNotifRef.current;
-    if (active?.icon === "sun" || active?.icon === "moon") {
+    if (active && active.icon === newNotif.icon && (newNotif.icon === "volume" || newNotif.icon === "battery" || newNotif.icon === "capslock")) {
+      setNotif(newNotif);
+    } else if (active) {
       setNotifQueue(q => {
         const filtered = q.filter(n => n.icon !== newNotif.icon);
         return [...filtered, newNotif];
       });
     } else {
-      setNotifQueue([]);
       setNotif(newNotif);
     }
   };
 
+  const triggerGreeting = async () => {
+    try {
+      let username = "";
+      try {
+        username = localStorage.getItem("island_username") || "";
+      } catch {}
+
+      if (!username) {
+        username = await invoke<string>("get_username");
+        try {
+          if (username) localStorage.setItem("island_username", username);
+        } catch {}
+      } else {
+        invoke<string>("get_username")
+          .then((u) => {
+            if (u) {
+              try {
+                localStorage.setItem("island_username", u);
+              } catch {}
+            }
+          })
+          .catch(() => {});
+      }
+
+      const hour = new Date().getHours();
+      const isNight = hour >= 18 || hour < 5;
+      const isMorning = hour >= 5 && hour < 12;
+      const isAfternoon = hour >= 12 && hour < 18;
+      const greeting = isNight 
+        ? t("greeting_evening") 
+        : isMorning 
+        ? t("greeting_morning") 
+        : isAfternoon
+        ? t("greeting_afternoon")
+        : t("greeting_welcome");
+      
+      showNotif({
+        title: username ? `Hi, ${username}` : t("greeting_welcome"),
+        body: `${greeting}!`,
+        icon: isNight ? "moon" : "sun",
+        type: "greeting"
+      });
+    } catch (e) {
+      console.error("Failed to trigger greeting", e);
+    }
+  };
+
   const [isExpanded, setIsExpanded] = useState(false);
+  const isExpandedRef = useRef(false);
+  useEffect(() => { isExpandedRef.current = isExpanded; }, [isExpanded]);
   const [isHidden, setIsHidden] = useState(false);
+  const [isVolumeMixer, setIsVolumeMixer] = useState(false);
+  useEffect(() => { isVolumeMixerRef.current = isVolumeMixer; }, [isVolumeMixer]);
+  const [powerMode, setPowerMode] = useState<"Eco" | "Balanced" | "Performance">("Balanced");
+  const [networkPing, setNetworkPing] = useState<number | null>(null);
+  const [audioSessions, setAudioSessions] = useState<{pid: number, name: string, volume: number, muted: boolean}[]>([]);
   const [isPlaying, setIsPlaying] = useState(true);
   const [mediaProgress, setMediaProgress] = useState({ position: 0, duration: 0 });
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekValue, setSeekValue] = useState(0);
+  const [brightnessMode, setBrightnessMode] = useState<"auto" | "manual" | "reading">("manual");
   const isAdjustingVolumeRef = useRef(false);
+  const [showLyrics, setShowLyrics] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("island_show_lyrics") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
+  const [isLyricsLoading, setIsLyricsLoading] = useState(false);
+  const [activeIdleLyric, setActiveIdleLyric] = useState<{ curr: string; prev: string; next: string }>({
+    curr: "",
+    prev: "",
+    next: "",
+  });
   
   const collapseTimerRef = useRef<number | null>(null);
+  const isCursorInsideNotchRef = useRef(false);
+
+  useEffect(() => {
+    setLyricsData(null);
+    setActiveIdleLyric({ curr: "", prev: "", next: "" });
+  }, [media?.title, media?.artist]);
+
+  useEffect(() => {
+    if (!showLyrics || !media?.title) {
+      setIsLyricsLoading(false);
+      return;
+    }
+    let isCancelled = false;
+    setIsLyricsLoading(true);
+    fetchLyrics(media.artist || "", media.title, media.duration || mediaProgress.duration)
+      .then((res) => {
+        if (!isCancelled) {
+          setLyricsData(res);
+          setIsLyricsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setLyricsData(null);
+          setIsLyricsLoading(false);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [showLyrics, media?.title, media?.artist]);
 
 
 
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     if (media && !isPlaying) {
-      timeout = setTimeout(() => {
+      timeout = setTimeout(async () => {
+        if (isCursorInsideNotchRef.current) return;
+        try {
+          const inNotch = await invoke<boolean>("is_cursor_in_notch");
+          if (inNotch) {
+            isCursorInsideNotchRef.current = true;
+            return;
+          }
+        } catch {}
         setMedia(null);
         setIsExpanded(false);
       }, 5000);
@@ -65,40 +224,737 @@ export default function App() {
   }, [media, isPlaying]);
 
   const [notifQueue, setNotifQueue] = useState<NotifPayload[]>([]);
+  const musicAmbientUrl = useResolvedThumbnail(media);
   const [battery, setBattery] = useState<{ is_charging: boolean, percent: number } | null>(null);
   const [time, setTime] = useState<Date>(new Date());
-  const [weather, setWeather] = useState<{ temp: string, code: number } | null>(null);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  const [weather, setWeather] = useState<{ temp: string, code: number, locationName?: string } | null>(() => {
+    const cached = getCachedWeather();
+    if (cached) {
+      return { temp: cached.temp, code: cached.code, locationName: cached.locationName };
+    }
+    return null;
+  });
   const [isQuickControl, setIsQuickControl] = useState(false);
   const isQuickControlRef = useRef(isQuickControl);
   useEffect(() => { isQuickControlRef.current = isQuickControl; }, [isQuickControl]);
+  const [isClipboard, setIsClipboard] = useState(false);
+  const isClipboardRef = useRef(false);
+  useEffect(() => { isClipboardRef.current = isClipboard; }, [isClipboard]);
   const [isSettings, setIsSettings] = useState(false);
+  const isSettingsRef = useRef(false);
+  useEffect(() => { isSettingsRef.current = isSettings; }, [isSettings]);
+  const [isOnboarding, setIsOnboarding] = useState(false);
+
+  useEffect(() => {
+    const handleTrigger = () => {
+      setIsSettings(false);
+      setIsQuickControl(false);
+      setIsExpanded(false);
+      setIsOnboarding(true);
+    };
+    window.addEventListener("island_trigger_onboarding", handleTrigger);
+
+    try {
+      const completed = localStorage.getItem("island_onboarding_completed");
+      if (!completed) {
+        const timer = setTimeout(() => {
+          setIsOnboarding(true);
+        }, 1200);
+        return () => {
+          clearTimeout(timer);
+          window.removeEventListener("island_trigger_onboarding", handleTrigger);
+        };
+      }
+    } catch {}
+
+    return () => window.removeEventListener("island_trigger_onboarding", handleTrigger);
+  }, []);
   const [wifiName, setWifiName] = useState("Loading...");
   const [btName, setBtName] = useState("Loading...");
   const [displayLevel, setDisplayLevel] = useState(85);
   const [soundLevel, setSoundLevel] = useState(60);
   const [store, setStore] = useState<any>(null);
   const [isAutostart, setIsAutostart] = useState(false);
-  const [showGreeting, setShowGreeting] = useState(true);
-  const [isBooting, setIsBooting] = useState(true);
+  const [showGreeting, setShowGreeting] = useState<boolean>(() => {
+    try {
+      const s = localStorage.getItem("island_show_greeting");
+      if (s === "false") return false;
+    } catch {}
+    return true;
+  });
+  const [isBooting, setIsBooting] = useState(false);
+  const [optLanguage, setOptLanguage] = useState<Language>(() => getLanguage());
 
-  const resetCollapseTimer = () => {
-    if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
-    if (isExpanded || isQuickControl || isSettings) {
-      collapseTimerRef.current = window.setTimeout(() => {
-        setIsExpanded(false);
-        setIsQuickControl(false);
-        setIsSettings(false);
-      }, 3000);
+  const [focusMode, setFocusMode] = useState<FocusModeType>("Normal");
+  useEffect(() => { focusModeRef.current = focusMode; }, [focusMode]);
+  const [isHotspotOn, setIsHotspotOn] = useState(false);
+  const previousBrightnessRef = useRef<number>(85);
+
+  const selectFocusMode = (nextMode: FocusModeType) => {
+    const wasSleep = focusMode === "Sleep";
+    setFocusMode(nextMode);
+
+    if (nextMode === "DND") {
+      if (wasSleep && previousBrightnessRef.current) {
+        invoke("set_brightness", { level: previousBrightnessRef.current }).catch(console.error);
+        setDisplayLevel(previousBrightnessRef.current);
+      }
+    } else if (nextMode === "Gaming") {
+      setPowerMode("Performance");
+      invoke("set_power_plan", { mode: "Performance" }).catch(console.error);
+      if (wasSleep && previousBrightnessRef.current) {
+        invoke("set_brightness", { level: previousBrightnessRef.current }).catch(console.error);
+        setDisplayLevel(previousBrightnessRef.current);
+      }
+    } else if (nextMode === "Sleep") {
+      if (!wasSleep) {
+        previousBrightnessRef.current = displayLevel;
+      }
+      setPowerMode("Eco");
+      invoke("set_power_plan", { mode: "Eco" }).catch(console.error);
+      invoke("set_brightness", { level: 35 }).catch(console.error);
+      setDisplayLevel(35);
+    } else {
+      setPowerMode("Balanced");
+      invoke("set_power_plan", { mode: "Balanced" }).catch(console.error);
+      if (wasSleep && previousBrightnessRef.current) {
+        invoke("set_brightness", { level: previousBrightnessRef.current }).catch(console.error);
+        setDisplayLevel(previousBrightnessRef.current);
+      }
     }
   };
 
+  const focusModeOptions: { id: FocusModeType; label: string; desc: string; icon: React.ReactNode; color: string }[] = React.useMemo(() => [
+    { id: "Normal", label: t("cc_focus_normal"), desc: t("cc_focus_normal_desc"), icon: <Bell size={13} className="text-amber-300" />, color: "bg-amber-500/20 text-amber-300 border border-amber-500/30" },
+    { id: "DND", label: t("cc_focus_dnd"), desc: t("cc_focus_dnd_desc"), icon: <BellOff size={13} className="text-indigo-200" />, color: "bg-indigo-500/25 border border-indigo-500/35 text-indigo-200" },
+    { id: "Gaming", label: t("cc_focus_gaming"), desc: t("cc_focus_gaming_desc"), icon: <Gamepad2 size={13} className="text-rose-200" />, color: "bg-rose-500/25 border border-rose-500/35 text-rose-200" },
+    { id: "Sleep", label: t("cc_focus_sleep"), desc: t("cc_focus_sleep_desc"), icon: <BedDouble size={13} className="text-teal-200" />, color: "bg-teal-500/25 border border-teal-500/35 text-teal-200" },
+  ], [optLanguage]);
+
+  const handleToggleHotspot = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextState = !isHotspotOn;
+    setIsHotspotOn(nextState);
+    setIsQuickControl(false);
+    openUrl("ms-settings:network-mobilehotspot").catch(() => {
+      invoke("system_power_action", { action: "hotspot" }).catch(console.error);
+    });
+    showNotif({
+      title: t("cc_hotspot"),
+      body: nextState ? t("cc_hotspot_on") : t("cc_hotspot_off"),
+      icon: "wifi",
+      forceShow: true,
+    } as any);
+  };
+
+  const [clipboardHistory, setClipboardHistory] = useState<ClipboardItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("island_clipboard_history");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const addClipboardItem = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setClipboardHistory((prev) => {
+      if (prev.length > 0 && prev[0].text === trimmed) return prev;
+      const filtered = prev.filter((item) => item.text !== trimmed);
+      const updated = [
+        { id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, text: trimmed, timestamp: Date.now() },
+        ...filtered
+      ].slice(0, 50);
+      try {
+        localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const deleteClipboardItem = (id: string) => {
+    setClipboardHistory((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      try {
+        localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const clearAllClipboard = () => {
+    setClipboardHistory([]);
+    try {
+      localStorage.removeItem("island_clipboard_history");
+    } catch {}
+  };
+
+  const [isTodo, setIsTodo] = useState(false);
+  const isTodoRef = useRef(false);
+  useEffect(() => { isTodoRef.current = isTodo; }, [isTodo]);
+  const [todoItems, setTodoItems] = useState<TodoItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("island_todo_list");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [showTodoReminder, setShowTodoReminder] = useState(false);
+  const pendingTodos = React.useMemo(() => {
+    return todoItems.filter((t) => !t.completed);
+  }, [todoItems]);
+  const pendingTodosRef = useRef(pendingTodos);
   useEffect(() => {
-    resetCollapseTimer();
+    pendingTodosRef.current = pendingTodos;
+  }, [pendingTodos]);
+
+  const todoReminderTimeoutRef = useRef<number | null>(null);
+
+  const triggerTodoReminder = () => {
+    if (pendingTodosRef.current.length === 0) return;
+    setShowTodoReminder(true);
+    try {
+      localStorage.setItem("island_last_todo_reminder", Date.now().toString());
+    } catch {}
+
+    if (todoReminderTimeoutRef.current) {
+      clearTimeout(todoReminderTimeoutRef.current);
+    }
+    todoReminderTimeoutRef.current = window.setTimeout(() => {
+      setShowTodoReminder(false);
+      todoReminderTimeoutRef.current = null;
+    }, 4400);
+  };
+
+  useEffect(() => {
+    if (pendingTodos.length === 0 && showTodoReminder) {
+      setShowTodoReminder(false);
+      if (todoReminderTimeoutRef.current) {
+        clearTimeout(todoReminderTimeoutRef.current);
+        todoReminderTimeoutRef.current = null;
+      }
+    }
+  }, [pendingTodos.length, showTodoReminder]);
+
+  useEffect(() => {
+    const initialDelay = window.setTimeout(() => {
+      try {
+        const last = localStorage.getItem("island_last_todo_reminder");
+        const lastTime = last ? parseInt(last, 10) : 0;
+        const now = Date.now();
+        if (now - lastTime >= 15 * 60 * 1000 && pendingTodosRef.current.length > 0 && isIdleRef.current) {
+          triggerTodoReminder();
+        }
+      } catch {}
+    }, 6000);
+
+    const interval = window.setInterval(() => {
+      try {
+        if (pendingTodosRef.current.length === 0) return;
+        const last = localStorage.getItem("island_last_todo_reminder");
+        const lastTime = last ? parseInt(last, 10) : 0;
+        const now = Date.now();
+        if (now - lastTime >= 15 * 60 * 1000 && isIdleRef.current) {
+          triggerTodoReminder();
+        }
+      } catch {}
+    }, 30000);
+
+    return () => {
+      clearTimeout(initialDelay);
+      clearInterval(interval);
+      if (todoReminderTimeoutRef.current) {
+        clearTimeout(todoReminderTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const addTodoItem = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setTodoItems((prev) => {
+      const newItem: TodoItem = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        text: trimmed,
+        completed: false,
+        createdAt: Date.now(),
+      };
+      const updated = [newItem, ...prev];
+      try {
+        localStorage.setItem("island_todo_list", JSON.stringify(updated));
+        localStorage.removeItem("island_last_todo_reminder");
+      } catch {}
+      return updated;
+    });
+  };
+
+  const toggleTodoItem = (id: string) => {
+    setTodoItems((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id ? { ...item, completed: !item.completed } : item
+      );
+      try {
+        localStorage.setItem("island_todo_list", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const deleteTodoItem = (id: string) => {
+    setTodoItems((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      try {
+        localStorage.setItem("island_todo_list", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const updateTodoItem = (id: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setTodoItems((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id ? { ...item, text: trimmed } : item
+      );
+      try {
+        localStorage.setItem("island_todo_list", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const clearCompletedTodos = () => {
+    setTodoItems((prev) => {
+      const updated = prev.filter((item) => !item.completed);
+      try {
+        localStorage.setItem("island_todo_list", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const clearAllTodos = () => {
+    setTodoItems([]);
+    try {
+      localStorage.removeItem("island_todo_list");
+    } catch {}
+  };
+
+  const [stashedFiles, setStashedFiles] = useState<StashedFile[]>(getInitialShelfFiles);
+  const [isDropShelf, setIsDropShelf] = useState(false);
+  const isDropShelfRef = useRef(false);
+  useEffect(() => { isDropShelfRef.current = isDropShelf; }, [isDropShelf]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const isShelfDraggingRef = useRef(false);
+  const outgoingShelfPathsRef = useRef<Set<string>>(new Set());
+
+  const [isBrowserActive, setIsBrowserActive] = useState(false);
+  const [optAutoCompact, setOptAutoCompact] = useState(true);
+
+  const lastDropTimeRef = useRef<number>(0);
+
+  const addStashedFiles = async (paths: string[]) => {
+    if (isShelfDraggingRef.current) return;
+    if (!paths || paths.length === 0) return;
+
+    // Clean paths and only accept real filesystem paths (ignore bare DOM filenames without directory separators)
+    const cleaned = paths
+      .map((p) => p.replace(/^"|"$/g, "").trim())
+      .filter((p) => Boolean(p) && (p.includes("\\") || p.includes("/")));
+    if (cleaned.length === 0) return;
+
+    // Guard against rapid duplicate drop events (e.g. OS drop + DOM onDrop within 250ms)
+    const now = Date.now();
+    if (now - lastDropTimeRef.current < 250) {
+      return;
+    }
+    lastDropTimeRef.current = now;
+
+    const uniqueIncoming = Array.from(new Set(cleaned));
+
+    // Don't duplicate paths that are already in the shelf
+    const existingPaths = new Set(stashedFiles.map((f) => f.path.toLowerCase()));
+    const finalPaths = uniqueIncoming.filter((p) => !existingPaths.has(p.toLowerCase()));
+
+    if (finalPaths.length === 0) {
+      goToTab("drop_shelf");
+      return;
+    }
+
+    const newItems: StashedFile[] = finalPaths.map((cleanPath) => {
+      const name = cleanPath.split(/[\\/]/).pop() || "File";
+      const ext = name.includes(".") ? name.split(".").pop() || "" : "";
+      return {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name,
+        path: cleanPath,
+        ext,
+        addedAt: Date.now(),
+      };
+    });
+
+    setStashedFiles((prev) => {
+      const updated = [...newItems, ...prev].slice(0, 50);
+      persistShelfFiles(updated, true);
+      return updated;
+    });
+
+    goToTab("drop_shelf");
+
+    // Pre-resolve previews & metadata through the controlled concurrency queue
+    queueFilePreviews(newItems, (batch) => {
+      setStashedFiles((prev) => {
+        let hasChanges = false;
+        const updated = prev.map((f) => {
+          const res = batch[f.id];
+          if (res && !f.sizeFormatted) {
+            hasChanges = true;
+            return {
+              ...f,
+              sizeFormatted: res.sizeFormatted,
+            };
+          }
+          return f;
+        });
+        if (hasChanges) {
+          persistShelfFiles(updated, false);
+          return updated;
+        }
+        return prev;
+      });
+    });
+  };
+
+
+  const removeStashedFile = (id: string) => {
+    setStashedFiles((prev) => {
+      const updated = prev.filter((f) => f.id !== id);
+      persistShelfFiles(updated, true);
+      return updated;
+    });
+  };
+
+  const removeStashedFiles = (ids: string[]) => {
+    const idSet = new Set(ids);
+    setStashedFiles((prev) => {
+      const updated = prev.filter((f) => !idSet.has(f.id));
+      persistShelfFiles(updated, true);
+      return updated;
+    });
+  };
+
+  const clearAllStashedFiles = () => {
+    clearShelfPreviewCache();
+    setStashedFiles([]);
+    persistShelfFiles([], true);
+  };
+
+  type ExpandedTab = "media_expanded" | "quick_control" | "todo" | "drop_shelf" | "clipboard" | "volume_mixer" | "settings";
+
+  const [slideDirection, setSlideDirection] = useState<number>(0);
+
+  const availableTabs: ExpandedTab[] = React.useMemo(() => {
+    const tabs: ExpandedTab[] = [];
+    if (media) tabs.push("media_expanded");
+    tabs.push("quick_control", "todo", "drop_shelf", "settings");
+    return tabs;
+  }, [media]);
+
+  const currentTab: ExpandedTab | null = React.useMemo(() => {
+    if (isSettings) return "settings";
+    if (isVolumeMixer) return "volume_mixer";
+    if (isClipboard) return "clipboard";
+    if (isDropShelf) return "drop_shelf";
+    if (isTodo) return "todo";
+    if (isQuickControl) return "quick_control";
+    if (isExpanded && media) return "media_expanded";
+    return null;
+  }, [isSettings, isVolumeMixer, isClipboard, isDropShelf, isTodo, isQuickControl, isExpanded, media]);
+
+  const isSubPage = currentTab === "clipboard" || currentTab === "volume_mixer";
+
+  const currentTabIndex = React.useMemo(() => {
+    if (!currentTab) return -1;
+    return availableTabs.indexOf(currentTab);
+  }, [currentTab, availableTabs]);
+
+  const lastActiveTabRef = useRef<ExpandedTab>((() => {
+    try {
+      const saved = localStorage.getItem("island_last_active_tab");
+      if (saved) return saved as ExpandedTab;
+    } catch {}
+    return "quick_control";
+  })());
+  const lastPanelClosedAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (currentTab) {
+      lastActiveTabRef.current = currentTab;
+      try {
+        localStorage.setItem("island_last_active_tab", currentTab);
+      } catch {}
+    }
+  }, [currentTab]);
+
+  const cancelCollapseTimer = () => {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+  };
+
+  const compactHoverTimerRef = useRef<number | null>(null);
+
+  const cancelCompactHoverTimer = () => {
+    if (compactHoverTimerRef.current) {
+      clearTimeout(compactHoverTimerRef.current);
+      compactHoverTimerRef.current = null;
+    }
+  };
+
+  const handleCloseImmediate = useCallback(() => {
+    if (isSwitchingTabRef.current) return;
+    cancelCollapseTimer();
+    cancelCompactHoverTimer();
+    setSlideDirection(0);
+    setIsDragOver(false);
+    setIsSettings(false);
+    setIsVolumeMixer(false);
+    setIsClipboard(false);
+    setIsTodo(false);
+    setIsDropShelf(false);
+    setIsQuickControl(false);
+    setIsExpanded(false);
+    lastPanelClosedAtRef.current = Date.now();
+  }, []);
+
+  const openLastOrPreferredTab = () => {
+    cancelCollapseTimer();
+    setSlideDirection(0);
+    const elapsed = Date.now() - lastPanelClosedAtRef.current;
+    const tabExpired = lastPanelClosedAtRef.current > 0 && elapsed > 5 * 60 * 1000;
+    let target = tabExpired ? "quick_control" as ExpandedTab : (lastActiveTabRef.current || "quick_control");
+    if (target === "media_expanded" && !mediaRef.current) {
+      target = "quick_control";
+    }
+    goToTab(target, 0);
+  };
+
+  const handleCompactHoverTrigger = () => {
+    if (!isCursorInsideNotchRef.current) return;
+    if (mediaRef.current) {
+      goToTab("media_expanded", 0);
+      return;
+    }
+    openLastOrPreferredTab();
+  };
+
+  const startCompactHoverTimer = (delayMs: number = 80) => {
+    cancelCompactHoverTimer();
+    compactHoverTimerRef.current = window.setTimeout(() => {
+      handleCompactHoverTrigger();
+    }, delayMs);
+  };
+
+  const [optCloseDelay, setOptCloseDelay] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("island_close_delay");
+      if (saved !== null) {
+        const num = Number(saved);
+        if (num === 0 || num === 1 || num === 3 || num === -1) return num;
+      }
+    } catch {}
+    return 0;
+  });
+  const optCloseDelayRef = useRef(optCloseDelay);
+  useEffect(() => { optCloseDelayRef.current = optCloseDelay; }, [optCloseDelay]);
+
+  const isSwitchingTabRef = useRef(false);
+  const tabSwitchTimerRef = useRef<number | null>(null);
+
+  const setTabSwitchGrace = (durationMs = 500) => {
+    isSwitchingTabRef.current = true;
+    if (tabSwitchTimerRef.current) clearTimeout(tabSwitchTimerRef.current);
+    tabSwitchTimerRef.current = window.setTimeout(() => {
+      isSwitchingTabRef.current = false;
+      tabSwitchTimerRef.current = null;
+      if (!isCursorInsideNotchRef.current) {
+        startCollapseTimer();
+      }
+    }, durationMs);
+  };
+
+  // Reads refs, not state: this gets called from listeners registered once on mount
+  const startCollapseTimer = (_delayMs: number = 0) => {
+    cancelCollapseTimer();
+    cancelCompactHoverTimer();
+    if (isCursorInsideNotchRef.current || isSwitchingTabRef.current) return;
+
+    const hasOpenPanel =
+      isExpandedRef.current ||
+      isQuickControlRef.current ||
+      isTodoRef.current ||
+      isDropShelfRef.current ||
+      isClipboardRef.current ||
+      isVolumeMixerRef.current ||
+      isSettingsRef.current ||
+      currentNotifRef.current;
+
+    if (hasOpenPanel) {
+      const configuredSec = optCloseDelayRef.current;
+      if (configuredSec === -1) {
+        return;
+      }
+      const effectiveDelay = configuredSec > 0 ? configuredSec * 1000 : 35;
+
+      collapseTimerRef.current = window.setTimeout(async () => {
+        if (isCursorInsideNotchRef.current || isSwitchingTabRef.current) return;
+        if (optCloseDelayRef.current === -1) return;
+        if (optCloseDelayRef.current > 0) {
+          try {
+            const inNotch = await invoke<boolean>("is_cursor_in_notch");
+            if (inNotch) {
+              isCursorInsideNotchRef.current = true;
+              cancelCollapseTimer();
+              return;
+            }
+          } catch {}
+        }
+
+        setIsExpanded(false);
+        setIsQuickControl(false);
+        setIsTodo(false);
+        setIsDropShelf(false);
+        setIsClipboard(false);
+        setIsVolumeMixer(false);
+        setIsSettings(false);
+        setSlideDirection(0);
+        if (currentNotifRef.current) setNotif(null);
+        lastPanelClosedAtRef.current = Date.now();
+      }, effectiveDelay);
+    }
+  };
+
+  const lastSysInfoFetchRef = useRef<number>(0);
+  const fetchSystemStatus = () => {
+    const now = Date.now();
+    if (now - lastSysInfoFetchRef.current < 4000) return;
+    lastSysInfoFetchRef.current = now;
+
+    invoke<[string, string]>("get_system_info").then(res => {
+      setWifiName(res[0]);
+      setBtName(res[1]);
+    }).catch(console.error);
+    invoke<number>("get_master_volume").then(v => setSoundLevel(Math.round(v * 100))).catch(console.error);
+    invoke<number>("get_brightness").then(b => setDisplayLevel(b)).catch(console.error);
+  };
+
+  const goToTab = (targetTab: ExpandedTab, direction?: 1 | -1 | 0) => {
+    cancelCollapseTimer();
+    if (currentTab === targetTab) return;
+    const wasAlreadyOpen = Boolean(currentTab);
+    if (wasAlreadyOpen) {
+      setTabSwitchGrace(500);
+    }
+    const currentIndex = currentTabIndex;
+    const targetIndex = availableTabs.indexOf(targetTab);
+    const resolvedDirection = direction !== undefined 
+      ? direction 
+      : (targetIndex >= 0 && currentIndex >= 0 ? (targetIndex >= currentIndex ? 1 : -1) : 0);
+
+    setSlideDirection(resolvedDirection);
+
+    isExpandedRef.current = targetTab === "media_expanded";
+    setIsExpanded(targetTab === "media_expanded");
+
+    isQuickControlRef.current = targetTab === "quick_control";
+    setIsQuickControl(targetTab === "quick_control");
+
+    isTodoRef.current = targetTab === "todo";
+    setIsTodo(targetTab === "todo");
+
+    isDropShelfRef.current = targetTab === "drop_shelf";
+    setIsDropShelf(targetTab === "drop_shelf");
+
+    isClipboardRef.current = targetTab === "clipboard";
+    setIsClipboard(targetTab === "clipboard");
+
+    isVolumeMixerRef.current = targetTab === "volume_mixer";
+    setIsVolumeMixer(targetTab === "volume_mixer");
+
+    isSettingsRef.current = targetTab === "settings";
+    setIsSettings(targetTab === "settings");
+
+    // Defer background status refresh until after the expand animation settles so it never stutters mid-spring
+    const fetchDelay = wasAlreadyOpen ? 40 : 260;
+    if (targetTab === "quick_control") {
+      window.setTimeout(() => fetchSystemStatus(), fetchDelay);
+    } else if (targetTab === "volume_mixer") {
+      window.setTimeout(() => {
+        invoke<any[]>("get_audio_sessions").then(setAudioSessions).catch(console.error);
+      }, fetchDelay);
+    }
+  };
+
+  const handlePrevTab = () => {
+    if (currentTabIndex > 0) {
+      goToTab(availableTabs[currentTabIndex - 1], -1);
+    }
+  };
+
+  const handleNextTab = () => {
+    if (currentTabIndex >= 0 && currentTabIndex < availableTabs.length - 1) {
+      goToTab(availableTabs[currentTabIndex + 1], 1);
+    }
+  };
+
+  const handleSelectTab = (idx: number) => {
+    if (idx >= 0 && idx < availableTabs.length && idx !== currentTabIndex) {
+      const dir = idx > currentTabIndex ? 1 : -1;
+      goToTab(availableTabs[idx], dir);
+    }
+  };
+
+  const tabBeforeSettingsRef = useRef<ExpandedTab | null>(null);
+
+  const handleToggleSettings = () => {
+    if (currentTab === "settings") {
+      goToTab(tabBeforeSettingsRef.current ?? availableTabs[0], -1);
+      return;
+    }
+    tabBeforeSettingsRef.current = currentTab;
+    goToTab("settings", 1);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!currentTab) return;
+      if (currentTab === "clipboard" || currentTab === "volume_mixer") {
+        if (e.key === "Escape" || e.key === "ArrowLeft") {
+          goToTab("quick_control", -1);
+        }
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        handlePrevTab();
+      } else if (e.key === "ArrowRight") {
+        handleNextTab();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentTab, currentTabIndex, availableTabs]);
+
+  useEffect(() => {
     return () => {
       if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
     };
-  }, [isExpanded, isQuickControl, isSettings]);
+  }, []);
   
   const [optVolume, setOptVolume] = useState(true);
   const [optClipboard, setOptClipboard] = useState(true);
@@ -108,7 +964,80 @@ export default function App() {
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy"|"smooth"|"bouncy">("smooth");
   const [optAccent, setOptAccent] = useState<"default"|"pink"|"blue"|"green">("default");
   const [optNotifTime, setOptNotifTime] = useState<number>(5);
+  const [optEars, setOptEars] = useState<boolean>(true);
+  const [optWeatherAnim, setOptWeatherAnim] = useState<boolean>(true);
+  const [optTheme, setOptTheme] = useState<"dark" | "light" | "auto">(() => {
+    try {
+      const s = localStorage.getItem("island_theme");
+      if (s === "dark" || s === "light" || s === "auto") return s;
+    } catch {}
+    return "dark";
+  });
+  const [idleLayout, setIdleLayout] = useState<IdleLayoutConfig>(() => getSavedIdleLayout());
+  const [optIdleSize, setOptIdleSize] = useState<"compact" | "default" | "large">("default");
+  const [optTabSize, setOptTabSize] = useState<"compact" | "default" | "large">("default");
+  const [optFontSize, setOptFontSize] = useState<"small" | "default" | "large">("default");
+
+  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => {
+    if (typeof window !== "undefined" && window.matchMedia) {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
+    mediaQuery.addEventListener("change", handler);
+    return () => mediaQuery.removeEventListener("change", handler);
+  }, []);
+
+  const isLightMode = optTheme === "light" || (optTheme === "auto" && !systemPrefersDark);
+
+  const dateDisplay = useMemo(() => {
+    try {
+      const weekday = time.toLocaleDateString(optLanguage === "id" ? "id-ID" : "en-US", { weekday: "short" }).replace(".", "");
+      return `${weekday}, ${time.getDate()}`;
+    } catch {
+      return `${time.getDate()}`;
+    }
+  }, [time, optLanguage]);
+
+  const fullDateTitle = useMemo(() => {
+    try {
+      return time.toLocaleDateString(optLanguage === "id" ? "id-ID" : "en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    } catch {
+      return "";
+    }
+  }, [time, optLanguage]);
+
+  useEffect(() => {
+    if (isLightMode) {
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+    }
+  }, [isLightMode]);
+
+  const handleChangeLanguage = async (newLang: Language) => {
+    setLanguage(newLang, false);
+    setOptLanguage(newLang);
+    if (store) {
+      try {
+        await store.set("opt_language", newLang);
+        await store.save();
+      } catch {}
+    }
+  };
   
+  const [camActive, setCamActive] = useState(false);
+  const [micActive, setMicActive] = useState(false);
   const optVolumeRef = useRef(optVolume);
   useEffect(() => { optVolumeRef.current = optVolume; }, [optVolume]);
   const optClipboardRef = useRef(optClipboard);
@@ -131,34 +1060,21 @@ export default function App() {
   }, [optMedia]);
 
   
-  const quickControlTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const setupAutostart = async () => {
-      try {
-        if (!(await isEnabled())) await enable();
-      } catch (e) {
-        console.error("Failed to enable autostart", e);
-      }
-    };
-    setupAutostart();
-
     const setupShortcut = async () => {
       try {
         await unregisterAll();
       } catch (e) {}
 
-      const shortcuts = ["CommandOrControl+Shift+D", "Alt+Shift+H", "CommandOrControl+Alt+H", "CommandOrControl+Shift+X", "F9"];
-      for (const sc of shortcuts) {
-        try {
-          await register(sc, (event) => {
-            if (event.state === "Pressed") {
-              setIsHidden(prev => !prev);
-            }
-          });
-        } catch (err) {
-          console.error("Failed to register shortcut:", sc, err);
-        }
+      try {
+        await register("CommandOrControl+Shift+D", (event) => {
+          if (event.state === "Pressed") {
+            setIsHidden(prev => !prev);
+          }
+        });
+      } catch (err) {
+        console.error("Failed to register shortcut CommandOrControl+Shift+D:", err);
       }
     };
     setupShortcut();
@@ -176,16 +1092,64 @@ export default function App() {
         setStore(s);
         
         const greet = await s.get('show_greeting');
-        if (greet !== null) setShowGreeting(greet as boolean);
+        if (greet !== null) {
+          setShowGreeting(greet as boolean);
+          try {
+            localStorage.setItem("island_show_greeting", String(greet));
+          } catch {}
+        }
         const v = await s.get('opt_volume'); if (v !== null) setOptVolume(v as boolean);
         const c = await s.get('opt_clipboard'); if (c !== null) setOptClipboard(c as boolean);
         const m = await s.get('opt_media'); if (m !== null) setOptMedia(m as boolean);
         const p = await s.get('opt_position'); if (p !== null) setOptPosition(p as string as any);
-        const o = await s.get('opt_opacity'); if (o !== null) setOptOpacity(o as number);
+        const o = await s.get('opt_opacity'); if (o !== null) setOptOpacity(Number(o));
         const a = await s.get('opt_anim_speed'); if (a !== null) setOptAnimSpeed(a as string as any);
         const acc = await s.get('opt_accent'); if (acc !== null) setOptAccent(acc as string as any);
         const nt = await s.get('opt_notif_time'); if (nt !== null) setOptNotifTime(nt as number);
+        const cd = await s.get('opt_close_delay');
+        if (cd === 0 || cd === 1 || cd === 3 || cd === -1) {
+          setOptCloseDelay(cd as number);
+          try { localStorage.setItem("island_close_delay", String(cd)); } catch {}
+        }
+        const ears = await s.get('opt_ears'); if (typeof ears === 'boolean') setOptEars(ears);
+        const wa = await s.get('opt_weather_anim'); if (typeof wa === 'boolean') setOptWeatherAnim(wa);
+        const ac = await s.get('opt_auto_compact'); if (typeof ac === 'boolean') setOptAutoCompact(ac);
+        const lang = await s.get('opt_language');
+        if (lang === 'en' || lang === 'id') {
+          setLanguage(lang as Language, false);
+          setOptLanguage(lang as Language);
+        }
+        const th = await s.get('opt_theme'); if (th === 'dark' || th === 'light' || th === 'auto') setOptTheme(th);
+        const savedLayout = await s.get('opt_idle_layout');
+        if (savedLayout) {
+          const parsed = parseIdleLayout(savedLayout);
+          setIdleLayout(parsed);
+          try { localStorage.setItem("island_idle_layout", JSON.stringify(parsed)); } catch {}
+        }
+        const isz = await s.get('opt_idle_size'); if (isz === 'compact' || isz === 'default' || isz === 'large') setOptIdleSize(isz);
+        const tsz = await s.get('opt_tab_size'); if (tsz === 'compact' || tsz === 'default' || tsz === 'large') setOptTabSize(tsz);
+        const fsz = await s.get('opt_font_size'); if (fsz === 'small' || fsz === 'default' || fsz === 'large') setOptFontSize(fsz);
         
+        const autostartInit = await s.get('autostart_initialized');
+        if (!autostartInit) {
+          try {
+            if (!(await isEnabled())) await enable();
+            await s.set('autostart_initialized', true);
+            await s.set('opt_autostart', true);
+          } catch (e) {
+            console.error("Failed to initialize autostart", e);
+          }
+        } else {
+          const savedAutostart = await s.get('opt_autostart');
+          if (typeof savedAutostart === 'boolean') {
+            try {
+              const currentEnabled = await isEnabled();
+              if (savedAutostart && !currentEnabled) await enable();
+              else if (!savedAutostart && currentEnabled) await disable();
+            } catch {}
+          }
+        }
+
         const auto = await isEnabled();
         setIsAutostart(auto);
       } catch (e) {
@@ -193,72 +1157,210 @@ export default function App() {
       }
     };
     initSettings();
+    loadPersistedShelfFiles().then((saved) => {
+      if (saved.length > 0) setStashedFiles(saved);
+    });
 
     const bootGreeting = async () => {
       try {
-        const s = await load('settings.json', { autoSave: true });
-        const greet = await s.get('show_greeting');
-        if (greet === false) {
+        const cachedGreet = localStorage.getItem("island_show_greeting");
+        if (cachedGreet === "false") {
           setIsBooting(false);
           return;
         }
-        
-        const username = await invoke<string>("get_username");
-        const hour = new Date().getHours();
-        const isNight = hour >= 18 || hour < 5;
-        const greeting = isNight ? "Good evening" : "Welcome back";
-        
-        showNotif({
-          title: `Hi ${username},`,
-          body: `${greeting}!`,
-          icon: isNight ? "moon" : "sun"
-        });
+        await triggerGreeting();
       } catch (e) {
-        console.error("Failed to get username", e);
+        console.error("Failed to run boot greeting", e);
       } finally {
         setIsBooting(false);
       }
     };
     bootGreeting();
 
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
+    const unlistenClickOutside = listen("click-outside", () => {
+      if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
+      isCursorInsideNotchRef.current = false;
+      handleCloseImmediate();
+    });
+
+    const unlistenMouseLeave = listen("notch-mouse-leave", () => {
+      cancelCompactHoverTimer();
+      isCursorInsideNotchRef.current = false;
+      setIsDragOver(false);
+      if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
+      startCollapseTimer(350);
+    });
+
+    const unlistenMouseEnter = listen("notch-mouse-enter", () => {
+      if (isShelfDraggingRef.current) return;
+      isCursorInsideNotchRef.current = true;
+      cancelCollapseTimer();
+      if (currentNotifRef.current) return;
+      if (variantRef.current === "compact") {
+        startCompactHoverTimer(80);
+      } else if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
+        goToTab("media_expanded", 0);
+      } else if (variantRef.current === "idle") {
+        openLastOrPreferredTab();
+      }
+    });
+
+    const handleGlobalPointerDown = (e: MouseEvent | PointerEvent) => {
+      if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
+      const notchElement = document.getElementById("notch-pill");
+      if (notchElement && !notchElement.contains(e.target as Node)) {
+        isCursorInsideNotchRef.current = false;
+        handleCloseImmediate();
+      }
+    };
+
+    const handleGlobalPointerMove = (e: MouseEvent | PointerEvent) => {
+      if (isShelfDraggingRef.current) return;
+      const pillElement = document.getElementById("notch-pill");
+      if (pillElement) {
+        const rect = pillElement.getBoundingClientRect();
+        const isInside =
+          e.clientX >= rect.left &&
+          e.clientX <= rect.right &&
+          e.clientY >= rect.top &&
+          e.clientY <= rect.bottom;
+        if (isInside) {
+          isCursorInsideNotchRef.current = true;
+          cancelCollapseTimer();
+          const hasOpenPanel = isExpandedRef.current || isQuickControlRef.current || isTodoRef.current || isDropShelfRef.current || isClipboardRef.current || isVolumeMixerRef.current || isSettingsRef.current;
+          if (variantRef.current === "compact" && !compactHoverTimerRef.current && !hasOpenPanel) {
+            startCompactHoverTimer(80);
+          }
+        } else if (isCursorInsideNotchRef.current) {
+          cancelCompactHoverTimer();
+          isCursorInsideNotchRef.current = false;
+          if (!isSwitchingTabRef.current) {
+            startCollapseTimer(350);
+          }
+        }
+      }
+    };
+
+    window.addEventListener("pointerdown", handleGlobalPointerDown, true);
+    window.addEventListener("pointermove", handleGlobalPointerMove, { passive: true });
+
+    const unlistenBrowser = listen<boolean>("foreground-app-browser", (event) => {
+      setIsBrowserActive(Boolean(event.payload));
+    });
+    invoke<boolean>("check_foreground_browser").then(setIsBrowserActive).catch(console.error);
+
+    let unlistenDragDrop: (() => void) | undefined;
+    try {
+      getCurrentWebview().onDragDropEvent((event) => {
+        if (isShelfDraggingRef.current) return;
+        if (event.payload.type === "over" || event.payload.type === "enter") {
+          setIsDragOver(true);
+        } else if (event.payload.type === "leave") {
+          setIsDragOver(false);
+        } else if (event.payload.type === "drop") {
+          setIsDragOver(false);
+          const paths = event.payload.paths;
+          if (paths && paths.length > 0) {
+            const valid = paths.filter((p) => !outgoingShelfPathsRef.current.has(p.toLowerCase()));
+            if (valid.length > 0) {
+              addStashedFiles(valid);
+            }
+          }
+        }
+      }).then((u) => { unlistenDragDrop = u; });
+    } catch (e) {
+      console.error("Failed to setup onDragDropEvent", e);
+    }
+    
     return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("pointerdown", handleGlobalPointerDown, true);
+      window.removeEventListener("pointermove", handleGlobalPointerMove);
+      unlistenClickOutside.then(unlisten => unlisten());
+      unlistenMouseLeave.then(unlisten => unlisten());
+      unlistenMouseEnter.then(unlisten => unlisten());
+      unlistenBrowser.then(unlisten => unlisten());
+      if (unlistenDragDrop) unlistenDragDrop();
+      unregisterAll().catch(() => {});
     };
   }, []);
 
   useEffect(() => {
-    const fetchWeather = async () => {
-      try {
-        const locRes = await fetch("https://get.geojs.io/v1/ip/geo.json");
-        const locData = await locRes.json();
-        const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${locData.latitude}&longitude=${locData.longitude}&current_weather=true`);
-        const weatherData = await weatherRes.json();
+    let isMounted = true;
+
+    const updateWeather = async () => {
+      const data = await fetchCurrentWeather();
+      if (isMounted && data) {
         setWeather({
-          temp: `${Math.round(weatherData.current_weather.temperature)}\u00B0`,
-          code: weatherData.current_weather.weathercode
+          temp: data.temp,
+          code: data.code,
+          locationName: data.locationName,
         });
-      } catch (e) {
-        console.error("Weather fetch failed:", e);
       }
     };
-    fetchWeather();
-    const interval = setInterval(fetchWeather, 1000 * 60 * 30);
-    return () => clearInterval(interval);
+
+    updateWeather();
+    const interval = setInterval(updateWeather, 1000 * 60 * 30);
+    const unsubscribe = subscribeWeatherChange(() => {
+      updateWeather();
+    });
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
-    invoke<[boolean, number]>("get_battery_status")
+    invoke<[boolean, number] | null>("get_battery_status")
       .then(res => {
-        if (res) setBattery({ is_charging: res[0], percent: res[1] });
+        if (res && res[1] <= 100) {
+          setBattery({ is_charging: res[0], percent: res[1] });
+        } else {
+          setBattery(null);
+        }
       })
       .catch(console.error);
-    return () => clearInterval(timer);
+      
+    invoke<[boolean, boolean]>("get_privacy_status")
+      .then(([cam, mic]) => {
+        setCamActive(cam);
+        setMicActive(mic);
+      })
+      .catch(console.error);
+
+    const unlistenPrivacy = listen<{cam: boolean, mic: boolean}>("privacy-update", (event) => {
+      setCamActive(event.payload.cam);
+      setMicActive(event.payload.mic);
+    });
+
+    const unlistenUsb = listen<{name: string, letter: string}>("usb-connected", (event) => {
+      showNotif({
+        title: "USB Connected",
+        body: `${event.payload.name} (${event.payload.letter})`,
+        icon: "usb",
+        onClick: () => {
+          setNotif(null);
+          invoke("show_in_folder", { path: event.payload.letter }).catch(console.error);
+        },
+      });
+    });
+
+    const unlistenAudio = listen<{name: string, icon: string}>("audio-connected", (event) => {
+      showNotif({
+        title: "Audio Device Connected",
+        body: event.payload.name,
+        icon: "headphones"
+      });
+    });
+
+    return () => {
+      clearInterval(timer);
+      unlistenPrivacy.then(f => f());
+      unlistenUsb.then(f => f());
+      unlistenAudio.then(f => f());
+    };
   }, []);
 
   useEffect(() => {
@@ -285,13 +1387,14 @@ export default function App() {
     });
 
     const unlistenBattery = listen<{is_charging: boolean, percent: number}>("battery-update", (event) => {
+      if (event.payload.percent > 100) return;
       setBattery((prev) => {
 
         if (prev && prev.is_charging !== event.payload.is_charging) {
           if (event.payload.is_charging) {
-            showNotif({ title: "Charging", body: `${event.payload.percent}%`, icon: "battery" });
+            showNotif({ title: t("notif_charging"), body: `${event.payload.percent}%`, icon: "battery" });
           } else {
-            showNotif({ title: "On Battery", body: `${event.payload.percent}% remaining`, icon: "battery" });
+            showNotif({ title: t("notif_on_battery"), body: t("notif_battery_remaining", { percent: event.payload.percent }), icon: "battery" });
           }
         }
         return event.payload;
@@ -299,45 +1402,147 @@ export default function App() {
     });
 
     const unlistenVolume = listen<{level: number}>("volume-update", (event) => {
-      if (isQuickControlRef.current || isAdjustingVolumeRef.current) return;
+      if (isQuickControlRef.current || isVolumeMixerRef.current || isAdjustingVolumeRef.current) return;
       const vol = Math.round(event.payload.level * 100);
-      showNotif({ title: "Volume", body: `${vol}%`, icon: "volume" });
+      showNotif({ title: t("cc_volume"), body: `${vol}%`, icon: "volume" });
     });
 
+    let clipboardDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     const unlistenClipboard = listen("clipboard-update", () => {
-      showNotif({ title: "Copied to Clipboard", body: "", icon: "clipboard" });
+      if (!optClipboardRef.current || isOcrWritingRef.current) return;
+      
+      if (clipboardDebounceTimer) clearTimeout(clipboardDebounceTimer);
+      clipboardDebounceTimer = setTimeout(async () => {
+        if (!optClipboardRef.current || isOcrWritingRef.current) return;
+        try {
+          // Cek teks terlebih dahulu
+          const copiedText = await invoke<string>("read_clipboard_text").catch(() => "");
+          if (copiedText && copiedText.trim().length > 0) {
+            addClipboardItem(copiedText);
+            if (!isClipboardRef.current) {
+              const snippet = copiedText.trim().length > 28 
+                ? `${copiedText.trim().slice(0, 28)}...` 
+                : copiedText.trim();
+              showNotif({ title: t("notif_copied_clipboard"), body: snippet, icon: "clipboard" });
+            }
+            return;
+          }
+
+          // Jika bukan teks (misal: screenshot/gambar), jalankan OCR secara aman
+          const text = await invoke<string>("extract_clipboard_text").catch(() => "");
+          if (text && text.trim().length > 0) {
+            if (text === lastExtractedTextRef.current) return;
+            lastExtractedTextRef.current = text;
+            
+            showNotif({ 
+              title: t("notif_ocr_detected"), 
+              body: t("notif_ocr_click_to_copy"), 
+              icon: "clipboard",
+              onClick: () => {
+                isOcrWritingRef.current = true;
+                writeText(text).then(() => {
+                  addClipboardItem(text);
+                  setNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
+                  setTimeout(() => { isOcrWritingRef.current = false; }, 3000);
+                }).catch((e) => {
+                  console.error(e);
+                  isOcrWritingRef.current = false;
+                });
+              }
+            });
+          }
+        } catch (err) {
+          console.debug("Clipboard handler error:", err);
+        }
+      }, 150);
     });
 
     const unlistenCaps = listen<{is_on: boolean}>("caps-update", (event) => {
-      showNotif({ title: event.payload.is_on ? "Caps Lock: ON" : "Caps Lock: OFF", body: "", icon: "capslock" });
+      showNotif({ title: event.payload.is_on ? t("notif_caps_on") : t("notif_caps_off"), body: "", icon: "capslock" });
     });
 
-    const unlistenRealNotif = listen<{app_name: string, title: string, body: string}>("real-notif", (event) => {
+    const unlistenBt = listen<{name: string, battery: string}>("bt-connected", (event) => {
+      let body = t("notif_connected");
+      if (event.payload.battery) {
+        body += ` • Battery: ${event.payload.battery}`;
+      }
+      showNotif({ title: event.payload.name, body, icon: "bluetooth" });
+    });
+
+    const unlistenRealNotif = listen<{app_name: string, title: string, body: string, aumid?: string}>("real-notif", (event) => {
       const appName = event.payload.app_name || "Notification";
       const lower = appName.toLowerCase();
+      
+      // Abaikan notif dari Snipping Tool karena tabrakan sama fitur OCR kita
+      if (lower.includes("snipping tool") || lower.includes("screensketch")) return;
+      
       let iconType = "bell";
       if (lower.includes("whatsapp")) iconType = "whatsapp";
       else if (lower.includes("telegram")) iconType = "telegram";
       else if (lower.includes("discord")) iconType = "discord";
       else if (lower.includes("mail") || lower.includes("outlook")) iconType = "mail";
       else if (lower.includes("instagram")) iconType = "instagram";
-      else if (lower.includes("x") || lower.includes("x")) iconType = "x";
+      else if (lower.includes("threads")) iconType = "threads";
+      else if (lower.includes("tiktok")) iconType = "tiktok";
+      else if (lower.includes("netflix")) iconType = "netflix";
+      else if (lower.includes("reddit")) iconType = "reddit";
+      else if (lower.includes("vlc")) iconType = "vlc";
+      else if (lower.includes("media player") || lower.includes("wmplayer")) iconType = "windows-media-player";
+      else if (lower.includes("x") || lower.includes("twitter")) iconType = "x";
       else if (lower.includes("youtube")) iconType = "youtube";
       else if (lower.includes("slack") || lower.includes("teams")) iconType = "slack";
       
       const combinedBody = String(event.payload.title ? (event.payload.body ? `${event.payload.title} - ${event.payload.body}` : event.payload.title) : event.payload.body || '').trim();
       
-      showNotif({ title: appName, body: combinedBody, icon: iconType });
+      
+      showNotif({ title: appName, body: combinedBody, icon: iconType, aumid: event.payload.aumid });
+    });
+
+    const unlistenNetwork = listen<number | null>("network-ping", (event) => {
+      setNetworkPing(event.payload);
+    });
+
+    const unlistenSysInfo = listen<[string, string]>("system-info-update", (event) => {
+      setWifiName(event.payload[0]);
+      setBtName(event.payload[1]);
+    });
+
+    const unlistenBrightness = listen<number>("brightness-update", (event) => {
+      setDisplayLevel(event.payload);
+    });
+
+    const unlistenTrayToggle = listen("tray-toggle-visibility", () => {
+      setIsHidden((prev) => !prev);
+    });
+
+    const unlistenTrayCC = listen("tray-open-control-center", () => {
+      setIsHidden(false);
+      setTabSwitchGrace(1200);
+      goToTab("quick_control", 0);
+    });
+
+    const unlistenTraySettings = listen("tray-open-settings", () => {
+      setIsHidden(false);
+      setTabSwitchGrace(1200);
+      goToTab("settings", 0);
     });
 
     return () => {
+      if (clipboardDebounceTimer) clearTimeout(clipboardDebounceTimer);
       unlistenMedia.then((f) => f());
       unlistenProgress.then((f) => f());
       unlistenBattery.then((f) => f());
       unlistenVolume.then((f) => f());
       unlistenClipboard.then((f) => f());
       unlistenCaps.then((f) => f());
+      unlistenBt.then((f) => f());
       unlistenRealNotif.then((f) => f());
+      unlistenNetwork.then((f) => f());
+      unlistenSysInfo.then((f) => f());
+      unlistenBrightness.then((f) => f());
+      unlistenTrayToggle.then((f) => f());
+      unlistenTrayCC.then((f) => f());
+      unlistenTraySettings.then((f) => f());
     };
   }, []);
 
@@ -356,19 +1561,50 @@ export default function App() {
       setNotifQueue(q => q.slice(1));
     } else if (notif) {
       let duration = optNotifTimeRef.current * 1000;
-      if (notif.icon === "clipboard") duration = 1000;
-      if (notif.icon === "sun" || notif.icon === "moon") duration = 5000;
+      const shortIcons = ["volume", "battery", "bluetooth"];
+      if (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon") {
+        duration = Math.max(3800, optNotifTimeRef.current * 1000);
+      } else if (notif.icon === "capslock") {
+        duration = 1000;
+      } else if (notif.icon === "clipboard" && !notif.body) {
+        duration = 1500;
+      } else if (shortIcons.includes(notif.icon || "")) {
+        duration = 1500;
+      }
       
       const timer = setTimeout(() => {
-        setNotif(null);      }, duration);
+        setNotif(null);
+      }, duration);
       return () => clearTimeout(timer);
     }
   }, [notif, notifQueue]);
 
-  const handleNotifClick = async () => {
+  const handleNotifClick = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     const active = notif;
-    setNotif(null);    if (!active) return;
+    if (!active) return;
     
+    if (active.onClick) {
+      active.onClick();
+      // Let onClick handle its own unmount or notification replacement
+      return;
+    }
+    
+    setTimeout(() => setNotif(null), 50);
+
+    try {
+      const activated = await invoke<boolean>("activate_notification_app", {
+        appName: active.title,
+        aumid: active.aumid || null,
+      });
+      if (activated) return;
+    } catch (err) {
+      console.error("Failed to activate notification app natively:", err);
+    }
+
     const title = active.title.toLowerCase();
     
     let url = "";
@@ -382,16 +1618,15 @@ export default function App() {
     else if (title.includes("line")) url = "line://";
     else if (title.includes("mail") || title.includes("outlook")) url = "mailto:";
     else if (title.includes("instagram")) url = "https://instagram.com";
-    else if (title.includes("x") || title.includes("x")) url = "https://x.com";
+    else if (title === "x" || title.includes("twitter")) url = "https://x.com";
     else if (title.includes("facebook")) url = "https://facebook.com";
     else if (title.includes("youtube")) url = "https://youtube.com";
 
     if (url) {
       try {
-        await invoke("plugin:opener|open", { path: url });
+        await openUrl(url);
       } catch (e) {
         console.error("Failed to open app:", e);
-        window.location.href = url;
       }
     }
   };
@@ -409,30 +1644,94 @@ export default function App() {
 
   const isSingleLine = notif && (!notif.body || notif.body.trim() === "");
   const isSmallNotif = notif?.icon === "battery" || notif?.icon === "volume" || notif?.icon === "capslock";
-  const isMediumNotif = notif?.title === "On Battery" || notif?.icon === "clipboard" || isSingleLine;
+  const isMediumNotif = notif?.title === t("notif_on_battery") || notif?.title === "On Battery" || (notif?.icon === "clipboard" && !notif?.body) || isSingleLine;
+
+  const [fps, setFps] = useState(60);
+  const needsFpsCounter =
+    idleLayout.left === "fps" ||
+    idleLayout.center === "fps" ||
+    idleLayout.right === "fps" ||
+    isSettings;
+
+  useEffect(() => {
+    if (!needsFpsCounter) return;
+    let frameCount = 0;
+    let lastTime = performance.now();
+    let rafId: number;
+
+    const tick = (now: number) => {
+      frameCount++;
+      const elapsed = now - lastTime;
+      if (elapsed >= 1000) {
+        const measured = Math.max(1, Math.round((frameCount * 1000) / elapsed));
+        setFps((prev) => (prev === measured ? prev : measured));
+        frameCount = 0;
+        lastTime = now;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [needsFpsCounter]);
+
+  const idleRuntimeData: IdleRuntimeData = useMemo(() => ({
+    battery,
+    time,
+    dateDisplay,
+    fullDateTitle,
+    weather,
+    networkPing,
+    pendingTodosCount: pendingTodos.length,
+    stashedFilesCount: stashedFiles.length,
+    fps,
+    focusMode,
+    optLanguage,
+    isLightMode,
+    onOpenTab: (tab) => goToTab(tab),
+  }), [battery, time, dateDisplay, fullDateTitle, weather, networkPing, pendingTodos.length, stashedFiles.length, fps, focusMode, optLanguage, isLightMode]);
+
+  // When font size is large, automatically enforce large idle & tab dimensions so text never clips
+  const effectiveIdleSize = optFontSize === "large" ? "large" : optIdleSize;
+  const effectiveTabSize = optFontSize === "large" ? "large" : optTabSize;
 
   const getDynamicWidth = () => {
-    if (media && isExpanded) {
-      const titleWidth = getTextWidth(media.title || "", "bold 18px 'SF Pro Display', sans-serif");
-      const artistWidth = getTextWidth(media.artist || "", "14px 'SF Pro Display', sans-serif");
-      const maxTextWidth = Math.max(titleWidth, artistWidth);
-      const topRowWidth = 48 + 56 + 16 + maxTextWidth + 16;
-      const bottomRowWidth = 248;
-      return Math.min(330, Math.max(bottomRowWidth, Math.ceil(topRowWidth)));
+    if (notif && (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon")) {
+      const titleWidth = getTextWidth(notif.title || "", "600 13px 'Inter', sans-serif");
+      const bodyWidth = getTextWidth(notif.body || "", "bold 10px 'Inter', sans-serif");
+      const maxTextWidth = Math.max(titleWidth, bodyWidth);
+      return Math.min(380, Math.max(290, Math.ceil(maxTextWidth + 144)));
     }
-    
+
     if (media && !notif && !isExpanded) {
-      const titleWidth = getTextWidth(media.title || "", "bold 14px 'SF Pro Display', sans-serif");
-      const artistWidth = getTextWidth(media.artist || "", "11px 'SF Pro Display', sans-serif");
+      if (showLyrics) {
+        const lyricFont = optFontSize === "small" ? "bold 11.5px 'Inter', sans-serif" : optFontSize === "large" ? "bold 16px 'Inter', sans-serif" : "bold 13.5px 'Inter', sans-serif";
+        const subFont = optFontSize === "small" ? "500 9px 'Inter', sans-serif" : optFontSize === "large" ? "500 12px 'Inter', sans-serif" : "500 10.5px 'Inter', sans-serif";
+        const textToMeasure = activeIdleLyric.curr || media.title || "Now Playing";
+        const currWidth = getTextWidth(textToMeasure, lyricFont);
+        const prevWidth = activeIdleLyric.prev ? getTextWidth(activeIdleLyric.prev, subFont) : 0;
+        const nextWidth = activeIdleLyric.next ? getTextWidth(activeIdleLyric.next, subFont) : 0;
+        const maxText = Math.max(currWidth, prevWidth * 0.96, nextWidth * 0.96);
+
+        // Base elements: Left album art (30px) + gap (10px) + Right visualizer (24px) + gap (10px) + pill padding (28px) + buffer (8px) = 110px
+        const basePadding = 110;
+        return Math.min(560, Math.max(240, Math.ceil(maxText + basePadding)));
+      }
+
+      const titleFont = optFontSize === "small" ? "600 12.5px 'Inter', sans-serif" : optFontSize === "large" ? "600 15.5px 'Inter', sans-serif" : "600 14px 'Inter', sans-serif";
+      const artistFont = optFontSize === "small" ? "500 10px 'Inter', sans-serif" : optFontSize === "large" ? "500 12.5px 'Inter', sans-serif" : "500 11px 'Inter', sans-serif";
+      const titleWidth = getTextWidth(media.title || "", titleFont);
+      const artistWidth = getTextWidth(media.artist || "", artistFont);
       const maxTextWidth = Math.max(titleWidth, artistWidth);
-      return Math.min(260, Math.ceil(16 + 32 + 8 + 24 + maxTextWidth + 8)); 
+      // 24px outer px-3 + 32px art + 10px gap + text + 10px gap + 24px visualizer + 8px safety buffer = 108px
+      return Math.min(300, Math.max(175, Math.ceil(108 + maxTextWidth))); 
     }
     
     if (notif && !isSmallNotif && !isMediumNotif && !media) {
       const titleWidth = getTextWidth(notif.title || "", "bold 14px 'SF Pro Display', sans-serif");
       const bodyWidth = getTextWidth(notif.body || "", "14px 'SF Pro Display', sans-serif");
       const maxTextWidth = Math.max(titleWidth, bodyWidth);
-      return Math.min(260, Math.ceil(32 + 32 + 12 + maxTextWidth + 4));
+      return Math.min(280, Math.ceil(32 + 32 + 12 + maxTextWidth + 4));
     }
     
     if (notif && media && !isSmallNotif) {
@@ -443,7 +1742,7 @@ export default function App() {
       
       const maxMedia = Math.max(mediaTitle, mediaArtist) + 32 + 32 + 12; 
       const maxNotif = Math.max(notifTitle, notifBody) + 32 + 32 + 12;
-      return Math.min(260, Math.max(maxMedia, maxNotif) + 16);
+      return Math.min(280, Math.max(maxMedia, maxNotif) + 16);
     }
     
     if (notif) {
@@ -453,591 +1752,997 @@ export default function App() {
       let baseWidth = 32 + 32 + 12;
       if (notif.body) baseWidth += 8;
 
-      if (notif.icon === "clipboard") return 215;
+      if (notif.icon === "clipboard") {
+        if (!notif.body) return 215; // default simple copy
+        return Math.min(360, Math.ceil(baseWidth + Math.max(titleWidth, bodyWidth) + 16));
+      }
       
-      return Math.min(260, Math.ceil(baseWidth + titleWidth + bodyWidth + 8));
+      return Math.min(280, Math.ceil(baseWidth + titleWidth + bodyWidth + 8));
     }
 
     // Default to idle width calculation
-    let idleWidth = 46; // Battery(36) + Wifi(10)
-    let gaps = 2; // Gaps between (Batt-Wifi) and (Wifi-Time)
-    if (weather) {
-      idleWidth += 36; // Weather(36)
-      gaps += 1; // Extra gap for weather
+    if (showTodoReminder && pendingTodos.length > 0) {
+      const firstTask = pendingTodos[0].text;
+      const headerTitle = t("todo_reminder_title", { count: pendingTodos.length });
+      const titleWidth = getTextWidth(headerTitle, "bold 10.5px 'Inter', sans-serif");
+      const taskFont = optFontSize === "small" ? "600 12px 'Inter', sans-serif" : optFontSize === "large" ? "600 14.5px 'Inter', sans-serif" : "600 13px 'Inter', sans-serif";
+      const taskWidth = getTextWidth(firstTask, taskFont);
+      const maxText = Math.min(200, Math.max(titleWidth, taskWidth, 100));
+      return Math.min(340, Math.max(240, Math.ceil(112 + maxText)));
     }
-    idleWidth += 30; // Time(30)
-    idleWidth += (gaps * 10); // gap-2.5 = 10px per gap
-    idleWidth += 12; // Reduced padding left & right total
 
-    return idleWidth;
+    const statFont = optFontSize === "small" ? "bold 9px 'SF Pro Display', sans-serif" : optFontSize === "large" ? "bold 11.5px 'SF Pro Display', sans-serif" : "bold 10px 'SF Pro Display', sans-serif";
+
+    return measureIdleLayoutWidth(idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize);
   };
-  const dynamicWidth = React.useMemo(() => getDynamicWidth(), [media, notif, isExpanded, isSmallNotif, isMediumNotif, weather]);
+  const dynamicWidth = React.useMemo(
+    () => getDynamicWidth(),
+    [media, notif, isExpanded, isSmallNotif, isMediumNotif, weather, camActive, micActive, isPlaying, showTodoReminder, pendingTodos, stashedFiles.length, fps, focusMode, networkPing, idleLayout, idleRuntimeData, showLyrics, activeIdleLyric, battery, dateDisplay, optFontSize, optLanguage, time.getHours(), time.getMinutes(), effectiveIdleSize]
+  );
   let variant = "idle";
   if (isBooting) {
     variant = "hidden";
+  } else if (isOnboarding) {
+    variant = "onboarding";
+  } else if (isSettings) {
+    variant = "settings";
+  } else if (isVolumeMixer) {
+    variant = "volume_mixer";
+  } else if (isClipboard) {
+    variant = "clipboard";
+  } else if (isDropShelf) {
+    variant = "drop_shelf";
+  } else if (isTodo) {
+    variant = "todo";
+  } else if (isQuickControl) {
+    variant = "quick_control";
+  } else if (media && isExpanded) {
+    variant = showLyrics ? "media_expanded_lyrics" : "media_expanded";
+  } else if (isDragOver) {
+    variant = "drag_over";
+  } else if (notif && (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon")) {
+    variant = "notif_greeting";
   } else if (notif && media) {
     variant = isSmallNotif ? "notif_small_media" : "notif_media";
   } else if (notif) {
     if (notif.icon === "volume") variant = "notif_volume";
-    else if (notif.icon === "clipboard") variant = "notif_clipboard";
+    else if (notif.icon === "clipboard" && !notif.body) variant = "notif_clipboard";
     else if (isMediumNotif) variant = "notif_medium";
     else if (isSmallNotif) variant = "notif_small";
     else variant = "notif";
-  } else if (isSettings) {
-    variant = "settings";
-  } else if (isQuickControl) {
-    variant = "quick_control";
-  } else if (media && isExpanded) {
-    variant = "media_expanded";
+  } else if (optAutoCompact && isBrowserActive) {
+    variant = "compact";
   } else if (media) {
-    variant = "media";
+    variant = showLyrics ? "lyrics_idle" : "media";
+  } else if (showTodoReminder && pendingTodos.length > 0) {
+    variant = "todo_reminder";
   }
 
   if (isHidden) {
     variant = "hidden";
   }
 
+  variantRef.current = variant;
+
+  const isIdle = variant === "idle" || variant === "todo_reminder";
+  useEffect(() => {
+    variantRef.current = variant;
+    isIdleRef.current = isIdle;
+    if (variant === "idle" && pendingTodosRef.current.length > 0) {
+      try {
+        const last = localStorage.getItem("island_last_todo_reminder");
+        const lastTime = last ? parseInt(last, 10) : 0;
+        if (Date.now() - lastTime >= 15 * 60 * 1000) {
+          const t = window.setTimeout(() => {
+            if (isIdleRef.current && pendingTodosRef.current.length > 0) {
+              triggerTodoReminder();
+            }
+          }, 1200);
+          return () => clearTimeout(t);
+        }
+      } catch {}
+    }
+  }, [isIdle, variant]);
+
+  const isExpandedPanel = Boolean(
+    currentTab && (variant === "quick_control" || variant === "todo" || variant === "drop_shelf" || variant === "clipboard" || variant === "settings" || variant === "volume_mixer" || variant === "media_expanded" || variant === "media_expanded_lyrics")
+  );
+
+  const panelTitle = 
+    currentTab === "media_expanded" ? t("tab_now_playing") :
+    currentTab === "quick_control" ? t("tab_control_center") :
+    currentTab === "todo" ? t("tab_todo_list") :
+    currentTab === "drop_shelf" ? t("tab_file_shelf") :
+    currentTab === "clipboard" ? t("tab_clipboard") :
+    currentTab === "volume_mixer" ? t("tab_volume_mixer") :
+    t("tab_settings");
+
   const isBot = optPosition === 'bottom';
   const radius = (r: string) => isBot ? `${r} ${r} 0px 0px` : `0px 0px ${r} ${r}`;
   const startY = isBot ? 20 : -20;
-  
+
+  const idleMultiplier = effectiveIdleSize === "compact" ? 0.88 : effectiveIdleSize === "large" ? 1.15 : 1.0;
+  const idleHeight = effectiveIdleSize === "compact" ? 28 : effectiveIdleSize === "large" ? 36 : 32;
+  const lyricsIdleBaseHeight = optFontSize === "large" ? 64 : optFontSize === "small" ? 54 : 58;
+
+  const tabWidth = effectiveTabSize === "compact" ? 400 : effectiveTabSize === "large" ? 485 : 440;
+  const tabHeightMultiplier = effectiveTabSize === "compact" ? 0.92 : effectiveTabSize === "large" ? 1.10 : 1.0;
+  const lyricsExpandedWidth = effectiveTabSize === "compact" ? 620 : effectiveTabSize === "large" ? 750 : 680;
+
+  let smoothSpring: any = { type: "spring", stiffness: 340, damping: 32, mass: 0.72 };
+  if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 440, damping: 35, mass: 0.65 };
+  if (optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 300, damping: 22, mass: 0.75 };
+
   const variants = {
-    initialState: { width: 0, height: 0, y: startY, opacity: 0, borderRadius: radius("16px") },
-    hidden: { width: 0, height: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
-    idle: { width: dynamicWidth, height: 32, y: 0, opacity: 1, borderRadius: radius("12px") },
-    media: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
-    media_expanded: { width: dynamicWidth, height: 200, y: 0, opacity: 1, borderRadius: radius("24px") },
-    notif: { width: dynamicWidth, height: 80, y: 0, opacity: 1, borderRadius: radius("20px") },
-    notif_media: { width: dynamicWidth, height: 124, y: 0, opacity: 1, borderRadius: radius("20px") },
-    notif_small: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
-    notif_volume: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
-    notif_clipboard: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
-    notif_medium: { width: dynamicWidth, height: 48, y: 0, opacity: 1, borderRadius: radius("16px") },
-    notif_small_media: { width: dynamicWidth, height: 96, y: 0, opacity: 1, borderRadius: radius("20px") },
-    quick_control: { width: 280, height: 310, y: 0, opacity: 1, borderRadius: radius("24px") },
-    settings: { width: 340, height: 500, y: 0, opacity: 1, borderRadius: radius("24px") },
+    initialState: { width: 0, height: 0, x: 0, y: startY, opacity: 0, borderRadius: radius("16px") },
+    hidden: { width: 0, height: 0, x: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
+    compact: { width: Math.round(52 * idleMultiplier), height: Math.round(7 * (idleHeight / 32)), x: 0, y: 0, opacity: 0.95, borderRadius: radius("4px") },
+    idle: { width: dynamicWidth, height: idleHeight, x: 0, y: 0, opacity: 1, borderRadius: radius(idleHeight >= 36 ? "14px" : "12px") },
+    todo_reminder: {
+      width: dynamicWidth,
+      height: Math.round(52 * (idleHeight / 32)),
+      x: [0, -10, 10, -8, 8, -5, 5, -2.5, 2.5, 0],
+      y: 0,
+      opacity: 1,
+      borderRadius: radius("18px"),
+      transition: {
+        ...smoothSpring,
+        x: { duration: 0.65, delay: 0.06, ease: "easeInOut" },
+      },
+    },
+    drag_over: { width: Math.round(330 * idleMultiplier), height: 60, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
+    media: { width: Math.round(dynamicWidth * (effectiveIdleSize === "compact" ? 0.96 : effectiveIdleSize === "large" ? 1.08 : 1.0)), height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
+    lyrics_idle: { width: dynamicWidth, height: Math.round(lyricsIdleBaseHeight * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
+    media_expanded: { width: tabWidth, height: Math.round((isBot ? 385 : 285) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 385 : 285) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    notif_greeting: { width: dynamicWidth, height: 52, x: 0, y: 0, opacity: 1, borderRadius: radius("18px") },
+    notif: { width: dynamicWidth, height: 80, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
+    notif_media: { width: dynamicWidth, height: 124, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
+    notif_small: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
+    notif_volume: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
+    notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
+    notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
+    notif_small_media: { width: dynamicWidth, height: 96, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
+    quick_control: { width: tabWidth, height: Math.round(385 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    todo: { width: tabWidth, height: Math.round((isBot ? 385 : 185) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    drop_shelf: { width: tabWidth, height: Math.round((isBot ? 385 : 254) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    clipboard: { width: tabWidth, height: Math.round((isBot ? 400 : 420) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    settings: { width: tabWidth, height: Math.round((isBot ? 480 : 520) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    volume_mixer: { width: tabWidth, height: Math.round((isBot ? 400 : 420) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    onboarding: { width: Math.min(tabWidth, 410), height: 185, x: 0, y: 0, opacity: 1, borderRadius: radius("22px") },
   };
 
-  let smoothSpring: any = { type: "spring", stiffness: 350, damping: 25, mass: 0.9 }; // Apple-like smooth
-  if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 500, damping: 35, mass: 1 };
-  if (optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 280, damping: 15, mass: 0.8 };
-  const fadeTransition: any = { duration: 0.2, ease: "easeOut" };
+  const tabVariants: any = {
+    enter: (direction: number) => ({
+      x: direction > 0 ? 16 : direction < 0 ? -16 : 0,
+      opacity: 0,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+      transition: {
+        x: { duration: 0.2, ease: [0.22, 1, 0.36, 1] },
+        opacity: { duration: 0.18, ease: "easeOut" },
+        staggerChildren: 0.05,
+        delayChildren: 0.03,
+      },
+      transitionEnd: { transform: "none" },
+    },
+    exit: (direction: number) => ({
+      x: direction > 0 ? -16 : direction < 0 ? 16 : 0,
+      opacity: 0,
+      transition: {
+        x: { duration: 0.12, ease: [0.22, 1, 0.36, 1] },
+        opacity: { duration: 0.1, ease: "easeIn" },
+      },
+    }),
+  };
+
+  const contentSpring: any = { type: "spring", stiffness: 320, damping: 32, mass: 0.8 };
+  const fadeTransition: any = {
+    x: contentSpring,
+    y: contentSpring,
+    scale: contentSpring,
+    opacity: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
+    filter: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
+  };
+
+  const currentVariantSize = variants[variant as keyof typeof variants] || variants.idle;
+  const lastExpandedSizeRef = useRef({ width: tabWidth, height: Math.round(385 * tabHeightMultiplier) });
+  if (isExpandedPanel) {
+    lastExpandedSizeRef.current = {
+      width: currentVariantSize.width,
+      height: currentVariantSize.height,
+    };
+  }
 
   useEffect(() => {
-    const currentSize = variants[variant as keyof typeof variants];
+    const currentSize = variants[variant as keyof typeof variants] || variants.idle;
     invoke("update_pill_size", { 
       width: currentSize.width, 
       height: currentSize.height,
       isBottom: optPosition === "bottom"
     }).catch(console.error);
-  }, [variant, optPosition]);
+    invoke("enforce_always_on_top").catch(console.error);
+  }, [variant, optPosition, showLyrics, dynamicWidth, effectiveIdleSize, effectiveTabSize, optFontSize]);
   
   useEffect(() => {
     invoke("set_window_position", { isBottom: optPosition === "bottom" }).catch(console.error);
   }, [optPosition]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      invoke("enforce_always_on_top").catch(console.error);
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, []);
+
+
 
 
 
   return (
     <div className={`w-screen h-screen flex justify-center bg-transparent pointer-events-none ${optPosition === 'bottom' ? 'items-end' : 'items-start'}`}>
       <motion.div
-        layout
+        ref={notchPillRef}
+        id="notch-pill"
+        data-position={optPosition}
+        data-theme-mode={Number(optOpacity) >= 0.95 ? "solid" : Number(optOpacity) >= 0.75 ? "glass" : "clear"}
+        data-font-size={optFontSize}
+        data-idle-size={effectiveIdleSize}
+        data-tab-size={effectiveTabSize}
         initial="initialState"
         animate={variant}
         variants={variants}
         transition={smoothSpring}
-        onMouseMove={resetCollapseTimer}
-        onMouseEnter={() => {
-          if (media) setIsExpanded(true);
-          else if (!notif && !isSettings) {
-            setIsQuickControl(true);
-            invoke<[string, string]>("get_system_info").then(res => {
-              setWifiName(res[0]);
-              setBtName(res[1]);
-            }).catch(console.error);
-            invoke<number>("get_master_volume").then(v => setSoundLevel(Math.round(v * 100))).catch(console.error);
-            invoke<number>("get_brightness").then(b => setDisplayLevel(b)).catch(console.error);
+        onMouseMove={() => {
+          isCursorInsideNotchRef.current = true;
+          cancelCollapseTimer();
+          if (notif || isOnboarding || isDragOver || variant === "todo_reminder") return;
+          if (variant === "compact" && !compactHoverTimerRef.current && !isQuickControl && !isExpanded) {
+            startCompactHoverTimer(80);
           }
-          else if (!notif && !isSettings) setIsQuickControl(true);
+        }}
+        onMouseEnter={() => {
+          isCursorInsideNotchRef.current = true;
+          cancelCollapseTimer();
+          setSlideDirection(0);
+          if (notif || isOnboarding || isDragOver || variant === "todo_reminder") {
+            return;
+          }
+          if (variant === "compact") {
+            startCompactHoverTimer(80);
+            return;
+          }
+          if (variant === "media" || variant === "lyrics_idle") {
+            goToTab("media_expanded", 0);
+            return;
+          }
+          if (variant === "idle") {
+            openLastOrPreferredTab();
+          }
         }}
         onMouseLeave={() => {
-          setIsExpanded(false);
-          if (!isSettings) setIsQuickControl(false);
+          cancelCompactHoverTimer();
+          isCursorInsideNotchRef.current = false;
+          if (isSwitchingTabRef.current) return;
+          startCollapseTimer();
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!isDragOver) setIsDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          const rect = e.currentTarget.getBoundingClientRect();
+          if (
+            e.clientX <= rect.left ||
+            e.clientX >= rect.right ||
+            e.clientY <= rect.top ||
+            e.clientY >= rect.bottom
+          ) {
+            setIsDragOver(false);
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(false);
+          if (isShelfDraggingRef.current) return;
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            const paths: string[] = [];
+            for (let i = 0; i < e.dataTransfer.files.length; i++) {
+              const file = e.dataTransfer.files[i];
+              const p = (file as any).path;
+              if (typeof p === "string" && (p.includes("\\") || p.includes("/"))) {
+                if (!outgoingShelfPathsRef.current.has(p.toLowerCase())) {
+                  paths.push(p);
+                }
+              }
+            }
+            if (paths.length > 0) {
+              addStashedFiles(paths);
+            }
+          }
         }}
         onContextMenu={(e) => {
           e.preventDefault();
+          cancelCollapseTimer();
           if (notif) {
             setNotif(null);
-          } else if (isQuickControl || isSettings) {
+          } else if (isQuickControl || isSettings || isVolumeMixer || isClipboard || isTodo || isDropShelf || isExpanded) {
             setIsQuickControl(false);
             setIsSettings(false);
-          } else {
+            setIsVolumeMixer(false);
+            setIsClipboard(false);
+            setIsTodo(false);
+            setIsDropShelf(false);
             setIsExpanded(false);
-            setIsQuickControl(true);
-            invoke<[string, string]>("get_system_info").then(res => {
-              setWifiName(res[0]);
-              setBtName(res[1]);
-            }).catch(console.error);
-            invoke<number>("get_master_volume").then(v => setSoundLevel(Math.round(v * 100))).catch(console.error);
-            invoke<number>("get_brightness").then(b => setDisplayLevel(b)).catch(console.error);
+          } else {
+            openLastOrPreferredTab();
           }
         }}
-        className={`shadow-[0_8px_32px_rgba(0,0,0,0.6)] ring-1 ring-white/10 overflow-hidden text-white ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 ${optOpacity === 1.0 ? "bg-black" : optOpacity === 0.8 ? "bg-black/80 backdrop-blur-xl" : "bg-black/60 backdrop-blur-2xl"}`}
+        className={`${isLightMode ? "light" : "text-white"} ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 bg-transparent`}
       >
-        {/* Premium Noise Overlay for elegant glassmorphism */}
-        <div className="bg-noise absolute inset-0 z-0 rounded-[inherit] pointer-events-none"></div>
-        <AnimatePresence mode="wait">
-{variant === "idle" && (
+        <NotchSurface
+          containerRef={notchPillRef}
+          position={optPosition}
+          withEars={Boolean((optEars ?? true) && variant !== "compact" && variant !== "hidden")}
+          isExpanded={Boolean(
+            isExpandedPanel ||
+            isExpanded ||
+            isSettings ||
+            isQuickControl ||
+            isTodo ||
+            isDropShelf ||
+            isClipboard ||
+            isVolumeMixer ||
+            variant === "drag_over" ||
+            variant === "todo_reminder" ||
+            (notif && !isSmallNotif)
+          )}
+          ambientImageUrl={
+            isExpandedPanel && (currentTab === "media_expanded" || variant === "media_expanded" || variant === "media_expanded_lyrics")
+              ? musicAmbientUrl
+              : null
+          }
+        />
+
+        <div className="absolute inset-0 z-10 overflow-hidden rounded-[inherit] pointer-events-auto">
+          <WeatherAnimation weatherCode={optWeatherAnim ? (weather?.code || null) : null} />
+          {isDragOver && (
             <motion.div
-              key="idle"
-              initial={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={fadeTransition}
-              className="absolute inset-0 flex items-center justify-center gap-2.5 px-2 cursor-pointer hover:bg-white/5 transition-colors"
-              onClick={() => setIsQuickControl(true)}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="absolute inset-0 z-50 rounded-[inherit] bg-gradient-to-r from-cyan-950/95 via-sky-950/90 to-cyan-950/95 border-2 border-dashed border-cyan-400/80 flex items-center justify-center gap-2.5 px-4 text-cyan-200 font-bold text-xs shadow-[0_0_35px_rgba(6,182,212,0.5)] backdrop-blur-xl pointer-events-none select-none"
             >
-              <div className="flex items-center gap-0.5 shrink-0">
-                <span className={`text-[10px] font-bold leading-none ${battery?.is_charging ? "text-green-400" : "text-white"}`}>
-                  {battery ? battery.percent : '--'}
-                </span>
-                <Zap size={10} className={`${battery?.is_charging ? "text-green-400" : "text-white"} -translate-y-[0.5px]`} />
+              <div className="w-7 h-7 rounded-full bg-cyan-500/25 border border-cyan-400/40 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(6,182,212,0.4)]">
+                <UploadCloud size={16} className="text-cyan-300 animate-bounce" />
               </div>
-
-              {isOnline ? (
-                <Wifi size={10} className="text-white shrink-0 -translate-y-[0.5px]" />
-              ) : (
-                <WifiOff size={10} className="text-neutral-500 shrink-0 -translate-y-[0.5px]" />
-              )}
-
-              {weather && (
-                <div className="flex items-center gap-1 shrink-0 translate-y-[0.5px]">
-                  {getWeatherIcon(weather.code)}
-                  <span className="text-[10px] font-bold leading-none text-neutral-300">{weather.temp}</span>
-                </div>
-              )}
-              
-              <div className="text-[10px] font-bold leading-none text-neutral-300 shrink-0 translate-y-[0.5px]">
-                {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </div>
+              <span className="text-[12px] font-semibold tracking-wide text-cyan-100 whitespace-nowrap">
+                {t("shelf_drop_title")}
+              </span>
             </motion.div>
           )}
-
-          {variant === "quick_control" && (
-            <motion.div
-              key="quick_control"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={fadeTransition}
-              className="absolute inset-0 flex flex-col p-4 pb-6 gap-2"
-              onMouseEnter={() => {
-                if (quickControlTimerRef.current) clearTimeout(quickControlTimerRef.current);
-              }}
-              onMouseLeave={() => {
-                quickControlTimerRef.current = setTimeout(() => setIsQuickControl(false), 2000);
-              }}
-            >
-              <div className="flex justify-between items-center px-1 mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"></div>
-                  <span className="text-[11px] font-bold text-white tracking-widest uppercase opacity-90">Control Center</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-medium text-neutral-300">
-                    {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                  </span>
-                  <button onClick={(e) => { e.stopPropagation(); setIsSettings(true); }} className="text-neutral-400 hover:text-white transition-colors">
-                    <SettingsIcon size={14} />
-                  </button>
-                </div>
-              </div>
-
-                <div className="flex gap-2">
-                  <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "lock" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center justify-center cursor-pointer transition-colors border border-white/5 shadow-sm">
-                    <Lock size={18} className="text-neutral-300" />
-                  </div>
-                  <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "sleep" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center justify-center cursor-pointer transition-colors border border-white/5 shadow-sm">
-                    <Moon size={18} className="text-neutral-300" />
-                  </div>
-                  <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "restart" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center justify-center cursor-pointer transition-colors border border-white/5 shadow-sm">
-                    <RotateCcw size={18} className="text-neutral-300" />
-                  </div>
-                  <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "shutdown" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center justify-center cursor-pointer transition-colors border border-white/5 shadow-sm">
-                    <Power size={18} className="text-neutral-300" />
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "wifi" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center px-3 gap-3 cursor-pointer transition-colors border border-white/5 shadow-sm">
-                    <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.2)] shrink-0">
-                      <Wifi size={16} className="text-blue-400" />
-                    </div>
-                    <div className="flex flex-col justify-center overflow-hidden">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-semibold text-white leading-tight">Wi-Fi</span>
-                        <div className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-[0_0_5px_rgba(74,222,128,0.6)]"></div>
-                      </div>
-                      <ScrollingText text={wifiName} className="text-[9px] text-neutral-400 mt-0.5 font-medium" />
-                    </div>
-                  </div>
-                  <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "bluetooth" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center px-3 gap-3 cursor-pointer transition-colors border border-white/5 shadow-sm">
-                    <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center shrink-0">
-                      <Bluetooth size={16} className="text-indigo-400" />
-                    </div>
-                    <div className="flex flex-col justify-center overflow-hidden">
-                      <span className="text-[11px] font-semibold text-white leading-tight">Bluetooth</span>
-                      <ScrollingText text={btName} className="text-[9px] text-neutral-400 mt-0.5 font-medium" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "screenshot" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center px-3 cursor-pointer transition-colors border border-white/5 shadow-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0">
-                        <Scissors size={16} className="text-purple-400" />
-                      </div>
-                      <span className="text-[11px] font-semibold text-white">Snap</span>
-                    </div>
-                  </div>
-                  <div onClick={(e) => { e.stopPropagation(); invoke("system_power_action", { action: "settings" }); setIsQuickControl(false); }} className="flex-1 min-w-0 h-12 bg-[#1c1c1e] hover:bg-[#2c2c2e] rounded-2xl flex items-center px-3 cursor-pointer transition-colors border border-white/5 shadow-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center shrink-0">
-                        <SettingsIcon size={16} className="text-sky-400" />
-                      </div>
-                      <span className="text-[11px] font-semibold text-white">Settings</span>
-                    </div>
-                  </div>
-                </div>
-                
-              <div className="flex flex-col gap-1.5 px-1 mb-2">
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-neutral-400">
-                      <Sun size={14} />
-                      <span className="text-[11px] font-medium">Display</span>
-                    </div>
-                    <span className="text-[11px] text-neutral-500 font-medium">{displayLevel}%</span>
-                  </div>
-                  <input type="range" min="0" max="100" value={displayLevel} onChange={(e) => { const v = Number(e.target.value); setDisplayLevel(v); invoke("set_brightness", { level: v }); }} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-125 transition-all" style={{ background: `linear-gradient(to right, white ${displayLevel}%, #262626 ${displayLevel}%)` }} />
-                </div>
-                
-                <div className="flex flex-col gap-1.5 mt-1">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-neutral-400">
-                      <Volume2 size={14} />
-                      <span className="text-[11px] font-medium">Sound</span>
-                    </div>
-                    <span className="text-[11px] text-neutral-500 font-medium">{soundLevel}%</span>
-                  </div>
-                  <input type="range" min="0" max="100" value={soundLevel} onChange={(e) => { const v = Number(e.target.value); setSoundLevel(v); invoke("set_master_volume", { level: v / 100.0 }); }} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-125 transition-all" style={{ background: `linear-gradient(to right, white ${soundLevel}%, #262626 ${soundLevel}%)` }} />
-                </div>
-              </div>
-              
-              
-            </motion.div>
-          )}
-
-
-                      {variant === "settings" && (
+          <AnimatePresence initial={false}>
+            {variant === "compact" && (
               <motion.div
-                key="settings"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={fadeTransition}
-                className="absolute inset-0 flex flex-col p-4 cursor-default"
-                onClick={() => setIsSettings(false)}
-                onMouseEnter={() => {
-                  if (quickControlTimerRef.current) clearTimeout(quickControlTimerRef.current);
-                }}
-                onMouseLeave={() => {
-                  quickControlTimerRef.current = setTimeout(() => { setIsQuickControl(false); setIsSettings(false); }, 3000) as unknown as number;
+                key="compact"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
+                className="absolute inset-0 flex items-center justify-center cursor-pointer select-none"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cancelCompactHoverTimer();
+                  handleCompactHoverTrigger();
                 }}
               >
-                <div className="flex justify-center items-center mb-3 relative">
-                  <span className="text-[13px] font-bold text-white tracking-wide">Settings</span>
-                </div>
-                
-                <div className="flex flex-col gap-3.5 px-1 overflow-y-auto no-scrollbar pb-2" onClick={(e) => e.stopPropagation()}>
-                  
-                  <div className="flex flex-col">
-                    <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1.5 px-1">General</span>
-                    <div className="bg-[#1c1c1e]/80 backdrop-blur-xl rounded-xl border border-white/5 overflow-hidden shadow-sm">
-                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
-                        <span className="text-[12px] font-medium text-neutral-200">Run on Startup</span>
-                        <button onClick={async (e) => { e.stopPropagation(); try { if (isAutostart) await disable(); else await enable(); setIsAutostart(!isAutostart); } catch(e) {} }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${isAutostart ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${isAutostart ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                      </div>
-                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
-                        <span className="text-[12px] font-medium text-neutral-200">Boot Greeting</span>
-                        <button onClick={async (e) => { e.stopPropagation(); const next = !showGreeting; setShowGreeting(next); if (store) await store.set('show_greeting', next); }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${showGreeting ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${showGreeting ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                      </div>
-                      <div className="flex items-center justify-between p-2.5">
-                        <span className="text-[12px] font-medium text-neutral-200">Notif Duration</span>
-                        <div className="flex bg-black/40 rounded-md p-0.5 gap-0.5 ring-1 ring-white/5">
-                          <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(3); if (store) await store.set('opt_notif_time', 3); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optNotifTime === 3 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>3s</button>
-                          <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(5); if (store) await store.set('opt_notif_time', 5); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optNotifTime === 5 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>5s</button>
-                          <button onClick={async (e) => { e.stopPropagation(); setOptNotifTime(7); if (store) await store.set('opt_notif_time', 7); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optNotifTime === 7 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>7s</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col">
-                    <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1.5 px-1">Appearance</span>
-                    <div className="bg-[#1c1c1e]/80 backdrop-blur-xl rounded-xl border border-white/5 overflow-hidden shadow-sm">
-                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
-                        <span className="text-[12px] font-medium text-neutral-200">Position</span>
-                        <div className="flex bg-black/40 rounded-md p-0.5 gap-0.5 ring-1 ring-white/5">
-                           <button onClick={async (e) => { e.stopPropagation(); setOptPosition('top'); if (store) await store.set('opt_position', 'top'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optPosition === 'top' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Top</button>
-                           <button onClick={async (e) => { e.stopPropagation(); setOptPosition('bottom'); if (store) await store.set('opt_position', 'bottom'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optPosition === 'bottom' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Bottom</button>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
-                        <span className="text-[12px] font-medium text-neutral-200">Transparency</span>
-                        <div className="flex bg-black/40 rounded-md p-0.5 gap-0.5 ring-1 ring-white/5">
-                           <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(1.0); if (store) await store.set('opt_opacity', 1.0); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optOpacity === 1.0 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Solid</button>
-                           <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(0.8); if (store) await store.set('opt_opacity', 0.8); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optOpacity === 0.8 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Glass</button>
-                           <button onClick={async (e) => { e.stopPropagation(); setOptOpacity(0.5); if (store) await store.set('opt_opacity', 0.5); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optOpacity === 0.5 ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Clear</button>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between p-2.5">
-                        <span className="text-[12px] font-medium text-neutral-200">Animations</span>
-                        <div className="flex bg-black/40 rounded-md p-0.5 gap-0.5 ring-1 ring-white/5">
-                           <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('snappy'); if (store) await store.set('opt_anim_speed', 'snappy'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optAnimSpeed === 'snappy' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Snappy</button>
-                           <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('smooth'); if (store) await store.set('opt_anim_speed', 'smooth'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optAnimSpeed === 'smooth' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Smooth</button>
-                           <button onClick={async (e) => { e.stopPropagation(); setOptAnimSpeed('bouncy'); if (store) await store.set('opt_anim_speed', 'bouncy'); }} className={`px-2.5 py-1 text-[10px] font-semibold rounded-[4px] transition-all duration-300 ${optAnimSpeed === 'bouncy' ? 'bg-neutral-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}`}>Bouncy</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col">
-                    <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1.5 px-1">Modules</span>
-                    <div className="bg-[#1c1c1e]/80 backdrop-blur-xl rounded-xl border border-white/5 overflow-hidden shadow-sm">
-                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
-                        <span className="text-[12px] font-medium text-neutral-200">Volume Monitor</span>
-                        <button onClick={async (e) => { e.stopPropagation(); const next = !optVolume; setOptVolume(next); if (store) await store.set('opt_volume', next); }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${optVolume ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${optVolume ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                      </div>
-                      <div className="flex items-center justify-between p-2.5 border-b border-white/5">
-                        <span className="text-[12px] font-medium text-neutral-200">Clipboard Monitor</span>
-                        <button onClick={async (e) => { e.stopPropagation(); const next = !optClipboard; setOptClipboard(next); if (store) await store.set('opt_clipboard', next); }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${optClipboard ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${optClipboard ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                      </div>
-                      <div className="flex items-center justify-between p-2.5">
-                        <span className="text-[12px] font-medium text-neutral-200">Media Player</span>
-                        <button onClick={async (e) => { e.stopPropagation(); const next = !optMedia; setOptMedia(next); if (store) await store.set('opt_media', next); }} className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${optMedia ? 'bg-[#34c759]' : 'bg-white/10'}`}><div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300 ${optMedia ? 'translate-x-4' : 'translate-x-0'}`} /></button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <div className="w-6 h-[2px] rounded-full bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]" />
               </motion.div>
             )}
+          {variant === "todo_reminder" && pendingTodos.length > 0 && (
+            <motion.div
+              key="todo_reminder"
+              initial={{ opacity: 0, y: isBot ? 8 : -8, scale: 0.94, filter: "blur(4px)" }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                filter: "blur(0px)",
+                transitionEnd: { filter: "none", transform: "none" },
+              }}
+              exit={{ opacity: 0, y: isBot ? -8 : 8, scale: 0.94, filter: "blur(4px)" }}
+              transition={iosSpring.snappy}
+              onClick={() => {
+                setShowTodoReminder(false);
+                goToTab("todo");
+              }}
+              className="absolute inset-0 flex items-center justify-between gap-2.5 px-3.5 cursor-pointer hover:bg-amber-500/[0.06] transition-colors select-none overflow-hidden rounded-[inherit] shadow-[inset_0_0_20px_rgba(245,158,11,0.12)]"
+            >
+              <motion.div
+                animate={{
+                  rotate: [0, -16, 16, -14, 14, -8, 8, 0],
+                  scale: [1, 1.15, 1.15, 1.1, 1],
+                }}
+                transition={{ duration: 0.7, delay: 0.08, ease: "easeInOut" }}
+                className="w-8 h-8 rounded-[10px] bg-amber-500/20 border border-amber-400/40 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(245,158,11,0.35)]"
+              >
+                <ListTodo size={16} className="text-amber-400" />
+              </motion.div>
 
-          
+              <div className="flex flex-col justify-center min-w-0 flex-1 overflow-hidden">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 leading-tight truncate">
+                  {t("todo_reminder_title", { count: pendingTodos.length })}
+                </span>
+                <ScrollingText
+                  text={pendingTodos[0].text}
+                  className={`text-[13px] font-semibold tracking-tight leading-tight mt-0.5 ${
+                    isLightMode ? "text-[#1d1d1f]" : "text-white"
+                  }`}
+                />
+              </div>
+
+              <div className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/35 text-[10.5px] font-bold text-amber-300 tabular-nums shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.2)]">
+                {pendingTodos.length}
+              </div>
+            </motion.div>
+          )}
+
+          {variant === "idle" && (
+            <motion.div
+              key="idle"
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{
+                opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+                scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+              }}
+              className={`absolute inset-0 flex items-center justify-center cursor-pointer hover:bg-white/5 transition-colors overflow-hidden ${
+                effectiveIdleSize === "compact" ? "px-[14px]" : effectiveIdleSize === "large" ? "px-5" : "px-4"
+              }`}
+              onClick={() => openLastOrPreferredTab()}
+            >
+              <div className={`flex items-center justify-center w-full ${
+                effectiveIdleSize === "compact" ? "gap-2" : effectiveIdleSize === "large" ? "gap-3" : "gap-2.5"
+              }`}>
+                {/* Left Slot */}
+                {idleLayout.left !== "none" && (
+                  <motion.div key={`idle-left-${idleLayout.left}`} layout transition={smoothSpring} className="flex items-center shrink-0">
+                    <IdleSlotView item={idleLayout.left} data={idleRuntimeData} />
+                  </motion.div>
+                )}
+
+                {/* Center Slot */}
+                {idleLayout.center !== "none" && (
+                  <motion.div key={`idle-center-${idleLayout.center}`} layout transition={smoothSpring} className="flex items-center shrink-0">
+                    <IdleSlotView item={idleLayout.center} data={idleRuntimeData} />
+                  </motion.div>
+                )}
+
+                {/* Right Slot */}
+                {idleLayout.right !== "none" && (
+                  <motion.div key={`idle-right-${idleLayout.right}`} layout transition={smoothSpring} className="flex items-center shrink-0">
+                    <IdleSlotView item={idleLayout.right} data={idleRuntimeData} />
+                  </motion.div>
+                )}
+
+                {/* Privacy Indicators (Camera & Microphone) - displayed beside right slot, NOT replacing it */}
+                {(camActive || micActive) && (
+                  <motion.div
+                    key="privacy-indicators"
+                    layout
+                    initial={{ opacity: 0, scale: 0.6 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.6 }}
+                    transition={smoothSpring}
+                    className="flex items-center gap-1.5 shrink-0 ml-0.5"
+                  >
+                    {camActive && (
+                      <div
+                        className="w-2 h-2 rounded-full bg-[#30d158] shadow-[0_0_8px_rgba(48,209,88,0.9)] animate-pulse shrink-0"
+                        title="Camera in use"
+                      />
+                    )}
+                    {micActive && (
+                      <div
+                        className="w-2 h-2 rounded-full bg-[#ff9f0a] shadow-[0_0_8px_rgba(255,159,10,0.9)] animate-pulse shrink-0"
+                        title="Microphone in use"
+                      />
+                    )}
+                  </motion.div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
           {variant === "media" && (
             <motion.div
               key="media"
-              onClick={() => setIsExpanded(true)}
-              initial={{ opacity: 0, scale: 0.95 }}
+              onClick={() => {
+                goToTab("media_expanded", 0);
+              }}
+              initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={fadeTransition}
-              className="absolute inset-0 flex items-center justify-between gap-2 px-2 cursor-pointer"
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{
+                opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+                scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+              }}
+              className="absolute inset-0 flex items-center justify-between gap-2.5 px-3 cursor-pointer"
             >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <div className="w-8 h-8 bg-neutral-800 rounded-md flex items-center justify-center shrink-0 overflow-hidden">
-                    {media!.thumbnail ? (
-                      <img src={media!.thumbnail} alt="Album Art" className="w-full h-full object-cover" />
-                    ) : media!.playback_type === 2 ? (
-                      <Film size={20} className="text-blue-400" />
-                    ) : (
-                      <Music size={20} className="text-pink-400" />
-                    )}
-                  </div>
+              <div className="w-full flex items-center justify-between gap-2.5 overflow-hidden">
+                <div className="w-8 h-8 bg-neutral-800/80 rounded-[9px] border border-white/10 shadow-sm flex items-center justify-center shrink-0 overflow-hidden relative">
+                  <MediaThumbnail media={media!} />
+                </div>
                 <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
-                  <ScrollingText text={media!.title} className="text-sm font-semibold leading-tight" />
-                  <ScrollingText text={media!.artist} className="text-[11px] text-neutral-400 leading-tight" />
+                  <ScrollingText text={media!.title} className="text-[13.5px] font-semibold text-white tracking-tight leading-tight" />
+                  <ScrollingText text={media!.artist} className="text-[11px] font-medium text-white/55 leading-tight mt-0.5" />
+                </div>
+                <div className="flex items-center shrink-0">
+                  <AudioVisualizer isPlaying={isPlaying} onToggle={() => handleMediaControl("toggle")} optAccent={optAccent} />
                 </div>
               </div>
-              <AudioVisualizer isPlaying={isPlaying} onToggle={() => handleMediaControl("toggle")} optAccent={optAccent} />
             </motion.div>
           )}
 
-          {variant === "media_expanded" && (
+          {variant === "lyrics_idle" && (
             <motion.div
-              key="media_expanded"
-              initial={{ opacity: 0, scale: 0.95 }}
+              key="lyrics_idle"
+              initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={fadeTransition}
-              className="absolute inset-0 flex flex-col px-4 py-4 justify-between cursor-pointer"
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{
+                opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+                scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+              }}
+              className="absolute inset-0 flex items-center justify-between cursor-pointer"
             >
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-neutral-800/50 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-lg border border-white/10">
-                  {media!.thumbnail ? (
-                    <img src={media!.thumbnail} alt="Album Art" className="w-full h-full object-cover" />
-                  ) : (
-                    <ImageIcon size={24} className="text-white/50" />
-                  )}
-                </div>
-                <div className="flex flex-col overflow-hidden flex-1 min-w-0">
-                  <ScrollingText text={media!.title} className="text-[17px] font-semibold text-white tracking-tight leading-tight" />
-                  <ScrollingText text={media!.artist} className="text-[13px] font-medium text-white/60 mt-0.5 leading-tight" />
-                </div>
-                {isPlaying && (
-                  <div className="flex items-center shrink-0 pr-1">
-                    <AudioVisualizer isPlaying={true} onToggle={() => handleMediaControl("toggle")} optAccent={optAccent} />
-                  </div>
-                )}
-              </div>
-              
-              {/* Playback Controls & Progress */}
-              <div className="flex flex-col gap-3 mt-1 cursor-default" onClick={(e) => e.stopPropagation()}>
-                {/* Real progress bar (interactive) */}
-                <div 
-                  className="w-full h-3 group flex items-center cursor-pointer relative"
-                  onPointerDown={(e) => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-                    setIsSeeking(true);
-                    setSeekValue(percent);
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                  }}
-                  onPointerMove={(e) => {
-                    if (isSeeking && e.currentTarget.hasPointerCapture(e.pointerId)) {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-                      setSeekValue(percent);
-                    }
-                  }}
-                  onPointerUp={async (e) => {
-                    e.currentTarget.releasePointerCapture(e.pointerId);
-                    if (isSeeking && mediaProgress.duration > 0) {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-                      const newPos = (percent / 100) * mediaProgress.duration;
-                      await invoke("smtc_seek", { positionSec: newPos });
-                      setMediaProgress(prev => ({ ...prev, position: newPos }));
-                      setIsSeeking(false);
-                    }
-                  }}
-                  onPointerLeave={async (e) => {
-                    // Only trigger if we aren't capturing the pointer (i.e. not actively dragging)
-                    if (isSeeking && mediaProgress.duration > 0 && !e.currentTarget.hasPointerCapture(e.pointerId)) {
-                      const newPos = (seekValue / 100) * mediaProgress.duration;
-                      await invoke("smtc_seek", { positionSec: newPos });
-                      setMediaProgress(prev => ({ ...prev, position: newPos }));
-                      setIsSeeking(false);
-                    }
-                  }}
-                >
-                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex relative pointer-events-none">
-                    {mediaProgress.duration > 0 ? (
-                      <div 
-                        className="h-full bg-white/70 rounded-full"
-                        style={{ 
-                          width: `${Math.min(100, Math.max(0, isSeeking ? seekValue : (mediaProgress.position / mediaProgress.duration) * 100))}%`,
-                          transition: isSeeking ? 'none' : 'all 1000ms linear'
-                        }}
-                      />
-                    ) : (
-                      <div className="h-full w-1/3 bg-white/30 rounded-full" />
-                    )}
-                  </div>
-                  {/* Thumb */}
-                  {mediaProgress.duration > 0 && (
-                    <div 
-                      className="absolute h-2.5 w-2.5 bg-white rounded-full opacity-0 group-hover:opacity-100 pointer-events-none"
-                      style={{ 
-                        left: `calc(${Math.min(100, Math.max(0, isSeeking ? seekValue : (mediaProgress.position / mediaProgress.duration) * 100))}% - 5px)`,
-                        transition: isSeeking ? 'opacity 150ms ease' : 'all 1000ms linear, opacity 150ms ease'
-                      }} 
-                    />
-                  )}
-                </div>
-
-                <div className="flex items-center justify-center gap-8">
-                  <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("prev"); }} className="w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10">
-                    <SkipBack size={22} fill="currentColor" />
-                  </motion.button>
-                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("toggle"); }} className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full shrink-0">
-                    {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}
-                  </motion.button>
-                  <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); handleMediaControl("next"); }} className="w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10">
-                    <SkipForward size={22} fill="currentColor" />
-                  </motion.button>
-                </div>
-
-                {/* Volume Slider */}
-                <div className="flex items-center gap-3 mt-1.5 w-full cursor-default" onClick={(e) => e.stopPropagation()}>
-                  <Volume2 size={16} className="text-white/50 shrink-0" />
-                  <div 
-                    className="flex-1 h-4 group flex items-center cursor-pointer relative"
-                    onPointerDown={(e) => {
-                      isAdjustingVolumeRef.current = true;
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-                      setSoundLevel(Math.round(percent));
-                      invoke("set_master_volume", { level: percent / 100.0 });
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                    }}
-                    onPointerMove={(e) => {
-                      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-                        setSoundLevel(Math.round(percent));
-                        invoke("set_master_volume", { level: percent / 100.0 });
-                      }
-                    }}
-                    onPointerUp={(e) => {
-                      e.currentTarget.releasePointerCapture(e.pointerId);
-                      setTimeout(() => { isAdjustingVolumeRef.current = false; }, 500);
-                    }}
-                  >
-                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden flex relative pointer-events-none">
-                      <div 
-                        className="h-full bg-white/70 rounded-full"
-                        style={{ width: `${soundLevel}%` }}
-                      />
-                    </div>
-                    {/* Thumb */}
-                    <div 
-                      className="absolute h-2.5 w-2.5 bg-white rounded-full opacity-0 group-hover:opacity-100 pointer-events-none shadow-md"
-                      style={{ left: `calc(${soundLevel}% - 5px)` }} 
-                    />
-                  </div>
-                </div>
-              </div>
+              <IdleLyrics
+                lyricsData={lyricsData}
+                currentTime={mediaProgress.position}
+                isPlaying={isPlaying}
+                songTitle={media?.title}
+                artist={media?.artist}
+                media={media}
+                optAccent={optAccent}
+                optFontSize={optFontSize}
+                isLoading={isLyricsLoading}
+                onActiveLineChange={(curr, prev, next) => {
+                  setActiveIdleLyric((old) => {
+                    if (old.curr === curr && old.prev === prev && old.next === next) return old;
+                    return { curr, prev, next };
+                  });
+                }}
+                onTogglePlay={() => handleMediaControl("toggle")}
+                onClick={() => {
+                  goToTab("media_expanded", 0);
+                }}
+              />
             </motion.div>
+          )}
+
+          {variant === "onboarding" && (
+            <motion.div
+              key="onboarding"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{
+                opacity: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
+                scale: smoothSpring,
+              }}
+              className="absolute inset-0 flex flex-col overflow-hidden"
+            >
+              <OnboardingCard isLightMode={isLightMode} onComplete={() => setIsOnboarding(false)} />
+            </motion.div>
+          )}
+
+          {isExpandedPanel && (
+            <motion.div
+              key="expanded_panel"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              className={`absolute inset-x-0 ${
+                isBot ? "bottom-0" : "top-0"
+              } flex justify-center pointer-events-none`}
+            >
+              <motion.div
+                style={{
+                  width: lastExpandedSizeRef.current.width,
+                  height: lastExpandedSizeRef.current.height,
+                }}
+                initial={{ scale: 0.94, y: isBot ? 8 : -8 }}
+                animate={{
+                  scale: 1,
+                  y: 0,
+                  transitionEnd: { transform: "none" },
+                }}
+                exit={{ scale: 0.93, y: isBot ? 6 : -6 }}
+                transition={{
+                  scale: smoothSpring,
+                  y: smoothSpring,
+                }}
+                className={`flex flex-col overflow-hidden pointer-events-auto shrink-0 gpu-accelerated ${
+                  isBot ? "origin-bottom" : "origin-top"
+                }`}
+              >
+                <PanelFrame
+                title={panelTitle}
+                hasPrev={isSubPage ? true : currentTabIndex > 0}
+                hasNext={isSubPage ? false : currentTabIndex < availableTabs.length - 1}
+                onPrev={isSubPage ? () => goToTab("quick_control", -1) : handlePrevTab}
+                onNext={handleNextTab}
+                prevTooltip={isSubPage ? t("nav_back") : t("nav_prev")}
+                nextTooltip={t("nav_next")}
+                onToggleSettings={isSubPage ? undefined : handleToggleSettings}
+                isSettingsActive={currentTab === "settings"}
+                totalPages={isSubPage ? 0 : availableTabs.length}
+                currentPageIndex={isSubPage ? -1 : currentTabIndex}
+                onSelectPage={handleSelectTab}
+                hideDotsBg={Boolean(currentTab === "media_expanded")}
+                isMusicPage={currentTab === "media_expanded"}
+                battery={battery}
+                time={time}
+                weather={weather}
+                camActive={camActive}
+                micActive={micActive}
+              >
+                <div 
+                  className="relative w-full h-full min-w-0 overflow-hidden"
+                >
+                  <AnimatePresence custom={slideDirection}>                    {currentTab === "quick_control" && (
+                      <ControlCenterPanel
+                        slideDirection={slideDirection}
+                        powerMode={powerMode}
+                        onSetPowerMode={setPowerMode}
+                        displayLevel={displayLevel}
+                        onSetDisplayLevel={setDisplayLevel}
+                        brightnessMode={brightnessMode}
+                        onSetBrightnessMode={setBrightnessMode}
+                        soundLevel={soundLevel}
+                        onSetSoundLevel={setSoundLevel}
+                        wifiName={wifiName}
+                        networkPing={networkPing}
+                        btName={btName}
+                        isHotspotOn={isHotspotOn}
+                        onToggleHotspot={handleToggleHotspot}
+                        focusMode={focusMode}
+                        onSelectFocusMode={selectFocusMode}
+                        focusModeOptions={focusModeOptions}
+                        stashedFilesCount={stashedFiles.length}
+                        onGoToTab={goToTab}
+                        onClose={() => setIsQuickControl(false)}
+                      />
+                    )}
+
+                    {currentTab === "clipboard" && (
+                      <motion.div
+                        key="clipboard"
+                        custom={slideDirection}
+                        variants={tabVariants}
+                        initial="enter"
+                        animate="center"
+                        exit="exit"
+                        className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                      >
+                        <ClipboardPanel
+                          items={clipboardHistory}
+                          onCopyItem={(item) => {
+                            writeText(item.text).catch(console.error);
+                            addClipboardItem(item.text);
+                          }}
+                          onDeleteItem={deleteClipboardItem}
+                          onClearAll={clearAllClipboard}
+                        />
+                      </motion.div>
+                    )}
+
+                    {currentTab === "todo" && (
+                      <motion.div
+                        key="todo"
+                        custom={slideDirection}
+                        variants={tabVariants}
+                        initial="enter"
+                        animate="center"
+                        exit="exit"
+                        className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                      >
+                        <TodoListPanel
+                          items={todoItems}
+                          onAddItem={addTodoItem}
+                          onToggleItem={toggleTodoItem}
+                          onDeleteItem={deleteTodoItem}
+                          onUpdateItem={updateTodoItem}
+                          onClearCompleted={clearCompletedTodos}
+                          onClearAll={clearAllTodos}
+                        />
+                      </motion.div>
+                    )}
+
+                    {currentTab === "drop_shelf" && (
+                      <motion.div
+                        key="drop_shelf"
+                        custom={slideDirection}
+                        variants={tabVariants}
+                        initial="enter"
+                        animate="center"
+                        exit="exit"
+                        className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                      >
+                        <DropShelfPanel
+                          files={stashedFiles}
+                          onRemoveFile={removeStashedFile}
+                          onRemoveFiles={removeStashedFiles}
+                          onClearAll={clearAllStashedFiles}
+                          onAddFiles={addStashedFiles}
+                          onFileTransferred={removeStashedFile}
+                          onFilesTransferred={removeStashedFiles}
+                          onDragStateChange={(active, paths) => {
+                            isShelfDraggingRef.current = active;
+                            if (active) {
+                              if (paths) {
+                                outgoingShelfPathsRef.current = new Set(paths.map((p) => p.toLowerCase()));
+                              }
+                              handleCloseImmediate();
+                            } else {
+                              setTimeout(() => {
+                                outgoingShelfPathsRef.current.clear();
+                              }, 500);
+                            }
+                          }}
+                        />
+                      </motion.div>
+                    )}
+
+                    {currentTab === "settings" && (
+                      <SettingsPanel
+                        slideDirection={slideDirection}
+                        optLanguage={optLanguage}
+                        onChangeLanguage={handleChangeLanguage}
+                        optAutoCompact={optAutoCompact}
+                        onToggleAutoCompact={async () => {
+                          const next = !optAutoCompact;
+                          setOptAutoCompact(next);
+                          if (store) await store.set("opt_auto_compact", next);
+                        }}
+                        isAutostart={isAutostart}
+                        onToggleAutostart={async () => {
+                          try {
+                            const next = !isAutostart;
+                            if (next) await enable();
+                            else await disable();
+                            setIsAutostart(next);
+                            if (store) {
+                              await store.set("autostart_initialized", true);
+                              await store.set("opt_autostart", next);
+                            }
+                          } catch {}
+                        }}
+                        showGreeting={showGreeting}
+                        onToggleGreeting={async () => {
+                          const next = !showGreeting;
+                          setShowGreeting(next);
+                          try {
+                            localStorage.setItem("island_show_greeting", String(next));
+                          } catch {}
+                          if (store) await store.set("show_greeting", next);
+                          if (next) {
+                            setTimeout(() => triggerGreeting(), 150);
+                          }
+                        }}
+                        optNotifTime={optNotifTime}
+                        onChangeNotifTime={async (sec) => {
+                          setOptNotifTime(sec);
+                          if (store) await store.set("opt_notif_time", sec);
+                        }}
+                        optCloseDelay={optCloseDelay}
+                        onChangeCloseDelay={async (sec) => {
+                          optCloseDelayRef.current = sec;
+                          setOptCloseDelay(sec);
+                          try {
+                            localStorage.setItem("island_close_delay", String(sec));
+                          } catch {}
+                          if (store) {
+                            await store.set("opt_close_delay", sec);
+                            await store.save();
+                          }
+                        }}
+                        optTheme={optTheme}
+                        onChangeTheme={async (theme) => {
+                          setOptTheme(theme);
+                          try {
+                            localStorage.setItem("island_theme", theme);
+                          } catch {}
+                          if (store) await store.set("opt_theme", theme);
+                        }}
+                        idleLayout={idleLayout}
+                        onChangeIdleLayout={async (nextLayout) => {
+                          setIdleLayout(nextLayout);
+                          try {
+                            localStorage.setItem("island_idle_layout", JSON.stringify(nextLayout));
+                          } catch {}
+                          if (store) await store.set("opt_idle_layout", nextLayout);
+                        }}
+                        idleRuntimeData={idleRuntimeData}
+                        optIdleSize={optIdleSize}
+                        onChangeIdleSize={async (size) => {
+                          setOptIdleSize(size);
+                          if (store) await store.set("opt_idle_size", size);
+                        }}
+                        optTabSize={optTabSize}
+                        onChangeTabSize={async (size) => {
+                          setOptTabSize(size);
+                          if (store) await store.set("opt_tab_size", size);
+                        }}
+                        optFontSize={optFontSize}
+                        onChangeFontSize={async (size) => {
+                          setOptFontSize(size);
+                          if (store) await store.set("opt_font_size", size);
+                          if (size === "large") {
+                            setOptIdleSize("large");
+                            setOptTabSize("large");
+                            if (store) {
+                              await store.set("opt_idle_size", "large");
+                              await store.set("opt_tab_size", "large");
+                            }
+                          } else if (size === "small") {
+                            setOptIdleSize("compact");
+                            setOptTabSize("compact");
+                            if (store) {
+                              await store.set("opt_idle_size", "compact");
+                              await store.set("opt_tab_size", "compact");
+                            }
+                          } else if (size === "default") {
+                            setOptIdleSize("default");
+                            setOptTabSize("default");
+                            if (store) {
+                              await store.set("opt_idle_size", "default");
+                              await store.set("opt_tab_size", "default");
+                            }
+                          }
+                        }}
+                        optEars={optEars}
+                        onToggleEars={async () => {
+                          const next = !optEars;
+                          setOptEars(next);
+                          if (store) await store.set("opt_ears", next);
+                        }}
+                        optWeatherAnim={optWeatherAnim}
+                        onToggleWeatherAnim={async () => {
+                          const next = !optWeatherAnim;
+                          setOptWeatherAnim(next);
+                          if (store) await store.set("opt_weather_anim", next);
+                        }}
+                        optPosition={optPosition}
+                        onChangePosition={async (pos) => {
+                          setOptPosition(pos);
+                          if (store) await store.set("opt_position", pos);
+                        }}
+                        optOpacity={optOpacity}
+                        onChangeOpacity={async (val) => {
+                          setOptOpacity(val);
+                          if (store) await store.set("opt_opacity", val);
+                        }}
+                        optAnimSpeed={optAnimSpeed}
+                        onChangeAnimSpeed={async (speed) => {
+                          setOptAnimSpeed(speed);
+                          if (store) await store.set("opt_anim_speed", speed);
+                        }}
+                        optVolume={optVolume}
+                        onToggleVolume={async () => {
+                          const next = !optVolume;
+                          setOptVolume(next);
+                          if (store) await store.set("opt_volume", next);
+                        }}
+                        optClipboard={optClipboard}
+                        onToggleClipboard={async () => {
+                          const next = !optClipboard;
+                          setOptClipboard(next);
+                          if (store) await store.set("opt_clipboard", next);
+                        }}
+                        optMedia={optMedia}
+                        onToggleMedia={async () => {
+                          const next = !optMedia;
+                          setOptMedia(next);
+                          if (store) await store.set("opt_media", next);
+                        }}
+                        onClose={() => setIsSettings(false)}
+                      />
+                    )}
+
+                    {currentTab === "volume_mixer" && (
+                      <VolumeMixerPanel
+                        slideDirection={slideDirection}
+                        soundLevel={soundLevel}
+                        onSetSoundLevel={setSoundLevel}
+                        audioSessions={audioSessions}
+                        onUpdateAudioSessions={setAudioSessions}
+                        onClose={() => setIsVolumeMixer(false)}
+                      />
+                    )}
+
+                    {currentTab === "media_expanded" && (
+                      <MediaExpandedPanel
+                        tabWidth={tabWidth}
+                        slideDirection={slideDirection}
+                        media={media!}
+                        isPlaying={isPlaying}
+                        onMediaControl={handleMediaControl}
+                        optAccent={optAccent}
+                        showLyrics={showLyrics}
+                        onToggleLyrics={() => {
+                          setShowLyrics((prev) => {
+                            const next = !prev;
+                            try {
+                              localStorage.setItem("island_show_lyrics", String(next));
+                            } catch {}
+                            return next;
+                          });
+                        }}
+                        lyricsData={lyricsData}
+                        isLyricsLoading={isLyricsLoading}
+                        mediaProgress={mediaProgress}
+                        onSetMediaProgress={setMediaProgress}
+                        isSeeking={isSeeking}
+                        onSetIsSeeking={setIsSeeking}
+                        seekValue={seekValue}
+                        onSetSeekValue={setSeekValue}
+                        soundLevel={soundLevel}
+                        onSetSoundLevel={setSoundLevel}
+                        isAdjustingVolumeRef={isAdjustingVolumeRef}
+                      />
+                    )}
+                  </AnimatePresence>
+                </div>
+              </PanelFrame>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {variant === "notif_greeting" && (
+            <GreetingNotification
+              notif={notif!}
+              isLightMode={isLightMode}
+              onClick={handleNotifClick}
+              isBot={isBot}
+            />
           )}
 
           {(variant === "notif" || variant === "notif_small" || variant === "notif_medium" || variant === "notif_volume" || variant === "notif_clipboard") && (
             <motion.div
               key="notif"
               onClick={handleNotifClick}
-              initial={{ opacity: 0, y: isBot ? -10 : 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: isBot ? 10 : -10, scale: 0.95 }}
-              transition={fadeTransition}
-              className={`absolute inset-0 flex items-center gap-2 px-4 cursor-pointer justify-center`}
+              initial={{ opacity: 0, y: isBot ? -8 : 8, scale: 0.92, filter: "blur(6px)" }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none", transform: "none" } }}
+              exit={{ opacity: 0, y: isBot ? 8 : -8, scale: 0.92, filter: "blur(6px)" }}
+              transition={iosSpring.snappy}
+              className={`absolute inset-0 flex items-center gap-2.5 px-4 cursor-pointer justify-center select-none`}
             >
-              <NotifIcon type={notif!.icon} />
-              <div className={(variant === "notif_small" || variant === "notif_medium" || variant === "notif_volume" || variant === "notif_clipboard") ? "flex items-center gap-2 overflow-hidden" : "flex flex-col justify-center overflow-hidden"}>
-                <span className="text-sm font-bold leading-tight truncate shrink-0">{notif!.title}</span>
+              <div className="shrink-0 transition-transform hover:scale-105 active:scale-95">
+                <NotifIcon type={notif!.icon} />
+              </div>
+              <div className={(variant === "notif_small" || variant === "notif_medium" || variant === "notif_volume" || variant === "notif_clipboard") ? "flex items-center gap-2 overflow-hidden min-w-0" : "flex flex-col justify-center overflow-hidden min-w-0"}>
+                <ScrollingText text={notif!.title} className={`text-[13px] font-semibold tracking-tight leading-tight ${isLightMode ? 'text-[#1d1d1f]' : 'text-white'}`} />
                 {notif!.body && (
                   <AnimatePresence mode="popLayout">
                     <motion.div 
                       key={notif!.body}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ duration: 0.1 }}
+                      initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                      transition={iosSpring.smooth}
                       className="min-w-0 flex items-center"
                     >
-                      <span className={`text-sm leading-tight truncate ${(variant === "notif_small" || variant === "notif_medium" || variant === "notif_volume" || variant === "notif_clipboard") ? 'text-green-400 font-semibold' : 'text-neutral-300'}`}>
-                        {notif!.body}
-                      </span>
+                      <ScrollingText text={notif!.body} className={`text-[12.5px] leading-tight tracking-tight ${(variant === "notif_small" || variant === "notif_medium" || variant === "notif_volume" || variant === "notif_clipboard") ? 'text-ios-green font-semibold' : isLightMode ? 'text-neutral-500 font-medium' : 'text-ios-secondary font-medium'}`} />
                     </motion.div>
                   </AnimatePresence>
                 )}
@@ -1056,15 +2761,9 @@ export default function App() {
               className={`absolute inset-0 flex flex-col justify-center px-4 cursor-pointer gap-2`}
             >
               <div className="flex items-center gap-2 overflow-hidden">
-                <div className="w-8 h-8 bg-neutral-800 rounded-md flex items-center justify-center shrink-0 overflow-hidden">
-                    {media!.thumbnail ? (
-                      <img src={media!.thumbnail} alt="Album Art" className="w-full h-full object-cover" />
-                    ) : media!.playback_type === 2 ? (
-                      <Film size={20} className="text-blue-400" />
-                    ) : (
-                      <Music size={20} className="text-pink-400" />
-                    )}
-                  </div>
+                <div className="w-8 h-8 bg-neutral-800 rounded-md flex items-center justify-center shrink-0 overflow-hidden relative">
+                  <MediaThumbnail media={media!} />
+                </div>
                 <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
                   <ScrollingText text={media!.title} className="text-sm font-semibold leading-tight" />
                   <ScrollingText text={media!.artist} className="text-[11px] text-neutral-400 leading-tight" />
@@ -1092,15 +2791,9 @@ export default function App() {
               className={`absolute inset-0 flex flex-col justify-center px-4 cursor-pointer gap-2`}
             >
               <div className="flex items-center gap-2 overflow-hidden">
-                <div className="w-8 h-8 bg-neutral-800 rounded-md flex items-center justify-center shrink-0 overflow-hidden">
-                    {media!.thumbnail ? (
-                      <img src={media!.thumbnail} alt="Album Art" className="w-full h-full object-cover" />
-                    ) : media!.playback_type === 2 ? (
-                      <Film size={20} className="text-blue-400" />
-                    ) : (
-                      <Music size={20} className="text-pink-400" />
-                    )}
-                  </div>
+                <div className="w-8 h-8 bg-neutral-800 rounded-md flex items-center justify-center shrink-0 overflow-hidden relative">
+                  <MediaThumbnail media={media!} />
+                </div>
                 <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
                   <ScrollingText text={media!.title} className="text-sm font-semibold leading-tight" />
                   <ScrollingText text={media!.artist} className="text-[11px] text-neutral-400 leading-tight" />
@@ -1116,6 +2809,7 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </motion.div>
     </div>
   );

@@ -6,10 +6,14 @@ export interface MediaPayload {
   playback_type?: number;
   position?: number;
   duration?: number;
+  is_browser?: boolean;
 }
 
 export interface NotifPayload {
   title: string;
   body: string;
   icon?: string;
+  type?: string;
+  aumid?: string;
+  onClick?: () => void;
 }

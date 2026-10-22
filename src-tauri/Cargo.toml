@@ -1,9 +1,10 @@
 [package]
 name = "notch"
-version = "1.1.0"
+version = "3.2.1"
 description = "Notch Island for Windows"
 authors = ["Faiz Anak Telkom University"]
 edition = "2021"
+default-run = "notch"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,22 +23,8 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-windows = { version = "0.58.0", features = [
-    "Media_Control",
-    "UI_Notifications",
-    "UI_Notifications_Management",
-    "Foundation",
-    "Foundation_Collections",
-    "ApplicationModel",
-    "Win32_System_Com",
-    "Storage_Streams",
-    "Win32_System_Power",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_Media_Audio",
-    "Win32_Media_Audio_Endpoints",
-    "Win32_System_DataExchange",
-    "Win32_UI_Input_KeyboardAndMouse"
-] }
+windows-core = "0.58.0"
+windows = { version = "0.58.0", features = ["implement", "Media_Control", "UI_Notifications", "UI_Notifications_Management", "Foundation", "Foundation_Collections", "ApplicationModel", "Win32_System_Com", "Storage_Streams", "Win32_System_Power", "Win32_UI_WindowsAndMessaging", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_Media_MediaFoundation", "Win32_System_DataExchange", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Registry", "Win32_Storage_FileSystem", "Data_Xml_Dom", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem", "ApplicationModel_DataTransfer", "Media_Ocr", "Graphics_Imaging", "Storage", "Win32_UI_Shell", "Win32_System_Memory", "Win32_Security", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_Properties"] }
 base64 = "0.22"
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-global-shortcut = "2.4.0"
@@ -45,6 +32,10 @@ tauri-plugin-clipboard-manager = "2.4.1"
 tauri-plugin-store = "2.5.0"
 tauri-plugin-updater = "2.13.1"
 wmi = "0.18.4"
+windows-registry = "0.100.0"
+winreg = "0.56.0"
+image = "0.25.10"
+tauri-plugin-drag = "2.1.1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

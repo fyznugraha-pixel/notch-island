@@ -12,3 +12,961 @@
 .animate-marquee:hover {
   animation-play-state: paused;
 }
+
+@keyframes rainDrop {
+  0% { transform: translateY(-10px) scaleY(1); opacity: 0; }
+  20% { opacity: 0.8; }
+  80% { transform: translateY(40px) scaleY(1.5); opacity: 0.8; }
+  100% { transform: translateY(50px) scaleY(0.5); opacity: 0; }
+}
+.animate-rain {
+  animation: rainDrop 1s cubic-bezier(0.25, 0.46, 0.45, 0.94) infinite;
+}
+
+@keyframes snowFall {
+  0% { transform: translateY(-10px) rotate(0deg); opacity: 0; }
+  20% { opacity: 0.8; }
+  100% { transform: translateY(50px) rotate(360deg); opacity: 0; }
+}
+.animate-snow {
+  animation: snowFall 3s linear infinite;
+}
+
+@keyframes lightningFlash {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  20% { opacity: 0; }
+  30% { opacity: 0.5; }
+  40% { opacity: 0; }
+  100% { opacity: 0; }
+}
+.animate-lightning {
+  animation: lightningFlash 5s infinite;
+}
+
+.todo-scroll {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent !important;
+}
+.todo-scroll::-webkit-scrollbar {
+  display: block !important;
+  width: 3px !important;
+}
+.todo-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-radius: 9999px !important;
+}
+.todo-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35) !important;
+  border-radius: 9999px !important;
+}
+.todo-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.55) !important;
+}
+
+.settings-scroll {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent !important;
+}
+.settings-scroll::-webkit-scrollbar {
+  display: block !important;
+  width: 4px !important;
+}
+.settings-scroll::-webkit-scrollbar-track {
+  background: transparent !important;
+  margin: 6px 0 !important;
+}
+.settings-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28) !important;
+  border-radius: 9999px !important;
+  transition: background-color 0.2s ease;
+}
+.settings-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.55) !important;
+}
+
+/* Crisp font & vector rendering on Windows DirectWrite / WebView2 */
+#notch-pill {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+  font-synthesis: none;
+}
+
+.gpu-accelerated {
+  backface-visibility: hidden;
+}
+
+/* --- Apple VisionOS / macOS Frosted Light Glass Theme --- */
+html.light #notch-pill,
+.light #notch-pill,
+#notch-pill.light {
+  color: #1d1d1f !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+/* ========================================================
+   UNIFIED NOTCH DESIGN TOKENS
+   Single source of truth for Solid, Glass, and Clear modes
+   ======================================================== */
+
+/* Dark Mode Tokens (Default) */
+#notch-pill {
+  --notch-bg: rgba(0, 0, 0, 1);
+  --notch-stroke: transparent;
+  --notch-shadow: drop-shadow(0 8px 32px rgba(0, 0, 0, 0.6));
+  --notch-blur: none;
+}
+
+#notch-pill[data-theme-mode="glass"] {
+  --notch-bg: rgba(0, 0, 0, 0.8);
+  --notch-stroke: rgba(255, 255, 255, 0.08);
+  --notch-shadow: drop-shadow(0 8px 32px rgba(0, 0, 0, 0.65));
+  --notch-blur: blur(28px) saturate(190%);
+}
+
+#notch-pill[data-theme-mode="clear"] {
+  --notch-bg: rgba(0, 0, 0, 0.6);
+  --notch-stroke: rgba(255, 255, 255, 0.1);
+  --notch-shadow: drop-shadow(0 6px 28px rgba(0, 0, 0, 0.5));
+  --notch-blur: blur(22px) saturate(180%);
+}
+
+/* Light Mode Tokens */
+html.light #notch-pill,
+.light #notch-pill,
+#notch-pill.light {
+  --notch-bg: rgba(246, 246, 250, 0.96);
+  --notch-stroke: rgba(0, 0, 0, 0.08);
+  --notch-shadow: drop-shadow(0 16px 36px rgba(0, 0, 0, 0.12));
+  --notch-blur: none;
+}
+
+html.light #notch-pill[data-theme-mode="glass"],
+.light #notch-pill[data-theme-mode="glass"],
+#notch-pill.light[data-theme-mode="glass"] {
+  --notch-bg: rgba(246, 246, 250, 0.88);
+  --notch-stroke: rgba(0, 0, 0, 0.08);
+  --notch-shadow: drop-shadow(0 16px 40px rgba(0, 0, 0, 0.13));
+  --notch-blur: blur(28px) saturate(190%);
+}
+
+html.light #notch-pill[data-theme-mode="clear"],
+.light #notch-pill[data-theme-mode="clear"],
+#notch-pill.light[data-theme-mode="clear"] {
+  --notch-bg: rgba(246, 246, 250, 0.75);
+  --notch-stroke: rgba(0, 0, 0, 0.08);
+  --notch-shadow: drop-shadow(0 14px 32px rgba(0, 0, 0, 0.11));
+  --notch-blur: blur(22px) saturate(180%);
+}
+
+/* Make noise subtle on light glass */
+html.light .bg-noise,
+.light .bg-noise,
+#notch-pill.light .bg-noise {
+  opacity: 0.02 !important;
+}
+
+/* Light Card Surface (Solid, pristine frosted card) */
+html.light [class*="bg-[#1c1c1e]"],
+.light [class*="bg-[#1c1c1e]"],
+#notch-pill.light [class*="bg-[#1c1c1e]"] {
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Typography — High-contrast legibility */
+html.light .text-white,
+.light .text-white,
+#notch-pill.light .text-white {
+  color: #1d1d1f !important;
+}
+html.light .text-white\/90,
+.light .text-white\/90,
+#notch-pill.light .text-white\/90 {
+  color: #1d1d1f !important;
+}
+html.light .text-white\/85,
+.light .text-white\/85,
+#notch-pill.light .text-white\/85 {
+  color: #1d1d1f !important;
+}
+html.light .text-white\/80,
+.light .text-white\/80,
+#notch-pill.light .text-white\/80 {
+  color: rgba(28, 28, 30, 0.88) !important;
+}
+html.light .text-white\/75,
+.light .text-white\/75,
+#notch-pill.light .text-white\/75 {
+  color: rgba(28, 28, 30, 0.82) !important;
+}
+html.light .text-white\/70,
+html.light .text-white\/60,
+.light .text-white\/70,
+.light .text-white\/60,
+#notch-pill.light .text-white\/70,
+#notch-pill.light .text-white\/60 {
+  color: #636366 !important;
+}
+html.light .text-white\/50,
+html.light .text-white\/40,
+.light .text-white\/50,
+.light .text-white\/40,
+#notch-pill.light .text-white\/50,
+#notch-pill.light .text-white\/40 {
+  color: #636366 !important;
+}
+html.light .text-white\/30,
+.light .text-white\/30,
+#notch-pill.light .text-white\/30 {
+  color: #8e8e93 !important;
+}
+
+/* Essential iOS Secondary and Muted Labels */
+html.light .text-ios-secondary,
+.light .text-ios-secondary,
+#notch-pill.light .text-ios-secondary {
+  color: #636366 !important;
+  font-weight: 500 !important;
+}
+html.light .idle-stat-number,
+.light .idle-stat-number,
+#notch-pill.light .idle-stat-number {
+  color: #000000 !important;
+  font-weight: 700 !important;
+}
+
+html.light .idle-stat-number.battery-charging,
+.light .idle-stat-number.battery-charging,
+#notch-pill.light .idle-stat-number.battery-charging {
+  color: #15803d !important;
+}
+
+html.light .idle-stat-number.battery-low,
+.light .idle-stat-number.battery-low,
+#notch-pill.light .idle-stat-number.battery-low {
+  color: #b91c1c !important;
+}
+
+/* Media Player Progress & Volume Bars (Black in Light Mode) */
+html.light .media-progress-track,
+.light .media-progress-track,
+#notch-pill.light .media-progress-track {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light .media-progress-fill,
+.light .media-progress-fill,
+#notch-pill.light .media-progress-fill {
+  background-color: #1c1c1e !important;
+}
+
+html.light .media-progress-thumb,
+.light .media-progress-thumb,
+#notch-pill.light .media-progress-thumb {
+  background-color: #1c1c1e !important;
+}
+
+html.light .media-volume-track,
+.light .media-volume-track,
+#notch-pill.light .media-volume-track {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+  --tw-ring-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+html.light .media-volume-fill,
+.light .media-volume-fill,
+#notch-pill.light .media-volume-fill {
+  background-color: #1c1c1e !important;
+}
+
+/* Audio Visualizer Waveform: Light Blue (Sky Blue) */
+.audio-visualizer-bar {
+  background-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.65);
+}
+
+html.light .audio-visualizer-bar,
+.light .audio-visualizer-bar,
+#notch-pill.light .audio-visualizer-bar {
+  background-color: #0284c7 !important;
+  box-shadow: 0 0 6px rgba(2, 132, 199, 0.5) !important;
+}
+
+.audio-visualizer-play {
+  background-color: rgba(56, 189, 248, 0.18);
+  color: #38bdf8;
+}
+
+.audio-visualizer-play:hover {
+  background-color: rgba(56, 189, 248, 0.3);
+}
+
+html.light .audio-visualizer-play,
+.light .audio-visualizer-play,
+#notch-pill.light .audio-visualizer-play {
+  background-color: rgba(2, 132, 199, 0.15) !important;
+  color: #0284c7 !important;
+}
+
+html.light .audio-visualizer-play:hover,
+.light .audio-visualizer-play:hover,
+#notch-pill.light .audio-visualizer-play:hover {
+  background-color: rgba(2, 132, 199, 0.25) !important;
+}
+
+
+/* Idle Lyrics Text in Light Mode */
+html.light .idle-lyrics-text,
+.light .idle-lyrics-text,
+#notch-pill.light .idle-lyrics-text {
+  color: #1d1d1f !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+/* Idle Lyrics Subtitles (Previous / Next line) */
+.idle-lyrics-sub {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+html.light .idle-lyrics-sub,
+.light .idle-lyrics-sub,
+#notch-pill.light .idle-lyrics-sub {
+  color: #48484a !important;
+  opacity: 0.85 !important;
+  text-shadow: none !important;
+}
+
+html.light .text-ios-tertiary,
+.light .text-ios-tertiary,
+#notch-pill.light .text-ios-tertiary {
+  color: #8e8e93 !important;
+}
+html.light .text-neutral-400,
+html.light .text-neutral-300,
+.light .text-neutral-400,
+.light .text-neutral-300,
+#notch-pill.light .text-neutral-400,
+#notch-pill.light .text-neutral-300 {
+  color: #636366 !important;
+}
+html.light .text-neutral-200,
+html.light .text-neutral-100,
+.light .text-neutral-200,
+.light .text-neutral-100,
+#notch-pill.light .text-neutral-200,
+#notch-pill.light .text-neutral-100 {
+  color: #1d1d1f !important;
+}
+
+/* Control Center Focus Subtitles (Normal, DND, Gaming, Sleep) */
+html.light [class*="text-amber-300"],
+.light [class*="text-amber-300"],
+#notch-pill.light [class*="text-amber-300"] {
+  color: #b45309 !important;
+  font-weight: 600 !important;
+}
+html.light [class*="text-indigo-300"],
+.light [class*="text-indigo-300"],
+#notch-pill.light [class*="text-indigo-300"] {
+  color: #4338ca !important;
+  font-weight: 600 !important;
+}
+html.light [class*="text-rose-300"],
+.light [class*="text-rose-300"],
+#notch-pill.light [class*="text-rose-300"] {
+  color: #be123c !important;
+  font-weight: 600 !important;
+}
+html.light [class*="text-teal-300"],
+.light [class*="text-teal-300"],
+#notch-pill.light [class*="text-teal-300"] {
+  color: #0f766e !important;
+  font-weight: 600 !important;
+}
+html.light [class*="text-emerald-300"],
+.light [class*="text-emerald-300"],
+#notch-pill.light [class*="text-emerald-300"] {
+  color: #047857 !important;
+  font-weight: 600 !important;
+}
+
+/* Quick Tools & Power Buttons (Vibrant on Light Glass) */
+html.light [class*="text-purple-400"],
+.light [class*="text-purple-400"],
+#notch-pill.light [class*="text-purple-400"] {
+  color: #7e22ce !important;
+}
+html.light [class*="text-sky-400"],
+.light [class*="text-sky-400"],
+#notch-pill.light [class*="text-sky-400"] {
+  color: #0284c7 !important;
+}
+html.light [class*="text-amber-400"],
+.light [class*="text-amber-400"],
+#notch-pill.light [class*="text-amber-400"] {
+  color: #b45309 !important;
+}
+html.light [class*="text-emerald-400"],
+.light [class*="text-emerald-400"],
+#notch-pill.light [class*="text-emerald-400"] {
+  color: #047857 !important;
+}
+html.light [class*="text-cyan-400"],
+.light [class*="text-cyan-400"],
+#notch-pill.light [class*="text-cyan-400"] {
+  color: #0e7490 !important;
+}
+html.light [class*="text-indigo-400"],
+.light [class*="text-indigo-400"],
+#notch-pill.light [class*="text-indigo-400"] {
+  color: #4338ca !important;
+}
+html.light [class*="text-rose-400"],
+.light [class*="text-rose-400"],
+#notch-pill.light [class*="text-rose-400"] {
+  color: #be123c !important;
+}
+
+/* Quick Action Button Backgrounds */
+html.light [class*="bg-white/[0.04]"],
+.light [class*="bg-white/[0.04]"],
+#notch-pill.light [class*="bg-white/[0.04]"] {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+html.light [class*="bg-white/[0.04]"]:hover,
+.light [class*="bg-white/[0.04]"]:hover,
+#notch-pill.light [class*="bg-white/[0.04]"]:hover {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Borders & Dividers */
+html.light [class*="border-white/"],
+.light [class*="border-white/"],
+#notch-pill.light [class*="border-white/"] {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+html.light [class*="divide-white/"] > :not([hidden]) ~ :not([hidden]),
+.light [class*="divide-white/"] > :not([hidden]) ~ :not([hidden]),
+#notch-pill.light [class*="divide-white/"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Status Bar & Nav Header Icons */
+html.light .border-white\/60,
+.light .border-white\/60,
+#notch-pill.light .border-white\/60 {
+  border-color: rgba(0, 0, 0, 0.45) !important;
+}
+html.light .bg-white\/60,
+.light .bg-white\/60,
+#notch-pill.light .bg-white\/60 {
+  background-color: rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Nav Round Buttons (Prev, Next, Settings) */
+html.light .w-6.h-6.rounded-full,
+.light .w-6.h-6.rounded-full,
+#notch-pill.light .w-6.h-6.rounded-full {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+  color: #1d1d1f !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+html.light .w-6.h-6.rounded-full:hover,
+.light .w-6.h-6.rounded-full:hover,
+#notch-pill.light .w-6.h-6.rounded-full:hover {
+  background-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Ping Indicator */
+html.light .font-mono.text-neutral-300,
+.light .font-mono.text-neutral-300,
+#notch-pill.light .font-mono.text-neutral-300 {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+  color: #1d1d1f !important;
+}
+
+/* Buttons & Action Chips */
+html.light [class*="bg-white/10"],
+html.light [class*="bg-white/5"],
+.light [class*="bg-white/10"],
+.light [class*="bg-white/5"],
+#notch-pill.light [class*="bg-white/10"],
+#notch-pill.light [class*="bg-white/5"] {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  color: #1d1d1f !important;
+  border-color: rgba(0, 0, 0, 0.04) !important;
+}
+html.light [class*="bg-white/10"]:hover,
+html.light [class*="bg-white/5"]:hover,
+.light [class*="bg-white/10"]:hover,
+.light [class*="bg-white/5"]:hover,
+#notch-pill.light [class*="bg-white/10"]:hover,
+#notch-pill.light [class*="bg-white/5"]:hover {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+html.light [class*="bg-white/[0.08]"],
+html.light [class*="bg-white/[0.12]"],
+.light [class*="bg-white/[0.08]"],
+.light [class*="bg-white/[0.12]"],
+#notch-pill.light [class*="bg-white/[0.08]"],
+#notch-pill.light [class*="bg-white/[0.12]"] {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+html.light [class*="bg-white/[0.18]"]:hover,
+.light [class*="bg-white/[0.18]"]:hover,
+#notch-pill.light [class*="bg-white/[0.18]"]:hover {
+  background-color: rgba(0, 0, 0, 0.09) !important;
+}
+
+/* Inactive Icon Glyphs (Wi-Fi off, BT off, etc) */
+html.light [class*="text-white/40"],
+.light [class*="text-white/40"],
+#notch-pill.light [class*="text-white/40"] {
+  color: #8e8e93 !important;
+}
+
+/* Sliders (Apple macOS/VisionOS Slider Legibility) */
+html.light [data-no-swipe="true"] label,
+.light [data-no-swipe="true"] label,
+#notch-pill.light [data-no-swipe="true"] label {
+  background-color: rgba(0, 0, 0, 0.07) !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+html.light [data-no-swipe="true"] label > .bg-white,
+.light [data-no-swipe="true"] label > .bg-white,
+#notch-pill.light [data-no-swipe="true"] label > .bg-white {
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.06) !important;
+}
+html.light [data-no-swipe="true"] label span.text-white\/75,
+.light [data-no-swipe="true"] label span.text-white\/75,
+#notch-pill.light [data-no-swipe="true"] label span.text-white\/75 {
+  color: #1d1d1f !important;
+  font-weight: 700 !important;
+}
+html.light [data-no-swipe="true"] label .text-white\/90,
+.light [data-no-swipe="true"] label .text-white\/90,
+#notch-pill.light [data-no-swipe="true"] label .text-white\/90 {
+  color: #1d1d1f !important;
+}
+
+/* Inputs & Placeholders */
+html.light input::placeholder,
+.light input::placeholder,
+#notch-pill.light input::placeholder {
+  color: #8e8e93 !important;
+}
+html.light input,
+.light input,
+#notch-pill.light input {
+  color: #1d1d1f !important;
+}
+
+/* Segmented Controls */
+html.light [class*="bg-black/50"],
+.light [class*="bg-black/50"],
+#notch-pill.light [class*="bg-black/50"] {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+html.light [class*="bg-white/20"],
+.light [class*="bg-white/20"],
+#notch-pill.light [class*="bg-white/20"] {
+  background-color: #ffffff !important;
+  box-shadow: 0 1.5px 5px rgba(0, 0, 0, 0.12) !important;
+  border-color: rgba(0, 0, 0, 0.04) !important;
+}
+html.light [class*="border-white/15"],
+.light [class*="border-white/15"],
+#notch-pill.light [class*="border-white/15"] {
+  border-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Scrollbars in Light Mode */
+html.light .todo-scroll::-webkit-scrollbar-thumb,
+html.light .settings-scroll::-webkit-scrollbar-thumb,
+.light .todo-scroll::-webkit-scrollbar-thumb,
+.light .settings-scroll::-webkit-scrollbar-thumb,
+#notch-pill.light .todo-scroll::-webkit-scrollbar-thumb,
+#notch-pill.light .settings-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18) !important;
+}
+html.light .todo-scroll::-webkit-scrollbar-thumb:hover,
+html.light .settings-scroll::-webkit-scrollbar-thumb:hover,
+.light .todo-scroll::-webkit-scrollbar-thumb:hover,
+.light .settings-scroll::-webkit-scrollbar-thumb:hover,
+#notch-pill.light .todo-scroll::-webkit-scrollbar-thumb:hover,
+#notch-pill.light .settings-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32) !important;
+}
+html.light .todo-scroll::-webkit-scrollbar-track,
+.light .todo-scroll::-webkit-scrollbar-track,
+#notch-pill.light .todo-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Compact Mode Bar */
+html.light #notch-pill [class*="bg-white/70"],
+.light #notch-pill [class*="bg-white/70"],
+#notch-pill.light [class*="bg-white/70"] {
+  background-color: rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Page Dots */
+html.light .h-1\.5.bg-white,
+.light .h-1\.5.bg-white,
+#notch-pill.light .h-1\.5.bg-white {
+  background-color: #1d1d1f !important;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.25) !important;
+}
+html.light .h-1\.5.bg-white\/25,
+html.light .h-1\.5.bg-white\/45,
+.light .h-1\.5.bg-white\/25,
+.light .h-1\.5.bg-white\/45,
+#notch-pill.light .h-1\.5.bg-white\/25,
+#notch-pill.light .h-1\.5.bg-white\/45 {
+  background-color: rgba(0, 0, 0, 0.22) !important;
+}
+html.light .h-1\.5.bg-white\/25:hover,
+html.light .h-1\.5.bg-white\/45:hover,
+.light .h-1\.5.bg-white\/25:hover,
+.light .h-1\.5.bg-white\/45:hover,
+#notch-pill.light .h-1\.5.bg-white\/25:hover,
+#notch-pill.light .h-1\.5.bg-white\/45:hover {
+  background-color: rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Focus Mode & Live Sync Badges in Light Mode */
+html.light [class*="bg-white/15"],
+.light [class*="bg-white/15"],
+#notch-pill.light [class*="bg-white/15"] {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+html.light .text-indigo-200,
+.light .text-indigo-200,
+#notch-pill.light .text-indigo-200 {
+  color: #4f46e5 !important;
+}
+html.light .text-rose-200,
+.light .text-rose-200,
+#notch-pill.light .text-rose-200 {
+  color: #e11d48 !important;
+}
+html.light .text-teal-200,
+.light .text-teal-200,
+#notch-pill.light .text-teal-200 {
+  color: #0d9488 !important;
+}
+html.light .text-blue-300,
+.light .text-blue-300,
+#notch-pill.light .text-blue-300 {
+  color: #2563eb !important;
+}
+
+/* Media Player in Light Mode */
+html.light .media-volume-icon,
+.light .media-volume-icon,
+#notch-pill.light .media-volume-icon {
+  color: rgba(0, 0, 0, 0.65) !important;
+}
+
+html.light .media-volume-track,
+.light .media-volume-track,
+#notch-pill.light .media-volume-track {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+html.light .media-volume-fill,
+.light .media-volume-fill,
+#notch-pill.light .media-volume-fill {
+  background-color: #1d1d1f !important;
+}
+
+html.light .media-progress-track,
+.light .media-progress-track,
+#notch-pill.light .media-progress-track {
+  background-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+html.light .media-progress-fill,
+.light .media-progress-fill,
+#notch-pill.light .media-progress-fill {
+  background-color: #1d1d1f !important;
+}
+
+html.light .media-progress-thumb,
+.light .media-progress-thumb,
+#notch-pill.light .media-progress-thumb {
+  background-color: #1d1d1f !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25) !important;
+}
+
+html.light .media-play-btn,
+.light .media-play-btn,
+#notch-pill.light .media-play-btn {
+  color: #1d1d1f !important;
+}
+html.light .media-play-btn:hover,
+.light .media-play-btn:hover,
+#notch-pill.light .media-play-btn:hover {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light .media-control-btn,
+.light .media-control-btn,
+#notch-pill.light .media-control-btn {
+  color: rgba(0, 0, 0, 0.65) !important;
+}
+html.light .media-control-btn:hover,
+.light .media-control-btn:hover,
+#notch-pill.light .media-control-btn:hover {
+  color: #000000 !important;
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light .media-time-label,
+.light .media-time-label,
+#notch-pill.light .media-time-label {
+  color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Weather Location Dropdown in Settings */
+.weather-dropdown-container {
+  background-color: rgba(0, 0, 0, 0.28);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+html.light .weather-dropdown-container,
+.light .weather-dropdown-container,
+#notch-pill.light .weather-dropdown-container {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.07) !important;
+}
+
+.weather-search-input {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.weather-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+html.light .weather-search-input,
+.light .weather-search-input,
+#notch-pill.light .weather-search-input {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+  color: #1d1d1f !important;
+  border: 1px solid rgba(0, 0, 0, 0.09) !important;
+}
+html.light .weather-search-input::placeholder,
+.light .weather-search-input::placeholder,
+#notch-pill.light .weather-search-input::placeholder {
+  color: rgba(0, 0, 0, 0.45) !important;
+}
+
+.weather-action-btn {
+  background-color: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+}
+.weather-action-btn:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+html.light .weather-action-btn,
+.light .weather-action-btn,
+#notch-pill.light .weather-action-btn {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  color: #1d1d1f !important;
+}
+html.light .weather-action-btn:hover,
+.light .weather-action-btn:hover,
+#notch-pill.light .weather-action-btn:hover {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+  color: #000000 !important;
+}
+
+.weather-result-item {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+.weather-result-item:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+html.light .weather-result-item,
+.light .weather-result-item,
+#notch-pill.light .weather-result-item {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+html.light .weather-result-item:hover,
+.light .weather-result-item:hover,
+#notch-pill.light .weather-result-item:hover {
+  background-color: rgba(0, 0, 0, 0.07) !important;
+}
+
+/* Secondary & Muted text in Light Mode */
+html.light .text-white\/55,
+html.light .text-white\/45,
+.light .text-white\/55,
+.light .text-white\/45,
+#notch-pill.light .text-white\/55,
+#notch-pill.light .text-white\/45 {
+  color: #48484a !important;
+}
+
+html.light .text-white\/35,
+.light .text-white\/35,
+#notch-pill.light .text-white\/35 {
+  color: #636366 !important;
+}
+
+/* ==========================================================================
+   Font Size Scaling (Typography Only - Zero Layout/Icon/Switch Distortion)
+   ========================================================================== */
+
+/* Small Font Scale */
+#notch-pill[data-font-size="small"] .idle-stat-number {
+  font-size: 9px !important;
+}
+#notch-pill[data-font-size="small"] .idle-lyrics-text {
+  font-size: 11.5px !important;
+  line-height: 1.2 !important;
+}
+#notch-pill[data-font-size="small"] .idle-lyrics-sub {
+  font-size: 9px !important;
+  line-height: 1.2 !important;
+  min-height: 12px !important;
+}
+#notch-pill[data-font-size="small"] .text-\[8\.5px\],
+#notch-pill[data-font-size="small"] [class*="text-[8.5px]"] {
+  font-size: 8px !important;
+}
+#notch-pill[data-font-size="small"] .text-\[9px\],
+#notch-pill[data-font-size="small"] [class*="text-[9px]"],
+#notch-pill[data-font-size="small"] .text-\[9\.5px\],
+#notch-pill[data-font-size="small"] [class*="text-[9.5px]"] {
+  font-size: 8.5px !important;
+}
+#notch-pill[data-font-size="small"] .text-\[10px\],
+#notch-pill[data-font-size="small"] [class*="text-[10px]"],
+#notch-pill[data-font-size="small"] .text-\[10\.5px\],
+#notch-pill[data-font-size="small"] [class*="text-[10.5px]"] {
+  font-size: 9px !important;
+}
+#notch-pill[data-font-size="small"] .text-\[11px\],
+#notch-pill[data-font-size="small"] [class*="text-[11px]"],
+#notch-pill[data-font-size="small"] .text-\[11\.5px\],
+#notch-pill[data-font-size="small"] [class*="text-[11.5px]"] {
+  font-size: 10px !important;
+}
+#notch-pill[data-font-size="small"] .text-xs,
+#notch-pill[data-font-size="small"] .text-\[12px\],
+#notch-pill[data-font-size="small"] [class*="text-[12px]"],
+#notch-pill[data-font-size="small"] .text-\[12\.5px\],
+#notch-pill[data-font-size="small"] [class*="text-[12.5px]"] {
+  font-size: 11px !important;
+}
+#notch-pill[data-font-size="small"] .text-\[13px\],
+#notch-pill[data-font-size="small"] [class*="text-[13px]"],
+#notch-pill[data-font-size="small"] .text-\[13\.5px\],
+#notch-pill[data-font-size="small"] [class*="text-[13.5px]"] {
+  font-size: 12px !important;
+}
+#notch-pill[data-font-size="small"] .text-sm,
+#notch-pill[data-font-size="small"] .text-\[14px\],
+#notch-pill[data-font-size="small"] [class*="text-[14px]"],
+#notch-pill[data-font-size="small"] .text-\[14\.5px\],
+#notch-pill[data-font-size="small"] [class*="text-[14.5px]"] {
+  font-size: 12.5px !important;
+}
+#notch-pill[data-font-size="small"] .text-\[15px\],
+#notch-pill[data-font-size="small"] [class*="text-[15px]"] {
+  font-size: 13.5px !important;
+}
+#notch-pill[data-font-size="small"] .text-base,
+#notch-pill[data-font-size="small"] .text-\[16px\],
+#notch-pill[data-font-size="small"] [class*="text-[16px]"] {
+  font-size: 14.5px !important;
+}
+#notch-pill[data-font-size="small"] .text-lg,
+#notch-pill[data-font-size="small"] .text-\[18px\],
+#notch-pill[data-font-size="small"] [class*="text-[18px]"] {
+  font-size: 16px !important;
+}
+
+/* Large Font Scale */
+#notch-pill[data-font-size="large"] .idle-stat-number {
+  font-size: 11.5px !important;
+}
+#notch-pill[data-font-size="large"] .idle-lyrics-text {
+  font-size: 16px !important;
+  line-height: 1.25 !important;
+}
+#notch-pill[data-font-size="large"] .idle-lyrics-sub {
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+  min-height: 16px !important;
+}
+#notch-pill[data-font-size="large"] .text-\[8\.5px\],
+#notch-pill[data-font-size="large"] [class*="text-[8.5px]"] {
+  font-size: 9.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-\[9px\],
+#notch-pill[data-font-size="large"] [class*="text-[9px]"],
+#notch-pill[data-font-size="large"] .text-\[9\.5px\],
+#notch-pill[data-font-size="large"] [class*="text-[9.5px]"] {
+  font-size: 10.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-\[10px\],
+#notch-pill[data-font-size="large"] [class*="text-[10px]"],
+#notch-pill[data-font-size="large"] .text-\[10\.5px\],
+#notch-pill[data-font-size="large"] [class*="text-[10.5px]"] {
+  font-size: 11.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-\[11px\],
+#notch-pill[data-font-size="large"] [class*="text-[11px]"],
+#notch-pill[data-font-size="large"] .text-\[11\.5px\],
+#notch-pill[data-font-size="large"] [class*="text-[11.5px]"] {
+  font-size: 12.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-xs,
+#notch-pill[data-font-size="large"] .text-\[12px\],
+#notch-pill[data-font-size="large"] [class*="text-[12px]"],
+#notch-pill[data-font-size="large"] .text-\[12\.5px\],
+#notch-pill[data-font-size="large"] [class*="text-[12.5px]"] {
+  font-size: 13.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-\[13px\],
+#notch-pill[data-font-size="large"] [class*="text-[13px]"],
+#notch-pill[data-font-size="large"] .text-\[13\.5px\],
+#notch-pill[data-font-size="large"] [class*="text-[13.5px]"] {
+  font-size: 14.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-sm,
+#notch-pill[data-font-size="large"] .text-\[14px\],
+#notch-pill[data-font-size="large"] [class*="text-[14px]"],
+#notch-pill[data-font-size="large"] .text-\[14\.5px\],
+#notch-pill[data-font-size="large"] [class*="text-[14.5px]"] {
+  font-size: 15.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-\[15px\],
+#notch-pill[data-font-size="large"] [class*="text-[15px]"] {
+  font-size: 16.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-base,
+#notch-pill[data-font-size="large"] .text-\[16px\],
+#notch-pill[data-font-size="large"] [class*="text-[16px]"] {
+  font-size: 17.5px !important;
+}
+#notch-pill[data-font-size="large"] .text-lg,
+#notch-pill[data-font-size="large"] .text-\[18px\],
+#notch-pill[data-font-size="large"] [class*="text-[18px]"] {
+  font-size: 20px !important;
+}

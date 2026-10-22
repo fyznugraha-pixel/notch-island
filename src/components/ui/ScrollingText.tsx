@@ -33,7 +33,7 @@ export const ScrollingText = ({ text, className }: { text: string, className?: s
     const timer = setTimeout(checkScroll, 100);
 
     return () => { ro.disconnect(); clearTimeout(timer); };
-  }, [text]);
+  }, [text, className]);
 
   const shouldScroll = overflowPx > 0;
   // scroll duration proportional to overflow, range 2-6s
@@ -46,21 +46,21 @@ export const ScrollingText = ({ text, className }: { text: string, className?: s
   return (
     <div ref={containerRef} className={`overflow-hidden whitespace-nowrap ${className}`}>
       {shouldScroll && (
-        <style>{`
+        <style dangerouslySetInnerHTML={{ __html: `
           @keyframes marquee-pause-scroll-${Math.round(overflowPx)} {
             0%, ${scrollStartPct}% { transform: translateX(0px); }
             ${scrollEndPct}%, 100% { transform: translateX(-${overflowPx}px); }
           }
-        `}</style>
+        ` }} />
       )}
       <span
         ref={textRef}
         style={shouldScroll ? {
-          display: 'inline-block',
+          display: 'block',
           animation: `marquee-pause-scroll-${Math.round(overflowPx)} ${totalCycle}s ease-in-out infinite`,
           willChange: 'transform',
         } : {
-          display: 'inline-block',
+          display: 'block',
           maxWidth: '100%',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
