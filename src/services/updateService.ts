@@ -31,7 +31,12 @@ export async function checkForAppUpdate(): Promise<UpdateInfo> {
       notes: update.body,
       update,
     };
-  } catch (error) {
+  } catch (error: any) {
+    const errorMsg = String(error?.message || error || "");
+    // If GitHub release endpoint returned 404, no releases have been published yet on GitHub repository
+    if (errorMsg.includes("404") || errorMsg.toLowerCase().includes("not found")) {
+      return { available: false };
+    }
     console.warn("Failed to check for updates:", error);
     throw error;
   }

@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod privacy;
+mod connectivity;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -1412,7 +1413,13 @@ pub fn run() {
             check_foreground_browser,
             is_cursor_in_notch,
             enforce_always_on_top,
-            activate_notification_app
+            activate_notification_app,
+            connectivity::get_wifi_status,
+            connectivity::toggle_wifi,
+            connectivity::connect_wifi,
+            connectivity::disconnect_wifi,
+            connectivity::get_bluetooth_status,
+            connectivity::toggle_bluetooth
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};

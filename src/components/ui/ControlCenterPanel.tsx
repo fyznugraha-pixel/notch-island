@@ -19,6 +19,7 @@ import {
   SlidersHorizontal,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Check,
   Bell,
   BellOff,
@@ -32,6 +33,9 @@ import { ScrollingText } from "./ScrollingText";
 import { IosSlider } from "../ios/IosSlider";
 import { iosSpring, iosRiseVariants } from "../../utils/iosMotion";
 import { t } from "../../services/i18n";
+import { WifiSubmenu } from "./control-center/WifiSubmenu";
+import { BluetoothSubmenu } from "./control-center/BluetoothSubmenu";
+import { toggleWifiState, toggleBluetoothState } from "../../services/connectivityService";
 
 export type FocusModeType = "Normal" | "DND" | "Gaming" | "Sleep";
 
@@ -89,14 +93,54 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   onClose,
 }) => {
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
+  const [activeSubmenu, setActiveSubmenu] = useState<null | "wifi" | "bluetooth">(null);
+  const [localWifiOn, setLocalWifiOn] = useState<boolean | null>(null);
+  const [localBtOn, setLocalBtOn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setLocalWifiOn(null);
+  }, [wifiName]);
+
+  useEffect(() => {
+    setLocalBtOn(null);
+  }, [btName]);
+
+  const isWifiOn = localWifiOn !== null ? localWifiOn : (wifiName !== "Off" && wifiName !== "");
+  const isBtOn = localBtOn !== null ? localBtOn : (btName !== "Off" && btName !== "");
 
   const btBatteryMatch = btName.match(/\((.*?%)\)$/);
   const hasBtBattery = !!btBatteryMatch;
   const btBatteryText = hasBtBattery ? btBatteryMatch[1] : null;
   const cleanBtName = btName.replace(/\s*\(.*?%\)$/, "");
-  const isWifiConnected = wifiName !== "Not Connected" && wifiName !== "Off" && wifiName !== "Loading..." && wifiName !== "";
-  const isBtConnected = btName !== "Not Connected" && btName !== "Off" && btName !== "Loading...";
+  const isWifiConnected = isWifiOn && wifiName !== "Not Connected" && wifiName !== "Off" && wifiName !== "Loading..." && wifiName !== "";
+  const isBtConnected = isBtOn && btName !== "Not Connected" && btName !== "Off" && btName !== "Loading...";
   const currentFocusOption = focusModeOptions.find((opt) => opt.id === focusMode) || focusModeOptions[0];
+
+  const handleQuickToggleWifi = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !isWifiOn;
+    setLocalWifiOn(next);
+    try {
+      await toggleWifiState(next);
+      invoke("get_system_info").catch(console.error);
+    } catch (err) {
+      console.error(err);
+      setLocalWifiOn(isWifiOn);
+    }
+  };
+
+  const handleQuickToggleBt = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !isBtOn;
+    setLocalBtOn(next);
+    try {
+      await toggleBluetoothState(next);
+      invoke("get_system_info").catch(console.error);
+    } catch (err) {
+      console.error(err);
+      setLocalBtOn(isBtOn);
+    }
+  };
 
   const handleNextPowerMode = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -180,15 +224,28 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   }, []);
 
   return (
-    <motion.div
-      key="quick_control"
-      custom={slideDirection}
-      variants={iosRiseVariants}
-      initial="enter"
-      animate="center"
-      exit="exit"
-      className="absolute inset-0 w-full h-full flex flex-col px-3 justify-center gap-2.5 min-w-0 select-none gpu-accelerated"
-    >
+    <AnimatePresence mode="wait">
+      {activeSubmenu === "wifi" ? (
+        <WifiSubmenu
+          key="wifi_submenu"
+          onBack={() => setActiveSubmenu(null)}
+          networkPing={networkPing}
+        />
+      ) : activeSubmenu === "bluetooth" ? (
+        <BluetoothSubmenu
+          key="bluetooth_submenu"
+          onBack={() => setActiveSubmenu(null)}
+        />
+      ) : (
+        <motion.div
+          key="quick_control"
+          custom={slideDirection}
+          variants={iosRiseVariants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          className="absolute inset-0 w-full h-full flex flex-col px-3 justify-center gap-2.5 min-w-0 select-none gpu-accelerated"
+        >
       {/* Row 1: iOS Quick Tools + Power Mode Capsule */}
       <motion.div
         custom={slideDirection}
@@ -327,32 +384,31 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
           }`}
         >
           {/* Wi-Fi */}
-          <Tooltip content="Wi-Fi" side="top" wrapperClassName="w-full">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.94 }}
-              transition={iosSpring.press}
-              onClick={(e) => {
-                e.stopPropagation();
-                openUrl("ms-settings:network-wifi").catch(() => {
-                  invoke("system_power_action", { action: "wifi" }).catch(console.error);
-                });
-                onClose();
-              }}
-              className="w-full flex items-center gap-2 p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
-            >
-              <div
-                className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-all duration-300 ${
-                  isWifiConnected
-                    ? "bg-[#0a84ff] text-white shadow-[0_0_14px_rgba(10,132,255,0.45)]"
-                    : "bg-white/10 text-white/40"
-                }`}
-              >
-                <Wifi size={14} className={isWifiConnected ? "text-white" : "text-white/40"} />
-              </div>
-              <div className="flex flex-col min-w-0 overflow-hidden w-full">
+          <div
+            onClick={() => setActiveSubmenu("wifi")}
+            className="w-full flex items-center justify-between p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Tooltip content={isWifiOn ? "Turn Wi-Fi Off" : "Turn Wi-Fi On"} side="top">
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.88 }}
+                  transition={iosSpring.press}
+                  onClick={handleQuickToggleWifi}
+                  className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-all duration-300 cursor-pointer ${
+                    isWifiConnected
+                      ? "bg-[#0a84ff] text-white shadow-[0_0_14px_rgba(10,132,255,0.45)] hover:bg-[#0071e3]"
+                      : isWifiOn
+                      ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/30"
+                      : "bg-white/10 text-white/40 hover:bg-white/15"
+                  }`}
+                >
+                  <Wifi size={14} className={isWifiConnected ? "text-white" : isWifiOn ? "text-sky-400" : "text-white/40"} />
+                </motion.button>
+              </Tooltip>
+              <div className="flex flex-col min-w-0 overflow-hidden flex-1">
                 <div className="flex items-center gap-1">
-                  {wifiName === "Not Connected" || networkPing === null ? (
+                  {!isWifiConnected || networkPing === null ? (
                     <span className="text-[11px] font-bold text-white leading-tight whitespace-nowrap">Wi-Fi</span>
                   ) : (
                     <span className="text-[9.5px] font-mono text-neutral-300 bg-white/10 px-1 py-0.2 rounded flex shrink-0 items-center tracking-tighter whitespace-nowrap">
@@ -361,10 +417,14 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     </span>
                   )}
                 </div>
-                <ScrollingText text={wifiName} className="text-[9px] text-ios-secondary font-medium mt-0.5 truncate" />
+                <ScrollingText
+                  text={isWifiOn ? (isWifiConnected ? wifiName : t("cc_not_connected")) : "Off"}
+                  className="text-[9px] text-ios-secondary font-medium mt-0.5 truncate"
+                />
               </div>
-            </motion.button>
-          </Tooltip>
+            </div>
+            <ChevronRight size={13} className="shrink-0 text-white/30 group-hover:text-white/70 transition-colors ml-0.5" />
+          </div>
 
           {/* Focus Mode (with iOS Dropdown Menu) */}
           <div className={`relative w-full ${isModeDropdownOpen ? "z-50" : ""}`}>
@@ -476,37 +536,40 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
           </div>
 
           {/* Bluetooth */}
-          <Tooltip content="Bluetooth" side="top" wrapperClassName="w-full">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.94 }}
-              transition={iosSpring.press}
-              onClick={(e) => {
-                e.stopPropagation();
-                openUrl("ms-settings:bluetooth").catch(() => {
-                  invoke("system_power_action", { action: "bluetooth" }).catch(console.error);
-                });
-                onClose();
-              }}
-              className="w-full flex items-center gap-2 p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
-            >
-              <div
-                className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-all duration-300 ${
-                  isBtConnected
-                    ? "bg-[#0a84ff] text-white shadow-[0_0_14px_rgba(10,132,255,0.45)]"
-                    : "bg-white/10 text-white/40"
-                }`}
-              >
-                <Bluetooth size={14} className={isBtConnected ? "text-white" : "text-white/40"} />
-              </div>
-              <div className="flex flex-col min-w-0 overflow-hidden w-full">
+          <div
+            onClick={() => setActiveSubmenu("bluetooth")}
+            className="w-full flex items-center justify-between p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Tooltip content={isBtOn ? "Turn Bluetooth Off" : "Turn Bluetooth On"} side="top">
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.88 }}
+                  transition={iosSpring.press}
+                  onClick={handleQuickToggleBt}
+                  className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-all duration-300 cursor-pointer ${
+                    isBtConnected
+                      ? "bg-[#0a84ff] text-white shadow-[0_0_14px_rgba(10,132,255,0.45)] hover:bg-[#0071e3]"
+                      : isBtOn
+                      ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/30"
+                      : "bg-white/10 text-white/40 hover:bg-white/15"
+                  }`}
+                >
+                  <Bluetooth size={14} className={isBtConnected ? "text-white" : isBtOn ? "text-sky-400" : "text-white/40"} />
+                </motion.button>
+              </Tooltip>
+              <div className="flex flex-col min-w-0 overflow-hidden flex-1">
                 <span className="text-[11px] font-bold text-white leading-tight truncate">
                   {hasBtBattery ? btBatteryText : "Bluetooth"}
                 </span>
-                <ScrollingText text={cleanBtName} className="text-[9px] text-ios-secondary font-medium mt-0.5 truncate" />
+                <ScrollingText
+                  text={isBtOn ? (cleanBtName || t("cc_not_connected")) : "Off"}
+                  className="text-[9px] text-ios-secondary font-medium mt-0.5 truncate"
+                />
               </div>
-            </motion.button>
-          </Tooltip>
+            </div>
+            <ChevronRight size={13} className="shrink-0 text-white/30 group-hover:text-white/70 transition-colors ml-0.5" />
+          </div>
 
           {/* Hotspot */}
           <Tooltip content={isHotspotOn ? t("cc_hotspot_on") : t("cc_hotspot_off")} side="top" wrapperClassName="w-full">
@@ -678,5 +741,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
         />
       </motion.div>
     </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
