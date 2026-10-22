@@ -1,6 +1,6 @@
 [package]
 name = "notch"
-version = "3.2.1"
+version = "3.2.3"
 description = "Notch Island for Windows"
 authors = ["Faiz Anak Telkom University"]
 edition = "2021"

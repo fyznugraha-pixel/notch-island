@@ -1,7 +1,7 @@
 {
   "name": "notch",
   "private": true,
-  "version": "3.2.1",
+  "version": "3.2.3",
   "description": "Dynamic Island Notch for Windows, Edition 2026",
   "author": "faiz",
   "type": "module",
@@ -9,7 +9,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:local": "powershell -Command \"$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content '$HOME\\.tauri\\notch.key' -Raw; tauri build\"",
+    "build:nosign": "tauri build --no-sign"
   },
   "dependencies": {
     "@crabnebula/tauri-plugin-drag": "^2.1.0",

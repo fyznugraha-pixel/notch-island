@@ -119,7 +119,7 @@ export async function fetchLyrics(
     }
   }
 
-  const headers = { "User-Agent": "Notch/3.2.1 (https://github.com/faiz)" };
+  const headers = { "User-Agent": "Notch/3.2.3 (https://github.com/faiz)" };
   let hadTransientError = false;
 
   try {
