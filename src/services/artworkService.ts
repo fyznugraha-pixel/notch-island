@@ -26,11 +26,17 @@ export function subscribeArtworkUpdates(callback: () => void): () => void {
   };
 }
 
+export function invalidateCachedArtwork(key: string): void {
+  if (!key) return;
+  artworkCache.set(key, null);
+  artworkListeners.forEach((listener) => listener());
+}
+
 export function getArtworkCacheKey(media: MediaPayload | null | undefined): string {
-  if (!media) return "";
+  if (!media || !media.title?.trim()) return "";
   const artist = (media.artist || "").trim().toLowerCase();
-  const title = (media.title || "").trim().toLowerCase();
-  return `${artist} - ${title}`.trim();
+  const title = media.title.trim().toLowerCase();
+  return artist ? `${artist} - ${title}` : title;
 }
 
 /**

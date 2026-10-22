@@ -8,6 +8,8 @@ import {
   getResolvedArtworkUrl,
   fetchHighResArtwork,
   subscribeArtworkUpdates,
+  invalidateCachedArtwork,
+  getArtworkCacheKey,
 } from "../../services/artworkService";
 
 export function useResolvedThumbnail(media: MediaPayload | null | undefined): string | null {
@@ -122,7 +124,14 @@ export const MediaThumbnail = ({
         src={currentThumb}
         alt="Album Art"
         className="w-full h-full object-cover"
-        onError={() => setThumbError(true)}
+        onError={() => {
+          if (currentThumb === media.thumbnail) {
+            setThumbError(true);
+          } else {
+            const key = getArtworkCacheKey(media);
+            invalidateCachedArtwork(key);
+          }
+        }}
       />
     );
   }

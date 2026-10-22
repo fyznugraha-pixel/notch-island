@@ -2098,67 +2098,56 @@ pub fn run() {
                                     || artist.eq_ignore_ascii_case("brave browser");
 
                                 if is_generic_artist || artist.trim().is_empty() {
-                                    if title.ends_with(" | Threads") {
-                                        title = title[..title.len() - 10].trim().to_string();
-                                        artist = "Threads".to_string();
-                                    } else if title.ends_with(" • Threads") {
-                                        title = title[..title.len() - 11].trim().to_string();
-                                        artist = "Threads".to_string();
-                                    } else if title.ends_with(" - Threads") {
-                                        title = title[..title.len() - 10].trim().to_string();
-                                        artist = "Threads".to_string();
-                                    } else if title.ends_with(" / Threads") {
-                                        title = title[..title.len() - 10].trim().to_string();
+                                    if let Some(stripped) = [" | Threads", " • Threads", " - Threads", " / Threads"].iter().find_map(|s| title.strip_suffix(s)) {
+                                        title = stripped.trim().to_string();
                                         artist = "Threads".to_string();
                                     } else if let Some(idx) = title_lower.rfind(" on threads") {
+                                        if title.is_char_boundary(idx) {
+                                            title = title[..idx].trim().to_string();
+                                        }
                                         artist = "Threads".to_string();
-                                        title = title[..idx].trim().to_string();
                                     } else if title_lower == "threads" || app_id_lower.contains("threads") {
                                         artist = "Threads".to_string();
-                                    } else if title.ends_with(" | Instagram") {
-                                        title = title[..title.len() - 12].trim().to_string();
-                                        artist = "Instagram".to_string();
-                                    } else if title.ends_with(" • Instagram") {
-                                        title = title[..title.len() - 13].trim().to_string();
-                                        artist = "Instagram".to_string();
-                                    } else if title.ends_with(" - Instagram") {
-                                        title = title[..title.len() - 12].trim().to_string();
+                                    } else if let Some(stripped) = [" | Instagram", " • Instagram", " - Instagram", " / Instagram"].iter().find_map(|s| title.strip_suffix(s)) {
+                                        title = stripped.trim().to_string();
                                         artist = "Instagram".to_string();
                                     } else if let Some(idx) = title_lower.rfind(" on instagram") {
+                                        if title.is_char_boundary(idx) {
+                                            title = title[..idx].trim().to_string();
+                                        }
                                         artist = "Instagram".to_string();
-                                        title = title[..idx].trim().to_string();
                                     } else if title_lower == "instagram" || app_id_lower.contains("instagram") {
                                         artist = "Instagram".to_string();
-                                    } else if title.ends_with(" | TikTok") {
-                                        title = title[..title.len() - 9].trim().to_string();
-                                        artist = "TikTok".to_string();
-                                    } else if title.ends_with(" • TikTok") {
-                                        title = title[..title.len() - 10].trim().to_string();
-                                        artist = "TikTok".to_string();
-                                    } else if title.ends_with(" - TikTok") {
-                                        title = title[..title.len() - 9].trim().to_string();
+                                    } else if let Some(stripped) = [" | TikTok", " • TikTok", " - TikTok"].iter().find_map(|s| title.strip_suffix(s)) {
+                                        title = stripped.trim().to_string();
                                         artist = "TikTok".to_string();
                                     } else if let Some(idx) = title_lower.rfind(" on tiktok") {
+                                        if title.is_char_boundary(idx) {
+                                            title = title[..idx].trim().to_string();
+                                        }
                                         artist = "TikTok".to_string();
-                                        title = title[..idx].trim().to_string();
                                     } else if title_lower == "tiktok" || app_id_lower.contains("tiktok") {
                                         artist = "TikTok".to_string();
-                                    } else if title.ends_with(" / X") || title.ends_with(" / x") || title.ends_with(" | X") || title.ends_with(" • X") {
-                                        title = title[..title.len() - 4].trim().to_string();
+                                    } else if let Some(stripped) = [" / X", " / x", " | X", " • X"].iter().find_map(|s| title.strip_suffix(s)) {
+                                        title = stripped.trim().to_string();
                                         artist = "X".to_string();
-                                    } else if title.ends_with(" - Twitter") || title.ends_with(" | Twitter") {
-                                        title = title[..title.len() - 10].trim().to_string();
+                                    } else if let Some(stripped) = [" - Twitter", " | Twitter"].iter().find_map(|s| title.strip_suffix(s)) {
+                                        title = stripped.trim().to_string();
                                         artist = "Twitter".to_string();
                                     } else if let Some(idx) = title_lower.rfind(" on x") {
+                                        if title.is_char_boundary(idx) {
+                                            title = title[..idx].trim().to_string();
+                                        }
                                         artist = "X".to_string();
-                                        title = title[..idx].trim().to_string();
                                     } else if let Some(idx) = title_lower.rfind(" on twitter") {
+                                        if title.is_char_boundary(idx) {
+                                            title = title[..idx].trim().to_string();
+                                        }
                                         artist = "Twitter".to_string();
-                                        title = title[..idx].trim().to_string();
                                     } else if title_lower == "x" || title_lower == "twitter" || app_id_lower.contains("twitter") {
                                         artist = "X".to_string();
-                                    } else if title.ends_with(" - Reddit") || title.ends_with(" | Reddit") {
-                                        title = title[..title.len() - 9].trim().to_string();
+                                    } else if let Some(stripped) = [" - Reddit", " | Reddit"].iter().find_map(|s| title.strip_suffix(s)) {
+                                        title = stripped.trim().to_string();
                                         artist = "Reddit".to_string();
                                     } else if title_lower == "reddit" || app_id_lower.contains("reddit") {
                                         artist = "Reddit".to_string();
