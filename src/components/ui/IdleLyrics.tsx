@@ -199,33 +199,49 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
 
       {/* Center: 3-line synced lyrics with smooth karaoke motion */}
       <div className="flex-1 min-w-0 h-full flex flex-col justify-center px-1 overflow-hidden relative">
+        {/* Previous line — slides up and fades out independently */}
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={`prev-${activeIndex >= 0 ? activeIndex : "idle"}`}
+            initial={{ opacity: 0, y: 10, filter: "blur(2px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -8, filter: "blur(2px)" }}
+            transition={{ type: "spring", stiffness: 280, damping: 28, mass: 0.8 }}
+            className={`${optFontSize === "small" ? "text-[9px] min-h-[12px]" : optFontSize === "large" ? "text-[11.5px] min-h-[15px]" : "text-[10px] min-h-[13px]"} block font-medium text-white/35 idle-lyrics-sub truncate w-full text-center leading-tight tracking-tight select-none`}
+          >
+            {prevLine || "\u00A0"}
+          </motion.span>
+        </AnimatePresence>
+
+        {/* Active line — main focal point with spring entrance */}
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
-            key={activeIndex >= 0 ? activeIndex : currLine}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0, transitionEnd: { transform: "none" } }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full flex flex-col items-center justify-center text-center gap-[1px]"
+            key={`curr-${activeIndex >= 0 ? activeIndex : currLine}`}
+            initial={{ opacity: 0, y: 12, scale: 0.96, filter: "blur(3px)" }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -10, scale: 0.97, filter: "blur(2px)" }}
+            transition={{ type: "spring", stiffness: 300, damping: 26, mass: 0.7 }}
+            className="w-full flex items-center justify-center overflow-hidden select-none"
           >
-            {/* Top Line: Previous lyric (Subtle muted) */}
-            <span className={`${optFontSize === "small" ? "text-[9px] min-h-[12px]" : optFontSize === "large" ? "text-[11.5px] min-h-[15px]" : "text-[10px] min-h-[13px]"} block font-medium text-white/35 idle-lyrics-sub truncate w-full text-center leading-tight tracking-tight select-none`}>
-              {prevLine || "\u00A0"}
-            </span>
-
-            {/* Middle Line: Active lyric (Bold, crisp) */}
-            <div className="w-full flex items-center justify-center overflow-hidden select-none">
-              <ScrollingText
-                text={currLine}
-                className={`${optFontSize === "small" ? "text-[11.5px]" : optFontSize === "large" ? "text-[15.5px]" : "text-[13px]"} font-bold text-white idle-lyrics-text tracking-tight leading-snug w-full text-center`}
-              />
-            </div>
-
-            {/* Bottom Line: Next lyric (Subtle muted) */}
-            <span className={`${optFontSize === "small" ? "text-[9px] min-h-[12px]" : optFontSize === "large" ? "text-[11.5px] min-h-[15px]" : "text-[10px] min-h-[13px]"} block font-medium text-white/40 idle-lyrics-sub truncate w-full text-center leading-tight tracking-tight select-none`}>
-              {nextLine || "\u00A0"}
-            </span>
+            <ScrollingText
+              text={currLine}
+              className={`${optFontSize === "small" ? "text-[11.5px]" : optFontSize === "large" ? "text-[15.5px]" : "text-[13px]"} font-bold text-white idle-lyrics-text tracking-tight leading-snug w-full text-center`}
+            />
           </motion.div>
+        </AnimatePresence>
+
+        {/* Next line — slides up from below with slight delay feel */}
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={`next-${activeIndex >= 0 ? activeIndex : "idle"}`}
+            initial={{ opacity: 0, y: 10, filter: "blur(2px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -8, filter: "blur(2px)" }}
+            transition={{ type: "spring", stiffness: 260, damping: 28, mass: 0.85 }}
+            className={`${optFontSize === "small" ? "text-[9px] min-h-[12px]" : optFontSize === "large" ? "text-[11.5px] min-h-[15px]" : "text-[10px] min-h-[13px]"} block font-medium text-white/40 idle-lyrics-sub truncate w-full text-center leading-tight tracking-tight select-none`}
+          >
+            {nextLine || "\u00A0"}
+          </motion.span>
         </AnimatePresence>
       </div>
 
