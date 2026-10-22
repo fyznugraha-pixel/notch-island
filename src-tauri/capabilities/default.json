@@ -16,6 +16,7 @@
     "global-shortcut:allow-is-registered",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text",
-    "drag:default"
+    "drag:default",
+    "updater:default"
   ]
 }

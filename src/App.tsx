@@ -30,6 +30,7 @@ import { getTextWidth } from "./utils/text";
 import { LyricsData, fetchLyrics } from "./services/lyricsService";
 import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
 import { fetchCurrentWeather, subscribeWeatherChange, getCachedWeather } from "./services/weatherService";
+import { checkForAppUpdate } from "./services/updateService";
 import { ClipboardPanel, ClipboardItem } from "./components/ui/ClipboardPanel";
 import { TodoListPanel, TodoItem } from "./components/ui/TodoListPanel";
 import { DropShelfPanel, StashedFile } from "./components/ui/DropShelfPanel";
@@ -1177,6 +1178,22 @@ export default function App() {
     };
     bootGreeting();
 
+    const updateCheckTimeout = window.setTimeout(async () => {
+      try {
+        const updateInfo = await checkForAppUpdate();
+        if (updateInfo.available && updateInfo.version) {
+          showNotif({
+            title: t("settings_update_available"),
+            body: `v${updateInfo.version} - Click to install`,
+            icon: "update",
+            onClick: () => {
+              goToTab("settings");
+            },
+          });
+        }
+      } catch {}
+    }, 12000);
+
     const unlistenClickOutside = listen("click-outside", () => {
       if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
       isCursorInsideNotchRef.current = false;
@@ -1280,6 +1297,7 @@ export default function App() {
       unlistenMouseEnter.then(unlisten => unlisten());
       unlistenBrowser.then(unlisten => unlisten());
       if (unlistenDragDrop) unlistenDragDrop();
+      clearTimeout(updateCheckTimeout);
       unregisterAll().catch(() => {});
     };
   }, []);

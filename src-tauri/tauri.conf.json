@@ -30,6 +30,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -45,6 +46,14 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFQTM5RjFERDM3QUVDMjEKUldRaDdIclRIWitqdnUwQjE0aGtsWTVZOVVpQlZmcFYvVy9Ld3JScmFuVXpnN2dHYnJPVjVLQkMK",
+      "endpoints": [
+        "https://github.com/fyznugraha-pixel/notch-island/releases/latest/download/latest.json"
+      ]
     }
   }
 }

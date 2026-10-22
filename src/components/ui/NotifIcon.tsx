@@ -1,4 +1,4 @@
-import { Sun, Cloud, CloudRain, CloudLightning, Snowflake, Bell, Zap, Volume2, Clipboard, Type, Mail, Usb, Headphones } from "lucide-react";
+import { Sun, Cloud, CloudRain, CloudLightning, Snowflake, Bell, Zap, Volume2, Clipboard, Type, Mail, Usb, Headphones, ArrowUpCircle } from "lucide-react";
 import { SiWhatsapp, SiTelegram, SiYoutube } from "@icons-pack/react-simple-icons";
 
 export function getWeatherIcon(code: number) {
@@ -93,6 +93,13 @@ export const NotifIcon = ({ type }: { type?: string }) => {
     return (
       <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-blue-500/20 rounded-full">
         <Clipboard size={16} className="text-blue-400" />
+      </div>
+    );
+  }
+  if (type === "update") {
+    return (
+      <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-blue-500/20 rounded-full">
+        <ArrowUpCircle size={16} className="text-[#0a84ff]" />
       </div>
     );
   }
