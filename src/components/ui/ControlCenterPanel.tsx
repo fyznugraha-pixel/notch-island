@@ -271,7 +271,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
           initial="enter"
           animate="center"
           exit="exit"
-          className="absolute inset-0 w-full h-full flex flex-col px-3 justify-center gap-2.5 min-w-0 select-none gpu-accelerated"
+          className="absolute inset-0 w-full h-full flex flex-col px-3 justify-center py-1 gap-2.5 min-w-0 select-none gpu-accelerated"
         >
       {/* Row 1: iOS Quick Tools + Power Mode Capsule */}
       <motion.div

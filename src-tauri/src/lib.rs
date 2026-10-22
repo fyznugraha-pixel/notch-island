@@ -1693,6 +1693,7 @@ pub fn run() {
                 let mut last_is_playing = false;
                 let mut last_playback_type = 1;
                 let mut last_is_browser = false;
+                let mut last_app_id: Option<String> = None;
                 let mut last_thumbnail: Option<String> = None;
                 let mut last_emitted_thumbnail: Option<String> = None;
                 let mut prev_track_thumbnail: Option<String> = None;
@@ -1969,6 +1970,7 @@ pub fn run() {
                     let mut position_sec = 0.0;
                     let mut duration_sec = 0.0;
                     let mut is_browser_session = false;
+                    let mut current_app_id: Option<String> = None;
                     
                     if let Some(manager) = &smtc_manager {
                         let mut active_session = None;
@@ -2029,6 +2031,12 @@ pub fn run() {
                             }
                             
                             if let Ok(info) = session.TryGetMediaPropertiesAsync().and_then(|r| r.get()) {
+                                let raw_app_id = session.SourceAppUserModelId().unwrap_or_default().to_string();
+                                if !raw_app_id.is_empty() {
+                                    current_app_id = Some(raw_app_id.clone());
+                                }
+                                let app_id_lower = raw_app_id.to_lowercase();
+
                                 title = info.Title().unwrap_or_default().to_string();
                                 artist = info.Artist().unwrap_or_default().to_string();
                                 last_raw_title = title.clone();
@@ -2036,18 +2044,42 @@ pub fn run() {
                                 if let Ok(mut last_active) = LAST_ACTIVE_SMTC.lock() {
                                     *last_active = (last_raw_title.clone(), last_raw_artist.clone());
                                 }
-                                // Clean YouTube Music "- Topic" suffix from artist
+
+                                // 1. Strip known browser window title suffixes
+                                for browser_suffix in [
+                                    " - Google Chrome",
+                                    " - Microsoft Edge",
+                                    " — Mozilla Firefox",
+                                    " - Mozilla Firefox",
+                                    " - Brave",
+                                    " - Opera",
+                                    " - Vivaldi",
+                                    " - Arc",
+                                    " - Zen Browser",
+                                    " - Thorium",
+                                    " - Waterfox",
+                                    " - Yandex",
+                                ] {
+                                    if title.ends_with(browser_suffix) {
+                                        title = title[..title.len() - browser_suffix.len()].trim().to_string();
+                                        break;
+                                    }
+                                }
+
+                                // 2. Clean YouTube Music "- Topic" suffix from artist
                                 let artist_lower = artist.trim().to_lowercase();
                                 if artist_lower.ends_with(" - topic") {
                                     let new_len = artist.trim().len().saturating_sub(8);
                                     artist = artist.trim()[..new_len].trim().to_string();
                                 }
-                                // Strip "- YouTube Music" or "- YouTube" suffix from title if present
+                                // Strip YouTube suffixes
                                 for suffix in [" - YouTube Music", " - YouTube", " | YouTube Music", " | YouTube"] {
                                     if title.ends_with(suffix) {
                                         title = title[..title.len() - suffix.len()].trim().to_string();
                                     }
                                 }
+
+                                // 3. If artist is empty, try album title
                                 if artist.trim().is_empty() {
                                     if let Ok(album) = info.AlbumTitle() {
                                         let alb_str = album.to_string();
@@ -2056,9 +2088,81 @@ pub fn run() {
                                         }
                                     }
                                 }
-                                if artist.trim().is_empty() {
-                                    // Try to extract website name from the title (e.g. "Video Name - YouTube")
-                                    if let Some(idx) = title.rfind(" - ") {
+
+                                // 4. Check for social platforms & web players
+                                let title_lower = title.to_lowercase();
+                                let is_generic_artist = artist.trim().is_empty() 
+                                    || artist.eq_ignore_ascii_case("google chrome") 
+                                    || artist.eq_ignore_ascii_case("microsoft edge") 
+                                    || artist.eq_ignore_ascii_case("firefox")
+                                    || artist.eq_ignore_ascii_case("brave browser");
+
+                                if is_generic_artist || artist.trim().is_empty() {
+                                    if title.ends_with(" | Threads") {
+                                        title = title[..title.len() - 10].trim().to_string();
+                                        artist = "Threads".to_string();
+                                    } else if title.ends_with(" • Threads") {
+                                        title = title[..title.len() - 11].trim().to_string();
+                                        artist = "Threads".to_string();
+                                    } else if title.ends_with(" - Threads") {
+                                        title = title[..title.len() - 10].trim().to_string();
+                                        artist = "Threads".to_string();
+                                    } else if title.ends_with(" / Threads") {
+                                        title = title[..title.len() - 10].trim().to_string();
+                                        artist = "Threads".to_string();
+                                    } else if let Some(idx) = title_lower.rfind(" on threads") {
+                                        artist = "Threads".to_string();
+                                        title = title[..idx].trim().to_string();
+                                    } else if title_lower == "threads" || app_id_lower.contains("threads") {
+                                        artist = "Threads".to_string();
+                                    } else if title.ends_with(" | Instagram") {
+                                        title = title[..title.len() - 12].trim().to_string();
+                                        artist = "Instagram".to_string();
+                                    } else if title.ends_with(" • Instagram") {
+                                        title = title[..title.len() - 13].trim().to_string();
+                                        artist = "Instagram".to_string();
+                                    } else if title.ends_with(" - Instagram") {
+                                        title = title[..title.len() - 12].trim().to_string();
+                                        artist = "Instagram".to_string();
+                                    } else if let Some(idx) = title_lower.rfind(" on instagram") {
+                                        artist = "Instagram".to_string();
+                                        title = title[..idx].trim().to_string();
+                                    } else if title_lower == "instagram" || app_id_lower.contains("instagram") {
+                                        artist = "Instagram".to_string();
+                                    } else if title.ends_with(" | TikTok") {
+                                        title = title[..title.len() - 9].trim().to_string();
+                                        artist = "TikTok".to_string();
+                                    } else if title.ends_with(" • TikTok") {
+                                        title = title[..title.len() - 10].trim().to_string();
+                                        artist = "TikTok".to_string();
+                                    } else if title.ends_with(" - TikTok") {
+                                        title = title[..title.len() - 9].trim().to_string();
+                                        artist = "TikTok".to_string();
+                                    } else if let Some(idx) = title_lower.rfind(" on tiktok") {
+                                        artist = "TikTok".to_string();
+                                        title = title[..idx].trim().to_string();
+                                    } else if title_lower == "tiktok" || app_id_lower.contains("tiktok") {
+                                        artist = "TikTok".to_string();
+                                    } else if title.ends_with(" / X") || title.ends_with(" / x") || title.ends_with(" | X") || title.ends_with(" • X") {
+                                        title = title[..title.len() - 4].trim().to_string();
+                                        artist = "X".to_string();
+                                    } else if title.ends_with(" - Twitter") || title.ends_with(" | Twitter") {
+                                        title = title[..title.len() - 10].trim().to_string();
+                                        artist = "Twitter".to_string();
+                                    } else if let Some(idx) = title_lower.rfind(" on x") {
+                                        artist = "X".to_string();
+                                        title = title[..idx].trim().to_string();
+                                    } else if let Some(idx) = title_lower.rfind(" on twitter") {
+                                        artist = "Twitter".to_string();
+                                        title = title[..idx].trim().to_string();
+                                    } else if title_lower == "x" || title_lower == "twitter" || app_id_lower.contains("twitter") {
+                                        artist = "X".to_string();
+                                    } else if title.ends_with(" - Reddit") || title.ends_with(" | Reddit") {
+                                        title = title[..title.len() - 9].trim().to_string();
+                                        artist = "Reddit".to_string();
+                                    } else if title_lower == "reddit" || app_id_lower.contains("reddit") {
+                                        artist = "Reddit".to_string();
+                                    } else if let Some(idx) = title.rfind(" - ") {
                                         artist = title[idx + 3..].trim().to_string();
                                         title = title[..idx].trim().to_string();
                                     } else if let Some(idx) = title.rfind(" | ") {
@@ -2067,81 +2171,46 @@ pub fn run() {
                                     } else if let Some(idx) = title.rfind(" • ") {
                                         artist = title[idx + 3..].trim().to_string();
                                         title = title[..idx].trim().to_string();
-                                    } else if let Some(idx) = title.to_lowercase().rfind(" on instagram") {
-                                        artist = "Instagram".to_string();
-                                        title = title[..idx].trim().to_string();
-                                    } else if let Some(idx) = title.to_lowercase().rfind(" on tiktok") {
-                                        artist = "TikTok".to_string();
-                                        title = title[..idx].trim().to_string();
-                                    } else if let Some(idx) = title.to_lowercase().rfind(" on threads") {
-                                        artist = "Threads".to_string();
-                                        title = title[..idx].trim().to_string();
-                                    } else if let Some(idx) = title.to_lowercase().rfind(" on x") {
-                                        artist = "X".to_string();
-                                        title = title[..idx].trim().to_string();
-                                    } else if let Some(idx) = title.to_lowercase().rfind(" on twitter") {
-                                        artist = "Twitter".to_string();
-                                        title = title[..idx].trim().to_string();
-                                    } else if let Some(idx) = title.rfind(" / X") {
-                                        artist = "X".to_string();
-                                        title = title[..idx].trim().to_string();
-                                    } else if let Some(idx) = title.rfind(" / x") {
-                                        artist = "X".to_string();
-                                        title = title[..idx].trim().to_string();
-                                    } else {
-                                        let mut app = session.SourceAppUserModelId().unwrap_or_default().to_string();
-                                        let app_lower = app.to_lowercase();
-                                        if app_lower.contains("msedge") || app_lower.contains("edge") {
-                                            app = "Microsoft Edge".to_string();
-                                        } else if app_lower.contains("chrome") {
-                                            app = "Google Chrome".to_string();
-                                        } else if app_lower.contains("firefox") {
-                                            app = "Firefox".to_string();
-                                        } else if app_lower.contains("brave") {
-                                            app = "Brave Browser".to_string();
-                                        } else if app_lower.contains("opera") {
-                                            app = "Opera Browser".to_string();
-                                        } else if app_lower.contains("vivaldi") {
-                                            app = "Vivaldi".to_string();
-                                        } else if app_lower.contains("arc") {
-                                            app = "Arc Browser".to_string();
-                                        } else if app_lower.contains("whatsapp") {
-                                            app = "WhatsApp".to_string();
-                                        } else if app_lower.contains("zen") {
-                                            app = "Zen Browser".to_string();
-                                        } else if app_lower.contains("yandex") {
-                                            app = "Yandex Browser".to_string();
-                                        } else if app_lower.contains("thorium") {
-                                            app = "Thorium Browser".to_string();
-                                        } else if app_lower.contains("waterfox") {
-                                            app = "Waterfox".to_string();
-                                        } else if app_lower.contains("safari") {
-                                            app = "Safari".to_string();
-                                        } else if app_lower.contains("spotify") {
-                                            app = "Spotify".to_string();
-                                        } else if app_lower.contains("tiktok") {
-                                            app = "TikTok".to_string();
-                                        } else if app_lower.contains("instagram") {
-                                            app = "Instagram".to_string();
-                                        } else if app_lower.contains("netflix") {
-                                            app = "Netflix".to_string();
-                                        } else if app_lower.contains("threads") {
-                                            app = "Threads".to_string();
-                                        } else if app_lower.contains("discord") {
-                                            app = "Discord".to_string();
-                                        } else if app_lower.contains("vlc") {
+                                    } else if artist.trim().is_empty() {
+                                        let mut app = raw_app_id.clone();
+                                        if app_id_lower.contains("bitchord") {
+                                            app = "BitChord".to_string();
+                                        } else if app_id_lower.contains("cider") {
+                                            app = "Cider".to_string();
+                                        } else if app_id_lower.contains("foobar2000") || app_id_lower.contains("foobar") {
+                                            app = "Foobar2000".to_string();
+                                        } else if app_id_lower.contains("aimp") {
+                                            app = "AIMP".to_string();
+                                        } else if app_id_lower.contains("musicbee") {
+                                            app = "MusicBee".to_string();
+                                        } else if app_id_lower.contains("vlc") {
                                             app = "VLC".to_string();
-                                        } else if app_lower.contains("wmplayer") || app_lower.contains("zune") {
+                                        } else if app_id_lower.contains("wmplayer") || app_id_lower.contains("zune") {
                                             app = "Windows Media Player".to_string();
-                                        } else if app_lower.contains("twitter") {
-                                            app = "Twitter".to_string();
+                                        } else if app_id_lower.contains("spotify") {
+                                            app = "Spotify".to_string();
+                                        } else if app_id_lower.contains("netflix") {
+                                            app = "Netflix".to_string();
+                                        } else if app_id_lower.contains("threads") {
+                                            app = "Threads".to_string();
+                                        } else if app_id_lower.contains("discord") {
+                                            app = "Discord".to_string();
+                                        } else if app_id_lower.contains("whatsapp") {
+                                            app = "WhatsApp".to_string();
+                                        } else if app_id_lower.contains("msedge") || app_id_lower.contains("edge") {
+                                            app = "Microsoft Edge".to_string();
+                                        } else if app_id_lower.contains("chrome") {
+                                            app = "Google Chrome".to_string();
+                                        } else if app_id_lower.contains("firefox") {
+                                            app = "Firefox".to_string();
                                         }
                                         artist = app;
                                     }
                                 }
-                                // If artist is generic "YouTube" / "YouTube Music" and title is "Artist - Song", split it
+
+                                // 5. If artist is generic YouTube / YouTube Music / Google Chrome / Microsoft Edge and title is "Artist - Song", split it
                                 let a_check = artist.trim().to_lowercase();
-                                if a_check == "youtube" || a_check == "youtube music" {
+                                if a_check == "youtube" || a_check == "youtube music" || a_check == "google chrome" || a_check == "microsoft edge" {
                                     if let Some(idx) = title.find(" - ") {
                                         let extracted_artist = title[..idx].trim().to_string();
                                         let extracted_title = title[idx + 3..].trim().to_string();
@@ -2281,13 +2350,14 @@ pub fn run() {
                     }
 
                     // Check for changes (whether we have a session or not)
-                    if title != last_title || artist != last_artist || is_playing != last_is_playing || playback_type != last_playback_type || is_browser_session != last_is_browser || last_thumbnail != last_emitted_thumbnail {
+                    if title != last_title || artist != last_artist || is_playing != last_is_playing || playback_type != last_playback_type || is_browser_session != last_is_browser || current_app_id != last_app_id || last_thumbnail != last_emitted_thumbnail {
                         last_emitted_thumbnail = last_thumbnail.clone();
                         last_title = title.clone();
                         last_artist = artist.clone();
                         last_is_playing = is_playing;
                         last_playback_type = playback_type;
                         last_is_browser = is_browser_session;
+                        last_app_id = current_app_id.clone();
                         
                         #[derive(serde::Serialize, Clone)]
                         struct MediaPayload {
@@ -2299,6 +2369,7 @@ pub fn run() {
                             position: f64,
                             duration: f64,
                             is_browser: bool,
+                            app_id: Option<String>,
                         }
                         
                         let _ = app_handle.emit("media-update", MediaPayload { 
@@ -2310,6 +2381,7 @@ pub fn run() {
                             position: position_sec,
                             duration: duration_sec,
                             is_browser: last_is_browser,
+                            app_id: current_app_id.clone(),
                         });
                     }
                     

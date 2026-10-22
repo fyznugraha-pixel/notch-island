@@ -48,8 +48,9 @@ export const IosSlider: React.FC<IosSliderProps> = ({
 
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
-    const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
-    if (Math.abs(rawDelta) < 1) return;
+    // Hanya tangkap scroll vertikal (atas-bawah). Abaikan scroll horizontal (kanan-kiri).
+    if (Math.abs(e.deltaY) < 1 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    const rawDelta = e.deltaY;
     const step = rawDelta < 0 ? 2 : -2;
     const next = Math.max(0, Math.min(100, clampedValue + step));
     setLocalVal(next);

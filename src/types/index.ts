@@ -7,6 +7,7 @@ export interface MediaPayload {
   position?: number;
   duration?: number;
   is_browser?: boolean;
+  app_id?: string;
 }
 
 export interface NotifPayload {

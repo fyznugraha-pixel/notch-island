@@ -21,6 +21,7 @@ import "./App.css";
 import { MediaPayload, NotifPayload } from "./types";
 import { NotifIcon } from "./components/ui/NotifIcon";
 import { MediaThumbnail, useResolvedThumbnail } from "./components/ui/MediaThumbnail";
+import { prefetchArtwork } from "./services/artworkService";
 import { AudioVisualizer } from "./components/ui/AudioVisualizer";
 import { ScrollingText } from "./components/ui/ScrollingText";
 import { WeatherAnimation } from "./components/ui/WeatherAnimation";
@@ -1394,6 +1395,7 @@ export default function App() {
         return;
       }
       if (event.payload.title || event.payload.artist) {
+        prefetchArtwork(event.payload);
         setMedia(event.payload);
         setIsPlaying(event.payload.is_playing);
       } else {
@@ -1886,7 +1888,8 @@ export default function App() {
   const lyricsIdleBaseHeight = optFontSize === "large" ? 64 : optFontSize === "small" ? 54 : 58;
 
   const tabWidth = effectiveTabSize === "compact" ? 400 : effectiveTabSize === "large" ? 485 : 440;
-  const tabHeightMultiplier = effectiveTabSize === "compact" ? 0.92 : effectiveTabSize === "large" ? 1.10 : 1.0;
+  // Compact should only narrow the width (400px), not aggressively shrink height which crops top/bottom content
+  const tabHeightMultiplier = effectiveTabSize === "large" ? 1.08 : 1.0;
   const lyricsExpandedWidth = effectiveTabSize === "compact" ? 620 : effectiveTabSize === "large" ? 750 : 680;
 
   let smoothSpring: any = { type: "spring", stiffness: 340, damping: 32, mass: 0.72 };
@@ -1913,8 +1916,8 @@ export default function App() {
     drag_over: { width: Math.round(330 * idleMultiplier), height: 60, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
     media: { width: Math.round(dynamicWidth * (effectiveIdleSize === "compact" ? 0.96 : effectiveIdleSize === "large" ? 1.08 : 1.0)), height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     lyrics_idle: { width: dynamicWidth, height: Math.round(lyricsIdleBaseHeight * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    media_expanded: { width: tabWidth, height: Math.round((isBot ? 385 : 285) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 385 : 285) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    media_expanded: { width: tabWidth, height: Math.round((isBot ? 385 : (effectiveTabSize === "compact" ? 295 : 285)) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 385 : (effectiveTabSize === "compact" ? 295 : 285)) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
     notif_greeting: { width: dynamicWidth, height: 52, x: 0, y: 0, opacity: 1, borderRadius: radius("18px") },
     notif: { width: dynamicWidth, height: 80, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
     notif_media: { width: dynamicWidth, height: 124, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
@@ -1923,8 +1926,8 @@ export default function App() {
     notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_small_media: { width: dynamicWidth, height: 96, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
-    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? (isBot ? 465 : 475) : 385) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    todo: { width: tabWidth, height: Math.round((isBot ? 385 : 185) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? (isBot ? 465 : 475) : (effectiveTabSize === "compact" ? 395 : 385)) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    todo: { width: tabWidth, height: Math.round((isBot ? 385 : (effectiveTabSize === "compact" ? 195 : 185)) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
     drop_shelf: { width: tabWidth, height: Math.round((isBot ? 385 : 254) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
     clipboard: { width: tabWidth, height: Math.round((isBot ? 400 : 420) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
     settings: { width: tabWidth, height: Math.round((isBot ? 480 : 520) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
@@ -2064,8 +2067,9 @@ export default function App() {
     }
 
     const isShift = e.shiftKey;
-    const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
-    if (Math.abs(rawDelta) < 1) return;
+    // Hanya tangkap scroll vertikal (atas-bawah). Abaikan scroll horizontal (kanan-kiri).
+    if (Math.abs(e.deltaY) < 1 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    const rawDelta = e.deltaY;
 
     const now = Date.now();
     if (now - lastWheelTimeRef.current > 250) {
