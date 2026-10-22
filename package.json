@@ -10,7 +10,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:local": "powershell -Command \"$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content '$HOME\\.tauri\\notch.key' -Raw; tauri build\"",
+    "build:local": "node scripts/build-signed.js",
     "build:nosign": "tauri build --no-sign"
   },
   "dependencies": {
