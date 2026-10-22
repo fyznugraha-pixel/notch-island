@@ -1417,6 +1417,7 @@ pub fn run() {
             connectivity::get_wifi_status,
             connectivity::toggle_wifi,
             connectivity::connect_wifi,
+            connectivity::connect_wifi_with_password,
             connectivity::disconnect_wifi,
             connectivity::get_bluetooth_status,
             connectivity::toggle_bluetooth

@@ -89,6 +89,13 @@ export const NotifIcon = ({ type }: { type?: string }) => {
       </div>
     );
   }
+  if (type === "sun" || type === "brightness") {
+    return (
+      <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-amber-500/20 rounded-full">
+        <Sun size={16} className="text-amber-400" />
+      </div>
+    );
+  }
   if (type === "clipboard") {
     return (
       <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-blue-500/20 rounded-full">

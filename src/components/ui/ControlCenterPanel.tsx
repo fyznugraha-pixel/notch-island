@@ -68,6 +68,7 @@ export interface ControlCenterPanelProps {
   stashedFilesCount: number;
   onGoToTab: (tab: "clipboard" | "todo" | "drop_shelf" | "volume_mixer" | "settings", dir?: 1 | -1) => void;
   onClose: () => void;
+  onSubmenuChange?: (submenu: null | "wifi" | "bluetooth") => void;
 }
 
 export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
@@ -91,11 +92,33 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   stashedFilesCount,
   onGoToTab,
   onClose,
+  onSubmenuChange,
 }) => {
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<null | "wifi" | "bluetooth">(null);
   const [localWifiOn, setLocalWifiOn] = useState<boolean | null>(null);
   const [localBtOn, setLocalBtOn] = useState<boolean | null>(null);
+
+  const handleOpenWifi = () => {
+    setActiveSubmenu("wifi");
+    onSubmenuChange?.("wifi");
+  };
+
+  const handleOpenBt = () => {
+    setActiveSubmenu("bluetooth");
+    onSubmenuChange?.("bluetooth");
+  };
+
+  const handleBackToMain = () => {
+    setActiveSubmenu(null);
+    onSubmenuChange?.(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      onSubmenuChange?.(null);
+    };
+  }, [onSubmenuChange]);
 
   useEffect(() => {
     setLocalWifiOn(null);
@@ -228,13 +251,17 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
       {activeSubmenu === "wifi" ? (
         <WifiSubmenu
           key="wifi_submenu"
-          onBack={() => setActiveSubmenu(null)}
+          onBack={handleBackToMain}
           networkPing={networkPing}
+          initialEnabled={isWifiOn}
+          initialConnectedSsid={isWifiConnected ? wifiName : ""}
         />
       ) : activeSubmenu === "bluetooth" ? (
         <BluetoothSubmenu
           key="bluetooth_submenu"
-          onBack={() => setActiveSubmenu(null)}
+          onBack={handleBackToMain}
+          initialEnabled={isBtOn}
+          initialConnectedName={isBtConnected ? btName : ""}
         />
       ) : (
         <motion.div
@@ -385,7 +412,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
         >
           {/* Wi-Fi */}
           <div
-            onClick={() => setActiveSubmenu("wifi")}
+            onClick={handleOpenWifi}
             className="w-full flex items-center justify-between p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
           >
             <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -465,8 +492,9 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 <span className="text-[11px] font-bold text-white leading-tight truncate">
                   {currentFocusOption ? currentFocusOption.label : focusMode}
                 </span>
-                <span
-                  className={`text-[9px] font-medium mt-0.5 truncate ${
+                <ScrollingText
+                  text={currentFocusOption ? currentFocusOption.desc : ""}
+                  className={`text-[9px] font-medium mt-0.5 w-full ${
                     focusMode === "Normal"
                       ? "text-amber-300/80 font-medium"
                       : focusMode === "DND"
@@ -475,9 +503,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       ? "text-rose-300 font-semibold"
                       : "text-teal-300 font-semibold"
                   }`}
-                >
-                  {currentFocusOption ? currentFocusOption.desc : ""}
-                </span>
+                />
               </div>
               <div className="shrink-0 pr-0.5 text-white/40 group-hover:text-white/80 transition-colors">
                 {isModeDropdownOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -537,7 +563,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
 
           {/* Bluetooth */}
           <div
-            onClick={() => setActiveSubmenu("bluetooth")}
+            onClick={handleOpenBt}
             className="w-full flex items-center justify-between p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
           >
             <div className="flex items-center gap-2 min-w-0 flex-1">

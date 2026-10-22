@@ -76,6 +76,85 @@ fn get_radio_state(kind: windows::Devices::Radios::RadioKind) -> Option<bool> {
 
 // ======================== WI-FI ========================
 
+#[cfg(windows)]
+mod wlan_ffi {
+    #![allow(non_snake_case, dead_code)]
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    pub struct WLAN_INTERFACE_INFO {
+        pub InterfaceGuid: windows::core::GUID,
+        pub strInterfaceDescription: [u16; 256],
+        pub isState: u32,
+    }
+
+    #[repr(C)]
+    pub struct WLAN_INTERFACE_INFO_LIST {
+        pub dwNumberOfItems: u32,
+        pub dwIndex: u32,
+        pub InterfaceInfo: [WLAN_INTERFACE_INFO; 1],
+    }
+
+    #[link(name = "wlanapi")]
+    extern "system" {
+        pub fn WlanOpenHandle(
+            dwClientVersion: u32,
+            pReserved: *const c_void,
+            pdwNegotiatedVersion: *mut u32,
+            phClientHandle: *mut u32,
+        ) -> u32;
+
+        pub fn WlanCloseHandle(
+            hClientHandle: u32,
+            pReserved: *const c_void,
+        ) -> u32;
+
+        pub fn WlanEnumInterfaces(
+            hClientHandle: u32,
+            pReserved: *const c_void,
+            ppInterfaceList: *mut *mut WLAN_INTERFACE_INFO_LIST,
+        ) -> u32;
+
+        pub fn WlanScan(
+            hClientHandle: u32,
+            pInterfaceGuid: *const windows::core::GUID,
+            pDot11Ssid: *const c_void,
+            pIeData: *const c_void,
+            pReserved: *const c_void,
+        ) -> u32;
+
+        pub fn WlanFreeMemory(pMemory: *mut c_void);
+    }
+}
+
+/// Trigger background scan without blocking the caller thread
+#[cfg(windows)]
+fn trigger_background_scan() {
+    std::thread::spawn(|| {
+        use std::ptr;
+        let mut ver = 0u32;
+        let mut handle = 0u32;
+        if unsafe { wlan_ffi::WlanOpenHandle(2, ptr::null(), &mut ver, &mut handle) } == 0 {
+            let mut iface_list: *mut wlan_ffi::WLAN_INTERFACE_INFO_LIST = ptr::null_mut();
+            if unsafe { wlan_ffi::WlanEnumInterfaces(handle, ptr::null(), &mut iface_list) } == 0 && !iface_list.is_null() {
+                let count = unsafe { (*iface_list).dwNumberOfItems };
+                if count > 0 {
+                    let guid = unsafe { (*iface_list).InterfaceInfo[0].InterfaceGuid };
+                    unsafe {
+                        wlan_ffi::WlanScan(handle, &guid, ptr::null(), ptr::null(), ptr::null());
+                    }
+                }
+                unsafe {
+                    wlan_ffi::WlanFreeMemory(iface_list as *mut _);
+                }
+            }
+            unsafe {
+                wlan_ffi::WlanCloseHandle(handle, ptr::null());
+            }
+        }
+    });
+}
+
 #[tauri::command]
 pub async fn get_wifi_status() -> Result<WifiStatus, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -83,10 +162,14 @@ pub async fn get_wifi_status() -> Result<WifiStatus, String> {
         {
             use windows::Devices::Radios::RadioKind;
 
-            let enabled = get_radio_state(RadioKind::WiFi).unwrap_or(true);
+            // Trigger active scan in background for subsequent updates
+            trigger_background_scan();
 
-            // Get connected SSID from netsh interfaces
             let mut connected_ssid = String::new();
+            let mut has_adapter = false;
+            let mut software_radio_off = false;
+
+            // 1. Check interfaces
             if let Ok(output) = Command::new("netsh")
                 .creation_flags(CREATE_NO_WINDOW)
                 .args(["wlan", "show", "interfaces"])
@@ -95,19 +178,36 @@ pub async fn get_wifi_status() -> Result<WifiStatus, String> {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
                     let trimmed = line.trim();
-                    if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") && trimmed.contains(':') {
+                    if trimmed.starts_with("Name") && trimmed.contains(':') {
+                        has_adapter = true;
+                    } else if trimmed.starts_with("Radio status") {
+                        if trimmed.to_lowercase().contains("software off") {
+                            software_radio_off = true;
+                        }
+                    } else if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") && trimmed.contains(':') {
                         if let Some((_, val)) = trimmed.split_once(':') {
                             let s = val.trim();
                             if !s.is_empty() {
                                 connected_ssid = s.to_string();
-                                break;
                             }
                         }
                     }
                 }
             }
 
-            // Get saved profiles
+            // Radio state: if connected or radio is on
+            let radio_state = get_radio_state(RadioKind::WiFi);
+            let enabled = if !connected_ssid.is_empty() {
+                true
+            } else if software_radio_off {
+                false
+            } else if let Some(state) = radio_state {
+                state
+            } else {
+                has_adapter
+            };
+
+            // 2. Get saved profiles
             let mut saved_profiles = std::collections::HashSet::new();
             if let Ok(output) = Command::new("netsh")
                 .creation_flags(CREATE_NO_WINDOW)
@@ -128,35 +228,47 @@ pub async fn get_wifi_status() -> Result<WifiStatus, String> {
                 }
             }
 
-            // Get visible networks
+            // 3. Get visible networks with signal strength using mode=bssid
             let mut networks: Vec<WifiNetwork> = Vec::new();
             if enabled {
                 if let Ok(output) = Command::new("netsh")
                     .creation_flags(CREATE_NO_WINDOW)
-                    .args(["wlan", "show", "networks"])
+                    .args(["wlan", "show", "networks", "mode=bssid"])
                     .output()
                 {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let mut current_ssid = String::new();
-                    let mut is_secure = true;
+                    let mut current_secure = true;
+                    let mut max_signal = 0u32;
 
                     for line in stdout.lines() {
                         let trimmed = line.trim();
-                        if trimmed.starts_with("SSID") && trimmed.contains(':') {
-                            // Save previous network
-                            if !current_ssid.is_empty() && !networks.iter().any(|n| n.ssid == current_ssid) {
+
+                        if trimmed.starts_with("SSID") && trimmed.contains(':') && !trimmed.starts_with("BSSID") {
+                            // Save previous SSID
+                            if !current_ssid.is_empty() {
                                 let is_connected = current_ssid == connected_ssid;
                                 let is_saved = saved_profiles.contains(&current_ssid);
-                                networks.push(WifiNetwork {
-                                    ssid: current_ssid.clone(),
-                                    signal: if is_connected { 85 } else { 70 },
-                                    is_connected,
-                                    is_secure,
-                                    is_saved,
-                                });
+                                let final_signal = if is_connected && max_signal == 0 { 85 } else { max_signal };
+
+                                if let Some(existing) = networks.iter_mut().find(|n| n.ssid == current_ssid) {
+                                    if final_signal > existing.signal {
+                                        existing.signal = final_signal;
+                                    }
+                                } else {
+                                    networks.push(WifiNetwork {
+                                        ssid: current_ssid.clone(),
+                                        signal: final_signal,
+                                        is_connected,
+                                        is_secure: current_secure,
+                                        is_saved,
+                                    });
+                                }
                             }
+
                             current_ssid.clear();
-                            is_secure = true;
+                            current_secure = true;
+                            max_signal = 0;
 
                             if let Some((_, val)) = trimmed.split_once(':') {
                                 current_ssid = val.trim().to_string();
@@ -164,41 +276,63 @@ pub async fn get_wifi_status() -> Result<WifiStatus, String> {
                         } else if trimmed.starts_with("Authentication") && trimmed.contains(':') {
                             if let Some((_, val)) = trimmed.split_once(':') {
                                 if val.trim().to_lowercase().contains("open") {
-                                    is_secure = false;
+                                    current_secure = false;
+                                }
+                            }
+                        } else if trimmed.starts_with("Signal") && trimmed.contains(':') {
+                            if let Some((_, val)) = trimmed.split_once(':') {
+                                let num_str = val.trim().trim_end_matches('%').trim();
+                                if let Ok(sig) = num_str.parse::<u32>() {
+                                    if sig > max_signal {
+                                        max_signal = sig;
+                                    }
                                 }
                             }
                         }
                     }
 
-                    if !current_ssid.is_empty() && !networks.iter().any(|n| n.ssid == current_ssid) {
+                    // Push last item
+                    if !current_ssid.is_empty() {
                         let is_connected = current_ssid == connected_ssid;
                         let is_saved = saved_profiles.contains(&current_ssid);
-                        networks.push(WifiNetwork {
-                            ssid: current_ssid,
-                            signal: if is_connected { 85 } else { 70 },
-                            is_connected,
-                            is_secure,
-                            is_saved,
-                        });
+                        let final_signal = if is_connected && max_signal == 0 { 85 } else { max_signal };
+
+                        if let Some(existing) = networks.iter_mut().find(|n| n.ssid == current_ssid) {
+                            if final_signal > existing.signal {
+                                existing.signal = final_signal;
+                            }
+                        } else {
+                            networks.push(WifiNetwork {
+                                ssid: current_ssid,
+                                signal: final_signal,
+                                is_connected,
+                                is_secure: current_secure,
+                                is_saved,
+                            });
+                        }
                     }
                 }
             }
 
-            // If connected network is not in networks list, insert at top
-            if !connected_ssid.is_empty() && !networks.iter().any(|n| n.ssid == connected_ssid) {
-                networks.insert(
-                    0,
-                    WifiNetwork {
-                        ssid: connected_ssid.clone(),
-                        signal: 85,
-                        is_connected: true,
-                        is_secure: true,
-                        is_saved: true,
-                    },
-                );
+            // Ensure connected network is always at the top
+            if !connected_ssid.is_empty() {
+                if let Some(pos) = networks.iter().position(|n| n.ssid == connected_ssid) {
+                    networks[pos].is_connected = true;
+                } else {
+                    networks.insert(
+                        0,
+                        WifiNetwork {
+                            ssid: connected_ssid.clone(),
+                            signal: 85,
+                            is_connected: true,
+                            is_secure: true,
+                            is_saved: true,
+                        },
+                    );
+                }
             }
 
-            // Sort: connected first, then saved, then others
+            // Sort: connected first, then saved, then by signal strength descending
             networks.sort_by(|a, b| {
                 if a.is_connected != b.is_connected {
                     return b.is_connected.cmp(&a.is_connected);
@@ -206,7 +340,7 @@ pub async fn get_wifi_status() -> Result<WifiStatus, String> {
                 if a.is_saved != b.is_saved {
                     return b.is_saved.cmp(&a.is_saved);
                 }
-                a.ssid.to_lowercase().cmp(&b.ssid.to_lowercase())
+                b.signal.cmp(&a.signal)
             });
 
             Ok(WifiStatus {
@@ -261,6 +395,101 @@ pub async fn connect_wifi(ssid: String) -> Result<(), String> {
             } else {
                 Err(String::from_utf8_lossy(&output.stderr).to_string())
             }
+        }
+        #[cfg(not(windows))]
+        {
+            Err("Unsupported platform".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn connect_wifi_with_password(ssid: String, password: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            let escape_xml = |s: &str| -> String {
+                s.replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
+                    .replace('"', "&quot;")
+                    .replace('\'', "&apos;")
+            };
+
+            let safe_ssid = escape_xml(&ssid);
+            let safe_pass = escape_xml(&password);
+
+            let profile_xml = format!(
+r#"<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+    <name>{safe_ssid}</name>
+    <SSIDConfig>
+        <SSID>
+            <name>{safe_ssid}</name>
+        </SSID>
+    </SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>auto</connectionMode>
+    <MSM>
+        <security>
+            <authEncryption>
+                <authentication>WPA2PSK</authentication>
+                <encryption>AES</encryption>
+                <useOneX>false</useOneX>
+            </authEncryption>
+            <sharedKey>
+                <keyType>passPhrase</keyType>
+                <protected>false</protected>
+                <keyMaterial>{safe_pass}</keyMaterial>
+            </sharedKey>
+        </security>
+    </MSM>
+</WLANProfile>"#
+            );
+
+            let temp_file = std::env::temp_dir().join(format!("wlan_prof_{}.xml", std::process::id()));
+            std::fs::write(&temp_file, profile_xml).map_err(|e| e.to_string())?;
+
+            let add_output = Command::new("netsh")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["wlan", "add", "profile", &format!("filename={}", temp_file.display()), "user=current"])
+                .output();
+
+            let _ = std::fs::remove_file(&temp_file);
+
+            let add_output = add_output.map_err(|e| e.to_string())?;
+            if !add_output.status.success() {
+                return Err(String::from_utf8_lossy(&add_output.stderr).to_string());
+            }
+
+            let connect_output = Command::new("netsh")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["wlan", "connect", &format!("name={}", ssid)])
+                .output()
+                .map_err(|e| e.to_string())?;
+
+            if !connect_output.status.success() {
+                return Err(String::from_utf8_lossy(&connect_output.stderr).to_string());
+            }
+
+            // Check connection up to 3 seconds
+            for _ in 0..12 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                if let Ok(output) = Command::new("netsh")
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .args(["wlan", "show", "interfaces"])
+                    .output()
+                {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    if stdout.contains(&format!("SSID                   : {}", ssid)) {
+                        return Ok(());
+                    }
+                }
+            }
+
+            Ok(())
         }
         #[cfg(not(windows))]
         {

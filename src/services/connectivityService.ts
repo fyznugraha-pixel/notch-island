@@ -57,6 +57,15 @@ export async function connectToWifi(ssid: string): Promise<void> {
   }
 }
 
+export async function connectToWifiWithPassword(ssid: string, password: string): Promise<void> {
+  try {
+    await invoke("connect_wifi_with_password", { ssid, password });
+  } catch (err) {
+    console.error(`Failed to connect to Wi-Fi "${ssid}" with password:`, err);
+    throw err;
+  }
+}
+
 export async function disconnectFromWifi(): Promise<void> {
   try {
     await invoke("disconnect_wifi");

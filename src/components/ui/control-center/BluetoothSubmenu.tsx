@@ -21,10 +21,28 @@ import { t } from "../../../services/i18n";
 
 interface BluetoothSubmenuProps {
   onBack: () => void;
+  initialEnabled: boolean;
+  initialConnectedName: string;
 }
 
-export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) => {
-  const [status, setStatus] = useState<BluetoothStatus | null>(null);
+export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({
+  onBack,
+  initialEnabled,
+  initialConnectedName,
+}) => {
+  const [status, setStatus] = useState<BluetoothStatus>({
+    enabled: initialEnabled,
+    connected_name: initialConnectedName,
+    devices: initialConnectedName && initialConnectedName !== "Not Connected" && initialConnectedName !== "Off"
+      ? [
+          {
+            name: initialConnectedName.replace(/\s*\(.*?%\)$/, ""),
+            is_connected: true,
+            battery: null,
+          },
+        ]
+      : [],
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
 
@@ -46,21 +64,22 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
 
   const handleToggle = async (enable: boolean) => {
     setIsToggling(true);
+    setStatus((prev) => ({ ...prev, enabled: enable }));
     try {
       await toggleBluetoothState(enable);
-      setStatus((prev) => (prev ? { ...prev, enabled: enable } : null));
       setTimeout(() => {
         loadStatus();
       }, 700);
     } catch (err) {
       console.error(err);
+      setStatus((prev) => ({ ...prev, enabled: !enable }));
     } finally {
       setIsToggling(false);
     }
   };
 
-  const connectedDevices = status?.devices.filter((d) => d.is_connected) || [];
-  const otherDevices = status?.devices.filter((d) => !d.is_connected) || [];
+  const connectedDevices = status.devices.filter((d) => d.is_connected);
+  const otherDevices = status.devices.filter((d) => !d.is_connected);
 
   return (
     <motion.div
@@ -84,7 +103,7 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
         <span className="text-[13px] font-bold text-white tracking-tight">{t("cc_bluetooth")}</span>
 
         <IosSwitch
-          checked={status?.enabled ?? false}
+          checked={status.enabled}
           onChange={handleToggle}
           disabled={isToggling}
         />
@@ -92,7 +111,7 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
 
       {/* Body Content */}
       <div className="flex-1 min-h-0 flex flex-col py-2 overflow-y-auto no-scrollbar gap-2">
-        {!status?.enabled ? (
+        {!status.enabled ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2.5 text-center p-4">
             <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center text-white/40">
               <Bluetooth size={22} />
@@ -111,12 +130,9 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
           </div>
         ) : (
           <>
-            {/* Connected Devices */}
+            {/* Connected Device Card */}
             {connectedDevices.length > 0 && (
               <div className="flex flex-col gap-1.5 shrink-0">
-                <span className="text-[10.5px] font-semibold text-white/40 uppercase tracking-wider px-1">
-                  {t("cc_connected")}
-                </span>
                 {connectedDevices.map((dev) => (
                   <div
                     key={dev.name}
@@ -127,7 +143,9 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
                         <Bluetooth size={16} />
                       </div>
                       <div className="flex flex-col min-w-0">
-                        <span className="text-[12px] font-bold text-white truncate">{dev.name}</span>
+                        <span className="text-[12px] font-bold text-white truncate">
+                          {dev.name}
+                        </span>
                         <span className="text-[10px] text-sky-300 font-medium flex items-center gap-1">
                           <Check size={11} strokeWidth={2.5} />
                           {t("cc_connected")}
@@ -135,8 +153,8 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
                       </div>
                     </div>
 
-                    {dev.battery !== null && (
-                      <div className="flex items-center gap-1 text-[11px] font-mono text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                    {dev.battery !== null && dev.battery !== undefined && (
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                         <Battery size={13} />
                         <span>{dev.battery}%</span>
                       </div>
@@ -146,7 +164,7 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
               </div>
             )}
 
-            {/* Paired / Other Devices */}
+            {/* Other Paired Devices */}
             <div className="flex items-center justify-between px-1 pt-1 shrink-0">
               <span className="text-[10.5px] font-semibold text-white/40 uppercase tracking-wider">
                 {t("cc_paired_devices")}
@@ -162,9 +180,9 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
             </div>
 
             <div className="flex flex-col gap-1 min-h-0">
-              {isLoading && status.devices.length === 0 ? (
+              {isLoading && otherDevices.length === 0 ? (
                 <div className="flex items-center justify-center py-6 gap-2 text-white/40 text-[12px]">
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2 size={14} className="animate-spin text-sky-400" />
                   <span>{t("cc_searching")}</span>
                 </div>
               ) : otherDevices.length === 0 ? (
@@ -173,11 +191,9 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
                 </div>
               ) : (
                 otherDevices.map((dev) => (
-                  <button
+                  <div
                     key={dev.name}
-                    type="button"
-                    onClick={() => openUrl("ms-settings:bluetooth").catch(console.error)}
-                    className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-white/[0.07] active:bg-white/[0.12] transition-colors cursor-pointer text-left select-none group"
+                    className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-white/[0.07] transition-colors select-none group"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Bluetooth size={15} className="text-white/60 shrink-0 group-hover:text-white" />
@@ -186,10 +202,13 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({ onBack }) =>
                       </span>
                     </div>
 
-                    <span className="text-[11px] text-sky-400 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                      {t("cc_connect")}
-                    </span>
-                  </button>
+                    {dev.battery !== null && dev.battery !== undefined && (
+                      <div className="flex items-center gap-1 text-[10px] text-white/50">
+                        <Battery size={12} />
+                        <span>{dev.battery}%</span>
+                      </div>
+                    )}
+                  </div>
                 ))
               )}
             </div>

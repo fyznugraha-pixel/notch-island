@@ -46,6 +46,16 @@ export const IosSlider: React.FC<IosSliderProps> = ({
   const clampedValue = Math.max(0, Math.min(100, Math.round(activeValue)));
   const isGlyphCovered = clampedValue > 14;
 
+  const handleWheel = (e: React.WheelEvent) => {
+    e.stopPropagation();
+    const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (Math.abs(rawDelta) < 1) return;
+    const step = rawDelta < 0 ? 2 : -2;
+    const next = Math.max(0, Math.min(100, clampedValue + step));
+    setLocalVal(next);
+    onChange(next);
+  };
+
   return (
     <div className="flex items-center gap-2 w-full" data-no-swipe="true">
       <motion.label
@@ -54,6 +64,7 @@ export const IosSlider: React.FC<IosSliderProps> = ({
         data-no-swipe="true"
         onPointerDown={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
+        onWheel={handleWheel}
         className="relative flex-1 h-[34px] rounded-full bg-white/[0.12] overflow-hidden flex items-center cursor-pointer select-none group ring-1 ring-white/10"
       >
         <div

@@ -185,6 +185,9 @@ export const translations = {
   cc_paired_devices: { en: "Paired Devices", id: "Perangkat Tersanding" },
   cc_no_devices: { en: "No devices found", id: "Tidak ada perangkat ditemukan" },
   cc_back: { en: "Back", id: "Kembali" },
+  cc_password_placeholder: { en: "Enter Wi-Fi password", id: "Masukkan kata sandi Wi-Fi" },
+  cc_cancel: { en: "Cancel", id: "Batal" },
+  cc_connect_failed: { en: "Failed to connect. Check password.", id: "Gagal menghubungkan. Periksa kata sandi." },
 
   // To-Do List
   todo_title: { en: "To-Do List", id: "Daftar Tugas" },

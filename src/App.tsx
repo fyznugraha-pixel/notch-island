@@ -75,11 +75,11 @@ export default function App() {
 
   const showNotif = (newNotif: NotifPayload) => {
     if (focusModeRef.current !== "Normal" && newNotif.icon !== "battery" && !(newNotif as any).forceShow) return;
-    if (newNotif.icon === "volume" && (!optVolumeRef.current || isVolumeMixerRef.current || isQuickControlRef.current)) return;
+    if (newNotif.icon === "volume" && !(newNotif as any).forceShow && (!optVolumeRef.current || isVolumeMixerRef.current || isQuickControlRef.current)) return;
     if (newNotif.icon === "clipboard" && !optClipboardRef.current) return;
 
     const active = currentNotifRef.current;
-    if (active && active.icon === newNotif.icon && (newNotif.icon === "volume" || newNotif.icon === "battery" || newNotif.icon === "capslock")) {
+    if (active && active.icon === newNotif.icon && (newNotif.icon === "volume" || newNotif.icon === "brightness" || newNotif.icon === "battery" || newNotif.icon === "capslock")) {
       setNotif(newNotif);
     } else if (active) {
       setNotifQueue(q => {
@@ -658,6 +658,7 @@ export default function App() {
   type ExpandedTab = "media_expanded" | "quick_control" | "todo" | "drop_shelf" | "clipboard" | "volume_mixer" | "settings";
 
   const [slideDirection, setSlideDirection] = useState<number>(0);
+  const [controlCenterSubmenu, setControlCenterSubmenu] = useState<null | "wifi" | "bluetooth">(null);
 
   const availableTabs: ExpandedTab[] = React.useMemo(() => {
     const tabs: ExpandedTab[] = [];
@@ -869,6 +870,7 @@ export default function App() {
       : (targetIndex >= 0 && currentIndex >= 0 ? (targetIndex >= currentIndex ? 1 : -1) : 0);
 
     setSlideDirection(resolvedDirection);
+    setControlCenterSubmenu(null);
 
     isExpandedRef.current = targetTab === "media_expanded";
     setIsExpanded(targetTab === "media_expanded");
@@ -1579,7 +1581,7 @@ export default function App() {
       setNotifQueue(q => q.slice(1));
     } else if (notif) {
       let duration = optNotifTimeRef.current * 1000;
-      const shortIcons = ["volume", "battery", "bluetooth"];
+      const shortIcons = ["volume", "brightness", "battery", "bluetooth"];
       if (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon") {
         duration = Math.max(3800, optNotifTimeRef.current * 1000);
       } else if (notif.icon === "capslock") {
@@ -1823,7 +1825,7 @@ export default function App() {
   } else if (notif && media) {
     variant = isSmallNotif ? "notif_small_media" : "notif_media";
   } else if (notif) {
-    if (notif.icon === "volume") variant = "notif_volume";
+    if (notif.icon === "volume" || notif.icon === "brightness") variant = "notif_volume";
     else if (notif.icon === "clipboard" && !notif.body) variant = "notif_clipboard";
     else if (isMediumNotif) variant = "notif_medium";
     else if (isSmallNotif) variant = "notif_small";
@@ -1921,7 +1923,7 @@ export default function App() {
     notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_small_media: { width: dynamicWidth, height: 96, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
-    quick_control: { width: tabWidth, height: Math.round(385 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? (isBot ? 465 : 475) : 385) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
     todo: { width: tabWidth, height: Math.round((isBot ? 385 : 185) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
     drop_shelf: { width: tabWidth, height: Math.round((isBot ? 385 : 254) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
     clipboard: { width: tabWidth, height: Math.round((isBot ? 400 : 420) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
@@ -2000,6 +2002,102 @@ export default function App() {
 
 
 
+  const lastVolInvokeRef = useRef(0);
+  const pendingVolRef = useRef<number | null>(null);
+  const volTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const throttledSetVolume = useCallback((v: number) => {
+    isAdjustingVolumeRef.current = true;
+    pendingVolRef.current = v;
+    const now = Date.now();
+    if (now - lastVolInvokeRef.current >= 40) {
+      lastVolInvokeRef.current = now;
+      if (volTimeoutRef.current) clearTimeout(volTimeoutRef.current);
+      invoke("set_master_volume", { level: v / 100.0 }).catch(console.error);
+    } else {
+      if (!volTimeoutRef.current) {
+        volTimeoutRef.current = setTimeout(() => {
+          volTimeoutRef.current = null;
+          if (pendingVolRef.current !== null) {
+            lastVolInvokeRef.current = Date.now();
+            invoke("set_master_volume", { level: pendingVolRef.current / 100.0 }).catch(console.error);
+          }
+        }, 40);
+      }
+    }
+    setTimeout(() => {
+      isAdjustingVolumeRef.current = false;
+    }, 600);
+  }, []);
+
+  const lastBrightInvokeRef = useRef(0);
+  const pendingBrightRef = useRef<number | null>(null);
+  const brightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const throttledSetBrightness = useCallback((v: number) => {
+    pendingBrightRef.current = v;
+    const now = Date.now();
+    if (now - lastBrightInvokeRef.current >= 60) {
+      lastBrightInvokeRef.current = now;
+      if (brightTimeoutRef.current) clearTimeout(brightTimeoutRef.current);
+      invoke("set_brightness", { level: v }).catch(console.error);
+    } else {
+      if (!brightTimeoutRef.current) {
+        brightTimeoutRef.current = setTimeout(() => {
+          brightTimeoutRef.current = null;
+          if (pendingBrightRef.current !== null) {
+            lastBrightInvokeRef.current = Date.now();
+            invoke("set_brightness", { level: pendingBrightRef.current }).catch(console.error);
+          }
+        }, 60);
+      }
+    }
+  }, []);
+
+  const wheelAccumulatorRef = useRef<number>(0);
+  const lastWheelTimeRef = useRef<number>(0);
+
+  const handleNotchWheel = useCallback((e: React.WheelEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target && target.closest('.settings-scroll, .overflow-y-auto, [data-scrollable="true"]')) {
+      return;
+    }
+
+    const isShift = e.shiftKey;
+    const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (Math.abs(rawDelta) < 1) return;
+
+    const now = Date.now();
+    if (now - lastWheelTimeRef.current > 250) {
+      wheelAccumulatorRef.current = 0;
+    }
+    lastWheelTimeRef.current = now;
+    wheelAccumulatorRef.current += rawDelta;
+
+    const THRESHOLD = 30;
+    if (Math.abs(wheelAccumulatorRef.current) >= THRESHOLD) {
+      const steps = Math.trunc(wheelAccumulatorRef.current / THRESHOLD);
+      wheelAccumulatorRef.current -= steps * THRESHOLD;
+      const change = -steps * 2;
+
+      if (isShift) {
+        setDisplayLevel((prev) => {
+          const next = Math.max(0, Math.min(100, prev + change));
+          throttledSetBrightness(next);
+          showNotif({ title: t("cc_brightness"), body: `${next}%`, icon: "brightness", forceShow: true } as any);
+          return next;
+        });
+      } else {
+        setSoundLevel((prev) => {
+          const next = Math.max(0, Math.min(100, prev + change));
+          throttledSetVolume(next);
+          showNotif({ title: t("cc_volume"), body: `${next}%`, icon: "volume", forceShow: true } as any);
+          return next;
+        });
+      }
+    }
+  }, [throttledSetBrightness, throttledSetVolume]);
+
   return (
     <div className={`w-screen h-screen flex justify-center bg-transparent pointer-events-none ${optPosition === 'bottom' ? 'items-end' : 'items-start'}`}>
       <motion.div
@@ -2014,6 +2112,7 @@ export default function App() {
         animate={variant}
         variants={variants}
         transition={smoothSpring}
+        onWheel={handleNotchWheel}
         onMouseMove={() => {
           isCursorInsideNotchRef.current = true;
           cancelCollapseTimer();
@@ -2438,7 +2537,11 @@ export default function App() {
                         focusModeOptions={focusModeOptions}
                         stashedFilesCount={stashedFiles.length}
                         onGoToTab={goToTab}
-                        onClose={() => setIsQuickControl(false)}
+                        onClose={() => {
+                          setIsQuickControl(false);
+                          setControlCenterSubmenu(null);
+                        }}
+                        onSubmenuChange={setControlCenterSubmenu}
                       />
                     )}
 
