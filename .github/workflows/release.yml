@@ -1,4 +1,4 @@
-name: Release Notch Island
+name: Release Gili
 
 on:
   push:
@@ -47,7 +47,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: __VERSION__
-          releaseName: 'Notch v__VERSION__'
+          releaseName: 'Gili v__VERSION__'
           releaseBody: 'See the assets to download this version and install updates.'
           releaseDraft: false
           prerelease: false
