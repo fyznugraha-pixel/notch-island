@@ -8,6 +8,7 @@ import { load } from "@tauri-apps/plugin-store";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Bell,
   BellOff,
@@ -756,6 +757,10 @@ export default function App() {
   const isMiniNoteRef = useRef(false);
   useEffect(() => { isMiniNoteRef.current = isMiniNote; }, [isMiniNote]);
 
+  const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false);
+  const isQuickNoteOpenRef = useRef(false);
+  useEffect(() => { isQuickNoteOpenRef.current = isQuickNoteOpen; }, [isQuickNoteOpen]);
+
   const [slideDirection, setSlideDirection] = useState<number>(0);
   const [controlCenterSubmenu, setControlCenterSubmenu] = useState<null | "wifi" | "bluetooth">(null);
 
@@ -851,6 +856,7 @@ export default function App() {
     setIsDropShelf(false);
     setIsQuickControl(false);
     setIsExpanded(false);
+    setIsQuickNoteOpen(false);
     const now = Date.now();
     lastPanelClosedAtRef.current = now;
     try {
@@ -962,6 +968,7 @@ export default function App() {
       isDropShelfRef.current ||
       isSysMonitorRef.current ||
       isMiniNoteRef.current ||
+      isQuickNoteOpenRef.current ||
       isClipboardRef.current ||
       isVolumeMixerRef.current ||
       isSettingsRef.current;
@@ -1278,6 +1285,31 @@ export default function App() {
         });
       } catch (err) {
         console.error("Failed to register shortcut CommandOrControl+Shift+D:", err);
+      }
+
+      try {
+        await register("CommandOrControl+Shift+N", async (event) => {
+          if (event.state === "Pressed") {
+            setIsHidden(false);
+            setIsQuickControl(false);
+            setIsTodo(false);
+            setIsPomodoro(false);
+            setIsDropShelf(false);
+            setIsSysMonitor(false);
+            setIsMiniNote(false);
+            setIsClipboard(false);
+            setIsSettings(false);
+            setIsVolumeMixer(false);
+            setIsExpanded(false);
+            setIsQuickNoteOpen((prev) => !prev);
+            try {
+              const win = getCurrentWindow();
+              await win.setFocus();
+            } catch {}
+          }
+        });
+      } catch (err) {
+        console.error("Failed to register shortcut CommandOrControl+Shift+N:", err);
       }
     };
     setupShortcut();
@@ -2202,7 +2234,6 @@ export default function App() {
     [media, notif, isExpanded, isSmallNotif, isMediumNotif, isMultilineBody, weather, camActive, micActive, isPlaying, pendingTodos, stashedFiles.length, fps, focusMode, networkPing, idleLayout, idleRuntimeData, showLyrics, activeIdleLyric, battery, dateDisplay, optFontSize, optLanguage, time.getHours(), time.getMinutes(), effectiveIdleSize]
   );
 
-  const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false);
   const [isNoteEditing, setIsNoteEditing] = useState(false);
   const [todoDynamicHeight, setTodoDynamicHeight] = useState<number>(() => {
     const visibleSlots = Math.min(4, Math.max(1, pendingTodos.length));
