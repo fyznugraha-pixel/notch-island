@@ -3,10 +3,13 @@ import path from "path";
 import { spawnSync } from "child_process";
 
 const homeDir = process.env.USERPROFILE || process.env.HOME || "";
-const keyPath = path.join(homeDir, ".tauri", "notch.key");
+let keyPath = path.join(homeDir, ".tauri", "gili.key");
+if (!fs.existsSync(keyPath)) {
+  keyPath = path.join(homeDir, ".tauri", "notch.key");
+}
 
 if (!fs.existsSync(keyPath)) {
-  console.error(`\x1b[31mError: Private key not found at ${keyPath}\x1b[0m`);
+  console.error(`\x1b[31mError: Private key not found at ${keyPath} (or gili.key)\x1b[0m`);
   process.exit(1);
 }
 

@@ -7,6 +7,8 @@ import {
   SkipForward,
   Volume2,
   MessageSquareQuote,
+  ListMusic,
+  Music2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload } from "../../types";
@@ -15,14 +17,16 @@ import { AudioVisualizer } from "./AudioVisualizer";
 import { ScrollingText } from "./ScrollingText";
 import { Tooltip } from "./Tooltip";
 import { LyricsView } from "./LyricsView";
+import { MediaQueueView, QueueTrackItem } from "./MediaQueueView";
 import { LyricsData } from "../../services/lyricsService";
 import { formatMediaTime } from "../../utils/time";
+import { getWheelVerticalDirection } from "../../utils/gesture";
 import { t } from "../../services/i18n";
 
 export interface MediaExpandedPanelProps {
   slideDirection: number;
   tabWidth?: number;
-  media: MediaPayload;
+  media: MediaPayload | null;
   isPlaying: boolean;
   onMediaControl: (action: "play" | "pause" | "next" | "prev" | "toggle") => void;
   optAccent: string;
@@ -30,6 +34,7 @@ export interface MediaExpandedPanelProps {
   onToggleLyrics: () => void;
   lyricsData: LyricsData | null;
   isLyricsLoading: boolean;
+  onRefreshLyrics?: () => void;
   mediaProgress: { position: number; duration: number };
   onSetMediaProgress: React.Dispatch<
     React.SetStateAction<{ position: number; duration: number }>
@@ -41,6 +46,7 @@ export interface MediaExpandedPanelProps {
   soundLevel: number;
   onSetSoundLevel: (level: number) => void;
   isAdjustingVolumeRef: React.MutableRefObject<boolean>;
+  queueHistory?: QueueTrackItem[];
 }
 
 const tabVariants = {
@@ -64,18 +70,12 @@ const tabVariants = {
   }),
 };
 
-const smoothSpring = {
-  type: "spring" as const,
-  stiffness: 300,
-  damping: 30,
-};
-
 const timeLabelClass =
   "text-[11px] font-semibold tracking-tight text-white/50 media-time-label w-9 shrink-0 tabular-nums select-none";
 
 export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   slideDirection,
-  tabWidth,
+  tabWidth: _tabWidth,
   media,
   isPlaying,
   onMediaControl,
@@ -84,6 +84,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   onToggleLyrics,
   lyricsData,
   isLyricsLoading,
+  onRefreshLyrics,
   mediaProgress,
   onSetMediaProgress,
   isSeeking,
@@ -93,15 +94,26 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   soundLevel,
   onSetSoundLevel,
   isAdjustingVolumeRef,
+  queueHistory = [],
 }) => {
-  const currentMediaPosition = isSeeking
+  const hasMedia = Boolean(media && (media.title || media.artist));
+  const activePlaying = Boolean(hasMedia && isPlaying);
+  const displayTitle = hasMedia
+    ? media!.title
+    : t("media_idle_title");
+  const displayArtist = hasMedia
+    ? media!.artist
+    : t("media_idle_subtitle");
+
+  const currentMediaPosition = !hasMedia
+    ? 0
+    : isSeeking
     ? (seekValue / 100) * mediaProgress.duration
     : mediaProgress.position;
 
-  const remainingMediaDuration = Math.max(
-    0,
-    mediaProgress.duration - currentMediaPosition
-  );
+  const remainingMediaDuration = !hasMedia
+    ? 0
+    : Math.max(0, mediaProgress.duration - currentMediaPosition);
 
   return (
     <motion.div
@@ -113,30 +125,30 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
       exit="exit"
       className="absolute inset-0 w-full h-full flex px-3 pb-2.5 pt-1.5 min-w-0 cursor-default gap-3 relative gpu-accelerated"
     >
-      {/* Left Column: Player Controls */}
-      <motion.div
-        animate={{
-          width: showLyrics ? 320 : (tabWidth ? tabWidth - 24 : 416),
-        }}
-        transition={smoothSpring}
-        className="h-full flex flex-col justify-between min-w-0 relative z-10 shrink-0 overflow-hidden"
-      >
+      {/* Left Column: Player Controls (Fixed 320px width so progress bar and controls never shift) */}
+      <div className="w-[320px] h-full flex flex-col justify-between min-w-0 relative z-10 shrink-0 overflow-hidden">
         <div className="flex items-center gap-3.5 px-0.5">
           <div className="w-14 h-14 bg-neutral-800/50 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-lg border border-white/10 relative">
-            <MediaThumbnail media={media} size="large" />
+            {hasMedia && media ? (
+              <MediaThumbnail media={media} size="large" />
+            ) : (
+              <Music2 size={24} className="text-white/35" />
+            )}
           </div>
           <div className="flex flex-col overflow-hidden flex-1 min-w-0">
             <ScrollingText
-              text={media.title}
-              className="text-[16px] font-semibold text-white tracking-tight leading-tight"
+              text={displayTitle}
+              className={`text-[16px] font-semibold tracking-tight leading-tight ${
+                hasMedia ? "text-white" : "text-white/70"
+              }`}
             />
             <ScrollingText
-              text={media.artist}
-              className="text-[13px] font-medium text-white/60 mt-0.5 leading-tight"
+              text={displayArtist}
+              className="text-[13px] font-medium text-white/55 mt-0.5 leading-tight"
             />
           </div>
           <AnimatePresence>
-            {isPlaying && (
+            {activePlaying && (
               <motion.div
                 initial={{ width: 0, opacity: 0 }}
                 animate={{ width: "auto", opacity: 1 }}
@@ -158,11 +170,11 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
 
         {/* Playback Controls & Progress */}
         <div
-          className="flex flex-col gap-2.5 cursor-default"
+          className="flex flex-col gap-2 cursor-default mt-1"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Interactive Scrubber with timestamps (lifted up & enlarged) */}
-          <div className="flex items-center gap-2.5 w-full select-none mb-2">
+          <div className="flex items-center gap-2.5 w-full select-none mb-1.5">
             <span className={`${timeLabelClass} text-left`}>
               {formatMediaTime(currentMediaPosition)}
             </span>
@@ -265,7 +277,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   <SkipBack size={22} fill="currentColor" />
                 </motion.button>
               </Tooltip>
-              <Tooltip content={isPlaying ? t("media_pause") : t("media_play")} side="top">
+              <Tooltip content={activePlaying ? t("media_pause") : t("media_play")} side="top">
                 <motion.button
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.9 }}
@@ -275,7 +287,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   }}
                   className="w-11 h-11 flex items-center justify-center text-white hover:bg-white/10 media-play-btn rounded-full shrink-0 transition-colors cursor-pointer"
                 >
-                  {isPlaying ? (
+                  {activePlaying ? (
                     <Pause size={26} fill="currentColor" />
                   ) : (
                     <Play size={26} fill="currentColor" className="ml-0.5" />
@@ -297,8 +309,8 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
               </Tooltip>
             </div>
 
-            {/* Lyrics Toggle Button (Apple Music capsule badge style) */}
-            <Tooltip content={t("lyrics_title")} side="top">
+            {/* Lyrics / App Info Toggle Button */}
+            <Tooltip content={showLyrics ? t("media_app_source") : t("lyrics_title")} side="top">
               <motion.button
                 whileHover={{ scale: 1.08 }}
                 whileTap={{ scale: 0.9 }}
@@ -309,22 +321,32 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                 className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
                   showLyrics
                     ? "bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.35)]"
-                    : "text-white/55 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
+                    : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
                 }`}
               >
-                <MessageSquareQuote size={16} />
+                {showLyrics ? <MessageSquareQuote size={16} /> : <ListMusic size={16} />}
               </motion.button>
             </Tooltip>
           </div>
 
           {/* Volume Slider (Sleek Slim Style) */}
           <div
-            className="flex items-center gap-2 mt-1 w-full cursor-default select-none px-0.5"
+            className="flex items-center gap-2 mt-0.5 w-full cursor-default select-none px-0.5"
             onClick={(e) => e.stopPropagation()}
           >
             <Volume2 size={13.5} className="text-white/45 media-volume-icon shrink-0" />
             <div
               className="flex-1 h-3.5 group flex items-center cursor-pointer relative"
+              onWheel={(e) => {
+                if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                  e.stopPropagation();
+                  if (Math.abs(e.deltaY) < 1) return;
+                  const dir = getWheelVerticalDirection(e);
+                  const next = Math.max(0, Math.min(100, soundLevel + (dir > 0 ? 2 : -2)));
+                  onSetSoundLevel(next);
+                  invoke("set_master_volume", { level: next / 100.0 });
+                }
+              }}
               onPointerDown={(e) => {
                 isAdjustingVolumeRef.current = true;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -371,45 +393,64 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
             </div>
           </div>
         </div>
-      </motion.div>
+      </div>
 
-      {/* Right Column: Lyrics View with organic vertical gradient divider */}
-      <AnimatePresence>
-        {showLyrics && (
-          <motion.div
-            key="lyrics-section"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{
-              opacity: 1,
-              x: 0,
-              transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
-            }}
-            exit={{
-              opacity: 0,
-              x: 16,
-              transition: { duration: 0.14, ease: [0.16, 1, 0.3, 1] },
-            }}
-            className="flex-1 h-full min-w-0 flex items-center overflow-hidden z-10"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-[1px] h-[75%] self-center bg-gradient-to-b from-transparent via-white/15 to-transparent shrink-0 mr-2" />
-            <div className="flex-1 h-full min-w-0 flex flex-col relative overflow-hidden">
-              <LyricsView
-                lyrics={lyricsData}
-                isLoading={isLyricsLoading}
-                currentTime={currentMediaPosition}
-                isPlaying={isPlaying}
-                onSeek={async (time) => {
-                  await invoke("smtc_seek", { positionSec: time });
-                  onSetMediaProgress((prev) => ({ ...prev, position: time }));
-                }}
-                songTitle={media.title}
-                artist={media.artist}
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Right Column: Divider + Content (Lyrics / Queue) */}
+      <div
+        className="flex-1 h-full min-w-0 flex items-stretch overflow-hidden z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-[1px] h-[80%] self-center bg-gradient-to-b from-transparent via-white/15 to-transparent shrink-0 mr-3" />
+        <div className="flex-1 h-full min-w-0 flex flex-col relative overflow-hidden">
+          {/* View Content (LyricsView or MediaQueueView) */}
+          <div className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
+            <AnimatePresence mode="wait">
+              {showLyrics ? (
+                <motion.div
+                  key="lyrics-tab-view"
+                  initial={{ opacity: 0, x: 8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -8 }}
+                  transition={{ duration: 0.15 }}
+                  className="w-full h-full flex flex-col"
+                >
+                  <LyricsView
+                    lyrics={lyricsData}
+                    isLoading={isLyricsLoading}
+                    currentTime={currentMediaPosition}
+                    isPlaying={activePlaying}
+                    onSeek={async (time) => {
+                      await invoke("smtc_seek", { positionSec: time });
+                      onSetMediaProgress((prev) => ({ ...prev, position: time }));
+                    }}
+                    onRefreshLyrics={onRefreshLyrics}
+                    songTitle={media?.title || ""}
+                    artist={media?.artist || ""}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="queue-tab-view"
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 8 }}
+                  transition={{ duration: 0.15 }}
+                  className="w-full h-full flex flex-col"
+                >
+                  <MediaQueueView
+                    media={media}
+                    isPlaying={activePlaying}
+                    mediaProgress={mediaProgress}
+                    queueHistory={queueHistory}
+                    onMediaControl={onMediaControl}
+                    optAccent={optAccent}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
     </motion.div>
   );
 };

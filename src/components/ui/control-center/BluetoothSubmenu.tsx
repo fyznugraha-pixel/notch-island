@@ -10,7 +10,6 @@ import {
   Loader2,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { IosSwitch } from "../../ios/IosSwitch";
 import { iosSpring } from "../../../utils/iosMotion";
 import {
   fetchBluetoothStatus,
@@ -33,15 +32,18 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({
   const [status, setStatus] = useState<BluetoothStatus>({
     enabled: initialEnabled,
     connected_name: initialConnectedName,
-    devices: initialConnectedName && initialConnectedName !== "Not Connected" && initialConnectedName !== "Off"
-      ? [
-          {
-            name: initialConnectedName.replace(/\s*\(.*?%\)$/, ""),
-            is_connected: true,
-            battery: null,
-          },
-        ]
-      : [],
+    devices:
+      initialConnectedName &&
+      initialConnectedName !== "Not Connected" &&
+      initialConnectedName !== "Off"
+        ? [
+            {
+              name: initialConnectedName.replace(/\s*\(.*?%\)$/, ""),
+              is_connected: true,
+              battery: null,
+            },
+          ]
+        : [],
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
@@ -83,47 +85,54 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
+      initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 20 }}
+      exit={{ opacity: 0, x: 16 }}
       transition={iosSpring.snappy}
-      className="absolute inset-0 w-full h-full flex flex-col p-3 bg-[#161618] rounded-[26px] select-none text-white overflow-hidden"
+      className="absolute inset-0 w-full h-full flex flex-col px-6 py-1.5 select-none text-white overflow-hidden"
     >
       {/* Header */}
-      <div className="flex items-center justify-between pb-2 border-b border-white/10 shrink-0">
+      <div className="flex items-center gap-3 shrink-0">
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1 text-[13px] font-medium text-sky-400 hover:text-sky-300 transition-colors cursor-pointer group"
+          aria-label={t("cc_back")}
+          className="w-[30px] h-[30px] rounded-full bg-[#17171c] hover:bg-[#23232a] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
         >
-          <ChevronLeft size={16} className="transition-transform group-hover:-translate-x-0.5" />
-          <span>{t("cc_back")}</span>
+          <ChevronLeft size={16} />
         </button>
 
-        <span className="text-[13px] font-bold text-white tracking-tight">{t("cc_bluetooth")}</span>
+        <div className="text-[16px] font-semibold tracking-tight flex-1">{t("cc_bluetooth")}</div>
 
-        <IosSwitch
-          checked={status.enabled}
-          onChange={handleToggle}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={status.enabled}
           disabled={isToggling}
-        />
+          onClick={() => handleToggle(!status.enabled)}
+          className={`w-[44px] h-[26px] rounded-full p-[2px] flex items-center transition-colors cursor-pointer ${
+            status.enabled ? "bg-[#3882F6] justify-end" : "bg-[#27272f] justify-start"
+          }`}
+        >
+          <span className="w-[22px] h-[22px] rounded-full bg-white shadow-sm" />
+        </button>
       </div>
 
       {/* Body Content */}
-      <div className="flex-1 min-h-0 flex flex-col py-2 overflow-y-auto no-scrollbar gap-2">
+      <div className="flex-1 min-h-0 flex flex-col pt-2.5 overflow-hidden">
         {!status.enabled ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2.5 text-center p-4">
-            <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center text-white/40">
+            <div className="w-12 h-12 rounded-full bg-[#17171c] flex items-center justify-center text-[#a1a1aa]">
               <Bluetooth size={22} />
             </div>
             <div>
-              <p className="text-[13px] font-semibold text-white/80">{t("cc_not_connected")}</p>
-              <p className="text-[11px] text-white/40 mt-0.5">{t("cc_searching")}</p>
+              <p className="text-[13px] font-semibold text-white">{t("cc_not_connected")}</p>
+              <p className="text-[11px] text-[#a1a1aa] mt-0.5">{t("cc_searching")}</p>
             </div>
             <button
               type="button"
               onClick={() => handleToggle(true)}
-              className="mt-1 px-3 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 text-[12px] font-medium transition-colors cursor-pointer"
+              className="mt-1 px-3.5 py-1.5 rounded-[11px] bg-[#3882F6] hover:bg-[#2563eb] text-white text-[12px] font-semibold transition-colors cursor-pointer"
             >
               Turn On
             </button>
@@ -136,25 +145,25 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({
                 {connectedDevices.map((dev) => (
                   <div
                     key={dev.name}
-                    className="p-2.5 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-between"
+                    className="h-[58px] rounded-[18px] px-3 flex items-center justify-between gap-3 bg-[rgba(56,130,246,0.16)] border border-[rgba(56,130,246,0.4)]"
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-8 h-8 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(14,165,233,0.4)]">
-                        <Bluetooth size={16} />
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-[38px] h-[38px] rounded-full bg-[#3882F6] text-white flex items-center justify-center shrink-0">
+                        <Bluetooth size={18} />
                       </div>
                       <div className="flex flex-col min-w-0">
-                        <span className="text-[12px] font-bold text-white truncate">
+                        <span className="text-[13.5px] font-semibold text-white truncate">
                           {dev.name}
                         </span>
-                        <span className="text-[10px] text-sky-300 font-medium flex items-center gap-1">
-                          <Check size={11} strokeWidth={2.5} />
+                        <span className="text-[11.5px] text-[#b4b4bd] flex items-center gap-1.5">
+                          <Check size={12} strokeWidth={2.6} className="text-[#7fb0ff]" />
                           {t("cc_connected")}
                         </span>
                       </div>
                     </div>
 
                     {dev.battery !== null && dev.battery !== undefined && (
-                      <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-[#13FF00] bg-[#13FF00]/10 px-2.5 py-1 rounded-full border border-[#13FF00]/25 shrink-0">
                         <Battery size={13} />
                         <span>{dev.battery}%</span>
                       </div>
@@ -164,69 +173,70 @@ export const BluetoothSubmenu: React.FC<BluetoothSubmenuProps> = ({
               </div>
             )}
 
-            {/* Other Paired Devices */}
-            <div className="flex items-center justify-between px-1 pt-1 shrink-0">
-              <span className="text-[10.5px] font-semibold text-white/40 uppercase tracking-wider">
+            {/* Section Label */}
+            <div className="flex items-center justify-between h-[28px] mt-2 px-1 shrink-0">
+              <span className="text-[10.5px] font-medium tracking-[0.06em] text-[#a1a1aa] uppercase">
                 {t("cc_paired_devices")}
               </span>
               <button
                 type="button"
                 onClick={loadStatus}
                 disabled={isLoading}
-                className="text-white/40 hover:text-white/80 transition-colors p-1 rounded-lg cursor-pointer disabled:opacity-40"
+                className="w-[26px] h-[26px] rounded-full text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40"
               >
-                <RotateCw size={12} className={isLoading ? "animate-spin text-sky-400" : ""} />
+                <RotateCw size={13.5} className={isLoading ? "animate-spin text-[#3882F6]" : ""} />
               </button>
             </div>
 
-            <div className="flex flex-col gap-1 min-h-0">
-              {isLoading && otherDevices.length === 0 ? (
-                <div className="flex items-center justify-center py-6 gap-2 text-white/40 text-[12px]">
-                  <Loader2 size={14} className="animate-spin text-sky-400" />
-                  <span>{t("cc_searching")}</span>
-                </div>
-              ) : otherDevices.length === 0 ? (
-                <div className="text-center py-6 text-white/40 text-[12px]">
-                  {t("cc_no_devices")}
-                </div>
-              ) : (
-                otherDevices.map((dev) => (
-                  <div
-                    key={dev.name}
-                    className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-white/[0.07] transition-colors select-none group"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <Bluetooth size={15} className="text-white/60 shrink-0 group-hover:text-white" />
-                      <span className="text-[12px] font-medium text-white/90 group-hover:text-white truncate">
-                        {dev.name}
-                      </span>
-                    </div>
-
-                    {dev.battery !== null && dev.battery !== undefined && (
-                      <div className="flex items-center gap-1 text-[10px] text-white/50">
-                        <Battery size={12} />
-                        <span>{dev.battery}%</span>
-                      </div>
-                    )}
+            <div className="flex-1 min-h-0 relative overflow-hidden">
+              <div className="h-full overflow-y-auto no-scrollbar flex flex-col gap-0.5 pb-6">
+                {isLoading && otherDevices.length === 0 ? (
+                  <div className="flex items-center justify-center py-6 gap-2 text-[#a1a1aa] text-[12px]">
+                    <Loader2 size={14} className="animate-spin text-[#3882F6]" />
+                    <span>{t("cc_searching")}</span>
                   </div>
-                ))
-              )}
+                ) : otherDevices.length === 0 ? (
+                  <div className="text-center py-6 text-[#a1a1aa] text-[12px]">
+                    {t("cc_no_devices")}
+                  </div>
+                ) : (
+                  otherDevices.map((dev) => (
+                    <div
+                      key={dev.name}
+                      className="h-[38px] rounded-[12px] px-2.5 flex items-center justify-between hover:bg-[#15151a] transition-colors select-none group"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Bluetooth size={16} className="text-[#e4e4e7] shrink-0" />
+                        <span className="text-[13px] font-medium text-white truncate">
+                          {dev.name}
+                        </span>
+                      </div>
+
+                      {dev.battery !== null && dev.battery !== undefined && (
+                        <div className="flex items-center gap-1 text-[11px] text-[#a1a1aa]">
+                          <Battery size={12} />
+                          <span>{dev.battery}%</span>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-b from-transparent to-black pointer-events-none" />
             </div>
           </>
         )}
       </div>
 
-      {/* Footer: Windows Bluetooth Settings Link */}
-      <div className="pt-2 border-t border-white/10 shrink-0 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => openUrl("ms-settings:bluetooth").catch(console.error)}
-          className="flex items-center gap-1.5 text-[11px] text-white/50 hover:text-white transition-colors cursor-pointer group"
-        >
-          <span>{t("cc_bluetooth_settings")}</span>
-          <ExternalLink size={12} className="opacity-60 group-hover:opacity-100" />
-        </button>
-      </div>
+      {/* Footer Link */}
+      <button
+        type="button"
+        onClick={() => openUrl("ms-settings:bluetooth").catch(console.error)}
+        className="h-[26px] self-start px-1 text-[#a1a1aa] hover:text-white text-[11.5px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+      >
+        <span>{t("cc_bluetooth_settings")}</span>
+        <ExternalLink size={11.5} />
+      </button>
     </motion.div>
   );
 };

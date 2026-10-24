@@ -40,13 +40,12 @@ export const GreetingNotification: React.FC<GreetingNotificationProps> = ({
 
   return (
     <motion.div
-      key="greeting-notif"
       onClick={onClick}
       initial={{ opacity: 0, y: isBot ? -8 : 8, scale: 0.94, filter: "blur(6px)" }}
       animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none", transform: "none" } }}
       exit={{ opacity: 0, y: isBot ? 8 : -8, scale: 0.94, filter: "blur(6px)" }}
       transition={iosSpring.snappy}
-      className="absolute inset-0 flex items-center justify-between px-3.5 select-none cursor-pointer group"
+      className="absolute inset-0 z-40 flex items-center justify-between px-3.5 select-none cursor-pointer group"
     >
       {/* Left: Glowing Ambient Icon Badge */}
       <div className="flex items-center gap-3 min-w-0">

@@ -44,6 +44,17 @@
   animation: lightningFlash 5s infinite;
 }
 
+@keyframes eqPulse {
+  0%, 100% { transform: scaleY(0.28); }
+  50% { transform: scaleY(1); }
+}
+.animate-eq-bar {
+  height: 14px;
+  transform-origin: center;
+  will-change: transform;
+  animation: eqPulse 0.8s ease-in-out infinite;
+}
+
 .todo-scroll {
   scrollbar-width: thin !important;
   scrollbar-color: rgba(255, 255, 255, 0.35) transparent !important;
@@ -171,11 +182,188 @@ html.light .bg-noise,
 
 /* Light Card Surface (Solid, pristine frosted card) */
 html.light [class*="bg-[#1c1c1e]"],
+html.light [class*="bg-[#111114]"],
+html.light [class*="bg-[#101015]"],
+html.light [class*="bg-[#121217]"],
+html.light [class*="bg-[#141416]"],
 .light [class*="bg-[#1c1c1e]"],
-#notch-pill.light [class*="bg-[#1c1c1e]"] {
+.light [class*="bg-[#111114]"],
+.light [class*="bg-[#101015]"],
+.light [class*="bg-[#121217]"],
+.light [class*="bg-[#141416]"],
+#notch-pill.light [class*="bg-[#1c1c1e]"],
+#notch-pill.light [class*="bg-[#111114]"],
+#notch-pill.light [class*="bg-[#101015]"],
+#notch-pill.light [class*="bg-[#121217]"],
+#notch-pill.light [class*="bg-[#141416]"] {
   background-color: #ffffff !important;
   border-color: rgba(0, 0, 0, 0.08) !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Light Popups & Floating Menus */
+html.light [class*="bg-[#17171d]"],
+html.light [class*="bg-[#15151c]"],
+html.light [class*="bg-[#15151d]"],
+html.light [class*="bg-[#18181b]"],
+.light [class*="bg-[#17171d]"],
+.light [class*="bg-[#15151c]"],
+.light [class*="bg-[#15151d]"],
+.light [class*="bg-[#18181b]"],
+#notch-pill.light [class*="bg-[#17171d]"],
+#notch-pill.light [class*="bg-[#15151c]"],
+#notch-pill.light [class*="bg-[#15151d]"],
+#notch-pill.light [class*="bg-[#18181b]"] {
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06) !important;
+  color: #1d1d1f !important;
+}
+
+/* Light Inset Tracks, Preview Wells & Wells */
+html.light [class*="bg-[#0c0c0e]"],
+html.light [class*="bg-[#0c0c10]"],
+html.light [class*="bg-[#08080b]"],
+html.light [class*="bg-[#0d0d12]"],
+html.light [class*="bg-[#121216]"],
+html.light [class*="bg-[#15151a]"],
+html.light [class*="bg-[#15151b]"],
+.light [class*="bg-[#0c0c0e]"],
+.light [class*="bg-[#0c0c10]"],
+.light [class*="bg-[#08080b]"],
+.light [class*="bg-[#0d0d12]"],
+.light [class*="bg-[#121216]"],
+.light [class*="bg-[#15151a]"],
+.light [class*="bg-[#15151b]"],
+#notch-pill.light [class*="bg-[#0c0c0e]"],
+#notch-pill.light [class*="bg-[#0c0c10]"],
+#notch-pill.light [class*="bg-[#08080b]"],
+#notch-pill.light [class*="bg-[#0d0d12]"],
+#notch-pill.light [class*="bg-[#121216]"],
+#notch-pill.light [class*="bg-[#15151a]"],
+#notch-pill.light [class*="bg-[#15151b]"] {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Settings Subnav Search Bar and Buttons */
+html.light [class*="bg-[#18181c]"],
+.light [class*="bg-[#18181c]"],
+#notch-pill.light [class*="bg-[#18181c]"] {
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+  color: #1d1d1f !important;
+}
+html.light button[class*="bg-[#18181c]"],
+.light button[class*="bg-[#18181c]"],
+#notch-pill.light button[class*="bg-[#18181c]"] {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: #1d1d1f !important;
+}
+html.light button[class*="bg-[#18181c]"]:hover,
+.light button[class*="bg-[#18181c]"]:hover,
+#notch-pill.light button[class*="bg-[#18181c]"]:hover {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Inactive Buttons, Round Tool Buttons, Chips & Badges */
+html.light [class*="bg-[#17171c]"],
+html.light [class*="bg-[#1d1d25]"],
+html.light [class*="bg-[#1e1e24]"],
+html.light [class*="bg-[#23232a]"],
+html.light [class*="bg-[#27272f]"],
+html.light [class*="bg-[#2a2a35]"],
+.light [class*="bg-[#17171c]"],
+.light [class*="bg-[#1d1d25]"],
+.light [class*="bg-[#1e1e24]"],
+.light [class*="bg-[#23232a]"],
+.light [class*="bg-[#27272f]"],
+.light [class*="bg-[#2a2a35]"],
+#notch-pill.light [class*="bg-[#17171c]"],
+#notch-pill.light [class*="bg-[#1d1d25]"],
+#notch-pill.light [class*="bg-[#1e1e24]"],
+#notch-pill.light [class*="bg-[#23232a]"],
+#notch-pill.light [class*="bg-[#27272f]"],
+#notch-pill.light [class*="bg-[#2a2a35]"] {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+  color: #1d1d1f !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+html.light [class*="bg-[#17171c]"]:hover,
+html.light [class*="bg-[#1e1e24]"]:hover,
+html.light [class*="bg-[#23232a]"]:hover,
+.light [class*="bg-[#17171c]"]:hover,
+.light [class*="bg-[#1e1e24]"]:hover,
+.light [class*="bg-[#23232a]"]:hover,
+#notch-pill.light [class*="bg-[#17171c]"]:hover,
+#notch-pill.light [class*="bg-[#1e1e24]"]:hover,
+#notch-pill.light [class*="bg-[#23232a]"]:hover {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Active Segment Pills & Selected States */
+html.light [class*="bg-[#2a2a31]"],
+html.light [class*="bg-[#27272a]"],
+html.light [class*="bg-[#2e2e36]"],
+.light [class*="bg-[#2a2a31]"],
+.light [class*="bg-[#27272a]"],
+.light [class*="bg-[#2e2e36]"],
+#notch-pill.light [class*="bg-[#2a2a31]"],
+#notch-pill.light [class*="bg-[#27272a]"],
+#notch-pill.light [class*="bg-[#2e2e36]"] {
+  background-color: #ffffff !important;
+  color: #1d1d1f !important;
+  box-shadow: 0 1.5px 5px rgba(0, 0, 0, 0.1) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Dark Borders & Dividers in Light Mode */
+html.light [class*="border-[#1e1e25]"],
+html.light [class*="border-[#2a2a31]"],
+html.light [class*="border-[#2a2a33]"],
+html.light [class*="border-[#2e2e38]"],
+html.light [class*="border-[#3a3a43]"],
+.light [class*="border-[#1e1e25]"],
+.light [class*="border-[#2a2a31]"],
+.light [class*="border-[#2a2a33]"],
+.light [class*="border-[#2e2e38]"],
+.light [class*="border-[#3a3a43]"],
+#notch-pill.light [class*="border-[#1e1e25]"],
+#notch-pill.light [class*="border-[#2a2a31]"],
+#notch-pill.light [class*="border-[#2a2a33]"],
+#notch-pill.light [class*="border-[#2e2e38]"],
+#notch-pill.light [class*="border-[#3a3a43]"] {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light div[class*="bg-[#1e1e25]"],
+.light div[class*="bg-[#1e1e25]"],
+#notch-pill.light div[class*="bg-[#1e1e25]"] {
+  background-color: rgba(0, 0, 0, 0.07) !important;
+}
+
+/* Control Center Horizontal Capsule Sliders */
+html.light div[class*="h-[40px]"][class*="bg-[#15151b]"],
+.light div[class*="h-[40px]"][class*="bg-[#15151b]"],
+#notch-pill.light div[class*="h-[40px]"][class*="bg-[#15151b]"] {
+  background-color: rgba(0, 0, 0, 0.07) !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+html.light div[class*="h-[40px]"][class*="bg-[#15151b]"] > div[class*="bg-[#e4e4e7]"],
+.light div[class*="h-[40px]"][class*="bg-[#15151b]"] > div[class*="bg-[#e4e4e7]"],
+#notch-pill.light div[class*="h-[40px]"][class*="bg-[#15151b]"] > div[class*="bg-[#e4e4e7]"] {
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Notch Surface Ambient Shadow in Light Mode */
+html.light .notch-surface-shadow,
+.light .notch-surface-shadow,
+#notch-pill.light .notch-surface-shadow {
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.14) !important;
 }
 
 /* Typography — High-contrast legibility */
@@ -532,6 +720,18 @@ html.light [class*="text-white/40"],
   color: #8e8e93 !important;
 }
 
+/* System Monitor Charts */
+html.light .sys-chart-grid,
+.light .sys-chart-grid,
+#notch-pill.light .sys-chart-grid {
+  stroke: rgba(0, 0, 0, 0.08) !important;
+}
+html.light .sys-chart-label,
+.light .sys-chart-label,
+#notch-pill.light .sys-chart-label {
+  fill: #8e8e93 !important;
+}
+
 /* Sliders (Apple macOS/VisionOS Slider Legibility) */
 html.light [data-no-swipe="true"] label,
 .light [data-no-swipe="true"] label,
@@ -825,6 +1025,277 @@ html.light .text-white\/35,
 .light .text-white\/35,
 #notch-pill.light .text-white\/35 {
   color: #636366 !important;
+}
+
+/* Zinc and Muted Shades High-Contrast Remapping */
+html.light .text-zinc-100,
+html.light .text-zinc-200,
+html.light [class*="text-[#e4e4e7]"],
+html.light [class*="text-[#d4d4d8]"],
+.light .text-zinc-100,
+.light .text-zinc-200,
+.light [class*="text-[#e4e4e7]"],
+.light [class*="text-[#d4d4d8]"],
+#notch-pill.light .text-zinc-100,
+#notch-pill.light .text-zinc-200,
+#notch-pill.light [class*="text-[#e4e4e7]"],
+#notch-pill.light [class*="text-[#d4d4d8]"] {
+  color: #1d1d1f !important;
+}
+
+html.light .text-zinc-300,
+html.light .text-zinc-400,
+html.light [class*="text-[#c4c4cc]"],
+html.light [class*="text-[#a1a1aa]"],
+.light .text-zinc-300,
+.light .text-zinc-400,
+.light [class*="text-[#c4c4cc]"],
+.light [class*="text-[#a1a1aa]"],
+#notch-pill.light .text-zinc-300,
+#notch-pill.light .text-zinc-400,
+#notch-pill.light [class*="text-[#c4c4cc]"],
+#notch-pill.light [class*="text-[#a1a1aa]"] {
+  color: #636366 !important;
+}
+
+html.light .text-zinc-500,
+html.light [class*="text-[#71717a]"],
+.light .text-zinc-500,
+.light [class*="text-[#71717a]"],
+#notch-pill.light .text-zinc-500,
+#notch-pill.light [class*="text-[#71717a]"] {
+  color: #8e8e93 !important;
+}
+
+/* Vibrant Contrast Accent Text in Light Mode */
+html.light [class*="text-[#ff9b8f]"],
+html.light [class*="text-[#ff7b72]"],
+html.light [class*="text-[#ff8a7a]"],
+.light [class*="text-[#ff9b8f]"],
+.light [class*="text-[#ff7b72]"],
+.light [class*="text-[#ff8a7a]"],
+#notch-pill.light [class*="text-[#ff9b8f]"],
+#notch-pill.light [class*="text-[#ff7b72]"],
+#notch-pill.light [class*="text-[#ff8a7a]"] {
+  color: #dc2626 !important;
+}
+
+html.light [class*="text-[#8db8ff]"],
+html.light [class*="text-[#8DB8FF]"],
+.light [class*="text-[#8db8ff]"],
+.light [class*="text-[#8DB8FF]"],
+#notch-pill.light [class*="text-[#8db8ff]"],
+#notch-pill.light [class*="text-[#8DB8FF]"] {
+  color: #2563eb !important;
+}
+
+html.light [class*="text-[#5eead4]"],
+html.light [class*="text-[#5EEAD4]"],
+.light [class*="text-[#5eead4]"],
+.light [class*="text-[#5EEAD4]"],
+#notch-pill.light [class*="text-[#5eead4]"],
+#notch-pill.light [class*="text-[#5EEAD4]"] {
+  color: #0d9488 !important;
+}
+
+html.light [class*="text-[#C4B5FD]"],
+html.light [class*="text-[#c4b5fd]"],
+.light [class*="text-[#C4B5FD]"],
+.light [class*="text-[#c4b5fd]"],
+#notch-pill.light [class*="text-[#C4B5FD]"],
+#notch-pill.light [class*="text-[#c4b5fd]"] {
+  color: #7c3aed !important;
+}
+
+html.light [class*="text-[#ffd60a]"],
+html.light [class*="text-[#FBBF24]"],
+html.light [class*="text-[#fbbf24]"],
+.light [class*="text-[#ffd60a]"],
+.light [class*="text-[#FBBF24]"],
+.light [class*="text-[#fbbf24]"],
+#notch-pill.light [class*="text-[#ffd60a]"],
+#notch-pill.light [class*="text-[#FBBF24]"],
+#notch-pill.light [class*="text-[#fbbf24]"] {
+  color: #b45309 !important;
+}
+
+/* Maintain Crisp White Text on Solid Primary Colored Buttons in Light Mode */
+html.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"], [class*="bg-red-500"], [class*="bg-emerald-500"]),
+.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"], [class*="bg-red-500"], [class*="bg-emerald-500"]),
+#notch-pill.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"], [class*="bg-red-500"], [class*="bg-emerald-500"]) {
+  color: #ffffff !important;
+}
+
+html.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"]) span,
+html.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"]) svg,
+.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"]) span,
+.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"]) svg,
+#notch-pill.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"]) span,
+#notch-pill.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"], [class*="bg-[#0a84ff]"], [class*="bg-[#34c759]"], [class*="bg-[#30d158]"], [class*="bg-[#ff3b30]"], [class*="bg-[#ff453a]"], [class*="bg-blue-600"], [class*="bg-blue-500"]) svg {
+  color: #ffffff !important;
+}
+
+/* Translucent Tint Badges in Light Mode: Vibrant Accent Color */
+html.light [class*="bg-[#007aff]/"],
+html.light [class*="bg-[#3882F6]/"],
+html.light [class*="bg-[#0a84ff]/"],
+.light [class*="bg-[#007aff]/"],
+.light [class*="bg-[#3882F6]/"],
+.light [class*="bg-[#0a84ff]/"],
+#notch-pill.light [class*="bg-[#007aff]/"],
+#notch-pill.light [class*="bg-[#3882F6]/"],
+#notch-pill.light [class*="bg-[#0a84ff]/"] {
+  background-color: rgba(0, 122, 255, 0.12) !important;
+  color: #007aff !important;
+}
+html.light [class*="bg-[#007aff]/"] span,
+html.light [class*="bg-[#3882F6]/"] span,
+html.light [class*="bg-[#0a84ff]/"] span,
+.light [class*="bg-[#007aff]/"] span,
+.light [class*="bg-[#3882F6]/"] span,
+.light [class*="bg-[#0a84ff]/"] span,
+#notch-pill.light [class*="bg-[#007aff]/"] span,
+#notch-pill.light [class*="bg-[#3882F6]/"] span,
+#notch-pill.light [class*="bg-[#0a84ff]/"] span {
+  color: #007aff !important;
+}
+
+/* Idle Tab Options Grid Buttons in Light Mode (replaces pitch black blocks) */
+html.light [class*="bg-[#161619]"],
+.light [class*="bg-[#161619]"],
+#notch-pill.light [class*="bg-[#161619]"] {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  color: #1d1d1f !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+}
+html.light [class*="bg-[#161619]"]:hover,
+.light [class*="bg-[#161619]"]:hover,
+#notch-pill.light [class*="bg-[#161619]"]:hover {
+  background-color: rgba(0, 0, 0, 0.09) !important;
+  color: #000000 !important;
+}
+
+/* Idle Tab Simulated Notch in Light Mode */
+html.light .idle-preview-notch,
+.light .idle-preview-notch,
+#notch-pill.light .idle-preview-notch {
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08) !important;
+}
+html.light .idle-preview-notch span,
+.light .idle-preview-notch span,
+#notch-pill.light .idle-preview-notch span {
+  color: #1d1d1f !important;
+}
+html.light .idle-preview-notch .idle-preview-date,
+.light .idle-preview-notch .idle-preview-date,
+#notch-pill.light .idle-preview-notch .idle-preview-date {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: #1d1d1f !important;
+}
+
+/* Settings Icon Tiles: Soft Pastel iOS Glass Tints in Light Mode */
+html.light [class*="bg-[#132c1e]"],
+html.light [class*="bg-[#132c22]"],
+html.light [class*="bg-[#142d1f]"],
+.light [class*="bg-[#132c1e]"],
+.light [class*="bg-[#132c22]"],
+.light [class*="bg-[#142d1f]"],
+#notch-pill.light [class*="bg-[#132c1e]"],
+#notch-pill.light [class*="bg-[#132c22]"],
+#notch-pill.light [class*="bg-[#142d1f]"] {
+  background-color: rgba(52, 199, 89, 0.14) !important;
+}
+
+html.light [class*="bg-[#2c2410]"],
+html.light [class*="bg-[#2c2010]"],
+html.light [class*="bg-[#2f2014]"],
+html.light [class*="bg-[#2b2413]"],
+.light [class*="bg-[#2c2410]"],
+.light [class*="bg-[#2c2010]"],
+.light [class*="bg-[#2f2014]"],
+.light [class*="bg-[#2b2413]"],
+#notch-pill.light [class*="bg-[#2c2410]"],
+#notch-pill.light [class*="bg-[#2c2010]"],
+#notch-pill.light [class*="bg-[#2f2014]"],
+#notch-pill.light [class*="bg-[#2b2413]"] {
+  background-color: rgba(255, 159, 10, 0.14) !important;
+}
+
+html.light [class*="bg-[#142333]"],
+html.light [class*="bg-[#182338]"],
+.light [class*="bg-[#142333]"],
+.light [class*="bg-[#182338]"],
+#notch-pill.light [class*="bg-[#142333]"],
+#notch-pill.light [class*="bg-[#182338]"] {
+  background-color: rgba(10, 132, 255, 0.14) !important;
+}
+
+html.light [class*="bg-[#26182e]"],
+html.light [class*="bg-[#241c30]"],
+.light [class*="bg-[#26182e]"],
+.light [class*="bg-[#241c30]"],
+#notch-pill.light [class*="bg-[#26182e]"],
+#notch-pill.light [class*="bg-[#241c30]"] {
+  background-color: rgba(175, 82, 222, 0.14) !important;
+}
+
+html.light [class*="bg-[#132c2c]"],
+html.light [class*="bg-[#13262d]"],
+html.light [class*="bg-[#142d2a]"],
+.light [class*="bg-[#132c2c]"],
+.light [class*="bg-[#13262d]"],
+.light [class*="bg-[#142d2a]"],
+#notch-pill.light [class*="bg-[#132c2c]"],
+#notch-pill.light [class*="bg-[#13262d]"],
+#notch-pill.light [class*="bg-[#142d2a]"] {
+  background-color: rgba(0, 199, 190, 0.14) !important;
+}
+
+html.light [class*="bg-[#331616]"],
+html.light [class*="bg-[#2d1815]"],
+html.light [class*="bg-[#2c1626]"],
+.light [class*="bg-[#331616]"],
+.light [class*="bg-[#2d1815]"],
+.light [class*="bg-[#2c1626]"],
+#notch-pill.light [class*="bg-[#331616]"],
+#notch-pill.light [class*="bg-[#2d1815]"],
+#notch-pill.light [class*="bg-[#2c1626]"] {
+  background-color: rgba(255, 59, 48, 0.14) !important;
+}
+
+html.light [class*="bg-[#161c33]"],
+.light [class*="bg-[#161c33]"],
+#notch-pill.light [class*="bg-[#161c33]"] {
+  background-color: rgba(94, 92, 230, 0.14) !important;
+}
+
+html.light [class*="bg-[#1c1c20]"],
+.light [class*="bg-[#1c1c20]"],
+#notch-pill.light [class*="bg-[#1c1c20]"] {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Keyboard Kbd Shortcuts */
+html.light kbd,
+.light kbd,
+#notch-pill.light kbd {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border-color: rgba(0, 0, 0, 0.09) !important;
+  color: #636366 !important;
+}
+
+/* Remove White Glow On Synced Lyrics In Light Mode */
+html.light [style*="text-shadow"],
+html.light [style*="textShadow"],
+.light [style*="text-shadow"],
+.light [style*="textShadow"],
+#notch-pill.light [style*="text-shadow"],
+#notch-pill.light [style*="textShadow"] {
+  text-shadow: none !important;
 }
 
 /* ==========================================================================

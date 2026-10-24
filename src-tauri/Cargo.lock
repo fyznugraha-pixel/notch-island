@@ -1650,6 +1650,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "gili"
+version = "3.3.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-drag",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+ "tauri-plugin-store",
+ "tauri-plugin-updater",
+ "windows 0.58.0",
+ "windows-core 0.58.0",
+ "windows-registry 0.100.0",
+ "winreg 0.56.0",
+ "wmi",
+]
+
+[[package]]
 name = "gio"
 version = "0.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2760,30 +2784,6 @@ name = "noop_proc_macro"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
-
-[[package]]
-name = "notch"
-version = "3.2.5"
-dependencies = [
- "base64 0.22.1",
- "image",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-drag",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
- "tauri-plugin-store",
- "tauri-plugin-updater",
- "windows 0.58.0",
- "windows-core 0.58.0",
- "windows-registry 0.100.0",
- "winreg 0.56.0",
- "wmi",
-]
 
 [[package]]
 name = "num-bigint"

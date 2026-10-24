@@ -14,7 +14,6 @@ import {
   KeyRound,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { IosSwitch } from "../../ios/IosSwitch";
 import { iosSpring } from "../../../utils/iosMotion";
 import {
   fetchWifiStatus,
@@ -40,7 +39,6 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
   initialEnabled,
   initialConnectedSsid,
 }) => {
-  // Optimistically initialize with known state so there is zero delay / flash of "OFF"
   const [status, setStatus] = useState<WifiStatus>({
     enabled: initialEnabled,
     connected_ssid: initialConnectedSsid,
@@ -60,7 +58,6 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
   const [isToggling, setIsToggling] = useState(false);
   const [connectingSsid, setConnectingSsid] = useState<string | null>(null);
 
-  // Password prompt state
   const [passwordSsid, setPasswordSsid] = useState<string | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -109,7 +106,6 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
   const handleConnect = async (network: WifiNetwork) => {
     if (network.is_connected) return;
 
-    // If it's a secured network and not saved, open password input
     if (!network.is_saved && network.is_secure) {
       if (passwordSsid === network.ssid) {
         setPasswordSsid(null);
@@ -122,7 +118,6 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
       return;
     }
 
-    // Direct connect for saved or open networks
     setPasswordSsid(null);
     setConnectingSsid(network.ssid);
     try {
@@ -166,8 +161,9 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
     }
   };
 
-  const connectedNetwork = status.networks.find((n) => n.is_connected) || (
-    status.connected_ssid
+  const connectedNetwork =
+    status.networks.find((n) => n.is_connected) ||
+    (status.connected_ssid
       ? {
           ssid: status.connected_ssid,
           signal: 85,
@@ -175,83 +171,82 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
           is_secure: true,
           is_saved: true,
         }
-      : null
-  );
+      : null);
   const otherNetworks = status.networks.filter(
     (n) => !n.is_connected && n.ssid !== status.connected_ssid
   );
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
+      initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 20 }}
+      exit={{ opacity: 0, x: 16 }}
       transition={iosSpring.snappy}
-      className="absolute inset-0 w-full h-full flex flex-col p-3 bg-[#161618] rounded-[26px] select-none text-white overflow-hidden"
+      className="absolute inset-0 w-full h-full flex flex-col px-6 py-1.5 select-none text-white overflow-hidden"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between pb-2 border-b border-white/10 shrink-0">
+      {/* Header: Back circle + Title + Switch (Board 05) */}
+      <div className="flex items-center gap-3 shrink-0">
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1 text-[13px] font-medium text-sky-400 hover:text-sky-300 transition-colors cursor-pointer group"
+          aria-label={t("cc_back")}
+          className="w-[30px] h-[30px] rounded-full bg-[#17171c] hover:bg-[#23232a] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
         >
-          <ChevronLeft size={16} className="transition-transform group-hover:-translate-x-0.5" />
-          <span>{t("cc_back")}</span>
+          <ChevronLeft size={16} />
         </button>
 
-        <div className="flex items-center gap-1.5">
-          <span className="text-[13px] font-bold text-white tracking-tight">{t("cc_wifi")}</span>
-          {networkPing !== null && status.enabled && (
-            <span className="text-[9px] font-mono text-neutral-300 bg-white/10 px-1 py-0.2 rounded flex items-center tracking-tighter">
-              <span className="text-emerald-400 mr-1">●</span>
-              {networkPing}ms
-            </span>
-          )}
-        </div>
+        <div className="text-[16px] font-semibold tracking-tight flex-1">{t("cc_wifi")}</div>
 
-        <IosSwitch
-          checked={status.enabled}
-          onChange={handleToggle}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={status.enabled}
           disabled={isToggling}
-        />
+          onClick={() => handleToggle(!status.enabled)}
+          className={`w-[44px] h-[26px] rounded-full p-[2px] flex items-center transition-colors cursor-pointer ${
+            status.enabled ? "bg-[#3882F6] justify-end" : "bg-[#27272f] justify-start"
+          }`}
+        >
+          <span className="w-[22px] h-[22px] rounded-full bg-white shadow-sm" />
+        </button>
       </div>
 
       {/* Body Content */}
-      <div className="flex-1 min-h-0 flex flex-col py-2 overflow-y-auto no-scrollbar gap-2">
+      <div className="flex-1 min-h-0 flex flex-col pt-2.5 overflow-hidden">
         {!status.enabled ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2.5 text-center p-4">
-            <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center text-white/40">
+            <div className="w-12 h-12 rounded-full bg-[#17171c] flex items-center justify-center text-[#a1a1aa]">
               <WifiOff size={22} />
             </div>
             <div>
-              <p className="text-[13px] font-semibold text-white/80">{t("cc_not_connected")}</p>
-              <p className="text-[11px] text-white/40 mt-0.5">{t("cc_searching")}</p>
+              <p className="text-[13px] font-semibold text-white">{t("cc_not_connected")}</p>
+              <p className="text-[11px] text-[#a1a1aa] mt-0.5">{t("cc_searching")}</p>
             </div>
             <button
               type="button"
               onClick={() => handleToggle(true)}
-              className="mt-1 px-3 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 text-[12px] font-medium transition-colors cursor-pointer"
+              className="mt-1 px-3.5 py-1.5 rounded-[11px] bg-[#3882F6] hover:bg-[#2563eb] text-white text-[12px] font-semibold transition-colors cursor-pointer"
             >
               Turn On
             </button>
           </div>
         ) : (
           <>
-            {/* Connected Network Card */}
+            {/* Connected Network Card (Board 05) */}
             {connectedNetwork && (
-              <div className="p-2.5 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(14,165,233,0.4)]">
-                    <Wifi size={16} />
+              <div className="h-[58px] rounded-[18px] px-3 flex items-center gap-3 bg-[rgba(56,130,246,0.16)] border border-[rgba(56,130,246,0.4)] shrink-0">
+                <div className="w-[38px] h-[38px] rounded-full bg-[#3882F6] text-white flex items-center justify-center shrink-0">
+                  <Wifi size={18} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13.5px] font-semibold text-white truncate">
+                    {connectedNetwork.ssid}
                   </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[12px] font-bold text-white truncate">
-                      {connectedNetwork.ssid}
-                    </span>
-                    <span className="text-[10px] text-sky-300 font-medium flex items-center gap-1">
-                      <Check size={11} strokeWidth={2.5} />
-                      {t("cc_connected")}
+                  <div className="text-[11.5px] text-[#b4b4bd] flex items-center gap-1.5 tabular-nums truncate">
+                    <Check size={12} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
+                    <span className="truncate">
+                      {t("cc_connected")} · {t("cc_strong_signal")}
+                      {networkPing !== null ? ` · ${networkPing} ms` : ""}
                     </span>
                   </div>
                 </div>
@@ -259,165 +254,170 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
                 <button
                   type="button"
                   onClick={handleDisconnect}
-                  className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-rose-500/20 text-white/80 hover:text-rose-300 text-[11px] font-medium transition-colors cursor-pointer"
+                  className="h-[32px] px-3 rounded-[11px] border border-[#3a3a43] bg-transparent hover:bg-white/[0.06] text-[#e4e4e7] text-[11.5px] font-medium transition-colors cursor-pointer shrink-0"
                 >
                   {t("cc_disconnect")}
                 </button>
               </div>
             )}
 
-            {/* Other Available Networks */}
-            <div className="flex items-center justify-between px-1 pt-1 shrink-0">
-              <span className="text-[10.5px] font-semibold text-white/40 uppercase tracking-wider">
+            {/* Section Label */}
+            <div className="flex items-center justify-between h-[28px] mt-2 px-1 shrink-0">
+              <span className="text-[10.5px] font-medium tracking-[0.06em] text-[#a1a1aa] uppercase">
                 {t("cc_other_networks")}
               </span>
               <button
                 type="button"
                 onClick={loadStatus}
                 disabled={isLoading}
-                className="text-white/40 hover:text-white/80 transition-colors p-1 rounded-lg cursor-pointer disabled:opacity-40"
+                className="w-[26px] h-[26px] rounded-full text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40"
               >
-                <RotateCw size={12} className={isLoading ? "animate-spin text-sky-400" : ""} />
+                <RotateCw size={13.5} className={isLoading ? "animate-spin text-[#3882F6]" : ""} />
               </button>
             </div>
 
-            <div className="flex flex-col gap-1 min-h-0">
-              {isLoading && otherNetworks.length === 0 ? (
-                <div className="flex items-center justify-center py-6 gap-2 text-white/40 text-[12px]">
-                  <Loader2 size={14} className="animate-spin text-sky-400" />
-                  <span>{t("cc_searching")}</span>
-                </div>
-              ) : otherNetworks.length === 0 ? (
-                <div className="text-center py-6 text-white/40 text-[12px]">
-                  {t("cc_no_networks")}
-                </div>
-              ) : (
-                otherNetworks.map((net) => {
-                  const isConnecting = connectingSsid === net.ssid;
-                  const isPasswordOpen = passwordSsid === net.ssid;
+            {/* Network List with Bottom Fade */}
+            <div className="flex-1 min-h-0 relative overflow-hidden">
+              <div className="h-full overflow-y-auto no-scrollbar flex flex-col gap-0.5 pb-6">
+                {isLoading && otherNetworks.length === 0 ? (
+                  <div className="flex items-center justify-center py-6 gap-2 text-[#a1a1aa] text-[12px]">
+                    <Loader2 size={14} className="animate-spin text-[#3882F6]" />
+                    <span>{t("cc_searching")}</span>
+                  </div>
+                ) : otherNetworks.length === 0 ? (
+                  <div className="text-center py-6 text-[#a1a1aa] text-[12px]">
+                    {t("cc_no_networks")}
+                  </div>
+                ) : (
+                  otherNetworks.map((net) => {
+                    const isConnecting = connectingSsid === net.ssid;
+                    const isPasswordOpen = passwordSsid === net.ssid;
 
-                  return (
-                    <div
-                      key={net.ssid}
-                      className={`flex flex-col rounded-xl transition-colors ${
-                        isPasswordOpen ? "bg-white/[0.06] border border-white/10 p-2" : ""
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleConnect(net)}
-                        disabled={isConnecting}
-                        className={`w-full flex items-center justify-between p-2 rounded-xl hover:bg-white/[0.07] active:bg-white/[0.12] transition-colors cursor-pointer text-left select-none group ${
-                          isPasswordOpen ? "bg-white/[0.04]" : ""
+                    return (
+                      <div
+                        key={net.ssid}
+                        className={`flex flex-col rounded-[12px] transition-colors ${
+                          isPasswordOpen ? "bg-[#15151a] p-1.5" : ""
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <Wifi size={15} className="text-white/60 shrink-0 group-hover:text-white" />
-                          <span className="text-[12px] font-medium text-white/90 group-hover:text-white truncate">
+                        <div
+                          onClick={() => handleConnect(net)}
+                          className="h-[38px] rounded-[12px] px-2.5 flex items-center gap-2.5 hover:bg-[#15151a] transition-colors cursor-pointer select-none group"
+                        >
+                          <Wifi size={16} className="text-[#e4e4e7] shrink-0" />
+                          <span className="flex-1 text-[13px] font-medium text-white truncate">
                             {net.ssid}
                           </span>
-                        </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0 text-white/40">
-                          {net.is_secure && <Lock size={12} />}
                           {net.is_saved && (
-                            <span className="text-[9px] bg-white/10 px-1 py-0.5 rounded text-white/60">
-                              Saved
+                            <span className="text-[10.5px] text-[#c4c4cc] bg-[#23232a] rounded-[6px] px-1.5 py-0.5 shrink-0">
+                              {t("cc_saved_badge")}
                             </span>
                           )}
+
+                          {net.is_secure && <Lock size={13} className="text-[#a1a1aa] shrink-0" />}
+
                           {isConnecting ? (
-                            <Loader2 size={13} className="animate-spin text-sky-400 ml-1" />
+                            <Loader2 size={13} className="animate-spin text-[#3882F6] shrink-0" />
                           ) : (
-                            <span className="text-[11px] text-sky-400 font-medium opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleConnect(net);
+                              }}
+                              className="hidden group-hover:inline-flex items-center justify-center h-[26px] px-2.5 rounded-[8px] bg-[#3882F6] hover:bg-[#2563eb] text-white text-[11.5px] font-semibold transition-all shrink-0 cursor-pointer"
+                            >
                               {t("cc_connect")}
-                            </span>
+                            </button>
                           )}
                         </div>
-                      </button>
 
-                      {/* Inline Password Form */}
-                      <AnimatePresence>
-                        {isPasswordOpen && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={iosSpring.snappy}
-                            className="flex flex-col gap-2 pt-2 pb-1 px-1 overflow-hidden"
-                          >
-                            <div className="relative flex items-center">
-                              <KeyRound size={13} className="absolute left-2.5 text-white/40 pointer-events-none" />
-                              <input
-                                ref={passwordInputRef}
-                                type={showPassword ? "text" : "password"}
-                                value={passwordInput}
-                                onChange={(e) => setPasswordInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    handleSubmitPassword(net.ssid);
-                                  } else if (e.key === "Escape") {
-                                    setPasswordSsid(null);
-                                  }
-                                }}
-                                placeholder={t("cc_password_placeholder")}
-                                className="w-full bg-white/[0.08] border border-white/15 focus:border-sky-500 rounded-xl pl-8 pr-8 py-1.5 text-[12px] text-white placeholder-white/40 outline-none transition-colors"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute right-2.5 text-white/40 hover:text-white transition-colors cursor-pointer"
-                              >
-                                {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
-                              </button>
-                            </div>
+                        <AnimatePresence>
+                          {isPasswordOpen && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={iosSpring.snappy}
+                              className="flex flex-col gap-2 pt-1.5 pb-1 px-1 overflow-hidden"
+                            >
+                              <div className="relative flex items-center">
+                                <KeyRound
+                                  size={13}
+                                  className="absolute left-2.5 text-[#a1a1aa] pointer-events-none"
+                                />
+                                <input
+                                  ref={passwordInputRef}
+                                  type={showPassword ? "text" : "password"}
+                                  value={passwordInput}
+                                  onChange={(e) => setPasswordInput(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      handleSubmitPassword(net.ssid);
+                                    } else if (e.key === "Escape") {
+                                      setPasswordSsid(null);
+                                    }
+                                  }}
+                                  placeholder={t("cc_password_placeholder")}
+                                  className="w-full bg-[#0c0c10] border border-[#2a2a33] focus:border-[#3882F6] rounded-[10px] pl-8 pr-8 py-1.5 text-[12px] text-white placeholder-[#71717a] outline-none transition-colors"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPassword(!showPassword)}
+                                  className="absolute right-2.5 text-[#a1a1aa] hover:text-white transition-colors cursor-pointer"
+                                >
+                                  {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                                </button>
+                              </div>
 
-                            {passwordError && (
-                              <span className="text-[10.5px] text-rose-400 font-medium pl-1">
-                                {passwordError}
-                              </span>
-                            )}
+                              {passwordError && (
+                                <span className="text-[10.5px] text-rose-400 font-medium pl-1">
+                                  {passwordError}
+                                </span>
+                              )}
 
-                            <div className="flex items-center justify-end gap-2 pt-0.5">
-                              <button
-                                type="button"
-                                onClick={() => setPasswordSsid(null)}
-                                className="px-2.5 py-1 rounded-lg text-white/60 hover:text-white text-[11px] font-medium transition-colors cursor-pointer"
-                              >
-                                {t("cc_cancel")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleSubmitPassword(net.ssid)}
-                                disabled={isConnecting || !passwordInput.trim()}
-                                className="px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 active:bg-sky-600 disabled:opacity-40 text-white text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1.5 shadow-[0_0_8px_rgba(14,165,233,0.3)]"
-                              >
-                                {isConnecting && <Loader2 size={11} className="animate-spin" />}
-                                <span>{t("cc_connect")}</span>
-                              </button>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  );
-                })
-              )}
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setPasswordSsid(null)}
+                                  className="px-2.5 py-1 rounded-[8px] text-[#a1a1aa] hover:text-white text-[11px] font-medium transition-colors cursor-pointer"
+                                >
+                                  {t("cc_cancel")}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSubmitPassword(net.ssid)}
+                                  disabled={isConnecting || !passwordInput.trim()}
+                                  className="px-3 py-1 rounded-[8px] bg-[#3882F6] hover:bg-[#2563eb] disabled:opacity-40 text-white text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
+                                >
+                                  {isConnecting && <Loader2 size={11} className="animate-spin" />}
+                                  <span>{t("cc_connect")}</span>
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-b from-transparent to-black pointer-events-none" />
             </div>
           </>
         )}
       </div>
 
-      {/* Footer: Windows Wi-Fi Settings Link */}
-      <div className="pt-2 border-t border-white/10 shrink-0 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => openUrl("ms-settings:network-wifi").catch(console.error)}
-          className="flex items-center gap-1.5 text-[11px] text-white/50 hover:text-white transition-colors cursor-pointer group"
-        >
-          <span>{t("cc_wifi_settings")}</span>
-          <ExternalLink size={12} className="opacity-60 group-hover:opacity-100" />
-        </button>
-      </div>
+      {/* Footer Link */}
+      <button
+        type="button"
+        onClick={() => openUrl("ms-settings:network-wifi").catch(console.error)}
+        className="h-[26px] self-start px-1 text-[#a1a1aa] hover:text-white text-[11.5px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+      >
+        <span>{t("cc_wifi_settings")}</span>
+        <ExternalLink size={11.5} />
+      </button>
     </motion.div>
   );
 };

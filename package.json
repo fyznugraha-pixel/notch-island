@@ -1,8 +1,8 @@
 {
-  "name": "notch",
+  "name": "gili",
   "private": true,
-  "version": "3.2.5",
-  "description": "Dynamic Island Notch for Windows, Edition 2026",
+  "version": "3.3.0",
+  "description": "Dynamic Island Gili for Windows, Edition 2026",
   "author": "faiz",
   "type": "module",
   "scripts": {

@@ -5,8 +5,10 @@ import React, { useMemo } from "react";
 export const WeatherAnimation = React.memo(({ weatherCode }: { weatherCode: number | null }) => {
   if (weatherCode === null) return null;
 
-  const isRain = weatherCode >= 51 && weatherCode <= 67;
-  const isSnow = weatherCode >= 71 && weatherCode <= 82;
+  // WMO 51-67 (Drizzle/Rain) & WMO 80-82 (Rain Showers deras)
+  const isRain = (weatherCode >= 51 && weatherCode <= 67) || (weatherCode >= 80 && weatherCode <= 82);
+  // WMO 71-77 (Snowfall) & WMO 85-86 (Snow showers)
+  const isSnow = (weatherCode >= 71 && weatherCode <= 77) || weatherCode === 85 || weatherCode === 86;
   const isThunder = weatherCode >= 95;
 
   if (!isRain && !isSnow && !isThunder) return null;
@@ -28,7 +30,7 @@ export const WeatherAnimation = React.memo(({ weatherCode }: { weatherCode: numb
         <div className="absolute inset-0 bg-white/20 mix-blend-overlay animate-lightning" />
       )}
       
-      {particles.map((p) => (
+      {(isRain || isSnow) && particles.map((p) => (
         <div
           key={p.id}
           className={`absolute top-[-10px] rounded-full ${isRain ? 'bg-blue-300/60 animate-rain' : 'bg-white/80 animate-snow'}`}

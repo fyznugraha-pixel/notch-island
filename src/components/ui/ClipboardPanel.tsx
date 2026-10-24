@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Search, Trash2, Copy, Check, Clipboard, X, Link2, FileText } from "lucide-react";
+import { Search, Trash2, Copy, Check, Clipboard, X, Link2, FileText, Pin } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
 
@@ -7,12 +7,14 @@ export interface ClipboardItem {
   id: string;
   text: string;
   timestamp: number;
+  pinned?: boolean;
 }
 
 export interface ClipboardPanelProps {
   items: ClipboardItem[];
   onCopyItem: (item: ClipboardItem) => void;
   onDeleteItem: (id: string) => void;
+  onTogglePinItem?: (id: string) => void;
   onClearAll: () => void;
 }
 
@@ -34,15 +36,20 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
   items,
   onCopyItem,
   onDeleteItem,
+  onTogglePinItem,
   onClearAll,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return items;
-    const q = searchQuery.toLowerCase();
-    return items.filter((item) => item.text.toLowerCase().includes(q));
+    const q = searchQuery.trim().toLowerCase();
+    const base = q ? items.filter((item) => item.text.toLowerCase().includes(q)) : items;
+    return [...base].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return b.timestamp - a.timestamp;
+    });
   }, [items, searchQuery]);
 
   const handleCopy = (item: ClipboardItem) => {
@@ -54,8 +61,8 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
   };
 
   return (
-    <div className="flex flex-col w-full h-full min-h-0 px-2.5 select-none overflow-hidden pb-1">
-      {/* Top Search & Actions Bar (iOS Spotlight Style) */}
+    <div className="flex flex-col w-full h-full min-h-0 px-6 select-none overflow-hidden pb-1">
+      {/* Top Search & Actions Bar */}
       <div className="flex items-center gap-2 mb-2 px-0.5 shrink-0">
         <div className="relative flex-1 flex items-center bg-[#1c1c1e]/90 border border-white/10 rounded-2xl px-3 py-1.5 focus-within:border-[#0a84ff]/60 focus-within:ring-2 focus-within:ring-[#0a84ff]/20 transition-all shadow-sm">
           <Search size={13} className="text-white/40 shrink-0 mr-2" />
@@ -89,7 +96,7 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
         )}
       </div>
 
-      {/* Clipboard History List (iOS Inset Grouped cards) */}
+      {/* Clipboard History List */}
       <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-1.5 pr-0.5 min-h-0">
         {items.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center py-8 px-4">
@@ -118,12 +125,20 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
                 className={`group relative flex flex-col rounded-2xl p-2.5 border transition-all cursor-pointer ${
                   isCopied
                     ? "border-[#0a84ff]/50 bg-[#0a84ff]/15 shadow-[0_0_16px_rgba(10,132,255,0.2)]"
+                    : item.pinned
+                    ? "bg-[#1c1c1e]/95 border-amber-400/35 hover:border-amber-400/55 shadow-sm"
                     : "bg-[#1c1c1e]/85 border-white/5 hover:border-white/15 hover:bg-[#252528]/90 shadow-sm"
                 }`}
               >
                 {/* Item Meta Header */}
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-1.5">
+                    {item.pinned && (
+                      <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 flex items-center gap-1">
+                        <Pin size={9} className="rotate-45" />
+                        Pinned
+                      </span>
+                    )}
                     <span
                       className={`text-[9.5px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
                         isUrl
@@ -147,6 +162,26 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
                         Copied
                       </span>
                     )}
+                    {onTogglePinItem && (
+                      <Tooltip
+                        content={item.pinned ? t("clipboard_unpin_tip") : t("clipboard_pin_tip")}
+                        side="top"
+                      >
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onTogglePinItem(item.id);
+                          }}
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                            item.pinned
+                              ? "bg-amber-400/20 text-amber-300"
+                              : "text-white/35 hover:text-white hover:bg-white/15"
+                          }`}
+                        >
+                          <Pin size={11.5} className={item.pinned ? "rotate-45 fill-current" : ""} />
+                        </button>
+                      </Tooltip>
+                    )}
                     <Tooltip content={t("clipboard_copy_tip")} side="top">
                       <button
                         onClick={(e) => {
@@ -154,8 +189,8 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
                           handleCopy(item);
                         }}
                         className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                          isCopied 
-                            ? "bg-[#34c759]/20 text-[#34c759]" 
+                          isCopied
+                            ? "bg-[#34c759]/20 text-[#34c759]"
                             : "text-white/40 hover:text-white hover:bg-white/15"
                         }`}
                       >

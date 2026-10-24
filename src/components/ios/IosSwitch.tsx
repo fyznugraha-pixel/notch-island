@@ -7,6 +7,7 @@ interface IosSwitchProps {
   onChange: (checked: boolean) => void;
   disabled?: boolean;
   id?: string;
+  activeColor?: "green" | "blue";
 }
 
 export const IosSwitch: React.FC<IosSwitchProps> = ({
@@ -14,6 +15,7 @@ export const IosSwitch: React.FC<IosSwitchProps> = ({
   onChange,
   disabled = false,
   id,
+  activeColor = "green",
 }) => {
   return (
     <motion.button
@@ -30,7 +32,11 @@ export const IosSwitch: React.FC<IosSwitchProps> = ({
         }
       }}
       className={`relative inline-flex h-[28px] w-[48px] shrink-0 cursor-pointer items-center rounded-full p-[2px] transition-colors duration-250 ease-out focus:outline-none ${
-        checked ? "bg-[#34c759]" : "bg-[#39393d]/80 hover:bg-[#48484a]"
+        checked
+          ? activeColor === "blue"
+            ? "bg-[#007aff]"
+            : "bg-[#34c759]"
+          : "bg-[#39393d]/80 hover:bg-[#48484a]"
       } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
     >
       <motion.span

@@ -1,10 +1,10 @@
 [package]
-name = "notch"
-version = "3.2.5"
-description = "Notch Island for Windows"
+name = "gili"
+version = "3.3.0"
+description = "Gili Island for Windows"
 authors = ["Faiz Anak Telkom University"]
 edition = "2021"
-default-run = "notch"
+default-run = "gili"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,7 +12,7 @@ default-run = "notch"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "notch_lib"
+name = "gili_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

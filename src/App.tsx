@@ -14,7 +14,6 @@ import {
   Gamepad2,
   BedDouble,
   UploadCloud,
-  ListTodo,
 } from "lucide-react";
 import "./App.css";
 
@@ -28,7 +27,7 @@ import { WeatherAnimation } from "./components/ui/WeatherAnimation";
 import { NotchSurface } from "./components/ui/NotchSurface";
 import { PanelFrame } from "./components/ui/PanelNavHeader";
 import { getTextWidth } from "./utils/text";
-import { LyricsData, fetchLyrics } from "./services/lyricsService";
+import { LyricsData, fetchLyrics, clearLyricsCacheForTrack } from "./services/lyricsService";
 import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
 import { fetchCurrentWeather, subscribeWeatherChange, getCachedWeather } from "./services/weatherService";
 import { checkForAppUpdate } from "./services/updateService";
@@ -37,6 +36,25 @@ import { TodoListPanel, TodoItem } from "./components/ui/TodoListPanel";
 import { DropShelfPanel, StashedFile } from "./components/ui/DropShelfPanel";
 import { ControlCenterPanel } from "./components/ui/ControlCenterPanel";
 import { SettingsPanel } from "./components/ui/SettingsPanel";
+import { PomodoroPanel } from "./components/ui/PomodoroPanel";
+import { SystemMonitorPanel } from "./components/ui/SystemMonitorPanel";
+import { MiniNotePanel, QuickNoteNotchCard, createQuickNoteItem } from "./components/ui/MiniNotePanel";
+import { usePomodoro } from "./hooks/usePomodoro";
+import { useTodoReminders } from "./hooks/useTodoReminders";
+import {
+  UniformHudPill,
+  PomodoroIdlePill,
+  PomodoroCompleteAlertCard,
+} from "./components/ui/NotchNotifications";
+import {
+  playVolumeTick,
+  playChargingSound,
+  playDeviceConnectSound,
+  playNotificationSound,
+  playTaskCompleteSound,
+  isSoundEffectsEnabled,
+  setSoundEffectsEnabled,
+} from "./services/soundService";
 import {
   IdleLayoutConfig,
   IdleRuntimeData,
@@ -48,7 +66,9 @@ import {
 import { OnboardingCard } from "./components/ui/OnboardingCard";
 import { VolumeMixerPanel } from "./components/ui/VolumeMixerPanel";
 import { MediaExpandedPanel } from "./components/ui/MediaExpandedPanel";
+import { QueueTrackItem } from "./components/ui/MediaQueueView";
 import { IdleLyrics } from "./components/ui/IdleLyrics";
+import { getWheelVerticalDirection } from "./utils/gesture";
 import { iosSpring } from "./utils/iosMotion";
 import { t, getLanguage, setLanguage, Language } from "./services/i18n";
 import { GreetingNotification } from "./components/ui/GreetingNotification";
@@ -57,6 +77,7 @@ export default function App() {
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const mediaRef = useRef<MediaPayload | null>(null);
   useEffect(() => { mediaRef.current = media; }, [media]);
+  const activePlayingTrackRef = useRef<QueueTrackItem | null>(null);
 
   const [notif, setNotif] = useState<NotifPayload | null>(null);
   const currentNotifRef = useRef<NotifPayload | null>(null);
@@ -67,15 +88,17 @@ export default function App() {
 
   const isVolumeMixerRef = useRef(false);
   const isOcrWritingRef = useRef(false);
+  const isOcrRunningRef = useRef(false);
   const lastExtractedTextRef = useRef<string | null>(null);
   type FocusModeType = "Normal" | "DND" | "Gaming" | "Sleep";
   const focusModeRef = useRef<FocusModeType>("Normal");
+  const pomoMuteNotifsRef = useRef<boolean>(false);
   const isIdleRef = useRef(true);
   const variantRef = useRef<string>("idle");
   const notchPillRef = useRef<HTMLDivElement>(null);
 
   const showNotif = (newNotif: NotifPayload) => {
-    if (focusModeRef.current !== "Normal" && newNotif.icon !== "battery" && !(newNotif as any).forceShow) return;
+    if (focusModeRef.current === "DND" && newNotif.icon !== "battery" && !(newNotif as any).forceShow) return;
     if (newNotif.icon === "volume" && !(newNotif as any).forceShow && (!optVolumeRef.current || isVolumeMixerRef.current || isQuickControlRef.current)) return;
     if (newNotif.icon === "clipboard" && !optClipboardRef.current) return;
 
@@ -83,8 +106,8 @@ export default function App() {
     if (active && active.icon === newNotif.icon && (newNotif.icon === "volume" || newNotif.icon === "brightness" || newNotif.icon === "battery" || newNotif.icon === "capslock")) {
       setNotif(newNotif);
     } else if (active) {
-      setNotifQueue(q => {
-        const filtered = q.filter(n => n.icon !== newNotif.icon);
+      setNotifQueue((q) => {
+        const filtered = q.filter((n) => n.icon !== newNotif.icon);
         return [...filtered, newNotif];
       });
     } else {
@@ -149,6 +172,8 @@ export default function App() {
   const [networkPing, setNetworkPing] = useState<number | null>(null);
   const [audioSessions, setAudioSessions] = useState<{pid: number, name: string, volume: number, muted: boolean}[]>([]);
   const [isPlaying, setIsPlaying] = useState(true);
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   const [mediaProgress, setMediaProgress] = useState({ position: 0, duration: 0 });
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekValue, setSeekValue] = useState(0);
@@ -161,6 +186,14 @@ export default function App() {
       return false;
     }
   });
+  const [queueHistory, setQueueHistory] = useState<QueueTrackItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("island_queue_history");
+      return saved ? JSON.parse(saved).slice(0, 10) : [];
+    } catch {
+      return [];
+    }
+  });
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [isLyricsLoading, setIsLyricsLoading] = useState(false);
   const [activeIdleLyric, setActiveIdleLyric] = useState<{ curr: string; prev: string; next: string }>({
@@ -168,6 +201,13 @@ export default function App() {
     prev: "",
     next: "",
   });
+
+  const handleActiveIdleLyricChange = useCallback((curr: string, prev: string, next: string) => {
+    setActiveIdleLyric((old) => {
+      if (old.curr === curr && old.prev === prev && old.next === next) return old;
+      return { curr, prev, next };
+    });
+  }, []);
   
   const collapseTimerRef = useRef<number | null>(null);
   const isCursorInsideNotchRef = useRef(false);
@@ -202,28 +242,59 @@ export default function App() {
     };
   }, [showLyrics, media?.title, media?.artist]);
 
+  const handleRefreshLyrics = useCallback(async () => {
+    if (!media?.title) return;
+    setIsLyricsLoading(true);
+    try {
+      await clearLyricsCacheForTrack(media.artist || "", media.title);
+      const res = await fetchLyrics(media.artist || "", media.title, media.duration || mediaProgress.duration);
+      setLyricsData(res);
+    } catch {
+      setLyricsData(null);
+    } finally {
+      setIsLyricsLoading(false);
+    }
+  }, [media?.artist, media?.title, media?.duration, mediaProgress.duration]);
 
+
+
+  const mediaDismissedRef = useRef(false);
+  const pausedDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPausedDismissTimer = useCallback(() => {
+    if (pausedDismissTimerRef.current) {
+      clearTimeout(pausedDismissTimerRef.current);
+      pausedDismissTimerRef.current = null;
+    }
+  }, []);
+
+  const schedulePausedMediaDismiss = useCallback((delayMs: number = 2500) => {
+    clearPausedDismissTimer();
+    pausedDismissTimerRef.current = setTimeout(async () => {
+      if (isCursorInsideNotchRef.current) return;
+      try {
+        const inNotch = await invoke<boolean>("is_cursor_in_notch");
+        if (inNotch) {
+          isCursorInsideNotchRef.current = true;
+          return;
+        }
+      } catch {}
+      setMedia(null);
+      mediaDismissedRef.current = true;
+    }, delayMs);
+  }, [clearPausedDismissTimer]);
 
   useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>;
-    if (media && !isPlaying) {
-      timeout = setTimeout(async () => {
-        if (isCursorInsideNotchRef.current) return;
-        try {
-          const inNotch = await invoke<boolean>("is_cursor_in_notch");
-          if (inNotch) {
-            isCursorInsideNotchRef.current = true;
-            return;
-          }
-        } catch {}
-        setMedia(null);
-        setIsExpanded(false);
-      }, 5000);
+    if (!isPlaying && media) {
+      schedulePausedMediaDismiss(2500);
+    } else if (isPlaying) {
+      clearPausedDismissTimer();
+      mediaDismissedRef.current = false;
     }
     return () => {
-      if (timeout) clearTimeout(timeout);
+      clearPausedDismissTimer();
     };
-  }, [media, isPlaying]);
+  }, [isPlaying, schedulePausedMediaDismiss, clearPausedDismissTimer]);
 
   const [notifQueue, setNotifQueue] = useState<NotifPayload[]>([]);
   const musicAmbientUrl = useResolvedThumbnail(media);
@@ -364,11 +435,29 @@ export default function App() {
     if (!trimmed) return;
     setClipboardHistory((prev) => {
       if (prev.length > 0 && prev[0].text === trimmed) return prev;
+      const existing = prev.find((item) => item.text === trimmed);
       const filtered = prev.filter((item) => item.text !== trimmed);
       const updated = [
-        { id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, text: trimmed, timestamp: Date.now() },
-        ...filtered
+        {
+          id: existing?.id || `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          text: trimmed,
+          timestamp: Date.now(),
+          pinned: existing?.pinned || false,
+        },
+        ...filtered,
       ].slice(0, 50);
+      try {
+        localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const togglePinClipboardItem = (id: string) => {
+    setClipboardHistory((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id ? { ...item, pinned: !item.pinned } : item
+      );
       try {
         localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
       } catch {}
@@ -387,10 +476,17 @@ export default function App() {
   };
 
   const clearAllClipboard = () => {
-    setClipboardHistory([]);
-    try {
-      localStorage.removeItem("island_clipboard_history");
-    } catch {}
+    setClipboardHistory((prev) => {
+      const pinnedOnly = prev.filter((item) => item.pinned);
+      try {
+        if (pinnedOnly.length > 0) {
+          localStorage.setItem("island_clipboard_history", JSON.stringify(pinnedOnly));
+        } else {
+          localStorage.removeItem("island_clipboard_history");
+        }
+      } catch {}
+      return pinnedOnly;
+    });
   };
 
   const [isTodo, setIsTodo] = useState(false);
@@ -405,7 +501,6 @@ export default function App() {
     }
   });
 
-  const [showTodoReminder, setShowTodoReminder] = useState(false);
   const pendingTodos = React.useMemo(() => {
     return todoItems.filter((t) => !t.completed);
   }, [todoItems]);
@@ -414,68 +509,7 @@ export default function App() {
     pendingTodosRef.current = pendingTodos;
   }, [pendingTodos]);
 
-  const todoReminderTimeoutRef = useRef<number | null>(null);
-
-  const triggerTodoReminder = () => {
-    if (pendingTodosRef.current.length === 0) return;
-    setShowTodoReminder(true);
-    try {
-      localStorage.setItem("island_last_todo_reminder", Date.now().toString());
-    } catch {}
-
-    if (todoReminderTimeoutRef.current) {
-      clearTimeout(todoReminderTimeoutRef.current);
-    }
-    todoReminderTimeoutRef.current = window.setTimeout(() => {
-      setShowTodoReminder(false);
-      todoReminderTimeoutRef.current = null;
-    }, 4400);
-  };
-
-  useEffect(() => {
-    if (pendingTodos.length === 0 && showTodoReminder) {
-      setShowTodoReminder(false);
-      if (todoReminderTimeoutRef.current) {
-        clearTimeout(todoReminderTimeoutRef.current);
-        todoReminderTimeoutRef.current = null;
-      }
-    }
-  }, [pendingTodos.length, showTodoReminder]);
-
-  useEffect(() => {
-    const initialDelay = window.setTimeout(() => {
-      try {
-        const last = localStorage.getItem("island_last_todo_reminder");
-        const lastTime = last ? parseInt(last, 10) : 0;
-        const now = Date.now();
-        if (now - lastTime >= 15 * 60 * 1000 && pendingTodosRef.current.length > 0 && isIdleRef.current) {
-          triggerTodoReminder();
-        }
-      } catch {}
-    }, 6000);
-
-    const interval = window.setInterval(() => {
-      try {
-        if (pendingTodosRef.current.length === 0) return;
-        const last = localStorage.getItem("island_last_todo_reminder");
-        const lastTime = last ? parseInt(last, 10) : 0;
-        const now = Date.now();
-        if (now - lastTime >= 15 * 60 * 1000 && isIdleRef.current) {
-          triggerTodoReminder();
-        }
-      } catch {}
-    }, 30000);
-
-    return () => {
-      clearTimeout(initialDelay);
-      clearInterval(interval);
-      if (todoReminderTimeoutRef.current) {
-        clearTimeout(todoReminderTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  const addTodoItem = (text: string) => {
+  const addTodoItem = (text: string, dueAt?: number | null, reminders?: number[]) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     setTodoItems((prev) => {
@@ -484,18 +518,23 @@ export default function App() {
         text: trimmed,
         completed: false,
         createdAt: Date.now(),
+        dueAt: dueAt ?? null,
+        reminders: reminders ?? (dueAt ? [0, 10] : []),
       };
       const updated = [newItem, ...prev];
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
-        localStorage.removeItem("island_last_todo_reminder");
       } catch {}
       return updated;
     });
   };
 
-  const toggleTodoItem = (id: string) => {
+  const toggleTodoItem = useCallback((id: string) => {
     setTodoItems((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (target && !target.completed) {
+        playTaskCompleteSound();
+      }
       const updated = prev.map((item) =>
         item.id === id ? { ...item, completed: !item.completed } : item
       );
@@ -504,7 +543,7 @@ export default function App() {
       } catch {}
       return updated;
     });
-  };
+  }, []);
 
   const deleteTodoItem = (id: string) => {
     setTodoItems((prev) => {
@@ -530,6 +569,18 @@ export default function App() {
     });
   };
 
+  const updateTodoDeadline = (id: string, dueAt: number | null, reminders: number[]) => {
+    setTodoItems((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id ? { ...item, dueAt, reminders } : item
+      );
+      try {
+        localStorage.setItem("island_todo_list", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
   const clearCompletedTodos = () => {
     setTodoItems((prev) => {
       const updated = prev.filter((item) => !item.completed);
@@ -546,6 +597,31 @@ export default function App() {
       localStorage.removeItem("island_todo_list");
     } catch {}
   };
+
+  const pomodoro = usePomodoro();
+  useEffect(() => {
+    pomoMuteNotifsRef.current = Boolean(
+      pomodoro.isRunning && pomodoro.mode === "focus" && pomodoro.settings.muteNotifsOnFocus
+    );
+  }, [pomodoro.isRunning, pomodoro.mode, pomodoro.settings.muteNotifsOnFocus]);
+
+  useTodoReminders(
+    todoItems,
+    focusMode === "DND",
+    toggleTodoItem,
+    (task, offset) => {
+      const bodyText =
+        offset <= 0
+          ? t("todo_alert_due_now")
+          : t("todo_alert_due_in", { min: offset, m: offset });
+      showNotif({
+        title: task.text,
+        body: bodyText,
+        icon: "bell",
+        onClick: () => goToTab("todo"),
+      });
+    }
+  );
 
   const [stashedFiles, setStashedFiles] = useState<StashedFile[]>(getInitialShelfFiles);
   const [isDropShelf, setIsDropShelf] = useState(false);
@@ -656,28 +732,59 @@ export default function App() {
     persistShelfFiles([], true);
   };
 
-  type ExpandedTab = "media_expanded" | "quick_control" | "todo" | "drop_shelf" | "clipboard" | "volume_mixer" | "settings";
+  type ExpandedTab =
+    | "media_expanded"
+    | "quick_control"
+    | "todo"
+    | "pomodoro"
+    | "drop_shelf"
+    | "sys_monitor"
+    | "mini_note"
+    | "clipboard"
+    | "volume_mixer"
+    | "settings";
+
+  const [isPomodoro, setIsPomodoro] = useState(false);
+  const isPomodoroRef = useRef(false);
+  useEffect(() => { isPomodoroRef.current = isPomodoro; }, [isPomodoro]);
+
+  const [isSysMonitor, setIsSysMonitor] = useState(false);
+  const isSysMonitorRef = useRef(false);
+  useEffect(() => { isSysMonitorRef.current = isSysMonitor; }, [isSysMonitor]);
+
+  const [isMiniNote, setIsMiniNote] = useState(false);
+  const isMiniNoteRef = useRef(false);
+  useEffect(() => { isMiniNoteRef.current = isMiniNote; }, [isMiniNote]);
 
   const [slideDirection, setSlideDirection] = useState<number>(0);
   const [controlCenterSubmenu, setControlCenterSubmenu] = useState<null | "wifi" | "bluetooth">(null);
 
   const availableTabs: ExpandedTab[] = React.useMemo(() => {
-    const tabs: ExpandedTab[] = [];
-    if (media) tabs.push("media_expanded");
-    tabs.push("quick_control", "todo", "drop_shelf", "settings");
-    return tabs;
-  }, [media]);
+    return [
+      "media_expanded",
+      "quick_control",
+      "todo",
+      "pomodoro",
+      "drop_shelf",
+      "sys_monitor",
+      "mini_note",
+      "settings",
+    ];
+  }, []);
 
   const currentTab: ExpandedTab | null = React.useMemo(() => {
     if (isSettings) return "settings";
     if (isVolumeMixer) return "volume_mixer";
     if (isClipboard) return "clipboard";
+    if (isMiniNote) return "mini_note";
+    if (isSysMonitor) return "sys_monitor";
     if (isDropShelf) return "drop_shelf";
+    if (isPomodoro) return "pomodoro";
     if (isTodo) return "todo";
     if (isQuickControl) return "quick_control";
-    if (isExpanded && media) return "media_expanded";
+    if (isExpanded) return "media_expanded";
     return null;
-  }, [isSettings, isVolumeMixer, isClipboard, isDropShelf, isTodo, isQuickControl, isExpanded, media]);
+  }, [isSettings, isVolumeMixer, isClipboard, isMiniNote, isSysMonitor, isDropShelf, isPomodoro, isTodo, isQuickControl, isExpanded]);
 
   const isSubPage = currentTab === "clipboard" || currentTab === "volume_mixer";
 
@@ -693,9 +800,17 @@ export default function App() {
     } catch {}
     return "quick_control";
   })());
-  const lastPanelClosedAtRef = useRef<number>(0);
+  const lastPanelClosedAtRef = useRef<number>((() => {
+    try {
+      const saved = localStorage.getItem("island_last_panel_closed_at");
+      if (saved) return parseInt(saved, 10);
+    } catch {}
+    return 0;
+  })());
 
+  const currentTabRef = useRef<ExpandedTab | null>(currentTab);
   useEffect(() => {
+    currentTabRef.current = currentTab;
     if (currentTab) {
       lastActiveTabRef.current = currentTab;
       try {
@@ -729,31 +844,56 @@ export default function App() {
     setIsSettings(false);
     setIsVolumeMixer(false);
     setIsClipboard(false);
+    setIsMiniNote(false);
+    setIsSysMonitor(false);
+    setIsPomodoro(false);
     setIsTodo(false);
     setIsDropShelf(false);
     setIsQuickControl(false);
     setIsExpanded(false);
-    lastPanelClosedAtRef.current = Date.now();
+    const now = Date.now();
+    lastPanelClosedAtRef.current = now;
+    try {
+      localStorage.setItem("island_last_panel_closed_at", String(now));
+    } catch {}
   }, []);
 
   const openLastOrPreferredTab = () => {
     cancelCollapseTimer();
     setSlideDirection(0);
-    const elapsed = Date.now() - lastPanelClosedAtRef.current;
-    const tabExpired = lastPanelClosedAtRef.current > 0 && elapsed > 5 * 60 * 1000;
-    let target = tabExpired ? "quick_control" as ExpandedTab : (lastActiveTabRef.current || "quick_control");
-    if (target === "media_expanded" && !mediaRef.current) {
+    if (currentTab !== null) return;
+    const elapsed = lastPanelClosedAtRef.current > 0
+      ? Date.now() - lastPanelClosedAtRef.current
+      : Infinity;
+    const tabExpired = elapsed > 3 * 60 * 1000;
+    
+    let target: ExpandedTab = "quick_control";
+    const hasMediaTrack = Boolean(mediaRef.current?.title || lastMediaPayloadRef.current?.title);
+    const isMusicActive = Boolean(
+      hasMediaTrack && (isPlayingRef.current || variantRef.current === "media" || variantRef.current === "lyrics_idle")
+    );
+    if (isMusicActive) {
+      target = "media_expanded";
+    } else if (!tabExpired && lastActiveTabRef.current) {
+      target = lastActiveTabRef.current;
+    } else if (hasMediaTrack) {
+      target = "media_expanded";
+    }
+
+    if (target === "media_expanded" && !hasMediaTrack) {
       target = "quick_control";
     }
+    if (!availableTabs.includes(target)) {
+      target = availableTabs.includes("quick_control")
+        ? "quick_control"
+        : (availableTabs[0] || "quick_control");
+    }
+
     goToTab(target, 0);
   };
 
   const handleCompactHoverTrigger = () => {
     if (!isCursorInsideNotchRef.current) return;
-    if (mediaRef.current) {
-      goToTab("media_expanded", 0);
-      return;
-    }
     openLastOrPreferredTab();
   };
 
@@ -798,47 +938,88 @@ export default function App() {
     cancelCompactHoverTimer();
     if (isCursorInsideNotchRef.current || isSwitchingTabRef.current) return;
 
+    const pillEl = notchPillRef.current;
+    if (pillEl) {
+      if (pillEl.matches(":hover")) {
+        isCursorInsideNotchRef.current = true;
+        return;
+      }
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        pillEl.contains(activeEl) &&
+        (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")
+      ) {
+        return;
+      }
+    }
+
     const hasOpenPanel =
       isExpandedRef.current ||
       isQuickControlRef.current ||
       isTodoRef.current ||
+      isPomodoroRef.current ||
       isDropShelfRef.current ||
+      isSysMonitorRef.current ||
+      isMiniNoteRef.current ||
       isClipboardRef.current ||
       isVolumeMixerRef.current ||
-      isSettingsRef.current ||
-      currentNotifRef.current;
+      isSettingsRef.current;
 
     if (hasOpenPanel) {
       const configuredSec = optCloseDelayRef.current;
       if (configuredSec === -1) {
         return;
       }
-      const effectiveDelay = configuredSec > 0 ? configuredSec * 1000 : 35;
+      const effectiveDelay = configuredSec > 0 ? configuredSec * 1000 : Math.max(_delayMs, 180);
 
       collapseTimerRef.current = window.setTimeout(async () => {
         if (isCursorInsideNotchRef.current || isSwitchingTabRef.current) return;
         if (optCloseDelayRef.current === -1) return;
-        if (optCloseDelayRef.current > 0) {
-          try {
-            const inNotch = await invoke<boolean>("is_cursor_in_notch");
-            if (inNotch) {
-              isCursorInsideNotchRef.current = true;
-              cancelCollapseTimer();
-              return;
-            }
-          } catch {}
+
+        const currentPillEl = notchPillRef.current;
+        if (currentPillEl) {
+          if (currentPillEl.matches(":hover")) {
+            isCursorInsideNotchRef.current = true;
+            cancelCollapseTimer();
+            return;
+          }
+          const activeEl = document.activeElement;
+          if (
+            activeEl &&
+            currentPillEl.contains(activeEl) &&
+            (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")
+          ) {
+            cancelCollapseTimer();
+            return;
+          }
         }
+
+        try {
+          const inNotch = await invoke<boolean>("is_cursor_in_notch");
+          if (inNotch) {
+            isCursorInsideNotchRef.current = true;
+            cancelCollapseTimer();
+            return;
+          }
+        } catch {}
 
         setIsExpanded(false);
         setIsQuickControl(false);
         setIsTodo(false);
+        setIsPomodoro(false);
         setIsDropShelf(false);
+        setIsSysMonitor(false);
+        setIsMiniNote(false);
         setIsClipboard(false);
         setIsVolumeMixer(false);
         setIsSettings(false);
         setSlideDirection(0);
-        if (currentNotifRef.current) setNotif(null);
-        lastPanelClosedAtRef.current = Date.now();
+        const now = Date.now();
+        lastPanelClosedAtRef.current = now;
+        try {
+          localStorage.setItem("island_last_panel_closed_at", String(now));
+        } catch {}
       }, effectiveDelay);
     }
   };
@@ -872,6 +1053,7 @@ export default function App() {
 
     setSlideDirection(resolvedDirection);
     setControlCenterSubmenu(null);
+    setIsNoteEditing(false);
 
     isExpandedRef.current = targetTab === "media_expanded";
     setIsExpanded(targetTab === "media_expanded");
@@ -882,8 +1064,17 @@ export default function App() {
     isTodoRef.current = targetTab === "todo";
     setIsTodo(targetTab === "todo");
 
+    isPomodoroRef.current = targetTab === "pomodoro";
+    setIsPomodoro(targetTab === "pomodoro");
+
     isDropShelfRef.current = targetTab === "drop_shelf";
     setIsDropShelf(targetTab === "drop_shelf");
+
+    isSysMonitorRef.current = targetTab === "sys_monitor";
+    setIsSysMonitor(targetTab === "sys_monitor");
+
+    isMiniNoteRef.current = targetTab === "mini_note";
+    setIsMiniNote(targetTab === "mini_note");
 
     isClipboardRef.current = targetTab === "clipboard";
     setIsClipboard(targetTab === "clipboard");
@@ -928,7 +1119,7 @@ export default function App() {
 
   const handleToggleSettings = () => {
     if (currentTab === "settings") {
-      goToTab(tabBeforeSettingsRef.current ?? availableTabs[0], -1);
+      goToTab(tabBeforeSettingsRef.current ?? (media ? "media_expanded" : "quick_control"), -1);
       return;
     }
     tabBeforeSettingsRef.current = currentTab;
@@ -937,6 +1128,13 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
       if (!currentTab) return;
       if (currentTab === "clipboard" || currentTab === "volume_mixer") {
         if (e.key === "Escape" || e.key === "ArrowLeft") {
@@ -963,11 +1161,12 @@ export default function App() {
   const [optVolume, setOptVolume] = useState(true);
   const [optClipboard, setOptClipboard] = useState(true);
   const [optMedia, setOptMedia] = useState(true);
+  const [optSoundFx, setOptSoundFx] = useState<boolean>(() => isSoundEffectsEnabled());
   const [optPosition, setOptPosition] = useState<"top"|"bottom">("top");
   const [optOpacity, setOptOpacity] = useState<number>(1.0);
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy"|"smooth"|"bouncy">("smooth");
   const [optAccent, setOptAccent] = useState<"default"|"pink"|"blue"|"green">("default");
-  const [optNotifTime, setOptNotifTime] = useState<number>(5);
+  const [optNotifTime, setOptNotifTime] = useState<number>(3);
   const [optEars, setOptEars] = useState<boolean>(true);
   const [optWeatherAnim, setOptWeatherAnim] = useState<boolean>(true);
   const [optTheme, setOptTheme] = useState<"dark" | "light" | "auto">(() => {
@@ -1207,6 +1406,9 @@ export default function App() {
       cancelCompactHoverTimer();
       isCursorInsideNotchRef.current = false;
       setIsDragOver(false);
+      if (!isPlayingRef.current && mediaRef.current) {
+        schedulePausedMediaDismiss(1200);
+      }
       if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
       startCollapseTimer(350);
     });
@@ -1216,6 +1418,7 @@ export default function App() {
       isCursorInsideNotchRef.current = true;
       cancelCollapseTimer();
       if (currentNotifRef.current) return;
+      if (currentTabRef.current !== null) return;
       if (variantRef.current === "compact") {
         startCompactHoverTimer(80);
       } else if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
@@ -1247,13 +1450,26 @@ export default function App() {
         if (isInside) {
           isCursorInsideNotchRef.current = true;
           cancelCollapseTimer();
-          const hasOpenPanel = isExpandedRef.current || isQuickControlRef.current || isTodoRef.current || isDropShelfRef.current || isClipboardRef.current || isVolumeMixerRef.current || isSettingsRef.current;
+          const hasOpenPanel =
+            isExpandedRef.current ||
+            isQuickControlRef.current ||
+            isTodoRef.current ||
+            isPomodoroRef.current ||
+            isDropShelfRef.current ||
+            isSysMonitorRef.current ||
+            isMiniNoteRef.current ||
+            isClipboardRef.current ||
+            isVolumeMixerRef.current ||
+            isSettingsRef.current;
           if (variantRef.current === "compact" && !compactHoverTimerRef.current && !hasOpenPanel) {
             startCompactHoverTimer(80);
           }
         } else if (isCursorInsideNotchRef.current) {
           cancelCompactHoverTimer();
           isCursorInsideNotchRef.current = false;
+          if (!isPlayingRef.current && mediaRef.current) {
+            schedulePausedMediaDismiss(1200);
+          }
           if (!isSwitchingTabRef.current) {
             startCollapseTimer(350);
           }
@@ -1320,7 +1536,7 @@ export default function App() {
     };
 
     updateWeather();
-    const interval = setInterval(updateWeather, 1000 * 60 * 30);
+    const interval = setInterval(updateWeather, 1000 * 60 * 10);
     const unsubscribe = subscribeWeatherChange(() => {
       updateWeather();
     });
@@ -1333,7 +1549,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
+    const timer = setInterval(() => {
+      const now = new Date();
+      setTime((prev) => (prev.getMinutes() === now.getMinutes() && prev.getHours() === now.getHours() ? prev : now));
+    }, 5000);
     invoke<[boolean, number] | null>("get_battery_status")
       .then(res => {
         if (res && res[1] <= 100) {
@@ -1357,6 +1576,7 @@ export default function App() {
     });
 
     const unlistenUsb = listen<{name: string, letter: string}>("usb-connected", (event) => {
+      playDeviceConnectSound();
       showNotif({
         title: "USB Connected",
         body: `${event.payload.name} (${event.payload.letter})`,
@@ -1369,6 +1589,7 @@ export default function App() {
     });
 
     const unlistenAudio = listen<{name: string, icon: string}>("audio-connected", (event) => {
+      playDeviceConnectSound();
       showNotif({
         title: "Audio Device Connected",
         body: event.payload.name,
@@ -1396,11 +1617,93 @@ export default function App() {
       }
       if (event.payload.title || event.payload.artist) {
         prefetchArtwork(event.payload);
-        setMedia(event.payload);
         setIsPlaying(event.payload.is_playing);
+
+        const currentTitle = (event.payload.title || "").trim();
+        const currentArtist = (event.payload.artist || "").trim();
+        const currentThumbnail = event.payload.thumbnail || null;
+
+        if (currentTitle) {
+          const prevActive = activePlayingTrackRef.current;
+
+          // If a track was active and now a different track started playing ("pas pindah lagu")
+          if (
+            prevActive &&
+            prevActive.title &&
+            (prevActive.title.toLowerCase() !== currentTitle.toLowerCase() ||
+              (prevActive.artist && currentArtist && prevActive.artist.toLowerCase() !== currentArtist.toLowerCase()))
+          ) {
+            setQueueHistory((prev) => {
+              const updated = [
+                {
+                  id: `${prevActive.title}-${Date.now()}`,
+                  title: prevActive.title,
+                  artist: prevActive.artist || "",
+                  thumbnail: prevActive.thumbnail,
+                  timestamp: Date.now(),
+                },
+                ...prev.filter(
+                  (item) =>
+                    item.title.toLowerCase() !== prevActive.title.toLowerCase() ||
+                    (item.artist && prevActive.artist && item.artist.toLowerCase() !== prevActive.artist.toLowerCase())
+                ),
+              ].slice(0, 10);
+              try {
+                localStorage.setItem("island_queue_history", JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+          }
+
+          // Keep activePlayingTrackRef updated with the current playing track
+          if (!prevActive || prevActive.title.toLowerCase() !== currentTitle.toLowerCase()) {
+            activePlayingTrackRef.current = {
+              id: `${currentTitle}-${Date.now()}`,
+              title: currentTitle,
+              artist: currentArtist,
+              thumbnail: currentThumbnail,
+              timestamp: Date.now(),
+            };
+          } else if (currentThumbnail && !prevActive.thumbnail) {
+            prevActive.thumbnail = currentThumbnail;
+          }
+
+          // Backfill thumbnail if arrived for index 0 in queueHistory
+          if (currentThumbnail) {
+            setQueueHistory((prev) => {
+              if (
+                prev.length > 0 &&
+                prev[0].title.toLowerCase() === currentTitle.toLowerCase() &&
+                !prev[0].thumbnail
+              ) {
+                const updated = [...prev];
+                updated[0] = { ...updated[0], thumbnail: currentThumbnail };
+                try {
+                  localStorage.setItem("island_queue_history", JSON.stringify(updated));
+                } catch {}
+                return updated;
+              }
+              return prev;
+            });
+          }
+        }
+
+        if (event.payload.is_playing) {
+          mediaDismissedRef.current = false;
+          clearPausedDismissTimer();
+          setMedia(event.payload);
+        } else {
+          // If media was already dismissed while paused, do NOT resurrect idle notch
+          if (mediaDismissedRef.current) {
+            setMedia(null);
+          } else {
+            setMedia(event.payload);
+            schedulePausedMediaDismiss(2500);
+          }
+        }
       } else {
         setMedia(null);
-        setIsExpanded(false);
+        mediaDismissedRef.current = true;
       }
     });
 
@@ -1414,6 +1717,7 @@ export default function App() {
 
         if (prev && prev.is_charging !== event.payload.is_charging) {
           if (event.payload.is_charging) {
+            playChargingSound();
             showNotif({ title: t("notif_charging"), body: `${event.payload.percent}%`, icon: "battery" });
           } else {
             showNotif({ title: t("notif_on_battery"), body: t("notif_battery_remaining", { percent: event.payload.percent }), icon: "battery" });
@@ -1424,59 +1728,73 @@ export default function App() {
     });
 
     const unlistenVolume = listen<{level: number}>("volume-update", (event) => {
-      if (isQuickControlRef.current || isVolumeMixerRef.current || isAdjustingVolumeRef.current) return;
       const vol = Math.round(event.payload.level * 100);
+      setSoundLevel(vol);
+      if (isQuickControlRef.current || isVolumeMixerRef.current || isAdjustingVolumeRef.current) return;
+      playVolumeTick(vol);
       showNotif({ title: t("cc_volume"), body: `${vol}%`, icon: "volume" });
     });
 
     let clipboardDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     const unlistenClipboard = listen("clipboard-update", () => {
-      if (!optClipboardRef.current || isOcrWritingRef.current) return;
+      if (!optClipboardRef.current || isOcrWritingRef.current || isOcrRunningRef.current) return;
       
       if (clipboardDebounceTimer) clearTimeout(clipboardDebounceTimer);
       clipboardDebounceTimer = setTimeout(async () => {
-        if (!optClipboardRef.current || isOcrWritingRef.current) return;
+        if (!optClipboardRef.current || isOcrWritingRef.current || isOcrRunningRef.current) return;
         try {
           // Cek teks terlebih dahulu
           const copiedText = await invoke<string>("read_clipboard_text").catch(() => "");
           if (copiedText && copiedText.trim().length > 0) {
             addClipboardItem(copiedText);
             if (!isClipboardRef.current) {
-              const snippet = copiedText.trim().length > 28 
-                ? `${copiedText.trim().slice(0, 28)}...` 
+              const snippet = copiedText.trim().length > 110 
+                ? `${copiedText.trim().slice(0, 110)}…` 
                 : copiedText.trim();
-              showNotif({ title: t("notif_copied_clipboard"), body: snippet, icon: "clipboard" });
+              playNotificationSound();
+              showNotif({
+                title: t("notif_copied_clipboard"),
+                body: snippet,
+                headline: snippet,
+                icon: "clipboard"
+              });
             }
             return;
           }
 
-          // Jika bukan teks (misal: screenshot/gambar), jalankan OCR secara aman
-          const text = await invoke<string>("extract_clipboard_text").catch(() => "");
-          if (text && text.trim().length > 0) {
-            if (text === lastExtractedTextRef.current) return;
-            lastExtractedTextRef.current = text;
-            
-            showNotif({ 
-              title: t("notif_ocr_detected"), 
-              body: t("notif_ocr_click_to_copy"), 
-              icon: "clipboard",
-              onClick: () => {
-                isOcrWritingRef.current = true;
-                writeText(text).then(() => {
-                  addClipboardItem(text);
-                  setNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
-                  setTimeout(() => { isOcrWritingRef.current = false; }, 3000);
-                }).catch((e) => {
-                  console.error(e);
-                  isOcrWritingRef.current = false;
-                });
-              }
-            });
+          // Jika bukan teks (misal: screenshot/gambar), jalankan OCR secara aman dan terproteksi concurrency guard
+          isOcrRunningRef.current = true;
+          try {
+            const text = await invoke<string>("extract_clipboard_text").catch(() => "");
+            if (text && text.trim().length > 0) {
+              if (text === lastExtractedTextRef.current) return;
+              lastExtractedTextRef.current = text;
+              
+              showNotif({ 
+                title: t("notif_ocr_detected"), 
+                body: t("notif_ocr_click_to_copy"), 
+                icon: "clipboard",
+                onClick: () => {
+                  isOcrWritingRef.current = true;
+                  writeText(text).then(() => {
+                    addClipboardItem(text);
+                    setNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
+                    setTimeout(() => { isOcrWritingRef.current = false; }, 3000);
+                  }).catch((e) => {
+                    console.error(e);
+                    isOcrWritingRef.current = false;
+                  });
+                }
+              });
+            }
+          } finally {
+            isOcrRunningRef.current = false;
           }
         } catch (err) {
           console.debug("Clipboard handler error:", err);
+          isOcrRunningRef.current = false;
         }
-      }, 150);
+      }, 350);
     });
 
     const unlistenCaps = listen<{is_on: boolean}>("caps-update", (event) => {
@@ -1484,6 +1802,7 @@ export default function App() {
     });
 
     const unlistenBt = listen<{name: string, battery: string}>("bt-connected", (event) => {
+      playDeviceConnectSound();
       let body = t("notif_connected");
       if (event.payload.battery) {
         body += ` • Battery: ${event.payload.battery}`;
@@ -1495,8 +1814,8 @@ export default function App() {
       const appName = event.payload.app_name || "Notification";
       const lower = appName.toLowerCase();
       
-      // Abaikan notif dari Snipping Tool karena tabrakan sama fitur OCR kita
-      if (lower.includes("snipping tool") || lower.includes("screensketch")) return;
+      // Abaikan notif dari Snipping Tool hanya jika OCR sedang aktif
+      if ((lower.includes("snipping tool") || lower.includes("screensketch")) && isOcrRunningRef.current) return;
       
       let iconType = "bell";
       if (lower.includes("whatsapp")) iconType = "whatsapp";
@@ -1513,11 +1832,32 @@ export default function App() {
       else if (lower.includes("x") || lower.includes("twitter")) iconType = "x";
       else if (lower.includes("youtube")) iconType = "youtube";
       else if (lower.includes("slack") || lower.includes("teams")) iconType = "slack";
+      else if (lower.includes("snipping tool") || lower.includes("screensketch")) iconType = "camera";
       
-      const combinedBody = String(event.payload.title ? (event.payload.body ? `${event.payload.title} - ${event.payload.body}` : event.payload.title) : event.payload.body || '').trim();
+      const rawTitle = (event.payload.title || "").trim();
+      const rawBody = (event.payload.body || "").trim();
       
+      let displayTitle = appName;
+      let displayBody = rawBody || rawTitle;
+
+      if (rawTitle && rawBody) {
+        displayTitle = `${appName} · ${rawTitle}`;
+        displayBody = rawBody;
+      } else if (rawTitle) {
+        displayTitle = appName;
+        displayBody = rawTitle;
+      } else if (rawBody) {
+        displayTitle = appName;
+        displayBody = rawBody;
+      }
       
-      showNotif({ title: appName, body: combinedBody, icon: iconType, aumid: event.payload.aumid });
+      playNotificationSound();
+      showNotif({
+        title: displayTitle,
+        body: displayBody,
+        icon: iconType,
+        aumid: event.payload.aumid,
+      });
     });
 
     const unlistenNetwork = listen<number | null>("network-ping", (event) => {
@@ -1579,6 +1919,7 @@ export default function App() {
         setNotifQueue(q => q.slice(1));
         return;
       }
+      currentNotifRef.current = nextNotif;
       setNotif(nextNotif);
       setNotifQueue(q => q.slice(1));
     } else if (notif) {
@@ -1595,18 +1936,30 @@ export default function App() {
       }
       
       const timer = setTimeout(() => {
+        currentNotifRef.current = null;
         setNotif(null);
       }, duration);
       return () => clearTimeout(timer);
     }
   }, [notif, notifQueue]);
 
-  const handleNotifClick = async (e?: React.MouseEvent) => {
+
+
+  useEffect(() => {
+    if (!pomodoro.completeAlert) return;
+    const duration = Math.max(5000, optNotifTimeRef.current * 1000);
+    const timer = window.setTimeout(() => {
+      pomodoro.dismissCompleteAlert();
+    }, duration);
+    return () => clearTimeout(timer);
+  }, [pomodoro.completeAlert]);
+
+  const handleNotifClick = async (e?: React.MouseEvent, targetNotif?: NotifPayload) => {
     if (e) {
       e.stopPropagation();
       e.preventDefault();
     }
-    const active = notif;
+    const active = targetNotif || notif;
     if (!active) return;
     
     if (active.onClick) {
@@ -1615,7 +1968,11 @@ export default function App() {
       return;
     }
     
-    setTimeout(() => setNotif(null), 50);
+    if (targetNotif && targetNotif !== notif) {
+      setNotifQueue((q) => q.filter((n) => n !== targetNotif));
+    } else {
+      setTimeout(() => setNotif(null), 50);
+    }
 
     try {
       const activated = await invoke<boolean>("activate_notification_app", {
@@ -1656,7 +2013,18 @@ export default function App() {
   const handleMediaControl = async (action: string) => {
     try {
       await invoke("smtc_action", { action });
-      if (action === "toggle") setIsPlaying(!isPlaying);
+      if (action === "toggle") {
+        setIsPlaying((prev) => {
+          const next = !prev;
+          if (!next) {
+            schedulePausedMediaDismiss(2500);
+          } else {
+            mediaDismissedRef.current = false;
+            clearPausedDismissTimer();
+          }
+          return next;
+        });
+      }
     } catch (e) {
       console.error(e);
     }
@@ -1664,11 +2032,22 @@ export default function App() {
 
 
 
-  const isSingleLine = notif && (!notif.body || notif.body.trim() === "");
-  const isSmallNotif = notif?.icon === "battery" || notif?.icon === "volume" || notif?.icon === "capslock";
-  const isMediumNotif = notif?.title === t("notif_on_battery") || notif?.title === "On Battery" || (notif?.icon === "clipboard" && !notif?.body) || isSingleLine;
 
-  const [fps, setFps] = useState(60);
+
+  const [screenRefreshRate, setScreenRefreshRate] = useState<number>(60);
+  const [fps, setFps] = useState<number>(60);
+
+  useEffect(() => {
+    invoke<number>("get_screen_refresh_rate")
+      .then((hz) => {
+        if (hz && hz >= 30) {
+          setScreenRefreshRate(hz);
+          setFps(hz);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
   const needsFpsCounter =
     idleLayout.left === "fps" ||
     idleLayout.center === "fps" ||
@@ -1680,13 +2059,18 @@ export default function App() {
     let frameCount = 0;
     let lastTime = performance.now();
     let rafId: number;
+    const maxHz = screenRefreshRate || 60;
 
     const tick = (now: number) => {
       frameCount++;
       const elapsed = now - lastTime;
-      if (elapsed >= 1000) {
-        const measured = Math.max(1, Math.round((frameCount * 1000) / elapsed));
-        setFps((prev) => (prev === measured ? prev : measured));
+      // Perbarui sampling frame rate setiap 450ms agar responsif dan dinamis
+      if (elapsed >= 450) {
+        const rawFps = (frameCount * 1000) / elapsed;
+        const measured = Math.max(1, Math.min(maxHz, Math.round(rawFps)));
+        // Jika deviasi sangat kecil (<4%) dari native refresh rate monitor, tampilkan full refresh rate
+        const displayFps = Math.abs(measured - maxHz) <= Math.max(2, Math.round(maxHz * 0.04)) ? maxHz : measured;
+        setFps((prev) => (prev === displayFps ? prev : displayFps));
         frameCount = 0;
         lastTime = now;
       }
@@ -1695,7 +2079,7 @@ export default function App() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [needsFpsCounter]);
+  }, [needsFpsCounter, screenRefreshRate]);
 
   const idleRuntimeData: IdleRuntimeData = useMemo(() => ({
     battery,
@@ -1713,6 +2097,20 @@ export default function App() {
     onOpenTab: (tab) => goToTab(tab),
   }), [battery, time, dateDisplay, fullDateTitle, weather, networkPing, pendingTodos.length, stashedFiles.length, fps, focusMode, optLanguage, isLightMode]);
 
+  const isSingleLine = notif && (!notif.body || notif.body.trim() === "");
+  const isSmallNotif = notif?.icon === "battery" || notif?.icon === "volume" || notif?.icon === "capslock";
+  const isMediumNotif = notif?.title === t("notif_on_battery") || notif?.title === "On Battery" || (notif?.icon === "clipboard" && !notif?.body) || isSingleLine;
+
+  const bodyTextFont = optFontSize === "small" ? "500 11px 'Inter', sans-serif" : optFontSize === "large" ? "500 13.5px 'Inter', sans-serif" : "500 12.5px 'Inter', sans-serif";
+  const bodyTextWidth = notif?.body ? getTextWidth(notif.body, bodyTextFont) : 0;
+  const isMultilineBody = Boolean(
+    notif &&
+      !isSmallNotif &&
+      !isMediumNotif &&
+      notif.body &&
+      (notif.body.includes("\n") || bodyTextWidth > 320)
+  );
+
   // When font size is large, automatically enforce large idle & tab dimensions so text never clips
   const effectiveIdleSize = optFontSize === "large" ? "large" : optIdleSize;
   const effectiveTabSize = optFontSize === "large" ? "large" : optTabSize;
@@ -1725,6 +2123,53 @@ export default function App() {
       return Math.min(380, Math.max(290, Math.ceil(maxTextWidth + 144)));
     }
 
+    if (notif && !isSmallNotif && !isMediumNotif) {
+      const titleFont = optFontSize === "small" ? "600 12px 'Inter', sans-serif" : optFontSize === "large" ? "600 14.5px 'Inter', sans-serif" : "600 13px 'Inter', sans-serif";
+      const bodyFont = optFontSize === "small" ? "500 11px 'Inter', sans-serif" : optFontSize === "large" ? "500 13.5px 'Inter', sans-serif" : "500 12.5px 'Inter', sans-serif";
+      const titleWidth = getTextWidth(notif.title || "", titleFont);
+      const bodyWidth = notif.body ? getTextWidth(notif.body, bodyFont) : 0;
+
+      // Layout overhead: px-3.5 outer padding (28px) + NotifIcon (32px) + gap-2.5 (10px) + safety buffer (22px) = 92px
+      const overhead = 92;
+      const minTitleNeeded = Math.ceil(titleWidth + overhead);
+
+      let contentNeeded = minTitleNeeded;
+      if (notif.body) {
+        if (isMultilineBody) {
+          const multilineLineWidth = Math.ceil(bodyWidth / 1.85);
+          contentNeeded = Math.max(minTitleNeeded, Math.ceil(multilineLineWidth + overhead));
+        } else {
+          contentNeeded = Math.max(minTitleNeeded, Math.ceil(bodyWidth + overhead));
+        }
+      }
+
+      // Compact width: snugly hugs content but strictly guarantees the title is NEVER truncated
+      const targetWidth = Math.max(minTitleNeeded, contentNeeded);
+      return Math.min(460, Math.max(160, targetWidth));
+    }
+
+    if (notif) {
+      const fontScale = optFontSize === "large" ? 1.12 : optFontSize === "small" ? 0.92 : 1.0;
+      const titleFont = optFontSize === "large" ? "bold 15px 'SF Pro Display', sans-serif" : optFontSize === "small" ? "bold 13px 'SF Pro Display', sans-serif" : "bold 14px 'SF Pro Display', sans-serif";
+      const bodyFont = optFontSize === "large" ? "15px 'SF Pro Display', sans-serif" : optFontSize === "small" ? "13px 'SF Pro Display', sans-serif" : "14px 'SF Pro Display', sans-serif";
+      const titleWidth = getTextWidth(notif.title || "", titleFont);
+      const bodyWidth = notif.body ? getTextWidth(notif.body, bodyFont) : 0;
+      
+      let baseWidth = Math.round((32 + 32 + 12) * fontScale);
+      if (notif.body) baseWidth += 8;
+
+      if (notif.icon === "clipboard") {
+        if (!notif.body) return Math.round(215 * fontScale);
+        return Math.min(360, Math.max(Math.round(215 * fontScale), Math.ceil(baseWidth + Math.max(titleWidth, bodyWidth) + 16)));
+      }
+
+      if (notif.icon === "volume" || notif.icon === "brightness") {
+        return Math.round(250 * fontScale);
+      }
+      
+      return Math.min(440, Math.max(Math.round(175 * fontScale), Math.ceil(baseWidth + titleWidth + bodyWidth + 12)));
+    }
+
     if (media && !notif && !isExpanded) {
       if (showLyrics) {
         const lyricFont = optFontSize === "small" ? "bold 11.5px 'Inter', sans-serif" : optFontSize === "large" ? "bold 16px 'Inter', sans-serif" : "bold 13.5px 'Inter', sans-serif";
@@ -1735,7 +2180,6 @@ export default function App() {
         const nextWidth = activeIdleLyric.next ? getTextWidth(activeIdleLyric.next, subFont) : 0;
         const maxText = Math.max(currWidth, prevWidth * 0.96, nextWidth * 0.96);
 
-        // Base elements: Left album art (30px) + gap (10px) + Right visualizer (24px) + gap (10px) + pill padding (28px) + buffer (8px) = 110px
         const basePadding = 110;
         return Math.min(560, Math.max(240, Math.ceil(maxText + basePadding)));
       }
@@ -1745,62 +2189,70 @@ export default function App() {
       const titleWidth = getTextWidth(media.title || "", titleFont);
       const artistWidth = getTextWidth(media.artist || "", artistFont);
       const maxTextWidth = Math.max(titleWidth, artistWidth);
-      // 24px outer px-3 + 32px art + 10px gap + text + 10px gap + 24px visualizer + 8px safety buffer = 108px
       return Math.min(300, Math.max(175, Math.ceil(108 + maxTextWidth))); 
-    }
-    
-    if (notif && !isSmallNotif && !isMediumNotif && !media) {
-      const titleWidth = getTextWidth(notif.title || "", "bold 14px 'SF Pro Display', sans-serif");
-      const bodyWidth = getTextWidth(notif.body || "", "14px 'SF Pro Display', sans-serif");
-      const maxTextWidth = Math.max(titleWidth, bodyWidth);
-      return Math.min(280, Math.ceil(32 + 32 + 12 + maxTextWidth + 4));
-    }
-    
-    if (notif && media && !isSmallNotif) {
-      const mediaTitle = getTextWidth(media.title || "", "bold 14px 'SF Pro Display', sans-serif");
-      const mediaArtist = getTextWidth(media.artist || "", "11px 'SF Pro Display', sans-serif");
-      const notifTitle = getTextWidth(notif.title || "", "bold 14px 'SF Pro Display', sans-serif");
-      const notifBody = notif.body ? getTextWidth(notif.body, "14px 'SF Pro Display', sans-serif") : 0;
-      
-      const maxMedia = Math.max(mediaTitle, mediaArtist) + 32 + 32 + 12; 
-      const maxNotif = Math.max(notifTitle, notifBody) + 32 + 32 + 12;
-      return Math.min(280, Math.max(maxMedia, maxNotif) + 16);
-    }
-    
-    if (notif) {
-      const titleWidth = getTextWidth(notif.title || "", "bold 14px 'SF Pro Display', sans-serif");
-      const bodyWidth = notif.body ? getTextWidth(notif.body, "14px 'SF Pro Display', sans-serif") : 0;
-      
-      let baseWidth = 32 + 32 + 12;
-      if (notif.body) baseWidth += 8;
-
-      if (notif.icon === "clipboard") {
-        if (!notif.body) return 215; // default simple copy
-        return Math.min(360, Math.ceil(baseWidth + Math.max(titleWidth, bodyWidth) + 16));
-      }
-      
-      return Math.min(280, Math.ceil(baseWidth + titleWidth + bodyWidth + 8));
-    }
-
-    // Default to idle width calculation
-    if (showTodoReminder && pendingTodos.length > 0) {
-      const firstTask = pendingTodos[0].text;
-      const headerTitle = t("todo_reminder_title", { count: pendingTodos.length });
-      const titleWidth = getTextWidth(headerTitle, "bold 10.5px 'Inter', sans-serif");
-      const taskFont = optFontSize === "small" ? "600 12px 'Inter', sans-serif" : optFontSize === "large" ? "600 14.5px 'Inter', sans-serif" : "600 13px 'Inter', sans-serif";
-      const taskWidth = getTextWidth(firstTask, taskFont);
-      const maxText = Math.min(200, Math.max(titleWidth, taskWidth, 100));
-      return Math.min(340, Math.max(240, Math.ceil(112 + maxText)));
     }
 
     const statFont = optFontSize === "small" ? "bold 9px 'SF Pro Display', sans-serif" : optFontSize === "large" ? "bold 11.5px 'SF Pro Display', sans-serif" : "bold 10px 'SF Pro Display', sans-serif";
 
     return measureIdleLayoutWidth(idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize);
   };
+
   const dynamicWidth = React.useMemo(
     () => getDynamicWidth(),
-    [media, notif, isExpanded, isSmallNotif, isMediumNotif, weather, camActive, micActive, isPlaying, showTodoReminder, pendingTodos, stashedFiles.length, fps, focusMode, networkPing, idleLayout, idleRuntimeData, showLyrics, activeIdleLyric, battery, dateDisplay, optFontSize, optLanguage, time.getHours(), time.getMinutes(), effectiveIdleSize]
+    [media, notif, isExpanded, isSmallNotif, isMediumNotif, isMultilineBody, weather, camActive, micActive, isPlaying, pendingTodos, stashedFiles.length, fps, focusMode, networkPing, idleLayout, idleRuntimeData, showLyrics, activeIdleLyric, battery, dateDisplay, optFontSize, optLanguage, time.getHours(), time.getMinutes(), effectiveIdleSize]
   );
+
+  const [isQuickNoteOpen, setIsQuickNoteOpen] = useState(false);
+  const [isNoteEditing, setIsNoteEditing] = useState(false);
+  const [todoDynamicHeight, setTodoDynamicHeight] = useState<number>(() => {
+    const visibleSlots = Math.min(4, Math.max(1, pendingTodos.length));
+    const tasksH = pendingTodos.length === 0 ? 52 : visibleSlots * 40 + (visibleSlots - 1) * 4 + 10;
+    return 208 + tasksH;
+  });
+
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    listen("quick-note-shortcut", () => {
+      setIsQuickControl(false);
+      setIsTodo(false);
+      setIsPomodoro(false);
+      setIsDropShelf(false);
+      setIsSysMonitor(false);
+      setIsMiniNote(false);
+      setIsClipboard(false);
+      setIsSettings(false);
+      setIsVolumeMixer(false);
+      setIsExpanded(false);
+      setIsQuickNoteOpen((prev) => !prev);
+    })
+      .then((u) => {
+        unlistenFn = u;
+      })
+      .catch(console.error);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        setIsQuickControl(false);
+        setIsTodo(false);
+        setIsPomodoro(false);
+        setIsDropShelf(false);
+        setIsSysMonitor(false);
+        setIsMiniNote(false);
+        setIsClipboard(false);
+        setIsSettings(false);
+        setIsVolumeMixer(false);
+        setIsExpanded(false);
+        setIsQuickNoteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      if (unlistenFn) unlistenFn();
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
   let variant = "idle";
   if (isBooting) {
     variant = "hidden";
@@ -1812,32 +2264,40 @@ export default function App() {
     variant = "volume_mixer";
   } else if (isClipboard) {
     variant = "clipboard";
+  } else if (isMiniNote) {
+    variant = "mini_note";
+  } else if (isSysMonitor) {
+    variant = "sys_monitor";
   } else if (isDropShelf) {
     variant = "drop_shelf";
+  } else if (isPomodoro) {
+    variant = "pomodoro";
   } else if (isTodo) {
     variant = "todo";
   } else if (isQuickControl) {
     variant = "quick_control";
-  } else if (media && isExpanded) {
+  } else if (isExpanded) {
     variant = showLyrics ? "media_expanded_lyrics" : "media_expanded";
   } else if (isDragOver) {
     variant = "drag_over";
+  } else if (isQuickNoteOpen) {
+    variant = "quick_note";
   } else if (notif && (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon")) {
     variant = "notif_greeting";
-  } else if (notif && media) {
-    variant = isSmallNotif ? "notif_small_media" : "notif_media";
   } else if (notif) {
     if (notif.icon === "volume" || notif.icon === "brightness") variant = "notif_volume";
     else if (notif.icon === "clipboard" && !notif.body) variant = "notif_clipboard";
     else if (isMediumNotif) variant = "notif_medium";
     else if (isSmallNotif) variant = "notif_small";
     else variant = "notif";
+  } else if (pomodoro.completeAlert) {
+    variant = "pomo_complete_alert";
   } else if (optAutoCompact && isBrowserActive) {
     variant = "compact";
   } else if (media) {
     variant = showLyrics ? "lyrics_idle" : "media";
-  } else if (showTodoReminder && pendingTodos.length > 0) {
-    variant = "todo_reminder";
+  } else if (pomodoro.isRunning && pomodoro.settings.showIdleTimer) {
+    variant = "pomo_idle";
   }
 
   if (isHidden) {
@@ -1846,35 +2306,40 @@ export default function App() {
 
   variantRef.current = variant;
 
-  const isIdle = variant === "idle" || variant === "todo_reminder";
+  const isIdle =
+    variant === "idle" ||
+    variant === "media" ||
+    variant === "lyrics_idle" ||
+    variant === "pomo_idle";
+
   useEffect(() => {
     variantRef.current = variant;
     isIdleRef.current = isIdle;
-    if (variant === "idle" && pendingTodosRef.current.length > 0) {
-      try {
-        const last = localStorage.getItem("island_last_todo_reminder");
-        const lastTime = last ? parseInt(last, 10) : 0;
-        if (Date.now() - lastTime >= 15 * 60 * 1000) {
-          const t = window.setTimeout(() => {
-            if (isIdleRef.current && pendingTodosRef.current.length > 0) {
-              triggerTodoReminder();
-            }
-          }, 1200);
-          return () => clearTimeout(t);
-        }
-      } catch {}
-    }
   }, [isIdle, variant]);
 
   const isExpandedPanel = Boolean(
-    currentTab && (variant === "quick_control" || variant === "todo" || variant === "drop_shelf" || variant === "clipboard" || variant === "settings" || variant === "volume_mixer" || variant === "media_expanded" || variant === "media_expanded_lyrics")
+    currentTab &&
+      (variant === "quick_control" ||
+        variant === "todo" ||
+        variant === "pomodoro" ||
+        variant === "drop_shelf" ||
+        variant === "sys_monitor" ||
+        variant === "mini_note" ||
+        variant === "clipboard" ||
+        variant === "settings" ||
+        variant === "volume_mixer" ||
+        variant === "media_expanded" ||
+        variant === "media_expanded_lyrics")
   );
 
   const panelTitle = 
     currentTab === "media_expanded" ? t("tab_now_playing") :
     currentTab === "quick_control" ? t("tab_control_center") :
     currentTab === "todo" ? t("tab_todo_list") :
+    currentTab === "pomodoro" ? t("tab_pomodoro") :
     currentTab === "drop_shelf" ? t("tab_file_shelf") :
+    currentTab === "sys_monitor" ? t("tab_sys_monitor") :
+    currentTab === "mini_note" ? t("tab_mini_note") :
     currentTab === "clipboard" ? t("tab_clipboard") :
     currentTab === "volume_mixer" ? t("tab_volume_mixer") :
     t("tab_settings");
@@ -1887,10 +2352,9 @@ export default function App() {
   const idleHeight = effectiveIdleSize === "compact" ? 28 : effectiveIdleSize === "large" ? 36 : 32;
   const lyricsIdleBaseHeight = optFontSize === "large" ? 64 : optFontSize === "small" ? 54 : 58;
 
-  const tabWidth = effectiveTabSize === "compact" ? 400 : effectiveTabSize === "large" ? 485 : 440;
-  // Compact should only narrow the width (400px), not aggressively shrink height which crops top/bottom content
-  const tabHeightMultiplier = effectiveTabSize === "large" ? 1.08 : 1.0;
-  const lyricsExpandedWidth = effectiveTabSize === "compact" ? 620 : effectiveTabSize === "large" ? 750 : 680;
+  const tabWidth = effectiveTabSize === "compact" ? 600 : effectiveTabSize === "large" ? 700 : 660;
+  const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
+  const lyricsExpandedWidth = effectiveTabSize === "compact" ? 640 : effectiveTabSize === "large" ? 740 : 680;
 
   let smoothSpring: any = { type: "spring", stiffness: 340, damping: 32, mass: 0.72 };
   if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 440, damping: 35, mass: 0.65 };
@@ -1901,38 +2365,30 @@ export default function App() {
     hidden: { width: 0, height: 0, x: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
     compact: { width: Math.round(52 * idleMultiplier), height: Math.round(7 * (idleHeight / 32)), x: 0, y: 0, opacity: 0.95, borderRadius: radius("4px") },
     idle: { width: dynamicWidth, height: idleHeight, x: 0, y: 0, opacity: 1, borderRadius: radius(idleHeight >= 36 ? "14px" : "12px") },
-    todo_reminder: {
-      width: dynamicWidth,
-      height: Math.round(52 * (idleHeight / 32)),
-      x: [0, -10, 10, -8, 8, -5, 5, -2.5, 2.5, 0],
-      y: 0,
-      opacity: 1,
-      borderRadius: radius("18px"),
-      transition: {
-        ...smoothSpring,
-        x: { duration: 0.65, delay: 0.06, ease: "easeInOut" },
-      },
-    },
-    drag_over: { width: Math.round(330 * idleMultiplier), height: 60, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
+    pomo_idle: { width: Math.round(280 * idleMultiplier), height: Math.round(40 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
+    pomo_complete_alert: { width: 520, height: 112, x: 0, y: 0, opacity: 1, borderRadius: radius("28px") },
+    quick_note: { width: 520, height: 154, x: 0, y: 0, opacity: 1, borderRadius: radius("28px") },
+    drag_over: { width: 660, height: 330, x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
     media: { width: Math.round(dynamicWidth * (effectiveIdleSize === "compact" ? 0.96 : effectiveIdleSize === "large" ? 1.08 : 1.0)), height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     lyrics_idle: { width: dynamicWidth, height: Math.round(lyricsIdleBaseHeight * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    media_expanded: { width: tabWidth, height: Math.round((isBot ? 385 : (effectiveTabSize === "compact" ? 295 : 285)) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 385 : (effectiveTabSize === "compact" ? 295 : 285)) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
+    media_expanded: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
     notif_greeting: { width: dynamicWidth, height: 52, x: 0, y: 0, opacity: 1, borderRadius: radius("18px") },
-    notif: { width: dynamicWidth, height: 80, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
-    notif_media: { width: dynamicWidth, height: 124, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
+    notif: { width: dynamicWidth, height: Math.round((isMultilineBody ? 82 : 68) * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius(isMultilineBody ? "22px" : "18px") },
     notif_small: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_volume: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    notif_small_media: { width: dynamicWidth, height: 96, x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
-    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? (isBot ? 465 : 475) : (effectiveTabSize === "compact" ? 395 : 385)) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    todo: { width: tabWidth, height: Math.round((isBot ? 385 : (effectiveTabSize === "compact" ? 195 : 185)) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    drop_shelf: { width: tabWidth, height: Math.round((isBot ? 385 : 254) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    clipboard: { width: tabWidth, height: Math.round((isBot ? 400 : 420) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    settings: { width: tabWidth, height: Math.round((isBot ? 480 : 520) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    volume_mixer: { width: tabWidth, height: Math.round((isBot ? 400 : 420) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("24px") },
-    onboarding: { width: Math.min(tabWidth, 410), height: 185, x: 0, y: 0, opacity: 1, borderRadius: radius("22px") },
+    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? 420 : 388) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    todo: { width: tabWidth, height: Math.round(todoDynamicHeight * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    pomodoro: { width: tabWidth, height: Math.round(338 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    drop_shelf: { width: tabWidth, height: Math.round((isBot ? 370 : 348) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    sys_monitor: { width: tabWidth, height: Math.round((isBot ? 356 : 318) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    mini_note: { width: tabWidth, height: Math.round((isNoteEditing ? 370 : 352) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    clipboard: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    settings: { width: tabWidth, height: Math.round(400 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    volume_mixer: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    onboarding: { width: Math.min(tabWidth, 460), height: 195, x: 0, y: 0, opacity: 1, borderRadius: radius("26px") },
   };
 
   const tabVariants: any = {
@@ -1961,15 +2417,6 @@ export default function App() {
     }),
   };
 
-  const contentSpring: any = { type: "spring", stiffness: 320, damping: 32, mass: 0.8 };
-  const fadeTransition: any = {
-    x: contentSpring,
-    y: contentSpring,
-    scale: contentSpring,
-    opacity: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
-    filter: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
-  };
-
   const currentVariantSize = variants[variant as keyof typeof variants] || variants.idle;
   const lastExpandedSizeRef = useRef({ width: tabWidth, height: Math.round(385 * tabHeightMultiplier) });
   if (isExpandedPanel) {
@@ -1987,7 +2434,7 @@ export default function App() {
       isBottom: optPosition === "bottom"
     }).catch(console.error);
     invoke("enforce_always_on_top").catch(console.error);
-  }, [variant, optPosition, showLyrics, dynamicWidth, effectiveIdleSize, effectiveTabSize, optFontSize]);
+  }, [variant, optPosition, showLyrics, dynamicWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight]);
   
   useEffect(() => {
     invoke("set_window_position", { isBottom: optPosition === "bottom" }).catch(console.error);
@@ -2001,19 +2448,16 @@ export default function App() {
     return () => window.removeEventListener("focus", handleFocus);
   }, []);
 
-
-
-
-
   const lastVolInvokeRef = useRef(0);
   const pendingVolRef = useRef<number | null>(null);
   const volTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const volAdjustResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const throttledSetVolume = useCallback((v: number) => {
     isAdjustingVolumeRef.current = true;
     pendingVolRef.current = v;
     const now = Date.now();
-    if (now - lastVolInvokeRef.current >= 40) {
+    if (now - lastVolInvokeRef.current >= 18) {
       lastVolInvokeRef.current = now;
       if (volTimeoutRef.current) clearTimeout(volTimeoutRef.current);
       invoke("set_master_volume", { level: v / 100.0 }).catch(console.error);
@@ -2025,12 +2469,13 @@ export default function App() {
             lastVolInvokeRef.current = Date.now();
             invoke("set_master_volume", { level: pendingVolRef.current / 100.0 }).catch(console.error);
           }
-        }, 40);
+        }, 18);
       }
     }
-    setTimeout(() => {
+    if (volAdjustResetTimerRef.current) clearTimeout(volAdjustResetTimerRef.current);
+    volAdjustResetTimerRef.current = setTimeout(() => {
       isAdjustingVolumeRef.current = false;
-    }, 600);
+    }, 350);
   }, []);
 
   const lastBrightInvokeRef = useRef(0);
@@ -2040,7 +2485,7 @@ export default function App() {
   const throttledSetBrightness = useCallback((v: number) => {
     pendingBrightRef.current = v;
     const now = Date.now();
-    if (now - lastBrightInvokeRef.current >= 60) {
+    if (now - lastBrightInvokeRef.current >= 40) {
       lastBrightInvokeRef.current = now;
       if (brightTimeoutRef.current) clearTimeout(brightTimeoutRef.current);
       invoke("set_brightness", { level: v }).catch(console.error);
@@ -2052,7 +2497,7 @@ export default function App() {
             lastBrightInvokeRef.current = Date.now();
             invoke("set_brightness", { level: pendingBrightRef.current }).catch(console.error);
           }
-        }, 60);
+        }, 40);
       }
     }
   }, []);
@@ -2067,27 +2512,33 @@ export default function App() {
     }
 
     const isShift = e.shiftKey;
-    // Hanya tangkap scroll vertikal (atas-bawah). Abaikan scroll horizontal (kanan-kiri).
-    if (Math.abs(e.deltaY) < 1 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-    const rawDelta = e.deltaY;
+    // In Chromium / WebView2, holding Shift converts vertical wheel/touchpad scroll into deltaX
+    const effectiveDelta = isShift && Math.abs(e.deltaY) < 1 ? e.deltaX : e.deltaY;
+    if (Math.abs(effectiveDelta) < 1) return;
+
+    // When NOT holding Shift, ignore horizontal gestures so they can be handled as tab navigation
+    if (!isShift && Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+
+    const dir = getWheelVerticalDirection(e);
 
     const now = Date.now();
-    if (now - lastWheelTimeRef.current > 250) {
+    if (now - lastWheelTimeRef.current > 220) {
       wheelAccumulatorRef.current = 0;
     }
     lastWheelTimeRef.current = now;
-    wheelAccumulatorRef.current += rawDelta;
+    wheelAccumulatorRef.current += Math.abs(effectiveDelta) * dir;
 
-    const THRESHOLD = 30;
+    const THRESHOLD = 10;
     if (Math.abs(wheelAccumulatorRef.current) >= THRESHOLD) {
       const steps = Math.trunc(wheelAccumulatorRef.current / THRESHOLD);
       wheelAccumulatorRef.current -= steps * THRESHOLD;
-      const change = -steps * 2;
+      const change = steps > 0 ? 2 : -2;
 
       if (isShift) {
         setDisplayLevel((prev) => {
           const next = Math.max(0, Math.min(100, prev + change));
           throttledSetBrightness(next);
+          playVolumeTick(next);
           showNotif({ title: t("cc_brightness"), body: `${next}%`, icon: "brightness", forceShow: true } as any);
           return next;
         });
@@ -2095,12 +2546,18 @@ export default function App() {
         setSoundLevel((prev) => {
           const next = Math.max(0, Math.min(100, prev + change));
           throttledSetVolume(next);
+          playVolumeTick(next);
           showNotif({ title: t("cc_volume"), body: `${next}%`, icon: "volume", forceShow: true } as any);
           return next;
         });
       }
     }
   }, [throttledSetBrightness, throttledSetVolume]);
+
+  const focusedTaskTitle = useMemo(() => {
+    if (!pomodoro.focusedTaskId) return null;
+    return todoItems.find((t) => t.id === pomodoro.focusedTaskId)?.text || null;
+  }, [pomodoro.focusedTaskId, todoItems]);
 
   return (
     <div className={`w-screen h-screen flex justify-center bg-transparent pointer-events-none ${optPosition === 'bottom' ? 'items-end' : 'items-start'}`}>
@@ -2120,7 +2577,15 @@ export default function App() {
         onMouseMove={() => {
           isCursorInsideNotchRef.current = true;
           cancelCollapseTimer();
-          if (notif || isOnboarding || isDragOver || variant === "todo_reminder") return;
+          if (
+            notif ||
+            isOnboarding ||
+            isDragOver ||
+            variant === "pomo_complete_alert" ||
+            variant === "todo_deadline_alert"
+          ) {
+            return;
+          }
           if (variant === "compact" && !compactHoverTimerRef.current && !isQuickControl && !isExpanded) {
             startCompactHoverTimer(80);
           }
@@ -2129,7 +2594,16 @@ export default function App() {
           isCursorInsideNotchRef.current = true;
           cancelCollapseTimer();
           setSlideDirection(0);
-          if (notif || isOnboarding || isDragOver || variant === "todo_reminder") {
+          if (
+            notif ||
+            isOnboarding ||
+            isDragOver ||
+            variant === "pomo_complete_alert" ||
+            variant === "todo_deadline_alert"
+          ) {
+            return;
+          }
+          if (currentTab !== null) {
             return;
           }
           if (variant === "compact") {
@@ -2140,6 +2614,14 @@ export default function App() {
             goToTab("media_expanded", 0);
             return;
           }
+          if (variant === "pomo_idle") {
+            goToTab("pomodoro", 0);
+            return;
+          }
+          if (variant === "todo_idle_countdown") {
+            goToTab("todo", 0);
+            return;
+          }
           if (variant === "idle") {
             openLastOrPreferredTab();
           }
@@ -2147,6 +2629,9 @@ export default function App() {
         onMouseLeave={() => {
           cancelCompactHoverTimer();
           isCursorInsideNotchRef.current = false;
+          if (!isPlayingRef.current && mediaRef.current) {
+            schedulePausedMediaDismiss(1200);
+          }
           if (isSwitchingTabRef.current) return;
           startCollapseTimer();
         }}
@@ -2193,14 +2678,8 @@ export default function App() {
           cancelCollapseTimer();
           if (notif) {
             setNotif(null);
-          } else if (isQuickControl || isSettings || isVolumeMixer || isClipboard || isTodo || isDropShelf || isExpanded) {
-            setIsQuickControl(false);
-            setIsSettings(false);
-            setIsVolumeMixer(false);
-            setIsClipboard(false);
-            setIsTodo(false);
-            setIsDropShelf(false);
-            setIsExpanded(false);
+          } else if (isExpandedPanel) {
+            handleCloseImmediate();
           } else {
             openLastOrPreferredTab();
           }
@@ -2217,17 +2696,25 @@ export default function App() {
             isSettings ||
             isQuickControl ||
             isTodo ||
+            isPomodoro ||
             isDropShelf ||
+            isSysMonitor ||
+            isMiniNote ||
             isClipboard ||
             isVolumeMixer ||
             variant === "drag_over" ||
-            variant === "todo_reminder" ||
-            (notif && !isSmallNotif)
+            variant === "pomo_complete_alert" ||
+            (notif && !isSmallNotif && !isMediumNotif)
           )}
           ambientImageUrl={
             isExpandedPanel && (currentTab === "media_expanded" || variant === "media_expanded" || variant === "media_expanded_lyrics")
               ? musicAmbientUrl
               : null
+          }
+          surfaceTone={
+            isDragOver
+              ? "drag_over"
+              : "default"
           }
         />
 
@@ -2239,7 +2726,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.96 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="absolute inset-0 z-50 rounded-[inherit] bg-gradient-to-r from-cyan-950/95 via-sky-950/90 to-cyan-950/95 border-2 border-dashed border-cyan-400/80 flex items-center justify-center gap-2.5 px-4 text-cyan-200 font-bold text-xs shadow-[0_0_35px_rgba(6,182,212,0.5)] backdrop-blur-xl pointer-events-none select-none"
+              className="absolute inset-0 z-50 rounded-[inherit] flex items-center justify-center gap-2.5 px-4 text-cyan-200 font-bold text-xs pointer-events-none select-none"
             >
               <div className="w-7 h-7 rounded-full bg-cyan-500/25 border border-cyan-400/40 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(6,182,212,0.4)]">
                 <UploadCloud size={16} className="text-cyan-300 animate-bounce" />
@@ -2267,675 +2754,750 @@ export default function App() {
                 <div className="w-6 h-[2px] rounded-full bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]" />
               </motion.div>
             )}
-          {variant === "todo_reminder" && pendingTodos.length > 0 && (
-            <motion.div
-              key="todo_reminder"
-              initial={{ opacity: 0, y: isBot ? 8 : -8, scale: 0.94, filter: "blur(4px)" }}
-              animate={{
-                opacity: 1,
-                y: 0,
-                scale: 1,
-                filter: "blur(0px)",
-                transitionEnd: { filter: "none", transform: "none" },
-              }}
-              exit={{ opacity: 0, y: isBot ? -8 : 8, scale: 0.94, filter: "blur(4px)" }}
-              transition={iosSpring.snappy}
-              onClick={() => {
-                setShowTodoReminder(false);
-                goToTab("todo");
-              }}
-              className="absolute inset-0 flex items-center justify-between gap-2.5 px-3.5 cursor-pointer hover:bg-amber-500/[0.06] transition-colors select-none overflow-hidden rounded-[inherit] shadow-[inset_0_0_20px_rgba(245,158,11,0.12)]"
-            >
+
+            {variant === "pomo_idle" && (
+              <PomodoroIdlePill
+                mode={pomodoro.mode}
+                remainingSec={pomodoro.remainingSec}
+                totalSec={pomodoro.totalSec}
+                isRunning={pomodoro.isRunning}
+                taskTitle={focusedTaskTitle}
+                onClick={() => goToTab("pomodoro", 0)}
+              />
+            )}
+
+            {variant === "pomo_complete_alert" && pomodoro.completeAlert && (
+              <PomodoroCompleteAlertCard
+                alert={pomodoro.completeAlert}
+                focusedTaskTitle={focusedTaskTitle}
+                todayFocusMinutes={pomodoro.dailyStats.focusMinutesToday}
+                onAccept={pomodoro.acceptCompleteAlert}
+                onSkip={pomodoro.skipCompleteAlert}
+                onDismiss={pomodoro.dismissCompleteAlert}
+              />
+            )}
+
+            {variant === "quick_note" && isQuickNoteOpen && (
+              <QuickNoteNotchCard
+                onSave={(text, color, pinned) => {
+                  createQuickNoteItem(text, color, pinned);
+                  playTaskCompleteSound();
+                  setIsQuickNoteOpen(false);
+                }}
+                onCancel={() => setIsQuickNoteOpen(false)}
+              />
+            )}
+
+            {variant === "idle" && (
               <motion.div
-                animate={{
-                  rotate: [0, -16, 16, -14, 14, -8, 8, 0],
-                  scale: [1, 1.15, 1.15, 1.1, 1],
+                key="idle"
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{
+                  opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+                  scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
                 }}
-                transition={{ duration: 0.7, delay: 0.08, ease: "easeInOut" }}
-                className="w-8 h-8 rounded-[10px] bg-amber-500/20 border border-amber-400/40 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(245,158,11,0.35)]"
+                className={`absolute inset-0 flex items-center justify-center cursor-pointer overflow-hidden ${
+                  effectiveIdleSize === "compact" ? "px-[14px]" : effectiveIdleSize === "large" ? "px-5" : "px-4"
+                }`}
+                onClick={() => openLastOrPreferredTab()}
               >
-                <ListTodo size={16} className="text-amber-400" />
+                <div className={`flex items-center justify-center w-full ${
+                  effectiveIdleSize === "compact" ? "gap-2" : effectiveIdleSize === "large" ? "gap-3" : "gap-2.5"
+                }`}>
+                  {idleLayout.left !== "none" && (
+                    <motion.div key={`idle-left-${idleLayout.left}`} layout transition={smoothSpring} className="flex items-center shrink-0">
+                      <IdleSlotView item={idleLayout.left} data={idleRuntimeData} />
+                    </motion.div>
+                  )}
+
+                  {idleLayout.center !== "none" && (
+                    <motion.div key={`idle-center-${idleLayout.center}`} layout transition={smoothSpring} className="flex items-center shrink-0">
+                      <IdleSlotView item={idleLayout.center} data={idleRuntimeData} />
+                    </motion.div>
+                  )}
+
+                  {idleLayout.right !== "none" && (
+                    <motion.div key={`idle-right-${idleLayout.right}`} layout transition={smoothSpring} className="flex items-center shrink-0">
+                      <IdleSlotView item={idleLayout.right} data={idleRuntimeData} />
+                    </motion.div>
+                  )}
+
+                  {(camActive || micActive) && (
+                    <motion.div
+                      key="privacy-indicators"
+                      layout
+                      initial={{ opacity: 0, scale: 0.6 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.6 }}
+                      transition={smoothSpring}
+                      className="flex items-center gap-1.5 shrink-0 ml-0.5"
+                    >
+                      {camActive && (
+                        <div
+                          className="w-2 h-2 rounded-full bg-[#30d158] shadow-[0_0_8px_rgba(48,209,88,0.9)] animate-pulse shrink-0"
+                          title="Camera in use"
+                        />
+                      )}
+                      {micActive && (
+                        <div
+                          className="w-2 h-2 rounded-full bg-[#ff9f0a] shadow-[0_0_8px_rgba(255,159,10,0.9)] animate-pulse shrink-0"
+                          title="Microphone in use"
+                        />
+                      )}
+                    </motion.div>
+                  )}
+                </div>
               </motion.div>
+            )}
 
-              <div className="flex flex-col justify-center min-w-0 flex-1 overflow-hidden">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 leading-tight truncate">
-                  {t("todo_reminder_title", { count: pendingTodos.length })}
-                </span>
-                <ScrollingText
-                  text={pendingTodos[0].text}
-                  className={`text-[13px] font-semibold tracking-tight leading-tight mt-0.5 ${
-                    isLightMode ? "text-[#1d1d1f]" : "text-white"
-                  }`}
-                />
-              </div>
-
-              <div className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/35 text-[10.5px] font-bold text-amber-300 tabular-nums shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.2)]">
-                {pendingTodos.length}
-              </div>
-            </motion.div>
-          )}
-
-          {variant === "idle" && (
-            <motion.div
-              key="idle"
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              transition={{
-                opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-                scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-              }}
-              className={`absolute inset-0 flex items-center justify-center cursor-pointer hover:bg-white/5 transition-colors overflow-hidden ${
-                effectiveIdleSize === "compact" ? "px-[14px]" : effectiveIdleSize === "large" ? "px-5" : "px-4"
-              }`}
-              onClick={() => openLastOrPreferredTab()}
-            >
-              <div className={`flex items-center justify-center w-full ${
-                effectiveIdleSize === "compact" ? "gap-2" : effectiveIdleSize === "large" ? "gap-3" : "gap-2.5"
-              }`}>
-                {/* Left Slot */}
-                {idleLayout.left !== "none" && (
-                  <motion.div key={`idle-left-${idleLayout.left}`} layout transition={smoothSpring} className="flex items-center shrink-0">
-                    <IdleSlotView item={idleLayout.left} data={idleRuntimeData} />
-                  </motion.div>
-                )}
-
-                {/* Center Slot */}
-                {idleLayout.center !== "none" && (
-                  <motion.div key={`idle-center-${idleLayout.center}`} layout transition={smoothSpring} className="flex items-center shrink-0">
-                    <IdleSlotView item={idleLayout.center} data={idleRuntimeData} />
-                  </motion.div>
-                )}
-
-                {/* Right Slot */}
-                {idleLayout.right !== "none" && (
-                  <motion.div key={`idle-right-${idleLayout.right}`} layout transition={smoothSpring} className="flex items-center shrink-0">
-                    <IdleSlotView item={idleLayout.right} data={idleRuntimeData} />
-                  </motion.div>
-                )}
-
-                {/* Privacy Indicators (Camera & Microphone) - displayed beside right slot, NOT replacing it */}
-                {(camActive || micActive) && (
-                  <motion.div
-                    key="privacy-indicators"
-                    layout
-                    initial={{ opacity: 0, scale: 0.6 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.6 }}
-                    transition={smoothSpring}
-                    className="flex items-center gap-1.5 shrink-0 ml-0.5"
-                  >
-                    {camActive && (
-                      <div
-                        className="w-2 h-2 rounded-full bg-[#30d158] shadow-[0_0_8px_rgba(48,209,88,0.9)] animate-pulse shrink-0"
-                        title="Camera in use"
-                      />
-                    )}
-                    {micActive && (
-                      <div
-                        className="w-2 h-2 rounded-full bg-[#ff9f0a] shadow-[0_0_8px_rgba(255,159,10,0.9)] animate-pulse shrink-0"
-                        title="Microphone in use"
-                      />
-                    )}
-                  </motion.div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {variant === "media" && (
-            <motion.div
-              key="media"
-              onClick={() => {
-                goToTab("media_expanded", 0);
-              }}
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              transition={{
-                opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-                scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-              }}
-              className="absolute inset-0 flex items-center justify-between gap-2.5 px-3 cursor-pointer"
-            >
-              <div className="w-full flex items-center justify-between gap-2.5 overflow-hidden">
-                <div className="w-8 h-8 bg-neutral-800/80 rounded-[9px] border border-white/10 shadow-sm flex items-center justify-center shrink-0 overflow-hidden relative">
-                  <MediaThumbnail media={media!} />
-                </div>
-                <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
-                  <ScrollingText text={media!.title} className="text-[13.5px] font-semibold text-white tracking-tight leading-tight" />
-                  <ScrollingText text={media!.artist} className="text-[11px] font-medium text-white/55 leading-tight mt-0.5" />
-                </div>
-                <div className="flex items-center shrink-0">
-                  <AudioVisualizer isPlaying={isPlaying} onToggle={() => handleMediaControl("toggle")} optAccent={optAccent} />
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {variant === "lyrics_idle" && (
-            <motion.div
-              key="lyrics_idle"
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              transition={{
-                opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-                scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
-              }}
-              className="absolute inset-0 flex items-center justify-between cursor-pointer"
-            >
-              <IdleLyrics
-                lyricsData={lyricsData}
-                currentTime={mediaProgress.position}
-                isPlaying={isPlaying}
-                songTitle={media?.title}
-                artist={media?.artist}
-                media={media}
-                optAccent={optAccent}
-                optFontSize={optFontSize}
-                isLoading={isLyricsLoading}
-                onActiveLineChange={(curr, prev, next) => {
-                  setActiveIdleLyric((old) => {
-                    if (old.curr === curr && old.prev === prev && old.next === next) return old;
-                    return { curr, prev, next };
-                  });
-                }}
-                onTogglePlay={() => handleMediaControl("toggle")}
+            {variant === "media" && (
+              <motion.div
+                key="media"
                 onClick={() => {
                   goToTab("media_expanded", 0);
                 }}
-              />
-            </motion.div>
-          )}
-
-          {variant === "onboarding" && (
-            <motion.div
-              key="onboarding"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{
-                opacity: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
-                scale: smoothSpring,
-              }}
-              className="absolute inset-0 flex flex-col overflow-hidden"
-            >
-              <OnboardingCard isLightMode={isLightMode} onComplete={() => setIsOnboarding(false)} />
-            </motion.div>
-          )}
-
-          {isExpandedPanel && (
-            <motion.div
-              key="expanded_panel"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.16, ease: "easeOut" }}
-              className={`absolute inset-x-0 ${
-                isBot ? "bottom-0" : "top-0"
-              } flex justify-center pointer-events-none`}
-            >
-              <motion.div
-                style={{
-                  width: lastExpandedSizeRef.current.width,
-                  height: lastExpandedSizeRef.current.height,
-                }}
-                initial={{ scale: 0.94, y: isBot ? 8 : -8 }}
-                animate={{
-                  scale: 1,
-                  y: 0,
-                  transitionEnd: { transform: "none" },
-                }}
-                exit={{ scale: 0.93, y: isBot ? 6 : -6 }}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
                 transition={{
-                  scale: smoothSpring,
-                  y: smoothSpring,
+                  opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+                  scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
                 }}
-                className={`flex flex-col overflow-hidden pointer-events-auto shrink-0 gpu-accelerated ${
-                  isBot ? "origin-bottom" : "origin-top"
-                }`}
+                className="absolute inset-0 flex items-center justify-between gap-2.5 px-3 cursor-pointer"
               >
-                <PanelFrame
-                title={panelTitle}
-                hasPrev={isSubPage ? true : currentTabIndex > 0}
-                hasNext={isSubPage ? false : currentTabIndex < availableTabs.length - 1}
-                onPrev={isSubPage ? () => goToTab("quick_control", -1) : handlePrevTab}
-                onNext={handleNextTab}
-                prevTooltip={isSubPage ? t("nav_back") : t("nav_prev")}
-                nextTooltip={t("nav_next")}
-                onToggleSettings={isSubPage ? undefined : handleToggleSettings}
-                isSettingsActive={currentTab === "settings"}
-                totalPages={isSubPage ? 0 : availableTabs.length}
-                currentPageIndex={isSubPage ? -1 : currentTabIndex}
-                onSelectPage={handleSelectTab}
-                hideDotsBg={Boolean(currentTab === "media_expanded")}
-                isMusicPage={currentTab === "media_expanded"}
-                battery={battery}
-                time={time}
-                weather={weather}
-                camActive={camActive}
-                micActive={micActive}
-              >
-                <div 
-                  className="relative w-full h-full min-w-0 overflow-hidden"
-                >
-                  <AnimatePresence custom={slideDirection}>                    {currentTab === "quick_control" && (
-                      <ControlCenterPanel
-                        slideDirection={slideDirection}
-                        powerMode={powerMode}
-                        onSetPowerMode={setPowerMode}
-                        displayLevel={displayLevel}
-                        onSetDisplayLevel={setDisplayLevel}
-                        brightnessMode={brightnessMode}
-                        onSetBrightnessMode={setBrightnessMode}
-                        soundLevel={soundLevel}
-                        onSetSoundLevel={setSoundLevel}
-                        wifiName={wifiName}
-                        networkPing={networkPing}
-                        btName={btName}
-                        isHotspotOn={isHotspotOn}
-                        onToggleHotspot={handleToggleHotspot}
-                        focusMode={focusMode}
-                        onSelectFocusMode={selectFocusMode}
-                        focusModeOptions={focusModeOptions}
-                        stashedFilesCount={stashedFiles.length}
-                        onGoToTab={goToTab}
-                        onClose={() => {
-                          setIsQuickControl(false);
-                          setControlCenterSubmenu(null);
-                        }}
-                        onSubmenuChange={setControlCenterSubmenu}
-                      />
-                    )}
-
-                    {currentTab === "clipboard" && (
-                      <motion.div
-                        key="clipboard"
-                        custom={slideDirection}
-                        variants={tabVariants}
-                        initial="enter"
-                        animate="center"
-                        exit="exit"
-                        className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
-                      >
-                        <ClipboardPanel
-                          items={clipboardHistory}
-                          onCopyItem={(item) => {
-                            writeText(item.text).catch(console.error);
-                            addClipboardItem(item.text);
-                          }}
-                          onDeleteItem={deleteClipboardItem}
-                          onClearAll={clearAllClipboard}
-                        />
-                      </motion.div>
-                    )}
-
-                    {currentTab === "todo" && (
-                      <motion.div
-                        key="todo"
-                        custom={slideDirection}
-                        variants={tabVariants}
-                        initial="enter"
-                        animate="center"
-                        exit="exit"
-                        className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
-                      >
-                        <TodoListPanel
-                          items={todoItems}
-                          onAddItem={addTodoItem}
-                          onToggleItem={toggleTodoItem}
-                          onDeleteItem={deleteTodoItem}
-                          onUpdateItem={updateTodoItem}
-                          onClearCompleted={clearCompletedTodos}
-                          onClearAll={clearAllTodos}
-                        />
-                      </motion.div>
-                    )}
-
-                    {currentTab === "drop_shelf" && (
-                      <motion.div
-                        key="drop_shelf"
-                        custom={slideDirection}
-                        variants={tabVariants}
-                        initial="enter"
-                        animate="center"
-                        exit="exit"
-                        className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
-                      >
-                        <DropShelfPanel
-                          files={stashedFiles}
-                          onRemoveFile={removeStashedFile}
-                          onRemoveFiles={removeStashedFiles}
-                          onClearAll={clearAllStashedFiles}
-                          onAddFiles={addStashedFiles}
-                          onFileTransferred={removeStashedFile}
-                          onFilesTransferred={removeStashedFiles}
-                          onDragStateChange={(active, paths) => {
-                            isShelfDraggingRef.current = active;
-                            if (active) {
-                              if (paths) {
-                                outgoingShelfPathsRef.current = new Set(paths.map((p) => p.toLowerCase()));
-                              }
-                              handleCloseImmediate();
-                            } else {
-                              setTimeout(() => {
-                                outgoingShelfPathsRef.current.clear();
-                              }, 500);
-                            }
-                          }}
-                        />
-                      </motion.div>
-                    )}
-
-                    {currentTab === "settings" && (
-                      <SettingsPanel
-                        slideDirection={slideDirection}
-                        optLanguage={optLanguage}
-                        onChangeLanguage={handleChangeLanguage}
-                        optAutoCompact={optAutoCompact}
-                        onToggleAutoCompact={async () => {
-                          const next = !optAutoCompact;
-                          setOptAutoCompact(next);
-                          if (store) await store.set("opt_auto_compact", next);
-                        }}
-                        isAutostart={isAutostart}
-                        onToggleAutostart={async () => {
-                          try {
-                            const next = !isAutostart;
-                            if (next) await enable();
-                            else await disable();
-                            setIsAutostart(next);
-                            if (store) {
-                              await store.set("autostart_initialized", true);
-                              await store.set("opt_autostart", next);
-                            }
-                          } catch {}
-                        }}
-                        showGreeting={showGreeting}
-                        onToggleGreeting={async () => {
-                          const next = !showGreeting;
-                          setShowGreeting(next);
-                          try {
-                            localStorage.setItem("island_show_greeting", String(next));
-                          } catch {}
-                          if (store) await store.set("show_greeting", next);
-                          if (next) {
-                            setTimeout(() => triggerGreeting(), 150);
-                          }
-                        }}
-                        optNotifTime={optNotifTime}
-                        onChangeNotifTime={async (sec) => {
-                          setOptNotifTime(sec);
-                          if (store) await store.set("opt_notif_time", sec);
-                        }}
-                        optCloseDelay={optCloseDelay}
-                        onChangeCloseDelay={async (sec) => {
-                          optCloseDelayRef.current = sec;
-                          setOptCloseDelay(sec);
-                          try {
-                            localStorage.setItem("island_close_delay", String(sec));
-                          } catch {}
-                          if (store) {
-                            await store.set("opt_close_delay", sec);
-                            await store.save();
-                          }
-                        }}
-                        optTheme={optTheme}
-                        onChangeTheme={async (theme) => {
-                          setOptTheme(theme);
-                          try {
-                            localStorage.setItem("island_theme", theme);
-                          } catch {}
-                          if (store) await store.set("opt_theme", theme);
-                        }}
-                        idleLayout={idleLayout}
-                        onChangeIdleLayout={async (nextLayout) => {
-                          setIdleLayout(nextLayout);
-                          try {
-                            localStorage.setItem("island_idle_layout", JSON.stringify(nextLayout));
-                          } catch {}
-                          if (store) await store.set("opt_idle_layout", nextLayout);
-                        }}
-                        idleRuntimeData={idleRuntimeData}
-                        optIdleSize={optIdleSize}
-                        onChangeIdleSize={async (size) => {
-                          setOptIdleSize(size);
-                          if (store) await store.set("opt_idle_size", size);
-                        }}
-                        optTabSize={optTabSize}
-                        onChangeTabSize={async (size) => {
-                          setOptTabSize(size);
-                          if (store) await store.set("opt_tab_size", size);
-                        }}
-                        optFontSize={optFontSize}
-                        onChangeFontSize={async (size) => {
-                          setOptFontSize(size);
-                          if (store) await store.set("opt_font_size", size);
-                          if (size === "large") {
-                            setOptIdleSize("large");
-                            setOptTabSize("large");
-                            if (store) {
-                              await store.set("opt_idle_size", "large");
-                              await store.set("opt_tab_size", "large");
-                            }
-                          } else if (size === "small") {
-                            setOptIdleSize("compact");
-                            setOptTabSize("compact");
-                            if (store) {
-                              await store.set("opt_idle_size", "compact");
-                              await store.set("opt_tab_size", "compact");
-                            }
-                          } else if (size === "default") {
-                            setOptIdleSize("default");
-                            setOptTabSize("default");
-                            if (store) {
-                              await store.set("opt_idle_size", "default");
-                              await store.set("opt_tab_size", "default");
-                            }
-                          }
-                        }}
-                        optEars={optEars}
-                        onToggleEars={async () => {
-                          const next = !optEars;
-                          setOptEars(next);
-                          if (store) await store.set("opt_ears", next);
-                        }}
-                        optWeatherAnim={optWeatherAnim}
-                        onToggleWeatherAnim={async () => {
-                          const next = !optWeatherAnim;
-                          setOptWeatherAnim(next);
-                          if (store) await store.set("opt_weather_anim", next);
-                        }}
-                        optPosition={optPosition}
-                        onChangePosition={async (pos) => {
-                          setOptPosition(pos);
-                          if (store) await store.set("opt_position", pos);
-                        }}
-                        optOpacity={optOpacity}
-                        onChangeOpacity={async (val) => {
-                          setOptOpacity(val);
-                          if (store) await store.set("opt_opacity", val);
-                        }}
-                        optAnimSpeed={optAnimSpeed}
-                        onChangeAnimSpeed={async (speed) => {
-                          setOptAnimSpeed(speed);
-                          if (store) await store.set("opt_anim_speed", speed);
-                        }}
-                        optVolume={optVolume}
-                        onToggleVolume={async () => {
-                          const next = !optVolume;
-                          setOptVolume(next);
-                          if (store) await store.set("opt_volume", next);
-                        }}
-                        optClipboard={optClipboard}
-                        onToggleClipboard={async () => {
-                          const next = !optClipboard;
-                          setOptClipboard(next);
-                          if (store) await store.set("opt_clipboard", next);
-                        }}
-                        optMedia={optMedia}
-                        onToggleMedia={async () => {
-                          const next = !optMedia;
-                          setOptMedia(next);
-                          if (store) await store.set("opt_media", next);
-                        }}
-                        onClose={() => setIsSettings(false)}
-                      />
-                    )}
-
-                    {currentTab === "volume_mixer" && (
-                      <VolumeMixerPanel
-                        slideDirection={slideDirection}
-                        soundLevel={soundLevel}
-                        onSetSoundLevel={setSoundLevel}
-                        audioSessions={audioSessions}
-                        onUpdateAudioSessions={setAudioSessions}
-                        onClose={() => setIsVolumeMixer(false)}
-                      />
-                    )}
-
-                    {currentTab === "media_expanded" && (
-                      <MediaExpandedPanel
-                        tabWidth={tabWidth}
-                        slideDirection={slideDirection}
-                        media={media!}
-                        isPlaying={isPlaying}
-                        onMediaControl={handleMediaControl}
-                        optAccent={optAccent}
-                        showLyrics={showLyrics}
-                        onToggleLyrics={() => {
-                          setShowLyrics((prev) => {
-                            const next = !prev;
-                            try {
-                              localStorage.setItem("island_show_lyrics", String(next));
-                            } catch {}
-                            return next;
-                          });
-                        }}
-                        lyricsData={lyricsData}
-                        isLyricsLoading={isLyricsLoading}
-                        mediaProgress={mediaProgress}
-                        onSetMediaProgress={setMediaProgress}
-                        isSeeking={isSeeking}
-                        onSetIsSeeking={setIsSeeking}
-                        seekValue={seekValue}
-                        onSetSeekValue={setSeekValue}
-                        soundLevel={soundLevel}
-                        onSetSoundLevel={setSoundLevel}
-                        isAdjustingVolumeRef={isAdjustingVolumeRef}
-                      />
-                    )}
-                  </AnimatePresence>
+                <div className="w-full flex items-center justify-between gap-2.5 overflow-hidden">
+                  <div className="w-8 h-8 bg-neutral-800/80 rounded-[9px] border border-white/10 shadow-sm flex items-center justify-center shrink-0 overflow-hidden relative">
+                    <MediaThumbnail media={media!} />
+                  </div>
+                  <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
+                    <ScrollingText text={media!.title} className="text-[13.5px] font-semibold text-white tracking-tight leading-tight" />
+                    <ScrollingText text={media!.artist} className="text-[11px] font-medium text-white/55 leading-tight mt-0.5" />
+                  </div>
+                  <div className="flex items-center shrink-0">
+                    <AudioVisualizer isPlaying={isPlaying} onToggle={() => handleMediaControl("toggle")} optAccent={optAccent} />
+                  </div>
                 </div>
-              </PanelFrame>
               </motion.div>
-            </motion.div>
-          )}
+            )}
 
-          {variant === "notif_greeting" && (
-            <GreetingNotification
-              notif={notif!}
-              isLightMode={isLightMode}
-              onClick={handleNotifClick}
-              isBot={isBot}
-            />
-          )}
+            {variant === "lyrics_idle" && (
+              <motion.div
+                key="lyrics_idle"
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{
+                  opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+                  scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+                }}
+                className="absolute inset-0 flex items-center justify-between cursor-pointer"
+              >
+                <IdleLyrics
+                  lyricsData={lyricsData}
+                  currentTime={mediaProgress.position}
+                  isPlaying={isPlaying}
+                  songTitle={media?.title}
+                  artist={media?.artist}
+                  media={media}
+                  optAccent={optAccent}
+                  optFontSize={optFontSize}
+                  isLoading={isLyricsLoading}
+                  onActiveLineChange={handleActiveIdleLyricChange}
+                  onTogglePlay={() => handleMediaControl("toggle")}
+                  onClick={() => {
+                    goToTab("media_expanded", 0);
+                  }}
+                />
+              </motion.div>
+            )}
 
-          {(variant === "notif" || variant === "notif_small" || variant === "notif_medium" || variant === "notif_volume" || variant === "notif_clipboard") && (
-            <motion.div
-              key="notif"
-              onClick={handleNotifClick}
-              initial={{ opacity: 0, y: isBot ? -8 : 8, scale: 0.92, filter: "blur(6px)" }}
-              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none", transform: "none" } }}
-              exit={{ opacity: 0, y: isBot ? 8 : -8, scale: 0.92, filter: "blur(6px)" }}
-              transition={iosSpring.snappy}
-              className={`absolute inset-0 flex items-center gap-2.5 px-4 cursor-pointer justify-center select-none`}
-            >
-              <div className="shrink-0 transition-transform hover:scale-105 active:scale-95">
-                <NotifIcon type={notif!.icon} />
-              </div>
-              <div className={(variant === "notif_small" || variant === "notif_medium" || variant === "notif_volume" || variant === "notif_clipboard") ? "flex items-center gap-2 overflow-hidden min-w-0" : "flex flex-col justify-center overflow-hidden min-w-0"}>
-                <ScrollingText text={notif!.title} className={`text-[13px] font-semibold tracking-tight leading-tight ${isLightMode ? 'text-[#1d1d1f]' : 'text-white'}`} />
-                {notif!.body && (
-                  <AnimatePresence mode="popLayout">
-                    <motion.div 
-                      key={notif!.body}
-                      initial={{ opacity: 0, y: 6, scale: 0.96 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                      transition={iosSpring.smooth}
-                      className="min-w-0 flex items-center"
-                    >
-                      <ScrollingText text={notif!.body} className={`text-[12.5px] leading-tight tracking-tight ${(variant === "notif_small" || variant === "notif_medium" || variant === "notif_volume" || variant === "notif_clipboard") ? 'text-ios-green font-semibold' : isLightMode ? 'text-neutral-500 font-medium' : 'text-ios-secondary font-medium'}`} />
-                    </motion.div>
-                  </AnimatePresence>
-                )}
-              </div>
-            </motion.div>
-          )}
+            {variant === "onboarding" && (
+              <motion.div
+                key="onboarding"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{
+                  opacity: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
+                  scale: smoothSpring,
+                }}
+                className="absolute inset-0 flex flex-col overflow-hidden"
+              >
+                <OnboardingCard isLightMode={isLightMode} onComplete={() => setIsOnboarding(false)} />
+              </motion.div>
+            )}
 
-          {variant === "notif_media" && (
-            <motion.div
-              key="notif_media"
-              onClick={handleNotifClick}
-              initial={{ opacity: 0, y: isBot ? -10 : 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: isBot ? 10 : -10, scale: 0.95 }}
-              transition={fadeTransition}
-              className={`absolute inset-0 flex flex-col justify-center px-4 cursor-pointer gap-2`}
-            >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <div className="w-8 h-8 bg-neutral-800 rounded-md flex items-center justify-center shrink-0 overflow-hidden relative">
-                  <MediaThumbnail media={media!} />
-                </div>
-                <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
-                  <ScrollingText text={media!.title} className="text-sm font-semibold leading-tight" />
-                  <ScrollingText text={media!.artist} className="text-[11px] text-neutral-400 leading-tight" />
-                </div>
-              </div>
-              <div className="h-[1px] w-full bg-white/10" />
-              <div className="flex items-center gap-2">
-                <NotifIcon type={notif!.icon} />
-                <div className="flex flex-col justify-center overflow-hidden">
-                  <span className="text-sm font-bold leading-tight truncate shrink-0">{notif!.title}</span>
-                  {notif!.body && <span className="text-sm truncate text-neutral-300 leading-snug">{notif!.body}</span>}
-                </div>
-              </div>
-            </motion.div>
-          )}
+            {isExpandedPanel && (
+              <motion.div
+                key="expanded_panel"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.16, ease: "easeOut" }}
+                className={`absolute inset-x-0 ${
+                  isBot ? "bottom-0" : "top-0"
+                } flex justify-center pointer-events-none`}
+              >
+                <motion.div
+                  style={{
+                    width: lastExpandedSizeRef.current.width,
+                    height: lastExpandedSizeRef.current.height,
+                  }}
+                  initial={{ scale: 0.94, y: isBot ? 8 : -8 }}
+                  animate={{
+                    scale: 1,
+                    y: 0,
+                    transitionEnd: { transform: "none" },
+                  }}
+                  exit={{ scale: 0.93, y: isBot ? 6 : -6 }}
+                  transition={{
+                    scale: smoothSpring,
+                    y: smoothSpring,
+                  }}
+                  className={`flex flex-col overflow-hidden pointer-events-auto shrink-0 gpu-accelerated ${
+                    isBot ? "origin-bottom" : "origin-top"
+                  }`}
+                >
+                  <PanelFrame
+                    title={panelTitle}
+                    hasPrev={isSubPage ? true : currentTabIndex > 0}
+                    hasNext={isSubPage ? false : currentTabIndex < availableTabs.length - 1}
+                    onPrev={isSubPage ? () => goToTab("quick_control", -1) : handlePrevTab}
+                    onNext={handleNextTab}
+                    prevTooltip={isSubPage ? t("nav_back") : t("nav_prev")}
+                    nextTooltip={t("nav_next")}
+                    onToggleSettings={isSubPage ? undefined : handleToggleSettings}
+                    isSettingsActive={currentTab === "settings"}
+                    hideTitleBar={currentTab === "mini_note" && isNoteEditing}
+                    totalPages={isSubPage || (currentTab === "mini_note" && isNoteEditing) ? 0 : availableTabs.length}
+                    currentPageIndex={isSubPage ? -1 : currentTabIndex}
+                    onSelectPage={handleSelectTab}
+                    hideDotsBg={Boolean(currentTab === "media_expanded")}
+                    isMusicPage={currentTab === "media_expanded"}
+                    tabs={availableTabs}
+                    optLanguage={optLanguage}
+                    battery={battery}
+                    time={time}
+                    weather={weather}
+                    camActive={camActive}
+                    micActive={micActive}
+                  >
+                    <div className="relative w-full h-full min-w-0 overflow-hidden">
+                      <AnimatePresence custom={slideDirection}>
+                        {currentTab === "quick_control" && (
+                          <ControlCenterPanel
+                            slideDirection={slideDirection}
+                            powerMode={powerMode}
+                            onSetPowerMode={setPowerMode}
+                            displayLevel={displayLevel}
+                            onSetDisplayLevel={setDisplayLevel}
+                            brightnessMode={brightnessMode}
+                            onSetBrightnessMode={setBrightnessMode}
+                            soundLevel={soundLevel}
+                            onSetSoundLevel={setSoundLevel}
+                            wifiName={wifiName}
+                            networkPing={networkPing}
+                            btName={btName}
+                            isHotspotOn={isHotspotOn}
+                            onToggleHotspot={handleToggleHotspot}
+                            focusMode={focusMode}
+                            onSelectFocusMode={selectFocusMode}
+                            focusModeOptions={focusModeOptions}
+                            stashedFilesCount={stashedFiles.length}
+                            onGoToTab={goToTab}
+                            onClose={() => {
+                              setIsQuickControl(false);
+                              setControlCenterSubmenu(null);
+                            }}
+                            onSubmenuChange={setControlCenterSubmenu}
+                          />
+                        )}
 
-          {variant === "notif_small_media" && (
-            <motion.div
-              key="notif_small_media"
-              onClick={handleNotifClick}
-              initial={{ opacity: 0, y: isBot ? -10 : 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: isBot ? 10 : -10, scale: 0.95 }}
-              transition={fadeTransition}
-              className={`absolute inset-0 flex flex-col justify-center px-4 cursor-pointer gap-2`}
-            >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <div className="w-8 h-8 bg-neutral-800 rounded-md flex items-center justify-center shrink-0 overflow-hidden relative">
-                  <MediaThumbnail media={media!} />
+                        {currentTab === "clipboard" && (
+                          <motion.div
+                            key="clipboard"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <ClipboardPanel
+                              items={clipboardHistory}
+                              onCopyItem={(item) => {
+                                writeText(item.text).catch(console.error);
+                                addClipboardItem(item.text);
+                              }}
+                              onTogglePinItem={togglePinClipboardItem}
+                              onDeleteItem={deleteClipboardItem}
+                              onClearAll={clearAllClipboard}
+                            />
+                          </motion.div>
+                        )}
+
+                        {currentTab === "todo" && (
+                          <motion.div
+                            key="todo"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <TodoListPanel
+                              items={todoItems}
+                              optLanguage={optLanguage}
+                              onAddItem={addTodoItem}
+                              onToggleItem={toggleTodoItem}
+                              onDeleteItem={deleteTodoItem}
+                              onUpdateItem={updateTodoItem}
+                              onUpdateDeadline={updateTodoDeadline}
+                              onStartPomodoroForTask={(task) => {
+                                pomodoro.startFocusOnTask(task.id);
+                                goToTab("pomodoro", 1);
+                              }}
+                              onClearCompleted={clearCompletedTodos}
+                              onClearAll={clearAllTodos}
+                              onHeightChange={setTodoDynamicHeight}
+                            />
+                          </motion.div>
+                        )}
+
+                        {currentTab === "pomodoro" && (
+                          <motion.div
+                            key="pomodoro"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <PomodoroPanel
+                              mode={pomodoro.mode}
+                              remainingSeconds={pomodoro.remainingSec}
+                              totalSeconds={pomodoro.totalSec}
+                              isRunning={pomodoro.isRunning}
+                              currentCycleSession={pomodoro.cycleSession}
+                              settings={pomodoro.settings}
+                              dailyStats={pomodoro.dailyStats}
+                              focusedTaskId={pomodoro.focusedTaskId}
+                              todoItems={todoItems}
+                              onSelectMode={pomodoro.handleSelectMode}
+                              onToggleRun={pomodoro.handleToggleRunning}
+                              onResetSession={pomodoro.handleReset}
+                              onSkipSession={pomodoro.handleSkip}
+                              onSelectFocusedTask={pomodoro.setFocusedTaskId}
+                              onUpdateSettings={pomodoro.handleUpdateSettings}
+                            />
+                          </motion.div>
+                        )}
+
+                        {currentTab === "drop_shelf" && (
+                          <motion.div
+                            key="drop_shelf"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <DropShelfPanel
+                              files={stashedFiles}
+                              onRemoveFile={removeStashedFile}
+                              onRemoveFiles={removeStashedFiles}
+                              onClearAll={clearAllStashedFiles}
+                              onAddFiles={addStashedFiles}
+                              onFileTransferred={removeStashedFile}
+                              onFilesTransferred={removeStashedFiles}
+                              onDragStateChange={(active, paths) => {
+                                isShelfDraggingRef.current = active;
+                                if (active) {
+                                  if (paths) {
+                                    outgoingShelfPathsRef.current = new Set(paths.map((p) => p.toLowerCase()));
+                                  }
+                                  handleCloseImmediate();
+                                } else {
+                                  setTimeout(() => {
+                                    outgoingShelfPathsRef.current.clear();
+                                  }, 500);
+                                }
+                              }}
+                            />
+                          </motion.div>
+                        )}
+
+                        {currentTab === "sys_monitor" && (
+                          <motion.div
+                            key="sys_monitor"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <SystemMonitorPanel ping={networkPing} wifiSsid={wifiName} />
+                          </motion.div>
+                        )}
+
+                        {currentTab === "mini_note" && (
+                          <motion.div
+                            key="mini_note"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <MiniNotePanel optLanguage={optLanguage} onEditingChange={setIsNoteEditing} />
+                          </motion.div>
+                        )}
+
+                        {currentTab === "settings" && (
+                          <SettingsPanel
+                            slideDirection={slideDirection}
+                            optLanguage={optLanguage}
+                            onChangeLanguage={handleChangeLanguage}
+                            optAutoCompact={optAutoCompact}
+                            onToggleAutoCompact={async () => {
+                              const next = !optAutoCompact;
+                              setOptAutoCompact(next);
+                              if (store) await store.set("opt_auto_compact", next);
+                            }}
+                            isAutostart={isAutostart}
+                            onToggleAutostart={async () => {
+                              try {
+                                const next = !isAutostart;
+                                if (next) await enable();
+                                else await disable();
+                                setIsAutostart(next);
+                                if (store) {
+                                  await store.set("autostart_initialized", true);
+                                  await store.set("opt_autostart", next);
+                                }
+                              } catch {}
+                            }}
+                            showGreeting={showGreeting}
+                            onToggleGreeting={async () => {
+                              const next = !showGreeting;
+                              setShowGreeting(next);
+                              try {
+                                localStorage.setItem("island_show_greeting", String(next));
+                              } catch {}
+                              if (store) await store.set("show_greeting", next);
+                              if (next) {
+                                setTimeout(() => triggerGreeting(), 150);
+                              }
+                            }}
+                            optNotifTime={optNotifTime}
+                            onChangeNotifTime={async (sec) => {
+                              setOptNotifTime(sec);
+                              if (store) await store.set("opt_notif_time", sec);
+                            }}
+                            onTestNotification={() => {
+                              handleCloseImmediate();
+                              window.setTimeout(() => {
+                                const isId = getLanguage() === "id";
+                                const samples: NotifPayload[] = isId
+                                  ? [
+                                      {
+                                        title: "Dukung Pengembang · Gili",
+                                        body: "Jangan lupa support dev yaa! Traktir kopi biar makin semangat update fitur keren ☕",
+                                        subtitle: "Traktir Dev Kopi ☕",
+                                        headline: "Suka pakai Gili Island?",
+                                        secondaryText: "Dukungan dan secangkir kopi darimu sangat berarti untuk kelanjutan projek ini! ❤️",
+                                        icon: "coffee",
+                                      },
+                                      {
+                                        title: "Support Developer · Gili",
+                                        body: "Yuk dukung dev dengan traktir secangkir kopi! Bikin coding malam-malam makin kenceng 🚀",
+                                        subtitle: "Beliin Dev Kopi ☕",
+                                        headline: "Traktir Dev Kopi",
+                                        secondaryText: "Terima kasih banyak sudah menggunakan dan mendukung Gili Island!",
+                                        icon: "coffee",
+                                      },
+                                      {
+                                        title: "Traktir Kopi Dev ☕",
+                                        body: "Hai! Kalau kamu suka Gili, jangan lupa traktir dev kopi ya. Bikin hari dev makin cerah ✨",
+                                        subtitle: "Support Dev · Gili Island",
+                                        headline: "Yuk Traktir Dev Kopi!",
+                                        secondaryText: "Setiap cangkir kopi bikin dev makin rajin nambahin fitur dan perbaiki bug!",
+                                        icon: "heart",
+                                      },
+                                    ]
+                                  : [
+                                      {
+                                        title: "Support Developer · Gili",
+                                        body: "Don't forget to support the dev! Buy a coffee to keep awesome new updates coming ☕",
+                                        subtitle: "Buy Dev a Coffee ☕",
+                                        headline: "Enjoying Gili Island?",
+                                        secondaryText: "Your support and a cup of coffee mean a lot to keep this project going! ❤️",
+                                        icon: "coffee",
+                                      },
+                                      {
+                                        title: "Support Developer · Gili",
+                                        body: "Support the dev with a cup of coffee! Keeps late-night coding sessions fueled 🚀",
+                                        subtitle: "Buy Dev a Coffee ☕",
+                                        headline: "Treat Dev to Coffee",
+                                        secondaryText: "Thank you so much for using and supporting Gili Island!",
+                                        icon: "coffee",
+                                      },
+                                      {
+                                        title: "Treat Dev to Coffee ☕",
+                                        body: "Hey! If you enjoy Gili, consider treating the dev to coffee. It truly brightens my day ✨",
+                                        subtitle: "Support Dev · Gili Island",
+                                        headline: "Buy Dev a Coffee!",
+                                        secondaryText: "Every cup of coffee helps fuel new features and swift bug fixes!",
+                                        icon: "heart",
+                                      },
+                                    ];
+                                const randomSample = samples[Math.floor(Math.random() * samples.length)];
+                                playNotificationSound();
+                                showNotif(randomSample);
+                              }, 400);
+                            }}
+                            optCloseDelay={optCloseDelay}
+                            onChangeCloseDelay={async (sec) => {
+                              optCloseDelayRef.current = sec;
+                              setOptCloseDelay(sec);
+                              try {
+                                localStorage.setItem("island_close_delay", String(sec));
+                              } catch {}
+                              if (store) {
+                                await store.set("opt_close_delay", sec);
+                                await store.save();
+                              }
+                            }}
+                            optTheme={optTheme}
+                            onChangeTheme={async (theme) => {
+                              setOptTheme(theme);
+                              try {
+                                localStorage.setItem("island_theme", theme);
+                              } catch {}
+                              if (store) await store.set("opt_theme", theme);
+                            }}
+                            idleLayout={idleLayout}
+                            onChangeIdleLayout={async (nextLayout) => {
+                              setIdleLayout(nextLayout);
+                              try {
+                                localStorage.setItem("island_idle_layout", JSON.stringify(nextLayout));
+                              } catch {}
+                              if (store) await store.set("opt_idle_layout", nextLayout);
+                            }}
+                            idleRuntimeData={idleRuntimeData}
+                            optIdleSize={optIdleSize}
+                            onChangeIdleSize={async (size) => {
+                              setOptIdleSize(size);
+                              if (store) await store.set("opt_idle_size", size);
+                            }}
+                            optTabSize={optTabSize}
+                            onChangeTabSize={async (size) => {
+                              setOptTabSize(size);
+                              if (store) await store.set("opt_tab_size", size);
+                            }}
+                            optFontSize={optFontSize}
+                            onChangeFontSize={async (size) => {
+                              setOptFontSize(size);
+                              if (store) await store.set("opt_font_size", size);
+                              if (size === "large") {
+                                setOptIdleSize("large");
+                                setOptTabSize("large");
+                                if (store) {
+                                  await store.set("opt_idle_size", "large");
+                                  await store.set("opt_tab_size", "large");
+                                }
+                              } else if (size === "small") {
+                                setOptIdleSize("compact");
+                                setOptTabSize("compact");
+                                if (store) {
+                                  await store.set("opt_idle_size", "compact");
+                                  await store.set("opt_tab_size", "compact");
+                                }
+                              } else if (size === "default") {
+                                setOptIdleSize("default");
+                                setOptTabSize("default");
+                                if (store) {
+                                  await store.set("opt_idle_size", "default");
+                                  await store.set("opt_tab_size", "default");
+                                }
+                              }
+                            }}
+                            optEars={optEars}
+                            onToggleEars={async () => {
+                              const next = !optEars;
+                              setOptEars(next);
+                              if (store) await store.set("opt_ears", next);
+                            }}
+                            optWeatherAnim={optWeatherAnim}
+                            onToggleWeatherAnim={async () => {
+                              const next = !optWeatherAnim;
+                              setOptWeatherAnim(next);
+                              if (store) await store.set("opt_weather_anim", next);
+                            }}
+                            optPosition={optPosition}
+                            onChangePosition={async (pos) => {
+                              setOptPosition(pos);
+                              if (store) await store.set("opt_position", pos);
+                            }}
+                            optOpacity={optOpacity}
+                            onChangeOpacity={async (val) => {
+                              setOptOpacity(val);
+                              if (store) await store.set("opt_opacity", val);
+                            }}
+                            optAnimSpeed={optAnimSpeed}
+                            onChangeAnimSpeed={async (speed) => {
+                              setOptAnimSpeed(speed);
+                              if (store) await store.set("opt_anim_speed", speed);
+                            }}
+                            optVolume={optVolume}
+                            onToggleVolume={async () => {
+                              const next = !optVolume;
+                              setOptVolume(next);
+                              if (store) await store.set("opt_volume", next);
+                            }}
+                            optClipboard={optClipboard}
+                            onToggleClipboard={async () => {
+                              const next = !optClipboard;
+                              setOptClipboard(next);
+                              if (store) await store.set("opt_clipboard", next);
+                            }}
+                            optMedia={optMedia}
+                            onToggleMedia={async () => {
+                              const next = !optMedia;
+                              setOptMedia(next);
+                              if (store) await store.set("opt_media", next);
+                            }}
+                            optSoundFx={optSoundFx}
+                            onToggleSoundFx={() => {
+                              const next = !optSoundFx;
+                              setOptSoundFx(next);
+                              setSoundEffectsEnabled(next);
+                            }}
+                            onClose={() => setIsSettings(false)}
+                          />
+                        )}
+
+                        {currentTab === "volume_mixer" && (
+                          <VolumeMixerPanel
+                            slideDirection={slideDirection}
+                            soundLevel={soundLevel}
+                            onSetSoundLevel={setSoundLevel}
+                            audioSessions={audioSessions}
+                            onUpdateAudioSessions={setAudioSessions}
+                            onClose={() => setIsVolumeMixer(false)}
+                          />
+                        )}
+
+                        {currentTab === "media_expanded" && (
+                          <MediaExpandedPanel
+                            tabWidth={tabWidth}
+                            slideDirection={slideDirection}
+                            media={media || (lastMediaPayloadRef.current?.title ? lastMediaPayloadRef.current : null)}
+                            isPlaying={Boolean(media && isPlaying)}
+                            onMediaControl={handleMediaControl}
+                            optAccent={optAccent}
+                            showLyrics={showLyrics}
+                            onToggleLyrics={() => {
+                              setShowLyrics((prev) => {
+                                const next = !prev;
+                                try {
+                                  localStorage.setItem("island_show_lyrics", String(next));
+                                } catch {}
+                                return next;
+                              });
+                            }}
+                            onRefreshLyrics={handleRefreshLyrics}
+                            lyricsData={lyricsData}
+                            isLyricsLoading={isLyricsLoading}
+                            mediaProgress={mediaProgress}
+                            onSetMediaProgress={setMediaProgress}
+                            isSeeking={isSeeking}
+                            onSetIsSeeking={setIsSeeking}
+                            seekValue={seekValue}
+                            onSetSeekValue={setSeekValue}
+                            soundLevel={soundLevel}
+                            onSetSoundLevel={setSoundLevel}
+                            isAdjustingVolumeRef={isAdjustingVolumeRef}
+                            queueHistory={queueHistory}
+                          />
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </PanelFrame>
+                </motion.div>
+              </motion.div>
+            )}
+
+            {variant === "notif_greeting" && notif && (
+              <GreetingNotification
+                key="notif_greeting"
+                notif={notif}
+                isLightMode={isLightMode}
+                onClick={handleNotifClick}
+                isBot={isBot}
+              />
+            )}
+
+            {variant === "notif_volume" && notif && (
+              <UniformHudPill
+                key="notif_volume"
+                notif={notif}
+                isLightMode={isLightMode}
+                isBot={isBot}
+                onClick={handleNotifClick}
+              />
+            )}
+
+            {(variant === "notif" || variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") && notif && (
+              <motion.div
+                key="notif"
+                onClick={handleNotifClick}
+                initial={{ opacity: 0, y: isBot ? -8 : 8, scale: 0.92, filter: "blur(6px)" }}
+                animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none", transform: "none" } }}
+                exit={{ opacity: 0, y: isBot ? 8 : -8, scale: 0.92, filter: "blur(6px)" }}
+                transition={iosSpring.snappy}
+                className="absolute inset-0 flex items-center gap-2.5 px-3.5 cursor-pointer justify-center select-none"
+              >
+                <div className="shrink-0 transition-transform hover:scale-105 active:scale-95">
+                  <NotifIcon type={notif.icon} />
                 </div>
-                <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
-                  <ScrollingText text={media!.title} className="text-sm font-semibold leading-tight" />
-                  <ScrollingText text={media!.artist} className="text-[11px] text-neutral-400 leading-tight" />
+                <div className={(variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") ? "flex items-center gap-2 overflow-hidden min-w-0" : "flex flex-col justify-center overflow-hidden min-w-0 flex-1"}>
+                  <ScrollingText text={notif.title} className={`text-[13px] font-semibold tracking-tight leading-tight ${(variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") ? "shrink-0" : "w-full"} ${isLightMode ? 'text-[#1d1d1f]' : 'text-white'}`} />
+                  {notif.body && (
+                    <AnimatePresence mode="popLayout">
+                      <motion.div 
+                        key={notif.body}
+                        initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                        transition={iosSpring.smooth}
+                        className="min-w-0 flex items-center w-full"
+                      >
+                        {(variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") ? (
+                          <ScrollingText text={notif.body} className="text-[12.5px] leading-tight tracking-tight text-ios-green font-semibold shrink-0" />
+                        ) : isMultilineBody ? (
+                          <p className={`text-[12px] leading-snug tracking-tight line-clamp-2 break-words font-medium ${isLightMode ? 'text-neutral-600' : 'text-ios-secondary'}`}>
+                            {notif.body}
+                          </p>
+                        ) : (
+                          <ScrollingText text={notif.body} className={`text-[12.5px] leading-tight tracking-tight ${isLightMode ? 'text-neutral-500 font-medium' : 'text-ios-secondary font-medium'}`} />
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                  )}
                 </div>
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <NotifIcon type={notif!.icon} />
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <span className="text-sm font-bold leading-tight truncate shrink-0">{notif!.title}</span>
-                  {notif!.body && <span className="text-sm truncate text-green-400 font-semibold">{notif!.body}</span>}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </motion.div>
     </div>
   );
-};
+}

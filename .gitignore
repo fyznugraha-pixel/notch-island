@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Rust build artifacts
+target/
+wmi_test/target/
+
+# Design drafts
+UI Redesign/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

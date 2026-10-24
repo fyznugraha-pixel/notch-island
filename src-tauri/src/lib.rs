@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod privacy;
 mod connectivity;
+mod system_monitor;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -1344,6 +1345,114 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
     false
 }
 
+fn detect_browser_web_source(current_title: &str, current_artist: &str) -> Option<String> {
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, IsIconic, IsWindowVisible};
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+
+    struct WindowSearch<'a> {
+        track_title: &'a str,
+        track_artist: &'a str,
+        found: Option<String>,
+    }
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam.0 as *mut WindowSearch);
+        if !IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() {
+            return BOOL(1);
+        }
+        let mut buf = [0u16; 512];
+        let len = GetWindowTextW(hwnd, &mut buf);
+        if len > 0 {
+            let win_title_raw = String::from_utf16_lossy(&buf[..len as usize]);
+            let win_title = win_title_raw.to_lowercase();
+
+            // 1. Direct "spotify" check in window title (e.g. Spotify - Web Player, Spotify - Search)
+            if win_title.contains("spotify") {
+                ctx.found = Some("Spotify".to_string());
+                return BOOL(0);
+            }
+
+            // 2. Spotify Web playback signature: "{Title} • {Artist} - {Browser}"
+            let has_bullet = win_title_raw.contains('•') || win_title_raw.contains("\u{2022}");
+            if has_bullet && !win_title.contains("youtube") && !win_title.contains("soundcloud") {
+                let t_clean = ctx.track_title.trim().to_lowercase();
+                let a_clean = ctx.track_artist.trim().to_lowercase();
+
+                let matches_title = !t_clean.is_empty() && (
+                    win_title.contains(&t_clean) ||
+                    t_clean.split('(').next().map(|s| s.trim()).filter(|s| s.len() >= 3).map_or(false, |s| win_title.contains(s)) ||
+                    t_clean.split('-').next().map(|s| s.trim()).filter(|s| s.len() >= 3).map_or(false, |s| win_title.contains(s))
+                );
+                let matches_artist = !a_clean.is_empty() && (
+                    win_title.contains(&a_clean) ||
+                    a_clean.split(',').next().map(|s| s.trim()).filter(|s| s.len() >= 3).map_or(false, |s| win_title.contains(s)) ||
+                    a_clean.split('&').next().map(|s| s.trim()).filter(|s| s.len() >= 3).map_or(false, |s| win_title.contains(s))
+                );
+
+                if matches_title || matches_artist {
+                    ctx.found = Some("Spotify".to_string());
+                    return BOOL(0);
+                }
+            }
+
+            if win_title.contains("youtube music") {
+                ctx.found = Some("YouTube Music".to_string());
+                return BOOL(0);
+            } else if win_title.contains("youtube") {
+                ctx.found = Some("YouTube".to_string());
+                return BOOL(0);
+            } else if win_title.contains("soundcloud") {
+                ctx.found = Some("SoundCloud".to_string());
+                return BOOL(0);
+            } else if win_title.contains("bitchord") {
+                ctx.found = Some("BitChord".to_string());
+                return BOOL(0);
+            } else if win_title.contains("bandcamp") {
+                ctx.found = Some("Bandcamp".to_string());
+                return BOOL(0);
+            } else if win_title.contains("qobuz") {
+                ctx.found = Some("Qobuz".to_string());
+                return BOOL(0);
+            } else if win_title.contains("tidal") {
+                ctx.found = Some("Tidal".to_string());
+                return BOOL(0);
+            } else if win_title.contains("deezer") {
+                ctx.found = Some("Deezer".to_string());
+                return BOOL(0);
+            } else if win_title.contains("apple music") {
+                ctx.found = Some("Apple Music".to_string());
+                return BOOL(0);
+            } else if win_title.contains("amazon music") {
+                ctx.found = Some("Amazon Music".to_string());
+                return BOOL(0);
+            } else if win_title.contains("jellyfin") {
+                ctx.found = Some("Jellyfin".to_string());
+                return BOOL(0);
+            } else if win_title.contains("plex") {
+                ctx.found = Some("Plex".to_string());
+                return BOOL(0);
+            } else if win_title.contains("trello") {
+                ctx.found = Some("Trello".to_string());
+                return BOOL(0);
+            } else if win_title.contains("netflix") {
+                ctx.found = Some("Netflix".to_string());
+                return BOOL(0);
+            }
+        }
+        BOOL(1)
+    }
+
+    let mut search = WindowSearch {
+        track_title: current_title,
+        track_artist: current_artist,
+        found: None,
+    };
+    unsafe {
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut search as *mut WindowSearch as isize));
+    }
+    search.found
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(windows)]
@@ -1420,7 +1529,9 @@ pub fn run() {
             connectivity::connect_wifi_with_password,
             connectivity::disconnect_wifi,
             connectivity::get_bluetooth_status,
-            connectivity::toggle_bluetooth
+            connectivity::toggle_bluetooth,
+            system_monitor::get_system_metrics,
+            system_monitor::clear_temp_files
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -1694,6 +1805,8 @@ pub fn run() {
                 let mut last_playback_type = 1;
                 let mut last_is_browser = false;
                 let mut last_app_id: Option<String> = None;
+                let mut last_web_source: Option<String> = None;
+                let mut cached_browser_web_source: Option<(String, String)> = None;
                 let mut last_thumbnail: Option<String> = None;
                 let mut last_emitted_thumbnail: Option<String> = None;
                 let mut prev_track_thumbnail: Option<String> = None;
@@ -1971,6 +2084,7 @@ pub fn run() {
                     let mut duration_sec = 0.0;
                     let mut is_browser_session = false;
                     let mut current_app_id: Option<String> = None;
+                    let mut current_web_source: Option<String> = None;
                     
                     if let Some(manager) = &smtc_manager {
                         let mut active_session = None;
@@ -2073,9 +2187,55 @@ pub fn run() {
                                     artist = artist.trim()[..new_len].trim().to_string();
                                 }
                                 // Strip YouTube suffixes
-                                for suffix in [" - YouTube Music", " - YouTube", " | YouTube Music", " | YouTube"] {
+                                for suffix in [" - YouTube Music", " | YouTube Music"] {
                                     if title.ends_with(suffix) {
                                         title = title[..title.len() - suffix.len()].trim().to_string();
+                                        current_web_source = Some("YouTube Music".to_string());
+                                    }
+                                }
+                                for suffix in [" - YouTube", " | YouTube"] {
+                                    if title.ends_with(suffix) {
+                                        title = title[..title.len() - suffix.len()].trim().to_string();
+                                        if current_web_source.is_none() {
+                                            current_web_source = Some("YouTube".to_string());
+                                        }
+                                    }
+                                }
+                                for suffix in [" - SoundCloud", " | SoundCloud", " on SoundCloud"] {
+                                    if title.ends_with(suffix) {
+                                        title = title[..title.len() - suffix.len()].trim().to_string();
+                                        current_web_source = Some("SoundCloud".to_string());
+                                    }
+                                }
+                                for suffix in [" - Spotify", " | Spotify", " • Spotify"] {
+                                    if title.ends_with(suffix) {
+                                        title = title[..title.len() - suffix.len()].trim().to_string();
+                                        current_web_source = Some("Spotify".to_string());
+                                    }
+                                    if artist.ends_with(suffix) {
+                                        artist = artist[..artist.len() - suffix.len()].trim().to_string();
+                                        current_web_source = Some("Spotify".to_string());
+                                    }
+                                }
+
+                                if is_browser_session && title.contains(" • ") {
+                                    if let Some((s_title, s_artist)) = title.split_once(" • ") {
+                                        let s_t = s_title.trim().to_string();
+                                        let s_a = s_artist.trim().to_string();
+                                        let a_lower = artist.trim().to_lowercase();
+                                        let is_generic_artist = a_lower.is_empty() 
+                                            || a_lower == "google chrome" 
+                                            || a_lower == "microsoft edge" 
+                                            || a_lower == "firefox" 
+                                            || a_lower == "brave browser"
+                                            || a_lower == "brave";
+                                        if is_generic_artist {
+                                            title = s_t;
+                                            artist = s_a;
+                                        }
+                                        if current_web_source.is_none() {
+                                            current_web_source = Some("Spotify".to_string());
+                                        }
                                     }
                                 }
 
@@ -2209,6 +2369,52 @@ pub fn run() {
                                         }
                                     }
                                 }
+
+                                if current_web_source.is_none() && is_browser_session {
+                                    let a_lower = artist.trim().to_lowercase();
+                                    let t_lower = title.trim().to_lowercase();
+                                    if a_lower == "youtube music" || t_lower.contains("youtube music") {
+                                        current_web_source = Some("YouTube Music".to_string());
+                                    } else if a_lower == "youtube" || t_lower.contains("youtube") {
+                                        current_web_source = Some("YouTube".to_string());
+                                    } else if a_lower == "soundcloud" || t_lower.contains("soundcloud") {
+                                        current_web_source = Some("SoundCloud".to_string());
+                                    } else if a_lower == "spotify" || t_lower.contains("spotify") {
+                                        current_web_source = Some("Spotify".to_string());
+                                    } else if a_lower == "bitchord" || t_lower.contains("bitchord") {
+                                        current_web_source = Some("BitChord".to_string());
+                                    } else if a_lower == "bandcamp" || t_lower.contains("bandcamp") {
+                                        current_web_source = Some("Bandcamp".to_string());
+                                    } else if a_lower == "qobuz" || t_lower.contains("qobuz") {
+                                        current_web_source = Some("Qobuz".to_string());
+                                    } else if a_lower == "tidal" || t_lower.contains("tidal") {
+                                        current_web_source = Some("Tidal".to_string());
+                                    } else if a_lower == "deezer" || t_lower.contains("deezer") {
+                                        current_web_source = Some("Deezer".to_string());
+                                    } else if a_lower == "jellyfin" || t_lower.contains("jellyfin") {
+                                        current_web_source = Some("Jellyfin".to_string());
+                                    } else if a_lower == "plex" || t_lower.contains("plex") {
+                                        current_web_source = Some("Plex".to_string());
+                                    } else if a_lower == "netflix" || t_lower.contains("netflix") {
+                                        current_web_source = Some("Netflix".to_string());
+                                    } else {
+                                        current_web_source = detect_browser_web_source(&title, &artist);
+                                    }
+                                }
+
+                                if let Some(ref ws) = current_web_source {
+                                    if is_browser_session {
+                                        if let Some(ref aid) = current_app_id {
+                                            cached_browser_web_source = Some((aid.to_lowercase(), ws.clone()));
+                                        }
+                                    }
+                                } else if is_browser_session {
+                                    if let (Some(ref aid), Some((ref cached_aid, ref cached_ws))) = (&current_app_id, &cached_browser_web_source) {
+                                        if aid.to_lowercase() == *cached_aid {
+                                            current_web_source = Some(cached_ws.clone());
+                                        }
+                                    }
+                                }
                                 
                                 let cache_key = format!("{} - {}", artist.trim().to_lowercase(), title.trim().to_lowercase());
                                 
@@ -2339,7 +2545,7 @@ pub fn run() {
                     }
 
                     // Check for changes (whether we have a session or not)
-                    if title != last_title || artist != last_artist || is_playing != last_is_playing || playback_type != last_playback_type || is_browser_session != last_is_browser || current_app_id != last_app_id || last_thumbnail != last_emitted_thumbnail {
+                    if title != last_title || artist != last_artist || is_playing != last_is_playing || playback_type != last_playback_type || is_browser_session != last_is_browser || current_app_id != last_app_id || current_web_source != last_web_source || last_thumbnail != last_emitted_thumbnail {
                         last_emitted_thumbnail = last_thumbnail.clone();
                         last_title = title.clone();
                         last_artist = artist.clone();
@@ -2347,6 +2553,7 @@ pub fn run() {
                         last_playback_type = playback_type;
                         last_is_browser = is_browser_session;
                         last_app_id = current_app_id.clone();
+                        last_web_source = current_web_source.clone();
                         
                         #[derive(serde::Serialize, Clone)]
                         struct MediaPayload {
@@ -2359,6 +2566,7 @@ pub fn run() {
                             duration: f64,
                             is_browser: bool,
                             app_id: Option<String>,
+                            web_source: Option<String>,
                         }
                         
                         let _ = app_handle.emit("media-update", MediaPayload { 
@@ -2371,7 +2579,12 @@ pub fn run() {
                             duration: duration_sec,
                             is_browser: last_is_browser,
                             app_id: current_app_id.clone(),
+                            web_source: last_web_source.clone(),
                         });
+                    }
+
+                    if last_title.is_empty() {
+                        cached_browser_web_source = None;
                     }
                     
                     let now = std::time::Instant::now();

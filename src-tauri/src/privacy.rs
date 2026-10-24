@@ -164,6 +164,47 @@ pub struct PrivacyEntryDebug {
     pub match_valid: bool,
 }
 
+pub fn has_any_registry_candidate(capability: &str) -> bool {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    let hives = [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE];
+    let path = format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\{}",
+        capability
+    );
+
+    for &hive in &hives {
+        let root = RegKey::predef(hive);
+        let base_key = match root.open_subkey_with_flags(&path, KEY_READ) {
+            Ok(k) => k,
+            Err(_) => continue,
+        };
+
+        for sub_name in base_key.enum_keys().filter_map(Result::ok) {
+            if sub_name == "NonPackaged" {
+                continue;
+            }
+            if let Ok(sub_key) = base_key.open_subkey_with_flags(&sub_name, KEY_READ) {
+                if is_sub_key_candidate(&sub_key).is_some() {
+                    return true;
+                }
+            }
+        }
+
+        if let Ok(non_packaged) = base_key.open_subkey_with_flags("NonPackaged", KEY_READ) {
+            for sub_name in non_packaged.enum_keys().filter_map(Result::ok) {
+                if let Ok(sub_key) = non_packaged.open_subkey_with_flags(&sub_name, KEY_READ) {
+                    if is_sub_key_candidate(&sub_key).is_some() {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
 pub fn check_privacy_in_use_with_procs(
     capability: &str,
     running: &[RunningProcessEntry],
@@ -537,12 +578,31 @@ pub fn start_privacy_monitor(app_handle: AppHandle) {
         let mut last_emit = Instant::now() - Duration::from_secs(10); // Trigger immediate first emit
 
         loop {
-            std::thread::sleep(Duration::from_millis(1000));
+            std::thread::sleep(Duration::from_millis(2500));
 
-            // Fetch running processes ONCE per cycle
-            let procs = get_running_process_entries();
-            let (cam_active, _, _) = check_cam_active_with_procs(&procs);
-            let (mic_active, _, _) = check_mic_active_with_procs(&procs, true, last_mic);
+            let sensor_streaming = CAMERA_STREAMING_FLAG.load(Ordering::Relaxed);
+            let cam_reg_candidate = has_any_registry_candidate("webcam");
+            let mic_reg_candidate = has_any_registry_candidate("microphone");
+
+            let (cam_active, mic_active) = if !sensor_streaming
+                && !cam_reg_candidate
+                && !mic_reg_candidate
+                && !last_cam
+                && !last_mic
+            {
+                let mic_wasapi = if !check_mic_muted() {
+                    check_mic_active_wasapi()
+                } else {
+                    false
+                };
+                (false, mic_wasapi)
+            } else {
+                // Fetch running processes ONLY when an active candidate exists
+                let procs = get_running_process_entries();
+                let (c, _, _) = check_cam_active_with_procs(&procs);
+                let (m, _, _) = check_mic_active_with_procs(&procs, true, last_mic);
+                (c, m)
+            };
 
             let state_changed = cam_active != last_cam || mic_active != last_mic;
             let heartbeat_due = last_emit.elapsed() >= Duration::from_secs(5);

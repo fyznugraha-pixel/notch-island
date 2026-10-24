@@ -1,6 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { iosSpring } from "../../utils/iosMotion";
+import { getWheelVerticalDirection } from "../../utils/gesture";
 
 interface IosSliderProps {
   value: number;
@@ -47,11 +48,11 @@ export const IosSlider: React.FC<IosSliderProps> = ({
   const isGlyphCovered = clampedValue > 14;
 
   const handleWheel = (e: React.WheelEvent) => {
+    // Tangkap scroll vertikal untuk adjust value. Biarkan scroll horizontal bubble agar bisa swipe tab.
+    if (Math.abs(e.deltaY) < 1 || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
     e.stopPropagation();
-    // Hanya tangkap scroll vertikal (atas-bawah). Abaikan scroll horizontal (kanan-kiri).
-    if (Math.abs(e.deltaY) < 1 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-    const rawDelta = e.deltaY;
-    const step = rawDelta < 0 ? 2 : -2;
+    const dir = getWheelVerticalDirection(e);
+    const step = dir > 0 ? 2 : -2;
     const next = Math.max(0, Math.min(100, clampedValue + step));
     setLocalVal(next);
     onChange(next);

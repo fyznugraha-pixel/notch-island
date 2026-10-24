@@ -35,7 +35,8 @@ export function getCachedWeather(): WeatherData | null {
     const raw = localStorage.getItem(CACHE_WEATHER_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && parsed.temp && (Date.now() - (parsed.cachedAt || 0) < 4 * 3600 * 1000)) {
+    // Cache cuaca valid selama 15 menit agar selalu sinkron dengan kondisi nyata
+    if (parsed && parsed.temp && (Date.now() - (parsed.cachedAt || 0) < 15 * 60 * 1000)) {
       return parsed;
     }
   } catch {}
@@ -45,6 +46,12 @@ export function getCachedWeather(): WeatherData | null {
 export function saveCachedWeather(data: WeatherData) {
   try {
     localStorage.setItem(CACHE_WEATHER_KEY, JSON.stringify({ ...data, cachedAt: Date.now() }));
+  } catch {}
+}
+
+export function clearWeatherCache(): void {
+  try {
+    localStorage.removeItem(CACHE_WEATHER_KEY);
   } catch {}
 }
 
@@ -255,18 +262,29 @@ export async function fetchCurrentWeather(location?: WeatherLocation): Promise<W
   try {
     const loc = location || (await resolveWeatherLocation());
     const res = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current_weather=true`,
+      `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,weather_code,precipitation,rain,showers,snowfall,is_day&current_weather=true`,
       { signal: controller.signal }
     );
     clearTimeout(timer);
     if (!res.ok) return null;
 
     const data = await res.json();
-    if (!data.current_weather) return null;
+    const current = data.current || data.current_weather;
+    if (!current) return null;
+
+    let code = current.weather_code !== undefined ? current.weather_code : current.weathercode;
+    const precip = current.precipitation !== undefined ? current.precipitation : 0;
+
+    // Filter WMO 51 (gerimis sangat tipis/embun tropis di bawah 0.25mm) agar tidak memicu animasi hujan palsu
+    if (code === 51 && precip < 0.25) {
+      code = 2; // Berawan sebagian
+    }
+
+    const tempVal = current.temperature_2m !== undefined ? current.temperature_2m : current.temperature;
 
     const result: WeatherData = {
-      temp: `${Math.round(data.current_weather.temperature)}°`,
-      code: data.current_weather.weathercode,
+      temp: `${Math.round(tempVal)}°`,
+      code,
       locationName: loc.name,
       source: loc.source,
     };

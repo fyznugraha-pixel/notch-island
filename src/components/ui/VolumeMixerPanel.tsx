@@ -2,6 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Volume2, Music, Globe, AppWindow } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getWheelVerticalDirection } from "../../utils/gesture";
 import { t } from "../../services/i18n";
 
 export interface AudioSession {
@@ -95,7 +96,19 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                 {soundLevel}%
               </span>
             </div>
-            <div className="relative h-7 bg-white/10 rounded-full overflow-hidden ring-1 ring-white/10 group flex items-center">
+            <div
+              className="relative h-7 bg-white/10 rounded-full overflow-hidden ring-1 ring-white/10 group flex items-center"
+              onWheel={(e) => {
+                if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                  e.stopPropagation();
+                  if (Math.abs(e.deltaY) < 1) return;
+                  const dir = getWheelVerticalDirection(e);
+                  const next = Math.max(0, Math.min(100, soundLevel + (dir > 0 ? 2 : -2)));
+                  onSetSoundLevel(next);
+                  invoke("set_master_volume", { level: next / 100.0 });
+                }
+              }}
+            >
               <div
                 className="absolute top-0 left-0 bottom-0 bg-white transition-colors group-hover:bg-[#0a84ff]"
                 style={{ width: `${soundLevel}%` }}
@@ -176,7 +189,24 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                         {Math.round(session.volume * 100)}%
                       </span>
                     </div>
-                    <div className="relative h-4 bg-black/45 rounded-full overflow-hidden ring-1 ring-white/10 group">
+                    <div
+                      className="relative h-4 bg-black/45 rounded-full overflow-hidden ring-1 ring-white/10 group"
+                      onWheel={(e) => {
+                        if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                          e.stopPropagation();
+                          if (Math.abs(e.deltaY) < 1) return;
+                          const dir = getWheelVerticalDirection(e);
+                          const step = dir > 0 ? 0.02 : -0.02;
+                          const next = Math.max(0, Math.min(1, session.volume + step));
+                          onUpdateAudioSessions((prev) =>
+                            prev.map((s) => (s.name === session.name ? { ...s, volume: next } : s))
+                          );
+                          session.pids?.forEach((p: number) => {
+                            invoke("set_app_volume", { pid: p, volume: next });
+                          });
+                        }
+                      }}
+                    >
                       <div
                         className="absolute top-0 left-0 bottom-0 bg-[#0a84ff]/90 transition-colors group-hover:bg-[#0a84ff]"
                         style={{ width: `${session.volume * 100}%` }}

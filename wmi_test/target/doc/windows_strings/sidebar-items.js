@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"macro":[["h",1],["s",1],["w",1]],"struct":["BSTR","HSTRING","HStringBuilder","PCSTR","PCWSTR","PSTR","PWSTR"]};

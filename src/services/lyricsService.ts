@@ -12,6 +12,24 @@ export interface LyricsData {
 
 const lyricsCache = new Map<string, LyricsData | null>();
 
+export function clearAllLyricsCache(): void {
+  lyricsCache.clear();
+}
+
+export function clearLyricsCacheForTrack(artist: string, title: string): void {
+  const cleanedArtist = cleanArtist(artist);
+  const cacheKey = `${cleanedArtist.toLowerCase().trim()} - ${title.toLowerCase().trim()}`;
+  lyricsCache.delete(cacheKey);
+  try {
+    localStorage.setItem("notch_lyrics_offset", "0.0");
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("notch_lyrics_offset_changed", { detail: 0.0 }));
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function cleanTitle(title: string): string {
   if (!title) return "";
   return title
@@ -119,7 +137,7 @@ export async function fetchLyrics(
     }
   }
 
-  const headers = { "User-Agent": "Notch/3.2.5 (https://github.com/faiz)" };
+  const headers = { "User-Agent": "Gili/3.3.0 (https://github.com/faiz)" };
   let hadTransientError = false;
 
   try {

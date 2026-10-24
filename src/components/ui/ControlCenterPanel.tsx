@@ -1,12 +1,13 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Settings as SettingsIcon,
   Scissors,
   ClipboardList,
   ListTodo,
-  FolderSync,
+  Folder,
   Gauge,
+  Leaf,
+  Zap,
   Wifi,
   Bluetooth,
   Radio,
@@ -29,13 +30,13 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Tooltip } from "./Tooltip";
-import { ScrollingText } from "./ScrollingText";
-import { IosSlider } from "../ios/IosSlider";
 import { iosSpring, iosRiseVariants } from "../../utils/iosMotion";
 import { t } from "../../services/i18n";
 import { WifiSubmenu } from "./control-center/WifiSubmenu";
 import { BluetoothSubmenu } from "./control-center/BluetoothSubmenu";
 import { toggleWifiState, toggleBluetoothState } from "../../services/connectivityService";
+import { playVolumeTick } from "../../services/soundService";
+import { getWheelVerticalDirection } from "../../utils/gesture";
 
 export type FocusModeType = "Normal" | "DND" | "Gaming" | "Sleep";
 
@@ -66,7 +67,18 @@ export interface ControlCenterPanelProps {
   onSelectFocusMode: (mode: FocusModeType) => void;
   focusModeOptions: FocusModeOption[];
   stashedFilesCount: number;
-  onGoToTab: (tab: "clipboard" | "todo" | "drop_shelf" | "volume_mixer" | "settings", dir?: 1 | -1) => void;
+  onGoToTab: (
+    tab:
+      | "clipboard"
+      | "todo"
+      | "drop_shelf"
+      | "volume_mixer"
+      | "settings"
+      | "pomodoro"
+      | "sys_monitor"
+      | "mini_note",
+    dir?: 1 | -1
+  ) => void;
   onClose: () => void;
   onSubmenuChange?: (submenu: null | "wifi" | "bluetooth") => void;
 }
@@ -95,16 +107,21 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   onSubmenuChange,
 }) => {
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
+  const [isPowerMenuOpen, setIsPowerMenuOpen] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<null | "wifi" | "bluetooth">(null);
   const [localWifiOn, setLocalWifiOn] = useState<boolean | null>(null);
   const [localBtOn, setLocalBtOn] = useState<boolean | null>(null);
 
   const handleOpenWifi = () => {
+    setIsModeDropdownOpen(false);
+    setIsPowerMenuOpen(false);
     setActiveSubmenu("wifi");
     onSubmenuChange?.("wifi");
   };
 
   const handleOpenBt = () => {
+    setIsModeDropdownOpen(false);
+    setIsPowerMenuOpen(false);
     setActiveSubmenu("bluetooth");
     onSubmenuChange?.("bluetooth");
   };
@@ -128,16 +145,23 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
     setLocalBtOn(null);
   }, [btName]);
 
-  const isWifiOn = localWifiOn !== null ? localWifiOn : (wifiName !== "Off" && wifiName !== "");
-  const isBtOn = localBtOn !== null ? localBtOn : (btName !== "Off" && btName !== "");
+  const isWifiOn = localWifiOn !== null ? localWifiOn : wifiName !== "Off" && wifiName !== "";
+  const isBtOn = localBtOn !== null ? localBtOn : btName !== "Off" && btName !== "";
 
   const btBatteryMatch = btName.match(/\((.*?%)\)$/);
   const hasBtBattery = !!btBatteryMatch;
   const btBatteryText = hasBtBattery ? btBatteryMatch[1] : null;
   const cleanBtName = btName.replace(/\s*\(.*?%\)$/, "");
-  const isWifiConnected = isWifiOn && wifiName !== "Not Connected" && wifiName !== "Off" && wifiName !== "Loading..." && wifiName !== "";
-  const isBtConnected = isBtOn && btName !== "Not Connected" && btName !== "Off" && btName !== "Loading...";
-  const currentFocusOption = focusModeOptions.find((opt) => opt.id === focusMode) || focusModeOptions[0];
+  const isWifiConnected =
+    isWifiOn &&
+    wifiName !== "Not Connected" &&
+    wifiName !== "Off" &&
+    wifiName !== "Loading..." &&
+    wifiName !== "";
+  const isBtConnected =
+    isBtOn && btName !== "Not Connected" && btName !== "Off" && btName !== "Loading...";
+  const currentFocusOption =
+    focusModeOptions.find((opt) => opt.id === focusMode) || focusModeOptions[0];
 
   const handleQuickToggleWifi = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -165,15 +189,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
     }
   };
 
-  const handleNextPowerMode = (e: React.MouseEvent) => {
+  const handleSelectPowerMode = (mode: "Eco" | "Balanced" | "Performance", e: React.MouseEvent) => {
     e.stopPropagation();
-    let next: "Eco" | "Balanced" | "Performance";
-    if (powerMode === "Eco") next = "Balanced";
-    else if (powerMode === "Balanced") next = "Performance";
-    else next = "Eco";
-
-    onSetPowerMode(next);
-    invoke("set_power_plan", { mode: next }).catch(console.error);
+    onSetPowerMode(mode);
+    invoke("set_power_plan", { mode }).catch(console.error);
   };
 
   const handleNextBrightnessMode = (e: React.MouseEvent) => {
@@ -191,43 +210,50 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   const pendingVolRef = useRef<number | null>(null);
   const volTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleVolumeChange = useCallback((v: number) => {
-    onSetSoundLevel(v);
-    pendingVolRef.current = v;
-    const now = Date.now();
+  const handleVolumeChange = useCallback(
+    (v: number) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(v)));
+      onSetSoundLevel(clamped);
+      playVolumeTick(clamped);
+      pendingVolRef.current = clamped;
+      const now = Date.now();
 
-    if (now - lastVolInvokeRef.current >= 40) {
-      lastVolInvokeRef.current = now;
-      if (volTimeoutRef.current) clearTimeout(volTimeoutRef.current);
-      invoke("set_master_volume", { level: v / 100.0 }).catch(console.error);
-    } else {
-      if (!volTimeoutRef.current) {
+      if (now - lastVolInvokeRef.current >= 40) {
+        lastVolInvokeRef.current = now;
+        if (volTimeoutRef.current) clearTimeout(volTimeoutRef.current);
+        invoke("set_master_volume", { level: clamped / 100.0 }).catch(console.error);
+      } else if (!volTimeoutRef.current) {
         volTimeoutRef.current = setTimeout(() => {
           volTimeoutRef.current = null;
           if (pendingVolRef.current !== null) {
             lastVolInvokeRef.current = Date.now();
-            invoke("set_master_volume", { level: pendingVolRef.current / 100.0 }).catch(console.error);
+            invoke("set_master_volume", { level: pendingVolRef.current / 100.0 }).catch(
+              console.error
+            );
           }
         }, 40);
       }
-    }
-  }, [onSetSoundLevel]);
+    },
+    [onSetSoundLevel]
+  );
 
   const lastBrightInvokeRef = useRef(0);
   const pendingBrightRef = useRef<number | null>(null);
   const brightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleBrightnessChange = useCallback((v: number) => {
-    onSetDisplayLevel(v);
-    pendingBrightRef.current = v;
-    const now = Date.now();
+  const handleBrightnessChange = useCallback(
+    (v: number) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(v)));
+      onSetDisplayLevel(clamped);
+      playVolumeTick(clamped);
+      pendingBrightRef.current = clamped;
+      const now = Date.now();
 
-    if (now - lastBrightInvokeRef.current >= 60) {
-      lastBrightInvokeRef.current = now;
-      if (brightTimeoutRef.current) clearTimeout(brightTimeoutRef.current);
-      invoke("set_brightness", { level: v }).catch(console.error);
-    } else {
-      if (!brightTimeoutRef.current) {
+      if (now - lastBrightInvokeRef.current >= 60) {
+        lastBrightInvokeRef.current = now;
+        if (brightTimeoutRef.current) clearTimeout(brightTimeoutRef.current);
+        invoke("set_brightness", { level: clamped }).catch(console.error);
+      } else if (!brightTimeoutRef.current) {
         brightTimeoutRef.current = setTimeout(() => {
           brightTimeoutRef.current = null;
           if (pendingBrightRef.current !== null) {
@@ -236,8 +262,9 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
           }
         }, 60);
       }
-    }
-  }, [onSetDisplayLevel]);
+    },
+    [onSetDisplayLevel]
+  );
 
   useEffect(() => {
     return () => {
@@ -245,6 +272,27 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
       if (brightTimeoutRef.current) clearTimeout(brightTimeoutRef.current);
     };
   }, []);
+
+  const powerModeLabel =
+    powerMode === "Eco"
+      ? t("cc_power_eco")
+      : powerMode === "Balanced"
+      ? t("cc_power_balanced")
+      : t("cc_power_performance");
+
+  const getFocusIconColor = (id: FocusModeType) => {
+    if (id === "Normal") return "text-[#fbbf24]";
+    if (id === "DND") return "text-[#a5a8ff]";
+    if (id === "Gaming") return "text-[#f87171]";
+    return "text-[#5eead4]";
+  };
+
+  const renderFocusGlyph = (id: FocusModeType, size = 16) => {
+    if (id === "Normal") return <Bell size={size} />;
+    if (id === "DND") return <BellOff size={size} />;
+    if (id === "Gaming") return <Gamepad2 size={size} />;
+    return <BedDouble size={size} />;
+  };
 
   return (
     <AnimatePresence mode="wait">
@@ -271,502 +319,596 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
           initial="enter"
           animate="center"
           exit="exit"
-          className="absolute inset-0 w-full h-full flex flex-col px-3 justify-center py-1 gap-2.5 min-w-0 select-none gpu-accelerated"
+          className="absolute inset-0 w-full h-full flex flex-col px-6 pt-1 pb-1 justify-start gap-2 min-w-0 select-none gpu-accelerated"
         >
-      {/* Row 1: iOS Quick Tools + Power Mode Capsule */}
-      <motion.div
-        custom={slideDirection}
-        variants={iosRiseVariants}
-        className="grid grid-cols-[1fr_110px] gap-2.5"
-      >
-        <div className="grid grid-cols-5 gap-2 bg-[#1c1c1e]/90 rounded-[22px] p-1.5 border border-white/5 shadow-sm items-center justify-items-center">
-          {/* Settings */}
-          <Tooltip content={t("tab_settings")} side="bottom" wrapperClassName="w-full flex justify-center">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
+          {/* Click-outside catcher when Mode Dropdown or Power Menu is open */}
+          {(isModeDropdownOpen || isPowerMenuOpen) && (
+            <div
+              className="fixed inset-0 z-30 bg-transparent"
               onClick={(e) => {
                 e.stopPropagation();
-                invoke("system_power_action", { action: "settings" }).catch(console.error);
-                onClose();
+                setIsModeDropdownOpen(false);
+                setIsPowerMenuOpen(false);
               }}
-              className="w-[42px] h-[42px] rounded-full bg-sky-500/15 hover:bg-sky-500/25 active:bg-sky-500/35 flex items-center justify-center transition-colors border border-sky-500/30 text-sky-400 hover:text-sky-300 shadow-sm group cursor-pointer"
-            >
-              <SettingsIcon size={17} className="transition-transform duration-300 group-hover:rotate-45" />
-            </motion.button>
-          </Tooltip>
+            />
+          )}
 
-          {/* Screenshot */}
-          <Tooltip content={t("cc_screenshot")} side="bottom" wrapperClassName="w-full flex justify-center">
-            <motion.button
+          {/* Row 1: 2x2 Toggles + Right Power/Session Column (Board 04) */}
+          <div className="flex gap-3 items-stretch">
+            {/* Left 2x2 Toggle Grid */}
+            <div className="flex-1 grid grid-cols-2 gap-2 min-w-0">
+              {/* Wi-Fi Tile */}
+              <div
+                onClick={handleOpenWifi}
+                className={`h-[60px] rounded-[16px] pl-2.5 pr-1.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
+                  isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
+                } ${
+                  isWifiConnected
+                    ? "bg-[rgba(56,130,246,0.16)] border border-[rgba(56,130,246,0.4)]"
+                    : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={handleQuickToggleWifi}
+                  aria-label="Toggle Wi-Fi"
+                  className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                    isWifiConnected
+                      ? "bg-[#3882F6] text-white"
+                      : isWifiOn
+                      ? "bg-[#1d1d25] text-[#3882F6]"
+                      : "bg-[#1d1d25] text-[#a1a1aa]"
+                  }`}
+                >
+                  <Wifi size={18} />
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-semibold text-white leading-tight truncate">
+                    Wi-Fi
+                  </div>
+                  <div className="text-[11px] text-[#b4b4bd] truncate mt-0.5 tabular-nums">
+                    {isWifiOn
+                      ? isWifiConnected
+                        ? networkPing !== null
+                          ? `${wifiName} · ${networkPing} ms`
+                          : wifiName
+                        : t("cc_not_connected")
+                      : "Off"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenWifi();
+                  }}
+                  className="w-[28px] h-[40px] flex items-center justify-center text-[#b4b4bd] hover:text-white transition-colors shrink-0 cursor-pointer"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Mode Tile + Floating Menu (Board 06) */}
+              <div
+                className={`relative min-w-0 transition-opacity ${
+                  isModeDropdownOpen
+                    ? "z-50"
+                    : isPowerMenuOpen
+                    ? "opacity-30 pointer-events-none"
+                    : ""
+                }`}
+              >
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsPowerMenuOpen(false);
+                    setIsModeDropdownOpen((prev) => !prev);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openUrl("ms-settings:quiethours").catch(console.error);
+                  }}
+                  className={`h-[60px] rounded-[16px] pl-2.5 pr-1.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
+                    isModeDropdownOpen
+                      ? "bg-[#17171d] border border-[#3a3a43]"
+                      : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
+                  }`}
+                >
+                  <div
+                    className={`w-[36px] h-[36px] rounded-full bg-[#1d1d25] flex items-center justify-center shrink-0 ${getFocusIconColor(
+                      focusMode
+                    )}`}
+                  >
+                    {renderFocusGlyph(focusMode, 18)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold text-white leading-tight truncate">
+                      {t("cc_mode_title")}
+                    </div>
+                    <div className="text-[11px] text-[#a1a1aa] truncate mt-0.5">
+                      {currentFocusOption ? currentFocusOption.label : focusMode}
+                    </div>
+                  </div>
+                  <div className="w-[28px] h-[40px] flex items-center justify-center text-[#a1a1aa] shrink-0">
+                    {isModeDropdownOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </div>
+                </div>
+
+                <AnimatePresence>
+                  {isModeDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                      transition={iosSpring.snappy}
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-[calc(100%+4px)] z-50 w-[264px] p-1 rounded-[16px] bg-[#17171d] border border-[#2a2a31] shadow-[0_8px_20px_rgba(0,0,0,0.5)] flex flex-col gap-0.5"
+                    >
+                      {focusModeOptions.map((opt) => {
+                        const isSelected = focusMode === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectFocusMode(opt.id);
+                              setIsModeDropdownOpen(false);
+                            }}
+                            className={`h-[40px] rounded-[11px] px-2.5 flex items-center gap-2 text-left transition-colors cursor-pointer ${
+                              isSelected ? "bg-[#23232a] text-white" : "hover:bg-white/[0.04] text-white"
+                            }`}
+                          >
+                            <span
+                              className={`w-[28px] h-[28px] rounded-full flex items-center justify-center shrink-0 ${
+                                isSelected ? "bg-[#2e2e36]" : "bg-[#1d1d25]"
+                              } ${getFocusIconColor(opt.id)}`}
+                            >
+                              {renderFocusGlyph(opt.id, 14)}
+                            </span>
+                            <span className="flex-1 min-w-0 flex flex-col">
+                              <span className="text-[12px] font-semibold text-white leading-tight truncate">
+                                {opt.label}
+                              </span>
+                              <span className="text-[10px] text-[#a1a1aa] leading-tight truncate mt-0.5">
+                                {opt.desc}
+                              </span>
+                            </span>
+                            {isSelected && (
+                              <Check size={14} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Bluetooth Tile */}
+              <div
+                onClick={handleOpenBt}
+                className={`h-[60px] rounded-[16px] pl-2.5 pr-1.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
+                  isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
+                } ${
+                  isBtConnected
+                    ? "bg-[rgba(56,130,246,0.16)] border border-[rgba(56,130,246,0.4)]"
+                    : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={handleQuickToggleBt}
+                  aria-label="Toggle Bluetooth"
+                  className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                    isBtConnected
+                      ? "bg-[#3882F6] text-white"
+                      : isBtOn
+                      ? "bg-[#1d1d25] text-[#c4c4cc]"
+                      : "bg-[#1d1d25] text-[#71717a]"
+                  }`}
+                >
+                  <Bluetooth size={18} />
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-semibold text-white leading-tight truncate">
+                    Bluetooth
+                  </div>
+                  <div className="text-[11px] text-[#a1a1aa] truncate mt-0.5">
+                    {isBtOn
+                      ? isBtConnected
+                        ? hasBtBattery
+                          ? `${cleanBtName} · ${btBatteryText}`
+                          : cleanBtName
+                        : t("cc_not_connected")
+                      : "Off"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenBt();
+                  }}
+                  className="w-[28px] h-[40px] flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors shrink-0 cursor-pointer"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Hotspot Tile */}
+              <div
+                onClick={onToggleHotspot}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openUrl("ms-settings:network-mobilehotspot").catch(console.error);
+                }}
+                className={`h-[60px] rounded-[16px] px-2.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
+                  isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
+                } ${
+                  isHotspotOn
+                    ? "bg-[rgba(56,130,246,0.16)] border border-[rgba(56,130,246,0.4)]"
+                    : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
+                }`}
+              >
+                <div
+                  className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                    isHotspotOn ? "bg-[#3882F6] text-white" : "bg-[#1d1d25] text-[#c4c4cc]"
+                  }`}
+                >
+                  <Radio size={18} className={isHotspotOn ? "animate-pulse" : ""} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-semibold text-white leading-tight truncate">
+                    Hotspot
+                  </div>
+                  <div className="text-[11px] text-[#a1a1aa] truncate mt-0.5">
+                    {isHotspotOn ? t("cc_hotspot_active") : t("cc_hotspot_inactive")}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Power Profile + Session Bar */}
+            <div className="w-[208px] shrink-0 flex flex-col gap-2">
+              {/* Power Mode Card */}
+              <div
+                className={`h-[72px] rounded-[16px] px-3 py-2 bg-[#101015] border border-[#1e1e25] flex flex-col justify-between transition-opacity ${
+                  isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 h-[18px]">
+                  <span className="text-[11px] text-[#a1a1aa] whitespace-nowrap">
+                    {t("cc_power_mode_label")}
+                  </span>
+                  <span className="text-[13px] font-semibold text-white whitespace-nowrap">
+                    {powerModeLabel}
+                  </span>
+                </div>
+                <div
+                  role="radiogroup"
+                  aria-label={t("cc_power_mode_label")}
+                  className="flex gap-0.5 p-0.5 bg-[#08080b] rounded-[10px] h-[32px]"
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => handleSelectPowerMode("Eco", e)}
+                    title={t("cc_power_eco")}
+                    className={`flex-1 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                      powerMode === "Eco"
+                        ? "bg-[#2a2a31] text-white"
+                        : "text-[#a1a1aa] hover:text-white"
+                    }`}
+                  >
+                    <Leaf size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleSelectPowerMode("Balanced", e)}
+                    title={t("cc_power_balanced")}
+                    className={`flex-1 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                      powerMode === "Balanced"
+                        ? "bg-[#2a2a31] text-white"
+                        : "text-[#a1a1aa] hover:text-white"
+                    }`}
+                  >
+                    <Gauge size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleSelectPowerMode("Performance", e)}
+                    title={t("cc_power_performance")}
+                    className={`flex-1 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                      powerMode === "Performance"
+                        ? "bg-[#2a2a31] text-white"
+                        : "text-[#a1a1aa] hover:text-white"
+                    }`}
+                  >
+                    <Zap size={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Session Actions: Lock, Sleep, Daya Dropdown */}
+              <div
+                className={`h-[48px] rounded-[16px] p-1.5 bg-[#101015] border border-[#1e1e25] flex items-center gap-1.5 relative transition-opacity ${
+                  isPowerMenuOpen
+                    ? "z-50"
+                    : isModeDropdownOpen
+                    ? "opacity-30 pointer-events-none"
+                    : ""
+                }`}
+              >
+                <Tooltip content={t("cc_lock_pc")} side="bottom">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      invoke("system_power_action", { action: "lock" }).catch(console.error);
+                      onClose();
+                    }}
+                    className="w-[36px] h-[34px] rounded-[11px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  >
+                    <Lock size={15} />
+                  </button>
+                </Tooltip>
+
+                <Tooltip content={t("cc_sleep_pc")} side="bottom">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      invoke("system_power_action", { action: "sleep" }).catch(console.error);
+                      onClose();
+                    }}
+                    className="w-[36px] h-[34px] rounded-[11px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  >
+                    <Moon size={15} />
+                  </button>
+                </Tooltip>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsModeDropdownOpen(false);
+                    setIsPowerMenuOpen((prev) => !prev);
+                  }}
+                  className="flex-1 h-[34px] rounded-[11px] bg-[rgba(255,107,90,0.14)] hover:bg-[rgba(255,107,90,0.22)] text-[#ff9b8f] text-[12px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                >
+                  <Power size={13.5} strokeWidth={2.2} />
+                  <span>{t("cc_power_btn")}</span>
+                  <ChevronDown size={12} strokeWidth={2.4} />
+                </button>
+
+                <AnimatePresence>
+                  {isPowerMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                      transition={iosSpring.snappy}
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute right-0 top-[calc(100%+6px)] z-50 w-[168px] p-1.5 rounded-[16px] bg-[#17171d] border border-[#2a2a31] shadow-[0_8px_20px_rgba(0,0,0,0.5)] flex flex-col gap-1"
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsPowerMenuOpen(false);
+                          invoke("system_power_action", { action: "restart" }).catch(console.error);
+                          onClose();
+                        }}
+                        className="h-[36px] px-2.5 rounded-[11px] hover:bg-white/[0.06] text-[#e4e4e7] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
+                      >
+                        <RotateCcw size={14} className="text-sky-400" />
+                        <span>{t("cc_restart_pc")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsPowerMenuOpen(false);
+                          invoke("system_power_action", { action: "shutdown" }).catch(console.error);
+                          onClose();
+                        }}
+                        className="h-[36px] px-2.5 rounded-[11px] hover:bg-[rgba(255,107,90,0.16)] text-[#ff9b8f] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
+                      >
+                        <Power size={14} />
+                        <span>{t("cc_shutdown_pc")}</span>
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: 4 Quick Action Buttons (Sniping, Clipboard, Todo, Berkas) */}
+          <div
+            className={`grid grid-cols-4 gap-2 transition-opacity ${
+              isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
+            }`}
+          >
+            <button
               type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
               onClick={(e) => {
                 e.stopPropagation();
                 invoke("system_power_action", { action: "screenshot" }).catch(console.error);
                 onClose();
               }}
-              className="w-[42px] h-[42px] rounded-full bg-purple-500/15 hover:bg-purple-500/25 active:bg-purple-500/35 flex items-center justify-center transition-colors border border-purple-500/30 text-purple-400 hover:text-purple-300 shadow-sm group cursor-pointer"
+              className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
-              <Scissors size={17} className="transition-transform duration-200 group-hover:scale-105" />
-            </motion.button>
-          </Tooltip>
+              <Scissors size={16} />
+              <span>{t("cc_sniping")}</span>
+            </button>
 
-          {/* Clipboard */}
-          <Tooltip content={t("tab_clipboard")} side="bottom" wrapperClassName="w-full flex justify-center">
-            <motion.button
+            <button
               type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
               onClick={(e) => {
                 e.stopPropagation();
                 onGoToTab("clipboard");
               }}
-              className="w-[42px] h-[42px] rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 active:bg-emerald-500/35 flex items-center justify-center transition-colors border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 shadow-sm group cursor-pointer"
+              className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
-              <ClipboardList size={17} className="transition-transform duration-200 group-hover:scale-105" />
-            </motion.button>
-          </Tooltip>
+              <ClipboardList size={16} />
+              <span>Clipboard</span>
+            </button>
 
-          {/* To-Do List */}
-          <Tooltip content={t("tab_todo_list")} side="bottom" wrapperClassName="w-full flex justify-center">
-            <motion.button
+            <button
               type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
               onClick={(e) => {
                 e.stopPropagation();
                 onGoToTab("todo");
               }}
-              className="w-[42px] h-[42px] rounded-full bg-amber-500/15 hover:bg-amber-500/25 active:bg-amber-500/35 flex items-center justify-center transition-colors border border-amber-500/30 text-amber-400 hover:text-amber-300 shadow-sm group cursor-pointer"
+              className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
-              <ListTodo size={17} className="transition-transform duration-200 group-hover:scale-105" />
-            </motion.button>
-          </Tooltip>
+              <ListTodo size={16} />
+              <span>Todo</span>
+            </button>
 
-          {/* File Shelf */}
-          <Tooltip content={t("tab_file_shelf")} side="bottom" wrapperClassName="w-full flex justify-center">
-            <motion.button
+            <button
               type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
               onClick={(e) => {
                 e.stopPropagation();
                 onGoToTab("drop_shelf");
               }}
-              className="w-[42px] h-[42px] rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 active:bg-cyan-500/35 border border-cyan-500/30 text-cyan-400 hover:text-cyan-300 flex items-center justify-center transition-colors shadow-sm group cursor-pointer relative"
+              className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer relative"
             >
-              <FolderSync size={17} className="transition-transform duration-200 group-hover:scale-105" />
+              <Folder size={16} />
+              <span>{t("cc_files_short")}</span>
               {stashedFilesCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-cyan-400 text-neutral-950 text-[9px] font-bold flex items-center justify-center shadow-sm tabular-nums">
+                <span className="min-w-[16px] h-[16px] px-1 rounded-full bg-[#3882F6] text-white text-[9.5px] font-bold flex items-center justify-center tabular-nums">
                   {stashedFilesCount}
                 </span>
               )}
-            </motion.button>
-          </Tooltip>
-        </div>
+            </button>
+          </div>
 
-        {/* Power Mode Capsule Tile */}
-        <Tooltip content={`${t("cc_power_eco")}: ${powerMode}`} side="bottom" wrapperClassName="w-full">
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.94 }}
-            transition={iosSpring.press}
-            onClick={handleNextPowerMode}
-            className="w-full h-[54px] bg-[#1c1c1e]/90 hover:bg-white/[0.12] active:bg-white/[0.16] rounded-[20px] flex items-center gap-2 px-2.5 transition-colors border border-white/5 shadow-sm cursor-pointer select-none text-left"
-          >
-            <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-colors ${
-                powerMode === "Eco"
-                  ? "bg-emerald-500/20 text-emerald-400"
-                  : powerMode === "Balanced"
-                  ? "bg-sky-500/20 text-sky-400"
-                  : "bg-rose-500/20 text-rose-400"
-              }`}
-            >
-              <Gauge size={14} />
-            </div>
-            <div className="flex flex-col min-w-0 overflow-hidden w-full">
-              <ScrollingText text={powerMode} className="text-[11.5px] font-bold text-white leading-tight w-full" />
-              <span className="text-[9px] text-ios-secondary font-medium tracking-tight">
-                {powerMode === "Eco" ? t("cc_power_eco") : powerMode === "Balanced" ? t("cc_power_balanced") : t("cc_power_performance")}
-              </span>
-            </div>
-          </motion.button>
-        </Tooltip>
-      </motion.div>
-
-      {/* Row 2: 2x2 Network/Focus Module + 2x2 Power Module */}
-      <motion.div
-        custom={slideDirection}
-        variants={iosRiseVariants}
-        className={`grid grid-cols-[1fr_110px] gap-2.5 ${isModeDropdownOpen ? "relative z-50" : "relative z-20"}`}
-      >
-        {/* Left Card: 2x2 Network & Focus */}
-        <div
-          className={`bg-[#1c1c1e]/90 rounded-[22px] p-2.5 grid grid-cols-2 gap-2 border border-white/5 shadow-sm ${
-            isModeDropdownOpen ? "relative z-50" : "relative z-20"
-          }`}
-        >
-          {/* Wi-Fi */}
+          {/* Row 3: Brightness & Volume Pill Sliders (Board 04) */}
           <div
-            onClick={handleOpenWifi}
-            className="w-full flex items-center justify-between p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
+            className={`flex flex-col gap-2 transition-opacity ${
+              isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
+            }`}
+            data-no-swipe="true"
           >
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <Tooltip content={isWifiOn ? "Turn Wi-Fi Off" : "Turn Wi-Fi On"} side="top">
-                <motion.button
-                  type="button"
-                  whileTap={{ scale: 0.88 }}
-                  transition={iosSpring.press}
-                  onClick={handleQuickToggleWifi}
-                  className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-all duration-300 cursor-pointer ${
-                    isWifiConnected
-                      ? "bg-[#0a84ff] text-white shadow-[0_0_14px_rgba(10,132,255,0.45)] hover:bg-[#0071e3]"
-                      : isWifiOn
-                      ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/30"
-                      : "bg-white/10 text-white/40 hover:bg-white/15"
+            {/* Brightness Slider Row */}
+            <div className="flex items-center gap-2.5 h-[40px]" data-no-swipe="true">
+              <div
+                className="flex-1 h-[40px] rounded-full bg-[#15151b] relative overflow-hidden cursor-pointer"
+                onWheel={(e) => {
+                  if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                    e.stopPropagation();
+                    if (Math.abs(e.deltaY) < 1) return;
+                    const dir = getWheelVerticalDirection(e);
+                    handleBrightnessChange(displayLevel + (dir > 0 ? 2 : -2));
+                  }
+                }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 bg-[#e4e4e7] transition-[width] duration-75"
+                  style={{ width: `${Math.max(0, Math.min(100, displayLevel))}%` }}
+                />
+                <div
+                  className={`absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none transition-colors ${
+                    displayLevel > 10 ? "text-[#0b0b0d]" : "text-[#e4e4e7]"
                   }`}
                 >
-                  <Wifi size={14} className={isWifiConnected ? "text-white" : isWifiOn ? "text-sky-400" : "text-white/40"} />
-                </motion.button>
-              </Tooltip>
-              <div className="flex flex-col min-w-0 overflow-hidden flex-1">
-                <div className="flex items-center gap-1">
-                  {!isWifiConnected || networkPing === null ? (
-                    <span className="text-[11px] font-bold text-white leading-tight whitespace-nowrap">Wi-Fi</span>
-                  ) : (
-                    <span className="text-[9.5px] font-mono text-neutral-300 bg-white/10 px-1 py-0.2 rounded flex shrink-0 items-center tracking-tighter whitespace-nowrap">
-                      <span className="text-white mr-1">●</span>
-                      {networkPing} ms
-                    </span>
-                  )}
+                  <Sun size={17} />
                 </div>
-                <ScrollingText
-                  text={isWifiOn ? (isWifiConnected ? wifiName : t("cc_not_connected")) : "Off"}
-                  className="text-[9px] text-ios-secondary font-medium mt-0.5 truncate"
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(displayLevel)}
+                  aria-label={t("cc_brightness")}
+                  data-no-swipe="true"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => handleBrightnessChange(Number(e.target.value))}
+                  className="absolute inset-0 w-full h-full opacity-0 m-0 cursor-pointer z-10"
                 />
               </div>
-            </div>
-            <ChevronRight size={13} className="shrink-0 text-white/30 group-hover:text-white/70 transition-colors ml-0.5" />
-          </div>
 
-          {/* Focus Mode (with iOS Dropdown Menu) */}
-          <div className={`relative w-full ${isModeDropdownOpen ? "z-50" : ""}`}>
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.94 }}
-              transition={iosSpring.press}
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsModeDropdownOpen((prev) => !prev);
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                openUrl("ms-settings:quiethours").catch(console.error);
-              }}
-              className={`w-full flex items-center gap-2 p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group ${
-                isModeDropdownOpen ? "bg-white/10 ring-1 ring-white/15" : ""
-              }`}
-            >
-              <div
-                className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-all duration-300 ${
-                  focusMode === "Normal"
-                    ? "bg-[#ff9f0a] text-white shadow-[0_0_14px_rgba(255,159,10,0.45)]"
-                    : focusMode === "DND"
-                    ? "bg-[#5e5ce6] text-white shadow-[0_0_14px_rgba(94,92,230,0.45)]"
-                    : focusMode === "Gaming"
-                    ? "bg-[#ff375f] text-white shadow-[0_0_14px_rgba(255,55,95,0.45)]"
-                    : "bg-[#40c8e0] text-white shadow-[0_0_14px_rgba(64,200,224,0.45)]"
-                }`}
-              >
-                {focusMode === "Normal" && <Bell size={14} className="text-white" />}
-                {focusMode === "DND" && <BellOff size={14} className="text-white" />}
-                {focusMode === "Gaming" && <Gamepad2 size={14} className="text-white" />}
-                {focusMode === "Sleep" && <BedDouble size={14} className="text-white" />}
-              </div>
-              <div className="flex flex-col min-w-0 overflow-hidden flex-1">
-                <span className="text-[11px] font-bold text-white leading-tight truncate">
-                  {currentFocusOption ? currentFocusOption.label : focusMode}
-                </span>
-                <ScrollingText
-                  text={currentFocusOption ? currentFocusOption.desc : ""}
-                  className={`text-[9px] font-medium mt-0.5 w-full ${
-                    focusMode === "Normal"
-                      ? "text-amber-300/80 font-medium"
-                      : focusMode === "DND"
-                      ? "text-indigo-300 font-semibold"
-                      : focusMode === "Gaming"
-                      ? "text-rose-300 font-semibold"
-                      : "text-teal-300 font-semibold"
-                  }`}
-                />
-              </div>
-              <div className="shrink-0 pr-0.5 text-white/40 group-hover:text-white/80 transition-colors">
-                {isModeDropdownOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              </div>
-            </motion.button>
+              <span className="w-[40px] text-right text-[13px] font-semibold text-white tabular-nums shrink-0">
+                {Math.round(displayLevel)}%
+              </span>
 
-            {/* iOS Style Floating UIMenu */}
-            <AnimatePresence>
-              {isModeDropdownOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-[90]"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsModeDropdownOpen(false);
-                    }}
-                  />
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.94, y: -4 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.94, y: -4 }}
-                    transition={iosSpring.snappy}
-                    className="absolute z-[100] top-[calc(100%+6px)] right-0 w-[170px] bg-[#1c1c1e] border border-white/20 rounded-2xl p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.95)] flex flex-col gap-0.5 select-none pointer-events-auto backdrop-blur-xl"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {focusModeOptions.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectFocusMode(opt.id);
-                          setIsModeDropdownOpen(false);
-                        }}
-                        className={`w-full h-[32px] flex items-center justify-between px-2 rounded-xl transition-all cursor-pointer text-left ${
-                          focusMode === opt.id
-                            ? "bg-white/15 text-white shadow-sm"
-                            : "hover:bg-white/5 text-neutral-300 hover:text-white"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className={`w-[20px] h-[20px] rounded-[6px] ${opt.color} flex items-center justify-center shrink-0 shadow-sm`}>
-                            {opt.icon}
-                          </div>
-                          <span className="text-[11px] font-semibold leading-none">{opt.label}</span>
-                        </div>
-                        {focusMode === opt.id && (
-                          <Check size={12} strokeWidth={2.5} className="text-white shrink-0 ml-1.5" />
-                        )}
-                      </button>
-                    ))}
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Bluetooth */}
-          <div
-            onClick={handleOpenBt}
-            className="w-full flex items-center justify-between p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
-          >
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <Tooltip content={isBtOn ? "Turn Bluetooth Off" : "Turn Bluetooth On"} side="top">
-                <motion.button
+              <Tooltip content={t("cc_brightness_mode")} side="left">
+                <button
                   type="button"
-                  whileTap={{ scale: 0.88 }}
-                  transition={iosSpring.press}
-                  onClick={handleQuickToggleBt}
-                  className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-all duration-300 cursor-pointer ${
-                    isBtConnected
-                      ? "bg-[#0a84ff] text-white shadow-[0_0_14px_rgba(10,132,255,0.45)] hover:bg-[#0071e3]"
-                      : isBtOn
-                      ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/30"
-                      : "bg-white/10 text-white/40 hover:bg-white/15"
+                  onClick={handleNextBrightnessMode}
+                  className={`w-[40px] h-[40px] rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
+                    brightnessMode === "auto"
+                      ? "bg-[#3882F6]/20 text-[#3882F6] border border-[#3882F6]/40"
+                      : "bg-[#17171c] hover:bg-[#222229] text-[#e4e4e7]"
                   }`}
                 >
-                  <Bluetooth size={14} className={isBtConnected ? "text-white" : isBtOn ? "text-sky-400" : "text-white/40"} />
-                </motion.button>
+                  {brightnessMode === "reading" ? (
+                    <Moon size={17} className="text-indigo-400" />
+                  ) : (
+                    <span className="text-[14px] font-semibold leading-none">A</span>
+                  )}
+                </button>
               </Tooltip>
-              <div className="flex flex-col min-w-0 overflow-hidden flex-1">
-                <span className="text-[11px] font-bold text-white leading-tight truncate">
-                  {hasBtBattery ? btBatteryText : "Bluetooth"}
-                </span>
-                <ScrollingText
-                  text={isBtOn ? (cleanBtName || t("cc_not_connected")) : "Off"}
-                  className="text-[9px] text-ios-secondary font-medium mt-0.5 truncate"
+            </div>
+
+            {/* Volume Slider Row */}
+            <div className="flex items-center gap-2.5 h-[40px]" data-no-swipe="true">
+              <div
+                className="flex-1 h-[40px] rounded-full bg-[#15151b] relative overflow-hidden cursor-pointer"
+                onWheel={(e) => {
+                  if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                    e.stopPropagation();
+                    if (Math.abs(e.deltaY) < 1) return;
+                    const dir = getWheelVerticalDirection(e);
+                    handleVolumeChange(soundLevel + (dir > 0 ? 2 : -2));
+                  }
+                }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 bg-[#e4e4e7] transition-[width] duration-75"
+                  style={{ width: `${Math.max(0, Math.min(100, soundLevel))}%` }}
+                />
+                <div
+                  className={`absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none transition-colors ${
+                    soundLevel > 10 ? "text-[#0b0b0d]" : "text-[#e4e4e7]"
+                  }`}
+                >
+                  <Volume2 size={17} />
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(soundLevel)}
+                  aria-label={t("cc_volume")}
+                  data-no-swipe="true"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                  className="absolute inset-0 w-full h-full opacity-0 m-0 cursor-pointer z-10"
                 />
               </div>
-            </div>
-            <ChevronRight size={13} className="shrink-0 text-white/30 group-hover:text-white/70 transition-colors ml-0.5" />
-          </div>
 
-          {/* Hotspot */}
-          <Tooltip content={isHotspotOn ? t("cc_hotspot_on") : t("cc_hotspot_off")} side="top" wrapperClassName="w-full">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.94 }}
-              transition={iosSpring.press}
-              onClick={onToggleHotspot}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                openUrl("ms-settings:network-mobilehotspot").catch(console.error);
-              }}
-              className="w-full flex items-center gap-2 p-1.5 rounded-xl hover:bg-white/[0.08] active:bg-white/[0.14] transition-colors cursor-pointer min-w-0 text-left select-none group"
-            >
-              <div
-                className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-all duration-300 ${
-                  isHotspotOn
-                    ? "bg-[#34c759] text-white shadow-[0_0_14px_rgba(52,199,89,0.45)]"
-                    : "bg-white/10 text-white/40"
-                }`}
-              >
-                <Radio size={14} className={isHotspotOn ? "text-white animate-pulse" : "text-white/40"} />
-              </div>
-              <div className="flex flex-col min-w-0 overflow-hidden w-full">
-                <span className="text-[11px] font-bold text-white leading-tight whitespace-nowrap">Hotspot</span>
-                <span
-                  className={`text-[9px] font-medium mt-0.5 truncate ${
-                    isHotspotOn ? "text-emerald-300 font-semibold" : "text-ios-secondary"
-                  }`}
+              <span className="w-[40px] text-right text-[13px] font-semibold text-white tabular-nums shrink-0">
+                {Math.round(soundLevel)}%
+              </span>
+
+              <Tooltip content={t("tab_volume_mixer")} side="left">
+                <button
+                  type="button"
+                  onClick={() => onGoToTab("volume_mixer", 1)}
+                  className="w-[40px] h-[40px] rounded-full bg-[#17171c] hover:bg-[#222229] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                 >
-                  {isHotspotOn ? t("cc_hotspot_active") : t("cc_hotspot_inactive")}
-                </span>
-              </div>
-            </motion.button>
-          </Tooltip>
-        </div>
-
-        {/* Right Card: 2x2 System Power Actions */}
-        <div className="grid grid-cols-2 gap-2 aspect-square bg-[#1c1c1e]/90 rounded-[22px] p-2 border border-white/5 shadow-sm">
-          {/* Lock */}
-          <Tooltip content={t("cc_lock_pc")} side="bottom" wrapperClassName="w-full h-full">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
-              onClick={(e) => {
-                e.stopPropagation();
-                invoke("system_power_action", { action: "lock" }).catch(console.error);
-                onClose();
-              }}
-              className="w-full h-full bg-white/[0.04] hover:bg-amber-500/15 active:bg-amber-500/25 rounded-[16px] flex items-center justify-center transition-colors border border-white/5 hover:border-amber-500/30 text-amber-400 hover:text-amber-300 shadow-sm cursor-pointer"
-            >
-              <Lock size={16} />
-            </motion.button>
-          </Tooltip>
-
-          {/* Sleep */}
-          <Tooltip content={t("cc_sleep_pc")} side="bottom" wrapperClassName="w-full h-full">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
-              onClick={(e) => {
-                e.stopPropagation();
-                invoke("system_power_action", { action: "sleep" }).catch(console.error);
-                onClose();
-              }}
-              className="w-full h-full bg-white/[0.04] hover:bg-indigo-500/15 active:bg-indigo-500/25 rounded-[16px] flex items-center justify-center transition-colors border border-white/5 hover:border-indigo-500/30 text-indigo-400 hover:text-indigo-300 shadow-sm cursor-pointer"
-            >
-              <Moon size={16} />
-            </motion.button>
-          </Tooltip>
-
-          {/* Restart */}
-          <Tooltip content={t("cc_restart_pc")} side="top" wrapperClassName="w-full h-full">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
-              onClick={(e) => {
-                e.stopPropagation();
-                invoke("system_power_action", { action: "restart" }).catch(console.error);
-                onClose();
-              }}
-              className="w-full h-full bg-white/[0.04] hover:bg-sky-500/15 active:bg-sky-500/25 rounded-[16px] flex items-center justify-center transition-colors border border-white/5 hover:border-sky-500/30 text-sky-400 hover:text-sky-300 shadow-sm cursor-pointer"
-            >
-              <RotateCcw size={16} />
-            </motion.button>
-          </Tooltip>
-
-          {/* Shutdown */}
-          <Tooltip content={t("cc_shutdown_pc")} side="top" wrapperClassName="w-full h-full">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.9 }}
-              transition={iosSpring.press}
-              onClick={(e) => {
-                e.stopPropagation();
-                invoke("system_power_action", { action: "shutdown" }).catch(console.error);
-                onClose();
-              }}
-              className="w-full h-full bg-white/[0.04] hover:bg-rose-500/15 active:bg-rose-500/25 rounded-[16px] flex items-center justify-center transition-colors border border-white/5 hover:border-rose-500/30 text-rose-400 hover:text-rose-300 shadow-sm cursor-pointer"
-            >
-              <Power size={16} />
-            </motion.button>
-          </Tooltip>
-        </div>
-      </motion.div>
-
-      {/* Row 3: iOS Capsule Sliders */}
-      <motion.div
-        custom={slideDirection}
-        variants={iosRiseVariants}
-        className="flex flex-col gap-2.5 bg-[#1c1c1e]/90 rounded-[22px] p-2.5 border border-white/5 shadow-sm relative z-10"
-      >
-        {/* Brightness Slider */}
-        <IosSlider
-          value={displayLevel}
-          onChange={handleBrightnessChange}
-          label={t("cc_brightness")}
-          fillColor="bg-white"
-          iconActiveColor="text-neutral-900"
-          icon={<Sun size={15} className={displayLevel > 14 ? "text-neutral-900" : "text-amber-400"} />}
-          actionButton={
-            <Tooltip content={t("cc_brightness_mode")} side="left">
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.9 }}
-                transition={iosSpring.press}
-                onClick={handleNextBrightnessMode}
-                className="w-8 h-8 rounded-full bg-white/[0.08] hover:bg-white/[0.18] flex items-center justify-center cursor-pointer transition-colors group shrink-0"
-              >
-                {brightnessMode === "manual" ? (
-                  <Sun size={14} className="text-amber-400 group-hover:text-amber-300 transition-colors" />
-                ) : brightnessMode === "reading" ? (
-                  <Moon size={14} className="text-indigo-400 group-hover:text-indigo-300 transition-colors" />
-                ) : (
-                  <div className="w-[14px] h-[14px] flex items-center justify-center text-[11px] font-bold text-sky-400 group-hover:text-sky-300 transition-colors">
-                    A
-                  </div>
-                )}
-              </motion.button>
-            </Tooltip>
-          }
-        />
-
-        {/* Volume Slider */}
-        <IosSlider
-          value={soundLevel}
-          onChange={handleVolumeChange}
-          label={t("cc_volume")}
-          fillColor="bg-white"
-          iconActiveColor="text-neutral-900"
-          icon={<Volume2 size={15} className={soundLevel > 14 ? "text-neutral-900" : "text-sky-400"} />}
-          actionButton={
-            <Tooltip content={t("tab_volume_mixer")} side="left">
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.9 }}
-                transition={iosSpring.press}
-                onClick={() => onGoToTab("volume_mixer", 1)}
-                className="w-8 h-8 rounded-full bg-white/[0.08] hover:bg-white/[0.18] flex items-center justify-center cursor-pointer transition-colors group shrink-0"
-              >
-                <SlidersHorizontal size={14} className="text-sky-400 group-hover:text-sky-300 transition-colors" />
-              </motion.button>
-            </Tooltip>
-          }
-        />
-      </motion.div>
-    </motion.div>
+                  <SlidersHorizontal size={17} />
+                </button>
+              </Tooltip>
+            </div>
+          </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

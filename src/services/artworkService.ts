@@ -26,6 +26,12 @@ export function subscribeArtworkUpdates(callback: () => void): () => void {
   };
 }
 
+export function clearArtworkCache(): void {
+  artworkCache.clear();
+  pendingFetches.clear();
+  artworkListeners.forEach((listener) => listener());
+}
+
 export function invalidateCachedArtwork(key: string): void {
   if (!key) return;
   artworkCache.set(key, null);

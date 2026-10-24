@@ -8,13 +8,19 @@ export interface MediaPayload {
   duration?: number;
   is_browser?: boolean;
   app_id?: string;
+  web_source?: string;
 }
 
 export interface NotifPayload {
+  id?: string;
+  timestamp?: number;
   title: string;
   body: string;
   icon?: string;
   type?: string;
   aumid?: string;
+  subtitle?: string;
+  headline?: string;
+  secondaryText?: string;
   onClick?: () => void;
 }
