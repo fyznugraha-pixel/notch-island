@@ -195,14 +195,14 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   if (isLoading) {
     return (
       <div
-        className="w-full h-full flex items-center justify-between px-2.5 cursor-pointer select-none"
+        className="w-full h-full flex items-center justify-between px-2.5 cursor-pointer select-none gap-2"
         onClick={onClick}
       >
         <div className="w-[28px] h-[28px] rounded-[8px] bg-neutral-900 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden relative shadow-sm">
           {media ? <MediaThumbnail media={media} /> : <Music2 size={13} className="text-white/60" />}
         </div>
 
-        <div className="flex-1 flex items-center justify-center gap-1.5 text-white/50 animate-pulse text-[11px] font-medium min-w-0 px-2">
+        <div className="flex-1 flex items-center justify-center gap-1.5 text-white/50 animate-pulse text-[11px] font-medium min-w-0 px-1">
           <Music2 size={12} className="text-white/60 shrink-0" />
           <span className="truncate">{t("lyrics_searching")}</span>
         </div>
@@ -216,7 +216,7 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
 
   return (
     <div
-      className="w-full h-full flex items-center justify-between px-3.5 cursor-pointer select-none overflow-hidden relative group gap-2.5"
+      className="w-full h-full flex items-center justify-between px-2.5 cursor-pointer select-none overflow-hidden relative group gap-2"
       onClick={onClick}
     >
       {/* Left: Mini Album Art / App Icon */}
@@ -231,7 +231,7 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
       </div>
 
       {/* Center: Exactly 3 lines (previous, active synced in middle, next) */}
-      <div className="flex-1 min-w-0 h-full flex flex-col justify-center items-center px-1 overflow-hidden relative">
+      <div className="flex-1 min-w-0 h-full flex flex-col justify-center items-center overflow-hidden relative">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={hasSyncedLyrics ? `line-${activeIndex}` : `track-${songTitle}-${currLine}`}

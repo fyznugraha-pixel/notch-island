@@ -2384,15 +2384,17 @@ export default function App() {
 
   const lyricsIdleWidth = React.useMemo(() => {
     if (!media) return idleWidth;
-    const lyricFont = optFontSize === "small" ? "bold 11.5px 'Inter', sans-serif" : optFontSize === "large" ? "bold 16px 'Inter', sans-serif" : "bold 13.5px 'Inter', sans-serif";
-    const subFont = optFontSize === "small" ? "500 9px 'Inter', sans-serif" : optFontSize === "large" ? "500 12px 'Inter', sans-serif" : "500 10.5px 'Inter', sans-serif";
+    const lyricFont = optFontSize === "small" ? "bold 12px 'Inter', sans-serif" : optFontSize === "large" ? "bold 15.5px 'Inter', sans-serif" : "bold 13.5px 'Inter', sans-serif";
+    const subFont = optFontSize === "small" ? "500 9px 'Inter', sans-serif" : optFontSize === "large" ? "500 11.5px 'Inter', sans-serif" : "500 10px 'Inter', sans-serif";
     const textToMeasure = activeIdleLyric.curr || media.title || "Now Playing";
     const currWidth = getTextWidth(textToMeasure, lyricFont);
     const prevWidth = activeIdleLyric.prev ? getTextWidth(activeIdleLyric.prev, subFont) : 0;
     const nextWidth = activeIdleLyric.next ? getTextWidth(activeIdleLyric.next, subFont) : 0;
-    const maxText = Math.max(currWidth * 1.05, prevWidth, nextWidth);
-    const basePadding = 140;
-    return Math.min(680, Math.max(260, Math.ceil(maxText + basePadding)));
+    const adjacentMax = Math.max(prevWidth, nextWidth);
+    const maxText = Math.max(currWidth, Math.min(currWidth + 24, adjacentMax));
+    // Tight UI footprint: art (32px) + visualizer (24px) + padding (20px) + gaps (16px) + safety buffer (6px) = 98px
+    const basePadding = 98;
+    return Math.min(560, Math.max(160, Math.ceil(maxText + basePadding)));
   }, [media, activeIdleLyric, optFontSize, idleWidth]);
 
   const getDynamicWidth = () => {
