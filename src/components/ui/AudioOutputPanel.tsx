@@ -88,9 +88,13 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
 
   const handleAddBluetooth = async () => {
     try {
-      await openUrl("ms-settings:bluetooth");
+      await invoke("system_power_action", { action: "bluetooth" });
     } catch {
-      window.open("ms-settings:bluetooth");
+      try {
+        await openUrl("ms-settings:bluetooth");
+      } catch {
+        window.open("ms-settings:bluetooth");
+      }
     }
   };
 

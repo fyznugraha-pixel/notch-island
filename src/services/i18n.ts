@@ -61,6 +61,8 @@ export const translations = {
   settings_update_error: { en: "Check failed", id: "Gagal memeriksa" },
   settings_notif_duration: { en: "Notification duration", id: "Durasi notifikasi" },
   settings_notif_duration_desc: { en: "How long pop-up stays on screen", id: "Lama pop-up bertahan di layar" },
+  settings_notif_sound: { en: "Notification Sound", id: "Suara Notifikasi" },
+  settings_notif_sound_desc: { en: "Tone played when notifications arrive", id: "Suara saat ada notifikasi masuk" },
   settings_clear_temp: { en: "Clear Temp Files", id: "Bersihkan File Sementara" },
   settings_clear_temp_desc: { en: "Clean Windows temporary files and cache", id: "Bersihkan cache dan file temporary Windows" },
   settings_clearing_temp: { en: "Cleaning...", id: "Membersihkan..." },
@@ -448,6 +450,7 @@ export const translations = {
   clipboard_notif_text: { en: "CLIPBOARD · TEXT", id: "CLIPBOARD · TEKS" },
   clipboard_notif_image: { en: "CLIPBOARD · IMAGE", id: "CLIPBOARD · GAMBAR" },
   clipboard_badge_image: { en: "Image", id: "Gambar" },
+  clipboard_loading_image: { en: "Loading preview...", id: "Memuat pratinjau..." },
   notif_image_copied_clipboard: { en: "Image Copied to Clipboard", id: "Gambar Disalin ke Papan Klip" },
   todo_alert_due_now: { en: "TASK DEADLINE · NOW", id: "TENGGAT TUGAS · SEKARANG" },
   todo_alert_due_in: { en: "TASK REMINDER · {min} MIN LEFT", id: "PENGINGAT TUGAS · {min} MENIT LAGI" },
@@ -559,7 +562,13 @@ export function t(key: TranslationKey, params?: Record<string, string | number>)
 
   let text: string = entry[lang] || entry["en"] || key;
   if (params) {
-    for (const [k, v] of Object.entries(params)) {
+    const normalized = { ...params };
+    if (normalized.current !== undefined && normalized.curr === undefined) {
+      normalized.curr = normalized.current;
+    } else if (normalized.curr !== undefined && normalized.current === undefined) {
+      normalized.current = normalized.curr;
+    }
+    for (const [k, v] of Object.entries(normalized)) {
       text = text.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
     }
   }

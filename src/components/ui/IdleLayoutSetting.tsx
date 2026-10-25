@@ -648,7 +648,9 @@ export const IdleLayoutSetting: React.FC<IdleLayoutSettingProps> = ({
                         : "bg-white/[0.04] border-white/[0.08] text-white/70 hover:bg-white/[0.1] hover:text-white"
                     }`}
                   >
-                    <span className="shrink-0">{opt.icon}</span>
+                    <span className={`shrink-0 ${isCurrent ? "[&>*]:!text-white text-white" : ""}`}>
+                      {opt.icon}
+                    </span>
                     <span className="truncate">{getItemLabel(opt.id)}</span>
                   </button>
                 );

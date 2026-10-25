@@ -148,6 +148,9 @@ export const Tooltip: React.FC<TooltipProps> = ({
     right: { initial: { opacity: 0, x: -4, scale: 0.95 }, animate: { opacity: 1, x: 0, scale: 1 }, exit: { opacity: 0, x: 2, scale: 0.95 } },
   }[side];
 
+  const isLightMode =
+    typeof document !== "undefined" && document.documentElement.classList.contains("light");
+
   return (
     <div
       ref={triggerRef}
@@ -178,7 +181,11 @@ export const Tooltip: React.FC<TooltipProps> = ({
                   className="pointer-events-none select-none"
                 >
                   <div
-                    className={`px-2.5 py-1 rounded-[8px] bg-[#18181b] border border-white/10 text-[11px] font-medium text-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.7)] ring-1 ring-white/5 whitespace-nowrap leading-tight tracking-tight select-none flex items-center gap-1.5 ${className}`}
+                    className={`px-2.5 py-1 rounded-[8px] text-[11px] font-medium whitespace-nowrap leading-tight tracking-tight select-none flex items-center gap-1.5 ${
+                      isLightMode
+                        ? "bg-white/95 text-[#1d1d1f] border border-black/10 shadow-[0_8px_24px_rgba(0,0,0,0.12)] ring-1 ring-black/5"
+                        : "bg-[#18181b] border border-white/10 text-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.7)] ring-1 ring-white/5"
+                    } ${className}`}
                   >
                     {content}
                   </div>

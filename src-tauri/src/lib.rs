@@ -264,12 +264,21 @@ async fn read_clipboard_image(app: tauri::AppHandle) -> Result<Option<ClipboardI
         let thumbnail = if let Some(img_buffer) = image::RgbaImage::from_raw(width, height, rgba.to_vec()) {
             let resized = image::imageops::resize(&img_buffer, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
             let mut cursor = std::io::Cursor::new(Vec::new());
-            if resized.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
-                use base64::Engine;
+            use base64::Engine;
+            // JPEG requires RGB8 (no alpha channel). Convert to RGB8 for compact base64 data URI.
+            let rgb = image::DynamicImage::ImageRgba8(resized.clone()).into_rgb8();
+            if rgb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
                 let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
                 format!("data:image/jpeg;base64,{}", b64)
             } else {
-                String::new()
+                cursor.set_position(0);
+                cursor.get_mut().clear();
+                if resized.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+                    format!("data:image/png;base64,{}", b64)
+                } else {
+                    String::new()
+                }
             }
         } else {
             String::new()
@@ -499,6 +508,12 @@ fn resolve_smtc_session(
         if !last.0.is_empty() {
             if let Ok(sessions) = manager.GetSessions() {
                 for s in sessions.into_iter() {
+                    if let Ok(playback) = s.GetPlaybackInfo() {
+                        use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+                        if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                            continue;
+                        }
+                    }
                     if let Ok(info) = s.TryGetMediaPropertiesAsync().and_then(|r| r.get()) {
                         let t = info.Title().unwrap_or_default().to_string();
                         let a = info.Artist().unwrap_or_default().to_string();
@@ -511,7 +526,15 @@ fn resolve_smtc_session(
         }
     }
 
-    manager.GetCurrentSession().ok()
+    if let Ok(curr) = manager.GetCurrentSession() {
+        if let Ok(playback) = curr.GetPlaybackInfo() {
+            use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+            if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                return Some(curr);
+            }
+        }
+    }
+    None
 }
 
 #[tauri::command]
@@ -2397,6 +2420,12 @@ pub fn run() {
                         if active_session.is_none() && !last_raw_title.is_empty() {
                             if let Ok(sessions) = manager.GetSessions() {
                                 for session in sessions.into_iter() {
+                                    if let Ok(playback) = session.GetPlaybackInfo() {
+                                        use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+                                        if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                                            continue;
+                                        }
+                                    }
                                     if let Ok(info) = session.TryGetMediaPropertiesAsync().and_then(|r| r.get()) {
                                         let t = info.Title().unwrap_or_default().to_string();
                                         let a = info.Artist().unwrap_or_default().to_string();
@@ -2409,7 +2438,14 @@ pub fn run() {
                             }
                         }
                         if active_session.is_none() {
-                            active_session = manager.GetCurrentSession().ok();
+                            if let Ok(curr) = manager.GetCurrentSession() {
+                                if let Ok(playback) = curr.GetPlaybackInfo() {
+                                    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+                                    if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                                        active_session = Some(curr);
+                                    }
+                                }
+                            }
                         }
 
                         if let Some(session) = &active_session {
@@ -2770,6 +2806,17 @@ pub fn run() {
                             }
                             if let Ok(playback_info) = session.GetPlaybackInfo() {
                                 is_playing = is_smtc_session_playing(&playback_info);
+                                use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+                                if playback_info.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                                    title.clear();
+                                    artist.clear();
+                                    last_raw_title.clear();
+                                    last_raw_artist.clear();
+                                    last_thumbnail = None;
+                                    if let Ok(mut last_active) = LAST_ACTIVE_SMTC.lock() {
+                                        *last_active = (String::new(), String::new());
+                                    }
+                                }
                             }
                             
                             if let Ok(timeline) = session.GetTimelineProperties() {

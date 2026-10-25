@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Search, Trash2, Copy, Check, Clipboard, X, Link2, FileText, Pin, Image as ImageIcon } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
 
@@ -20,6 +21,7 @@ export interface ClipboardPanelProps {
   onCopyItem: (item: ClipboardItem) => void;
   onDeleteItem: (id: string) => void;
   onTogglePinItem?: (id: string) => void;
+  onUpdateItem?: (id: string, updates: Partial<ClipboardItem>) => void;
   onClearAll: () => void;
 }
 
@@ -42,10 +44,36 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
   onCopyItem,
   onDeleteItem,
   onTogglePinItem,
+  onUpdateItem,
   onClearAll,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [loadedThumbnails, setLoadedThumbnails] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const missing = items.filter(
+      (item) => item.type === "image" && item.imagePath && !item.thumbnail && !loadedThumbnails[item.id]
+    );
+
+    if (missing.length === 0) return;
+
+    let isMounted = true;
+    missing.forEach((item) => {
+      invoke<{ thumbnail?: string }>("get_file_preview", { path: item.imagePath })
+        .then((res) => {
+          if (isMounted && res?.thumbnail) {
+            setLoadedThumbnails((prev) => ({ ...prev, [item.id]: res.thumbnail! }));
+            onUpdateItem?.(item.id, { thumbnail: res.thumbnail });
+          }
+        })
+        .catch(() => {});
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [items, loadedThumbnails, onUpdateItem]);
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -236,15 +264,22 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
                 </div>
 
                 {/* Content: Image Thumbnail or Text */}
-                {item.type === "image" && item.thumbnail ? (
+                {item.type === "image" ? (
                   <div className="flex flex-col gap-1.5 mt-0.5">
-                    <div className="relative w-full h-[120px] rounded-xl overflow-hidden bg-black/40 border border-white/5 flex items-center justify-center">
-                      <img
-                        src={item.thumbnail}
-                        alt="Clipboard image"
-                        className="w-full h-full object-contain pointer-events-none select-none"
-                        loading="lazy"
-                      />
+                    <div className="relative w-full h-[120px] rounded-xl overflow-hidden bg-black/40 border border-white/5 flex items-center justify-center group/thumb">
+                      {(item.thumbnail || loadedThumbnails[item.id]) ? (
+                        <img
+                          src={item.thumbnail || loadedThumbnails[item.id]}
+                          alt="Clipboard image"
+                          className="w-full h-full object-contain pointer-events-none select-none transition-transform duration-200 group-hover/thumb:scale-[1.02]"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="flex items-center gap-2 text-white/30 text-[11px]">
+                          <ImageIcon size={16} className="animate-pulse" />
+                          <span>{t("clipboard_loading_image")}</span>
+                        </div>
+                      )}
                     </div>
                     {item.text && (
                       <div className="text-[10.5px] text-white/60 line-clamp-2 break-words font-sans leading-snug">

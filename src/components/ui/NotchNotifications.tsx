@@ -110,6 +110,8 @@ export const UniformHudPill: React.FC<{
       : notif.icon === "battery"
       ? percentValue !== null && percentValue <= 20
         ? "bg-rose-500"
+        : isLightMode
+        ? "bg-emerald-700"
         : "bg-[#34c759]"
       : "bg-[#3882F6]";
 
@@ -157,7 +159,13 @@ export const UniformHudPill: React.FC<{
       {isBarHud ? (
         <span
           className={`text-[13px] font-bold tabular-nums shrink-0 min-w-[36px] text-right ${
-            notif.icon === "battery" ? "text-[#34c759]" : isLightMode ? "text-[#1d1d1f]" : "text-white"
+            notif.icon === "battery"
+              ? isLightMode
+                ? "text-emerald-700"
+                : "text-[#34c759]"
+              : isLightMode
+              ? "text-[#1d1d1f]"
+              : "text-white"
           }`}
         >
           {percentValue}%
@@ -651,10 +659,19 @@ export const PomodoroCompleteAlertCard: React.FC<{
   alert: PomodoroCompleteAlert;
   focusedTaskTitle?: string | null;
   todayFocusMinutes: number;
+  isLightMode?: boolean;
   onAccept: () => void;
   onSkip: () => void;
   onDismiss: () => void;
-}> = ({ alert, focusedTaskTitle, todayFocusMinutes, onAccept, onSkip, onDismiss }) => {
+}> = ({
+  alert,
+  focusedTaskTitle,
+  todayFocusMinutes,
+  isLightMode = false,
+  onAccept,
+  onSkip,
+  onDismiss,
+}) => {
   const isFocusDone = alert.finishedMode === "focus";
   const headerLabel = isFocusDone ? t("pomo_done_focus_title") : t("pomo_done_break_title");
   const mainTitle = isFocusDone
@@ -671,7 +688,9 @@ export const PomodoroCompleteAlertCard: React.FC<{
       exit={{ opacity: 0, scale: 0.95 }}
       transition={iosSpring.snappy}
       onClick={(e) => e.stopPropagation()}
-      className="absolute inset-0 flex items-center gap-3.5 px-5 text-white select-none"
+      className={`absolute inset-0 flex items-center gap-3.5 px-5 select-none ${
+        isLightMode ? "text-[#1d1d1f]" : "text-white"
+      }`}
     >
       {/* Full ring with checkmark */}
       <div className="relative w-[50px] h-[50px] shrink-0">
@@ -681,14 +700,26 @@ export const PomodoroCompleteAlertCard: React.FC<{
             cy="25"
             r="22"
             fill="none"
-            stroke={isFocusDone ? "#ff8a7a" : "#5eead4"}
+            stroke={
+              isFocusDone
+                ? isLightMode
+                  ? "#f43f5e"
+                  : "#ff8a7a"
+                : isLightMode
+                ? "#0d9488"
+                : "#5eead4"
+            }
             strokeWidth="3"
           />
         </svg>
         <div
           className={`absolute left-[6px] top-[6px] w-[38px] h-[38px] rounded-full flex items-center justify-center ${
             isFocusDone
-              ? "bg-[#ff8a7a]/16 text-[#ff9b8f]"
+              ? isLightMode
+                ? "bg-rose-50 text-rose-600"
+                : "bg-[#ff8a7a]/16 text-[#ff9b8f]"
+              : isLightMode
+              ? "bg-teal-50 text-teal-700"
               : "bg-[#5eead4]/16 text-[#5eead4]"
           }`}
         >
@@ -699,17 +730,32 @@ export const PomodoroCompleteAlertCard: React.FC<{
       <div className="flex-1 min-w-0">
         <div
           className={`text-[10px] font-bold tracking-[0.08em] uppercase ${
-            isFocusDone ? "text-[#ff9b8f]" : "text-[#5eead4]"
+            isFocusDone
+              ? isLightMode
+                ? "text-rose-600"
+                : "text-[#ff9b8f]"
+              : isLightMode
+              ? "text-teal-700"
+              : "text-[#5eead4]"
           }`}
         >
           {headerLabel}
         </div>
-        <div className="text-[16px] font-semibold tracking-tight text-white truncate mt-0.5">
+        <div
+          className={`text-[16px] font-semibold tracking-tight truncate mt-0.5 ${
+            isLightMode ? "text-[#1d1d1f]" : "text-white"
+          }`}
+        >
           {mainTitle}
         </div>
-        <div className="text-[11.5px] text-[#a1a1aa] truncate mt-0.5">
+        <div
+          className={`text-[11.5px] truncate mt-0.5 ${
+            isLightMode ? "text-neutral-500" : "text-[#a1a1aa]"
+          }`}
+        >
           {focusedTaskTitle ? `${focusedTaskTitle} · ` : ""}
           {t("pomo_cycle_label", {
+            curr: alert.cycleSession,
             current: alert.cycleSession,
             total: alert.sessionsPerCycle,
           })}{" "}
@@ -721,7 +767,11 @@ export const PomodoroCompleteAlertCard: React.FC<{
         <button
           type="button"
           onClick={onSkip}
-          className="h-[36px] px-3 rounded-[11px] border border-[#3a3a43] hover:bg-white/[0.06] text-[#e4e4e7] text-[12px] font-medium cursor-pointer transition-colors"
+          className={`h-[36px] px-3 rounded-[11px] border text-[12px] font-medium cursor-pointer transition-colors ${
+            isLightMode
+              ? "border-black/15 bg-black/5 hover:bg-black/10 text-[#1d1d1f]"
+              : "border-[#3a3a43] hover:bg-white/[0.06] text-[#e4e4e7]"
+          }`}
         >
           {t("pomo_skip")}
         </button>
@@ -741,7 +791,11 @@ export const PomodoroCompleteAlertCard: React.FC<{
       <button
         type="button"
         onClick={onDismiss}
-        className="absolute right-3 top-2.5 w-5 h-5 rounded-full text-[#a1a1aa] hover:text-white hover:bg-white/10 flex items-center justify-center cursor-pointer transition-colors"
+        className={`absolute right-3 top-2.5 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-colors ${
+          isLightMode
+            ? "text-neutral-400 hover:text-black hover:bg-black/5"
+            : "text-[#a1a1aa] hover:text-white hover:bg-white/10"
+        }`}
       >
         <X size={11} strokeWidth={2.5} />
       </button>

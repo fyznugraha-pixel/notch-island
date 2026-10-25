@@ -1,8 +1,9 @@
 import React from "react";
-import { Globe, Zap, Smile, AppWindow, Clock } from "lucide-react";
+import { Globe, Zap, Smile, AppWindow, Clock, Volume2 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
+import { NotifSoundPicker } from "./NotifSoundPicker";
 import { t, Language } from "../../../services/i18n";
 
 export interface GeneralTabProps {
@@ -16,6 +17,8 @@ export interface GeneralTabProps {
   onToggleAutoCompact: () => void;
   optNotifTime: number;
   onChangeNotifTime: (sec: number) => void;
+  optNotifSound: string;
+  onChangeNotifSound: (soundId: string) => void;
 }
 
 export const GeneralTab: React.FC<GeneralTabProps> = ({
@@ -29,11 +32,13 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
   onToggleAutoCompact,
   optNotifTime,
   onChangeNotifTime,
+  optNotifSound,
+  onChangeNotifSound,
 }) => {
   const isId = optLanguage === "id";
 
   return (
-    <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col justify-between shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+    <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col gap-1 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
       {/* 1. Bahasa */}
       <SettingRow
         icon={<Globe size={18} />}
@@ -117,6 +122,21 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
               { value: 5, label: isId ? "5 dtk" : "5s" },
               { value: 7, label: isId ? "7 dtk" : "7s" },
             ]}
+          />
+        }
+      />
+
+      {/* 6. Suara notifikasi */}
+      <SettingRow
+        icon={<Volume2 size={18} />}
+        iconBgClass="bg-[#26182e]"
+        iconColorClass="text-[#af52de]"
+        title={t("settings_notif_sound")}
+        subtitle={t("settings_notif_sound_desc")}
+        control={
+          <NotifSoundPicker
+            value={optNotifSound}
+            onChange={onChangeNotifSound}
           />
         }
       />

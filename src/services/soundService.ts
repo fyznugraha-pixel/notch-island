@@ -237,16 +237,86 @@ export function playDeviceConnectSound() {
   ]);
 }
 
+export interface NotifSoundItem {
+  id: string;
+  name: string;
+  file?: string;
+}
+
+export const NOTIF_SOUND_LIST: NotifSoundItem[] = [
+  { id: "glass", name: "Glass (Default)" },
+  { id: "windows-longhorn", name: "Windows Longhorn", file: "/notif-sound/windows-longhorn.mp3" },
+  { id: "windows-98", name: "Windows 98", file: "/notif-sound/windows-98.mp3" },
+  { id: "notif-sound-f1", name: "Formula 1", file: "/notif-sound/notif-sound-f1.mp3" },
+  { id: "notif-snap", name: "Snap 1", file: "/notif-sound/notif-snap.mp3" },
+  { id: "notif-snap2", name: "Snap 2", file: "/notif-sound/notif-snap2.mp3" },
+  { id: "messnger-notif", name: "Messenger", file: "/notif-sound/messnger-notif.mp3" },
+];
+
+export function getSavedNotifSound(): string {
+  try {
+    return localStorage.getItem("island_notif_sound") || "glass";
+  } catch {
+    return "glass";
+  }
+}
+
+export function setSavedNotifSound(soundId: string): void {
+  try {
+    localStorage.setItem("island_notif_sound", soundId);
+  } catch {}
+}
+
+function playSoundById(soundId: string): void {
+  if (soundId === "glass") {
+    playIosGlassSequence([
+      { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 }, // E5
+      { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 }, // A5
+      { freq: 1318.51, delay: 0.11, duration: 0.28, gain: 0.16, cutoff: 4800 }, // E6
+    ]);
+    return;
+  }
+
+  const item = NOTIF_SOUND_LIST.find((s) => s.id === soundId);
+  if (item && item.file) {
+    try {
+      const audio = new Audio(item.file);
+      audio.volume = 0.75;
+      audio.play().catch((err) => {
+        console.debug("Failed to play notification audio file, falling back to glass:", err);
+        playIosGlassSequence([
+          { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 },
+          { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 },
+          { freq: 1318.51, delay: 0.11, duration: 0.28, gain: 0.16, cutoff: 4800 },
+        ]);
+      });
+    } catch {
+      // fallback
+    }
+  } else {
+    playIosGlassSequence([
+      { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 },
+      { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 },
+      { freq: 1318.51, delay: 0.11, duration: 0.28, gain: 0.16, cutoff: 4800 },
+    ]);
+  }
+}
+
 /**
- * iOS "Rebound / Tri-tone" glass pluck notification sound.
+ * Preview sound regardless of DND state (used in Settings sound picker).
  */
-export function playNotificationSound() {
-  if (getDndStatus()) return;
-  playIosGlassSequence([
-    { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 }, // E5
-    { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 }, // A5
-    { freq: 1318.51, delay: 0.11, duration: 0.28, gain: 0.16, cutoff: 4800 }, // E6
-  ]);
+export function previewNotificationSound(soundId: string): void {
+  if (!isSoundEffectsEnabled()) return;
+  playSoundById(soundId);
+}
+
+/**
+ * Plays notification sound based on user preference.
+ */
+export function playNotificationSound(soundIdOverride?: string): void {
+  if (getDndStatus() || !isSoundEffectsEnabled()) return;
+  const soundId = soundIdOverride || getSavedNotifSound();
+  playSoundById(soundId);
 }
 
 /**

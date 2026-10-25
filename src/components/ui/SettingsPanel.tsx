@@ -38,6 +38,8 @@ export interface SettingsPanelProps {
   onTestNotification?: () => void;
   optNotifTime: number;
   onChangeNotifTime: (sec: number) => void;
+  optNotifSound: string;
+  onChangeNotifSound: (soundId: string) => void;
   optCloseDelay: number;
   onChangeCloseDelay: (sec: number) => void;
   // Appearance
@@ -114,6 +116,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onTestNotification,
   optNotifTime,
   onChangeNotifTime,
+  optNotifSound,
+  onChangeNotifSound,
   optCloseDelay: _optCloseDelay,
   onChangeCloseDelay: _onChangeCloseDelay,
   optTheme,
@@ -154,7 +158,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
-  const [currentAppVersion, setCurrentAppVersion] = useState<string>("3.3.1");
+  const [currentAppVersion, setCurrentAppVersion] = useState<string>("3.3.2");
 
   const [clearTempStatus, setClearTempStatus] = useState<"idle" | "cleaning" | "done" | "error">("idle");
   const [clearedResult, setClearedResult] = useState<{
@@ -258,7 +262,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         />
 
         {/* Tab Content Body */}
-        <div className="flex-1 w-full pt-0.5 pb-0.5 flex flex-col justify-start overflow-hidden">
+        <div className="flex-1 w-full pt-0.5 pb-2 flex flex-col justify-start overflow-y-auto settings-scroll min-h-0 pr-0.5" data-scrollable="true">
           <AnimatePresence mode="wait">
             {activeTab === "general" && (
               <motion.div
@@ -280,6 +284,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onToggleAutoCompact={onToggleAutoCompact}
                   optNotifTime={optNotifTime}
                   onChangeNotifTime={onChangeNotifTime}
+                  optNotifSound={optNotifSound}
+                  onChangeNotifSound={onChangeNotifSound}
                 />
               </motion.div>
             )}

@@ -81,6 +81,7 @@ export interface ControlCenterPanelProps {
   ) => void;
   onClose: () => void;
   onSubmenuChange?: (submenu: null | "wifi" | "bluetooth") => void;
+  isLightMode?: boolean;
 }
 
 export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
@@ -105,6 +106,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   onGoToTab,
   onClose,
   onSubmenuChange,
+  isLightMode = false,
 }) => {
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const [isPowerMenuOpen, setIsPowerMenuOpen] = useState(false);
@@ -164,6 +166,11 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
     isBtOn && btName !== "Not Connected" && btName !== "Off" && btName !== "Loading...";
   const currentFocusOption =
     focusModeOptions.find((opt) => opt.id === focusMode) || focusModeOptions[0];
+
+  const handleQuickToggleDnd = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSelectFocusMode(focusMode === "DND" ? "Normal" : "DND");
+  };
 
   const handleQuickToggleWifi = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -305,6 +312,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
           networkPing={networkPing}
           initialEnabled={isWifiOn}
           initialConnectedSsid={isWifiConnected ? wifiName : ""}
+          isLightMode={isLightMode}
         />
       ) : activeSubmenu === "bluetooth" ? (
         <BluetoothSubmenu
@@ -312,6 +320,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
           onBack={handleBackToMain}
           initialEnabled={isBtOn}
           initialConnectedName={isBtConnected ? btName : ""}
+          isLightMode={isLightMode}
         />
       ) : (
         <motion.div
@@ -409,32 +418,69 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    openUrl("ms-settings:quiethours").catch(console.error);
+                    invoke("system_power_action", { action: "focus" }).catch(() => {
+                      openUrl("ms-settings:quiethours").catch(console.error);
+                    });
                   }}
                   className={`h-[60px] rounded-[16px] pl-2.5 pr-1.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
                     isModeDropdownOpen
                       ? "bg-[#17171d] border border-[#3a3a43]"
+                      : focusMode === "DND"
+                      ? "bg-[rgba(99,102,241,0.16)] border border-[rgba(99,102,241,0.4)]"
+                      : focusMode === "Gaming"
+                      ? "bg-[rgba(244,63,94,0.16)] border border-[rgba(244,63,94,0.4)]"
+                      : focusMode === "Sleep"
+                      ? "bg-[rgba(20,184,166,0.16)] border border-[rgba(20,184,166,0.4)]"
                       : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
                   }`}
                 >
-                  <div
-                    className={`w-[36px] h-[36px] rounded-full bg-[#1d1d25] flex items-center justify-center shrink-0 ${getFocusIconColor(
-                      focusMode
-                    )}`}
+                  <button
+                    type="button"
+                    onClick={handleQuickToggleDnd}
+                    aria-label="Toggle DND"
+                    title={focusMode === "DND" ? "Nonaktifkan Mode Jangan Ganggu" : "Aktifkan Mode Jangan Ganggu"}
+                    className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                      focusMode === "DND"
+                        ? "bg-[#6366f1] text-white shadow-sm"
+                        : focusMode === "Gaming"
+                        ? "bg-rose-500 text-white shadow-sm"
+                        : focusMode === "Sleep"
+                        ? "bg-teal-500 text-white shadow-sm"
+                        : "bg-[#1d1d25] text-[#fbbf24] hover:bg-[#252530]"
+                    }`}
                   >
                     {renderFocusGlyph(focusMode, 18)}
-                  </div>
+                  </button>
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] font-semibold text-white leading-tight truncate">
                       {t("cc_mode_title")}
                     </div>
-                    <div className="text-[11px] text-[#a1a1aa] truncate mt-0.5">
+                    <div
+                      className={`text-[11px] truncate mt-0.5 ${
+                        focusMode === "DND"
+                          ? "text-indigo-300 font-medium"
+                          : focusMode === "Gaming"
+                          ? "text-rose-300 font-medium"
+                          : focusMode === "Sleep"
+                          ? "text-teal-300 font-medium"
+                          : "text-[#a1a1aa]"
+                      }`}
+                    >
                       {currentFocusOption ? currentFocusOption.label : focusMode}
                     </div>
                   </div>
-                  <div className="w-[28px] h-[40px] flex items-center justify-center text-[#a1a1aa] shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsPowerMenuOpen(false);
+                      setIsModeDropdownOpen((prev) => !prev);
+                    }}
+                    aria-label="Pilih Mode"
+                    className="w-[28px] h-[40px] flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors shrink-0 cursor-pointer"
+                  >
                     {isModeDropdownOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                  </div>
+                  </button>
                 </div>
 
                 <AnimatePresence>
@@ -545,7 +591,9 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  openUrl("ms-settings:network-mobilehotspot").catch(console.error);
+                  invoke("system_power_action", { action: "hotspot" }).catch(() => {
+                    openUrl("ms-settings:network-mobilehotspot").catch(console.error);
+                  });
                 }}
                 className={`h-[60px] rounded-[16px] px-2.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
                   isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""

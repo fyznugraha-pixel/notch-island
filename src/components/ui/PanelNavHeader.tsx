@@ -17,7 +17,7 @@ import {
   Sparkles,
   Bell,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, type Transition } from "framer-motion";
 import { getWeatherIcon } from "./NotifIcon";
 import { Tooltip } from "./Tooltip";
 import { iosSpring } from "../../utils/iosMotion";
@@ -44,6 +44,7 @@ export interface PanelNavHeaderProps {
   unreadNotificationsCount?: number;
   hideTitleBar?: boolean;
   isMusicPage?: boolean;
+  isLightMode?: boolean;
 }
 
 export interface PanelPageDotsProps {
@@ -54,6 +55,8 @@ export interface PanelPageDotsProps {
   isMusicPage?: boolean;
   tabs?: string[];
   optLanguage?: Language;
+  isLightMode?: boolean;
+  optAnimSpeed?: "snappy" | "smooth" | "bouncy";
 }
 
 export interface PanelFrameProps extends PanelNavHeaderProps, PanelPageDotsProps {
@@ -91,7 +94,11 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
     unreadNotificationsCount = 0,
     hideTitleBar = false,
     isMusicPage = false,
+    isLightMode,
   }) => {
+    const activeIsLightMode =
+      isLightMode ??
+      (typeof document !== "undefined" && document.documentElement.classList.contains("light"));
     const lang = getLanguage();
     const locale = lang === "id" ? "id-ID" : "en-US";
     const dateObj = time || new Date();
@@ -160,18 +167,30 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                 <div
                   className={`relative w-[18px] h-[9.5px] rounded-[2.5px] border p-[1.5px] flex items-center ${
                     battery.is_charging || battery.percent >= 80
-                      ? "border-[#13FF00]"
+                      ? activeIsLightMode
+                        ? "border-[#15803d]"
+                        : "border-[#13FF00]"
                       : battery.percent <= 20
-                      ? "border-[#ff453a]"
+                      ? activeIsLightMode
+                        ? "border-rose-600"
+                        : "border-[#ff453a]"
+                      : activeIsLightMode
+                      ? "border-neutral-700"
                       : "border-white/70"
                   }`}
                 >
                   <div
                     className={`h-full rounded-[1px] transition-all duration-300 ${
                       battery.is_charging || battery.percent >= 80
-                        ? "bg-[#13FF00]"
+                        ? activeIsLightMode
+                          ? "bg-[#15803d]"
+                          : "bg-[#13FF00]"
                         : battery.percent <= 20
-                        ? "bg-[#ff453a]"
+                        ? activeIsLightMode
+                          ? "bg-rose-600"
+                          : "bg-[#ff453a]"
+                        : activeIsLightMode
+                        ? "bg-neutral-800"
                         : "bg-white"
                     }`}
                     style={{ width: `${Math.max(10, Math.min(100, battery.percent))}%` }}
@@ -179,9 +198,15 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                   <div
                     className={`absolute -right-[2.5px] top-[2px] bottom-[2px] w-[1.5px] rounded-r-[1px] ${
                       battery.is_charging || battery.percent >= 80
-                        ? "bg-[#13FF00]"
+                        ? activeIsLightMode
+                          ? "bg-[#15803d]"
+                          : "bg-[#13FF00]"
                         : battery.percent <= 20
-                        ? "bg-[#ff453a]"
+                        ? activeIsLightMode
+                          ? "bg-rose-600"
+                          : "bg-[#ff453a]"
+                        : activeIsLightMode
+                        ? "bg-neutral-700"
                         : "bg-white/70"
                     }`}
                   />
@@ -189,9 +214,15 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                 <span
                   className={`text-[11px] font-medium tabular-nums leading-none ${
                     battery.is_charging || battery.percent >= 80
-                      ? "text-[#13FF00]"
+                      ? activeIsLightMode
+                        ? "text-[#15803d] font-semibold"
+                        : "text-[#13FF00]"
                       : battery.percent <= 20
-                      ? "text-[#ff453a]"
+                      ? activeIsLightMode
+                        ? "text-rose-600 font-semibold"
+                        : "text-[#ff453a]"
+                      : activeIsLightMode
+                      ? "text-[#1d1d1f]"
                       : "text-white/85"
                   }`}
                 >
@@ -200,8 +231,15 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
               </>
             ) : (
               <div className="flex items-center gap-1">
-                <Zap size={11} className="text-[#13FF00]" />
-                <span className="text-[11px] font-medium tabular-nums leading-none text-[#13FF00]">
+                <Zap
+                  size={11}
+                  className={activeIsLightMode ? "text-[#15803d]" : "text-[#13FF00]"}
+                />
+                <span
+                  className={`text-[11px] font-medium tabular-nums leading-none ${
+                    activeIsLightMode ? "text-[#15803d] font-semibold" : "text-[#13FF00]"
+                  }`}
+                >
                   100%
                 </span>
               </div>
@@ -419,8 +457,25 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
     isMusicPage: _isMusicPage = false,
     tabs,
     optLanguage,
+    isLightMode,
+    optAnimSpeed = "smooth",
   }) => {
     if (totalPages <= 1) return null;
+
+    const activeIsLightMode =
+      isLightMode ??
+      (typeof document !== "undefined" && document.documentElement.classList.contains("light"));
+
+    const springTransition: Transition = React.useMemo(() => {
+      if (optAnimSpeed === "snappy") {
+        return { type: "spring" as const, stiffness: 440, damping: 35, mass: 0.65 };
+      }
+      if (optAnimSpeed === "bouncy") {
+        return { type: "spring" as const, stiffness: 260, damping: 20, mass: 0.8 };
+      }
+      // Default "smooth" (ultra-buttery Apple SwiftUI .smooth response)
+      return { type: "spring" as const, stiffness: 280, damping: 28, mass: 0.85 };
+    }, [optAnimSpeed]);
 
     const [isHovered, setIsHovered] = React.useState(false);
     const [hoveredTabIdx, setHoveredTabIdx] = React.useState<number | null>(null);
@@ -466,6 +521,7 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
         onClick={(e) => e.stopPropagation()}
       >
         <motion.div
+          layout
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           initial={false}
@@ -474,21 +530,23 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
             paddingLeft: isHovered ? 8 : 12,
             paddingRight: isHovered ? 8 : 12,
           }}
-          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-          className={`relative flex items-center justify-center rounded-full pointer-events-auto select-none transition-[background-color,border-color,box-shadow] duration-200 ${
+          transition={springTransition}
+          className={`relative flex items-center justify-center rounded-full pointer-events-auto select-none transition-[background-color,border-color,box-shadow] duration-300 ease-out ${
             isHovered
-              ? "bg-white/[0.08] backdrop-blur-xl border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.3)] gap-1"
+              ? activeIsLightMode
+                ? "bg-black/[0.07] backdrop-blur-xl border border-black/10 shadow-[0_4px_16px_rgba(0,0,0,0.08)] gap-1"
+                : "bg-white/[0.08] backdrop-blur-xl border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.3)] gap-1"
               : "bg-transparent border border-transparent shadow-none backdrop-blur-none gap-1.5 cursor-pointer"
           }`}
         >
-          <AnimatePresence initial={false} mode="wait">
+          <AnimatePresence initial={false} mode="popLayout">
             {!isHovered ? (
               <motion.div
                 key="dots"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.85 }}
+                transition={{ duration: 0.16, ease: "easeOut" }}
                 className="flex items-center gap-1.5"
               >
                 {Array.from({ length: totalPages }).map((_, idx) => {
@@ -504,6 +562,8 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
                       className={`h-[5px] rounded-full cursor-pointer transition-all duration-200 ${
                         isCurrent
                           ? "w-[16px] bg-[#3882F6] shadow-[0_0_8px_rgba(56,130,246,0.5)]"
+                          : activeIsLightMode
+                          ? "w-[5px] bg-black/25 hover:bg-black/50"
                           : "w-[5px] bg-white/45 hover:bg-white/70"
                       }`}
                     />
@@ -513,10 +573,10 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
             ) : (
               <motion.div
                 key="navbar"
-                initial={{ opacity: 0, scale: 0.96 }}
+                initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.14, ease: "easeOut" }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={springTransition}
                 className="flex items-center gap-1"
                 onMouseLeave={() => setHoveredTabIdx(null)}
               >
@@ -537,7 +597,11 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
                         isCurrent
                           ? "bg-[#3882F6] text-white shadow-sm shadow-[#3882F6]/40"
                           : isItemHovered
-                          ? "bg-white/20 text-white"
+                          ? activeIsLightMode
+                            ? "bg-black/10 text-[#1d1d1f]"
+                            : "bg-white/20 text-white"
+                          : activeIsLightMode
+                          ? "text-neutral-500 hover:text-[#1d1d1f] hover:bg-black/[0.06]"
                           : "text-white/75 hover:text-white hover:bg-white/15"
                       }`}
                     >
@@ -550,7 +614,11 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
                             animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
                             exit={{ opacity: 0, y: 2, x: "-50%", scale: 0.94 }}
                             transition={{ duration: 0.12, ease: "easeOut" }}
-                            className="absolute -top-7 left-1/2 px-2.5 py-0.5 rounded-full text-white text-[11px] font-medium shadow-[0_4px_14px_rgba(0,0,0,0.55)] whitespace-nowrap pointer-events-none z-50 bg-black/60 backdrop-blur-xl border border-white/20"
+                            className={`absolute -top-7 left-1/2 px-2.5 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap pointer-events-none z-50 ${
+                              activeIsLightMode
+                                ? "bg-white/95 text-[#1d1d1f] shadow-[0_4px_14px_rgba(0,0,0,0.12)] border border-black/10 ring-1 ring-black/5"
+                                : "bg-black/80 text-white shadow-[0_4px_14px_rgba(0,0,0,0.55)] border border-white/20 backdrop-blur-xl"
+                            }`}
                           >
                             {tab.label}
                           </motion.div>
@@ -596,12 +664,15 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     weather,
     camActive,
     micActive,
+    isLightMode,
+    optAnimSpeed,
     children,
     contentClassName = "flex-1 min-w-0 w-full h-full relative z-10 overflow-hidden flex flex-col",
   }) => {
     const isSwipeCooldownRef = React.useRef(false);
     const accumulatedDeltaRef = React.useRef(0);
     const swipeResetTimerRef = React.useRef<number | null>(null);
+    const isPanIgnoredRef = React.useRef(false);
 
     const handleWheel = (e: React.WheelEvent) => {
       if (disableSwipe) {
@@ -615,9 +686,12 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       const target = e.target as HTMLElement | null;
       if (
         target &&
-        (target.closest('.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"]') ||
-          ((target.tagName === "INPUT" || target.tagName === "TEXTAREA") &&
-            (target as HTMLInputElement).type !== "range"))
+        (target.closest(
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+        ) ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "BUTTON")
       ) {
         return;
       }
@@ -662,21 +736,44 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       }
     };
 
-    const handlePanEnd = (e: any, info: { offset: { x: number; y: number } }) => {
-      if (disableSwipe) {
-        return;
-      }
+    const handlePanStart = (e: any) => {
       const target = (e?.target || e?.srcElement) as HTMLElement | null;
       if (
         target &&
-        (target.closest('.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"]') ||
-          ((target.tagName === "INPUT" || target.tagName === "TEXTAREA") &&
-            (target as HTMLInputElement).type !== "range"))
+        (target.closest(
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+        ) ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "BUTTON")
+      ) {
+        isPanIgnoredRef.current = true;
+      } else {
+        isPanIgnoredRef.current = false;
+      }
+    };
+
+    const handlePanEnd = (e: any, info: { offset: { x: number; y: number } }) => {
+      if (disableSwipe || isPanIgnoredRef.current) {
+        isPanIgnoredRef.current = false;
+        return;
+      }
+      isPanIgnoredRef.current = false;
+
+      const target = (e?.target || e?.srcElement) as HTMLElement | null;
+      if (
+        target &&
+        (target.closest(
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+        ) ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "BUTTON")
       ) {
         return;
       }
 
-      if (Math.abs(info.offset.x) > 35 && Math.abs(info.offset.x) > Math.abs(info.offset.y) * 1.2) {
+      if (Math.abs(info.offset.x) > 45 && Math.abs(info.offset.x) > Math.abs(info.offset.y) * 1.5) {
         if (info.offset.x < 0 && hasNext) {
           onNext();
         } else if (info.offset.x > 0 && hasPrev) {
@@ -690,6 +787,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
         data-page={isMusicPage ? "music" : undefined}
         className="relative w-full h-full flex flex-col justify-between overflow-hidden select-none touch-pan-y rounded-[inherit]"
         onWheel={handleWheel}
+        onPanStart={handlePanStart}
         onPanEnd={handlePanEnd}
       >
         <div className="relative z-10 w-full shrink-0">
@@ -713,6 +811,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
             unreadNotificationsCount={unreadNotificationsCount}
             hideTitleBar={hideTitleBar}
             isMusicPage={isMusicPage}
+            isLightMode={isLightMode}
           />
         </div>
 
@@ -726,6 +825,8 @@ export const PanelFrame = React.memo<PanelFrameProps>(
           isMusicPage={isMusicPage}
           tabs={tabs}
           optLanguage={optLanguage}
+          isLightMode={isLightMode}
+          optAnimSpeed={optAnimSpeed}
         />
       </motion.div>
     );

@@ -388,6 +388,13 @@ html.light .notch-surface-shadow,
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.14) !important;
 }
 
+/* Bottom Fade Gradients in Light Mode */
+html.light .to-black,
+.light .to-black,
+#notch-pill.light .to-black {
+  --tw-gradient-to: #f6f6fa var(--tw-gradient-to-position) !important;
+}
+
 /* Typography — High-contrast legibility */
 html.light .text-white,
 .light .text-white,
@@ -415,12 +422,15 @@ html.light .text-white\/75,
   color: rgba(28, 28, 30, 0.82) !important;
 }
 html.light .text-white\/70,
+html.light .text-white\/65,
 html.light .text-white\/60,
 .light .text-white\/70,
+.light .text-white\/65,
 .light .text-white\/60,
 #notch-pill.light .text-white\/70,
+#notch-pill.light .text-white\/65,
 #notch-pill.light .text-white\/60 {
-  color: #636366 !important;
+  color: #48484a !important;
 }
 html.light .text-white\/50,
 html.light .text-white\/40,
@@ -452,8 +462,32 @@ html.light .idle-stat-number,
 
 html.light .idle-stat-number.battery-charging,
 .light .idle-stat-number.battery-charging,
-#notch-pill.light .idle-stat-number.battery-charging {
+#notch-pill.light .idle-stat-number.battery-charging,
+html.light .battery-charging,
+.light .battery-charging,
+#notch-pill.light .battery-charging {
   color: #15803d !important;
+}
+
+html.light [class*="text-[#13FF00]"],
+.light [class*="text-[#13FF00]"],
+#notch-pill.light [class*="text-[#13FF00]"],
+html.light [class*="text-[#34c759]"],
+.light [class*="text-[#34c759]"],
+#notch-pill.light [class*="text-[#34c759]"] {
+  color: #15803d !important;
+}
+
+html.light [class*="border-[#13FF00]"],
+.light [class*="border-[#13FF00]"],
+#notch-pill.light [class*="border-[#13FF00]"] {
+  border-color: #15803d !important;
+}
+
+html.light [class*="bg-[#13FF00]"],
+.light [class*="bg-[#13FF00]"],
+#notch-pill.light [class*="bg-[#13FF00]"] {
+  background-color: #15803d !important;
 }
 
 html.light .idle-stat-number.battery-low,

@@ -217,6 +217,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
               {formatMediaTime(currentMediaPosition)}
             </span>
             <div
+              data-no-swipe="true"
               className="flex-1 h-4 group flex items-center cursor-pointer relative py-0.5"
               onPointerDown={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -369,6 +370,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
 
           {/* Volume Slider (Sleek Slim Style) */}
           <div
+            data-no-swipe="true"
             className="flex items-center gap-2 mt-0.5 w-full cursor-default select-none px-0.5"
             onClick={(e) => e.stopPropagation()}
           >
