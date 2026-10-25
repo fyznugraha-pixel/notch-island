@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   ExternalLink,
@@ -38,6 +38,8 @@ export interface MediaQueueViewProps {
 }
 
 const resolveAppMeta = resolvePlayerBranding;
+
+const normalizeTitle = (title?: string | null) => (title || "").trim().toLowerCase();
 
 const QueueTrackThumbnail: React.FC<{
   item: QueueTrackItem;
@@ -114,12 +116,21 @@ const QueueTrackThumbnail: React.FC<{
 export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
   media,
   isPlaying,
-  mediaProgress,
   queueHistory = [],
   onPlayHistoryTrack,
 }) => {
   const [replayingTrackId, setReplayingTrackId] = useState<string | null>(null);
   const [isOpeningApp, setIsOpeningApp] = useState(false);
+
+  // Live refs so the async skip loop sees track changes without stale closures
+  const mediaRef = useRef(media);
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => {
+    mediaRef.current = media;
+  }, [media]);
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   const rawApp = (media?.app_id || "").toLowerCase();
   const appMeta = resolveAppMeta(
@@ -189,6 +200,32 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
     }
   };
 
+  const waitForTitleChange = async (fromTitle: string, timeoutMs: number) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 80));
+      if (normalizeTitle(mediaRef.current?.title) !== fromTitle) {
+        // SMTC can emit a couple of updates per track switch; let it settle before the next skip
+        await new Promise((r) => setTimeout(r, 250));
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // One confirmed step back. A new "prev" is never sent until the previous one has visibly
+  // switched tracks, otherwise slow SMTC updates make us overshoot several songs.
+  const skipBackOnce = async (compensateRestart: boolean) => {
+    const titleBefore = normalizeTitle(mediaRef.current?.title);
+    await invoke("smtc_action", { action: "prev" });
+    if (await waitForTitleChange(titleBefore, 2000)) return true;
+
+    // Spotify & co. restart the current song on "prev" past ~3s; the second press goes back.
+    if (!compensateRestart) return false;
+    await invoke("smtc_action", { action: "prev" });
+    return waitForTitleChange(titleBefore, 3000);
+  };
+
   const handleTrackClick = async (item: QueueTrackItem, index: number) => {
     if (replayingTrackId) return;
     setReplayingTrackId(item.id);
@@ -196,34 +233,24 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
     try {
       if (onPlayHistoryTrack) {
         await onPlayHistoryTrack(item, index);
-      } else {
-        const pos = mediaProgress?.position || 0;
-        // If current song has been playing for > 1.2s, reset position to 0:00 first via SMTC seek
-        // so that a single 'prev' action cleanly transitions to the previous song
-        if (pos > 1.2) {
-          await invoke("smtc_seek", { positionSec: 0 }).catch(() => {});
-          await new Promise((r) => setTimeout(r, 220));
-        }
+        return;
+      }
 
-        const skipsNeeded = index + 1;
-        for (let i = 0; i < skipsNeeded; i++) {
-          await invoke("smtc_action", { action: "prev" });
-          if (i < skipsNeeded - 1) {
-            await new Promise((r) => setTimeout(r, 350));
-          }
-        }
+      const targetTitle = normalizeTitle(item.title);
+      const stepsNeeded = index + 1;
+      for (let step = 0; step < stepsNeeded; step++) {
+        if (normalizeTitle(mediaRef.current?.title) === targetTitle) break;
+        const switched = await skipBackOnce(step === 0);
+        if (!switched) break;
+      }
 
-        if (!isPlaying) {
-          await new Promise((r) => setTimeout(r, 120));
-          await invoke("smtc_action", { action: "play" });
-        }
+      if (!isPlayingRef.current) {
+        await invoke("smtc_action", { action: "play" });
       }
     } catch (err) {
       console.error("Failed to play track from history:", err);
     } finally {
-      setTimeout(() => {
-        setReplayingTrackId(null);
-      }, 500 + index * 350);
+      setReplayingTrackId(null);
     }
   };
 

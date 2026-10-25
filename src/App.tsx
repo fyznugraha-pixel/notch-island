@@ -430,6 +430,19 @@ export default function App() {
     } catch {}
     return true;
   });
+  const [greetingStage, setGreetingStage] = useState<"compact" | "expanded">("compact");
+
+  useEffect(() => {
+    if (notif && (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon")) {
+      setGreetingStage("compact");
+      const stageTimer = setTimeout(() => {
+        setGreetingStage("expanded");
+      }, 3000);
+      return () => clearTimeout(stageTimer);
+    } else {
+      setGreetingStage("compact");
+    }
+  }, [notif]);
   const [isBooting, setIsBooting] = useState(false);
   const [optLanguage, setOptLanguage] = useState<Language>(() => getLanguage());
 
@@ -2174,7 +2187,7 @@ export default function App() {
       let duration = optNotifTimeRef.current * 1000;
       const shortIcons = ["volume", "brightness", "battery", "bluetooth"];
       if (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon") {
-        duration = Math.max(3800, optNotifTimeRef.current * 1000);
+        duration = 6000;
       } else if (notif.icon === "capslock") {
         duration = 1000;
       } else if (notif.icon === "clipboard" && !notif.body) {
@@ -2399,10 +2412,15 @@ export default function App() {
 
   const getDynamicWidth = () => {
     if (notif && (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon")) {
-      const titleWidth = getTextWidth(notif.title || "", "600 13px 'Inter', sans-serif");
-      const bodyWidth = getTextWidth(notif.body || "", "bold 10px 'Inter', sans-serif");
-      const maxTextWidth = Math.max(titleWidth, bodyWidth);
-      return Math.min(380, Math.max(290, Math.ceil(maxTextWidth + 144)));
+      if (greetingStage === "compact") {
+        return 76;
+      }
+      const rawTitle = (notif.title || "").replace(/^Hi,\s*/i, "").trim();
+      const titleWidth = getTextWidth(rawTitle, "bold 13.5px 'Inter', sans-serif");
+      const rawBody = notif.body ? notif.body.replace(/[!.,]/g, "").trim().toUpperCase() : "";
+      const bodyWidth = getTextWidth(rawBody, "bold 10px 'Inter', sans-serif") + Math.round(rawBody.length * 0.85);
+      const contentTextWidth = Math.max(titleWidth, bodyWidth);
+      return Math.min(360, Math.ceil(contentTextWidth + 91));
     }
 
     if (notif && !isSmallNotif && !isMediumNotif) {
@@ -2459,7 +2477,7 @@ export default function App() {
 
   const dynamicWidth = React.useMemo(
     () => getDynamicWidth(),
-    [media, notif, isExpanded, isSmallNotif, isMediumNotif, isMultilineBody, weather, camActive, micActive, isPlaying, isPausedMediaCollapsed, pendingTodos, stashedFiles.length, fps, focusMode, networkPing, idleLayout, idleRuntimeData, showLyrics, activeIdleLyric, battery, dateDisplay, optFontSize, optLanguage, time.getHours(), time.getMinutes(), effectiveIdleSize, idleWidth, mediaPillWidth, lyricsIdleWidth]
+    [greetingStage, media, notif, isExpanded, isSmallNotif, isMediumNotif, isMultilineBody, weather, camActive, micActive, isPlaying, isPausedMediaCollapsed, pendingTodos, stashedFiles.length, fps, focusMode, networkPing, idleLayout, idleRuntimeData, showLyrics, activeIdleLyric, battery, dateDisplay, optFontSize, optLanguage, time.getHours(), time.getMinutes(), effectiveIdleSize, idleWidth, mediaPillWidth, lyricsIdleWidth]
   );
 
   const [isNoteEditing, setIsNoteEditing] = useState(false);
@@ -3790,6 +3808,7 @@ export default function App() {
                 isLightMode={isLightMode}
                 onClick={handleNotifClick}
                 isBot={isBot}
+                greetingStage={greetingStage}
               />
             )}
 
