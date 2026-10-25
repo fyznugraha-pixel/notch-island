@@ -478,7 +478,6 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
     }, [optAnimSpeed]);
 
     const [isHovered, setIsHovered] = React.useState(false);
-    const [hoveredTabIdx, setHoveredTabIdx] = React.useState<number | null>(null);
     const hoverTimeoutRef = React.useRef<number | null>(null);
 
     React.useEffect(() => {
@@ -501,7 +500,6 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
       }
       hoverTimeoutRef.current = window.setTimeout(() => {
         setIsHovered(false);
-        setHoveredTabIdx(null);
       }, 180);
     };
 
@@ -534,7 +532,7 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
             paddingRight: isHovered ? 8 : 12,
           }}
           transition={springTransition}
-          className={`relative flex items-center justify-center rounded-full pointer-events-auto select-none transition-[background-color,border-color,box-shadow] duration-300 ease-out ${
+          className={`relative flex items-center justify-center rounded-full pointer-events-auto select-none overflow-hidden transition-[background-color,border-color,box-shadow] duration-300 ease-out ${
             isHovered
               ? activeIsLightMode
                 ? "bg-black/[0.07] backdrop-blur-xl border border-black/10 shadow-[0_4px_16px_rgba(0,0,0,0.08)] gap-1"
@@ -542,14 +540,14 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
               : "bg-transparent border border-transparent shadow-none backdrop-blur-none gap-1.5 cursor-pointer"
           }`}
         >
-          <AnimatePresence initial={false} mode="popLayout">
+          <AnimatePresence initial={false} mode="wait">
             {!isHovered ? (
               <motion.div
                 key="dots"
                 initial={{ opacity: 0, scale: 0.85 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.85 }}
-                transition={{ duration: 0.16, ease: "easeOut" }}
+                transition={{ duration: 0.1, ease: "easeOut" }}
                 className="flex items-center gap-1.5"
               >
                 {Array.from({ length: totalPages }).map((_, idx) => {
@@ -576,58 +574,34 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
             ) : (
               <motion.div
                 key="navbar"
-                initial={{ opacity: 0, scale: 0.9 }}
+                initial={{ opacity: 0, scale: 0.92 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={springTransition}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.1, ease: "easeOut" }}
                 className="flex items-center gap-1"
-                onMouseLeave={() => setHoveredTabIdx(null)}
               >
                 {tabList.map((tab, idx) => {
                   const isCurrent = idx === currentPageIndex;
-                  const isItemHovered = idx === hoveredTabIdx;
 
                   return (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onMouseEnter={() => setHoveredTabIdx(idx)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectPage?.(idx);
-                      }}
-                      className={`relative w-[28px] h-[28px] rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors duration-150 select-none ${
-                        isCurrent
-                          ? "bg-[#3882F6] text-white shadow-sm shadow-[#3882F6]/40"
-                          : isItemHovered
-                          ? activeIsLightMode
-                            ? "bg-black/10 text-[#1d1d1f]"
-                            : "bg-white/20 text-white"
-                          : activeIsLightMode
-                          ? "text-neutral-500 hover:text-[#1d1d1f] hover:bg-black/[0.06]"
-                          : "text-white/75 hover:text-white hover:bg-white/15"
-                      }`}
-                    >
-                      {tab.icon}
-
-                      <AnimatePresence>
-                        {isItemHovered && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 4, x: "-50%", scale: 0.94 }}
-                            animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
-                            exit={{ opacity: 0, y: 2, x: "-50%", scale: 0.94 }}
-                            transition={{ duration: 0.12, ease: "easeOut" }}
-                            className={`absolute -top-7 left-1/2 px-2.5 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap pointer-events-none z-50 ${
-                              activeIsLightMode
-                                ? "bg-white/95 text-[#1d1d1f] shadow-[0_4px_14px_rgba(0,0,0,0.12)] border border-black/10 ring-1 ring-black/5"
-                                : "bg-black/80 text-white shadow-[0_4px_14px_rgba(0,0,0,0.55)] border border-white/20 backdrop-blur-xl"
-                            }`}
-                          >
-                            {tab.label}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </button>
+                    <Tooltip key={tab.key} content={tab.label} side="top" delay={120}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectPage?.(idx);
+                        }}
+                        className={`relative w-[28px] h-[28px] rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors duration-150 select-none ${
+                          isCurrent
+                            ? "bg-[#3882F6] text-white shadow-sm shadow-[#3882F6]/40"
+                            : activeIsLightMode
+                            ? "text-neutral-500 hover:text-[#1d1d1f] hover:bg-black/[0.08]"
+                            : "text-white/75 hover:text-white hover:bg-white/15"
+                        }`}
+                      >
+                        {tab.icon}
+                      </button>
+                    </Tooltip>
                   );
                 })}
               </motion.div>
