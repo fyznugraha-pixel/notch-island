@@ -519,8 +519,8 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
 
     return (
       <div
-        className="relative z-30 flex items-center justify-center w-full select-none shrink-0 pt-0.5 pb-2 bg-transparent border-none shadow-none backdrop-blur-none cursor-pointer"
-        style={{ minHeight: 40 }}
+        className="relative z-30 flex items-center justify-center w-full select-none shrink-0 pt-0.5 pb-1 bg-transparent border-none shadow-none backdrop-blur-none cursor-pointer"
+        style={{ minHeight: 28 }}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onClick={(e) => e.stopPropagation()}

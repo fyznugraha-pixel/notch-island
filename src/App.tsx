@@ -2642,7 +2642,7 @@ export default function App() {
     notif_volume: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
     notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? 420 : 388) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
+    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? 424 : 412) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
     todo: { width: tabWidth, height: Math.round(todoDynamicHeight * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
     pomodoro: { width: tabWidth, height: Math.round(338 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
     drop_shelf: { width: tabWidth, height: Math.round((isBot ? 370 : 348) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
