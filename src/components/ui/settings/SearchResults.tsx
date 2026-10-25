@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   LayoutTemplate,
   Search,
+  Activity,
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
@@ -65,6 +66,8 @@ export interface SearchResultsProps {
   onToggleEars: () => void;
   optOpacity: number;
   onChangeOpacity: (opacity: number) => void;
+  optAnimSpeed?: "snappy" | "smooth" | "bouncy";
+  onChangeAnimSpeed?: (speed: "snappy" | "smooth" | "bouncy") => void;
   // Modules props
   optVolume: boolean;
   onToggleVolume: () => void;
@@ -134,6 +137,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onToggleEars,
   optOpacity,
   onChangeOpacity,
+  optAnimSpeed,
+  onChangeAnimSpeed,
   optVolume,
   onToggleVolume,
   optClipboard,
@@ -482,6 +487,27 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           ]}
         />
       ),
+    },
+    {
+      id: "animations",
+      tab: "appearance",
+      tabLabel: t("settings_subtab_appearance"),
+      title: t("settings_animations"),
+      keywords: ["animations", "animasi", "speed", "kecepatan", "snappy", "normal", "smooth", "bouncy", "spring", "pegas", "pantulan"],
+      icon: <Activity size={18} />,
+      iconBgClass: "bg-[#2c2010]",
+      iconColorClass: "text-[#ff9f0a]",
+      control: optAnimSpeed !== undefined && onChangeAnimSpeed ? (
+        <IosSegmentedControl
+          value={optAnimSpeed}
+          onChange={(val) => onChangeAnimSpeed(val as "snappy" | "smooth" | "bouncy")}
+          options={[
+            { value: "snappy", label: t("settings_anim_snappy"), tooltip: t("settings_anim_snappy_tip") },
+            { value: "smooth", label: t("settings_anim_smooth"), tooltip: t("settings_anim_smooth_tip") },
+            { value: "bouncy", label: t("settings_anim_bouncy"), tooltip: t("settings_anim_bouncy_tip") },
+          ]}
+        />
+      ) : null,
     },
 
     // 3. Idle Tab

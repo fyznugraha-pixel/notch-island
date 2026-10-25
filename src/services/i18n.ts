@@ -173,7 +173,7 @@ export const translations = {
   settings_theme_clear_tip: { en: "High transparency", id: "Transparansi tinggi" },
   settings_animations: { en: "Animations", id: "Animasi" },
   settings_anim_snappy: { en: "Snappy", id: "Snappy" },
-  settings_anim_smooth: { en: "Smooth", id: "Smooth" },
+  settings_anim_smooth: { en: "Normal", id: "Normal" },
   settings_anim_bouncy: { en: "Bouncy", id: "Bouncy" },
   settings_anim_snappy_tip: { en: "Fast & responsive", id: "Cepat & responsif" },
   settings_anim_smooth_tip: { en: "Gentle spring", id: "Pegas lembut" },

@@ -140,8 +140,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangePosition: _onChangePosition,
   optOpacity,
   onChangeOpacity,
-  optAnimSpeed: _optAnimSpeed,
-  onChangeAnimSpeed: _onChangeAnimSpeed,
+  optAnimSpeed,
+  onChangeAnimSpeed,
   optVolume,
   onToggleVolume,
   optClipboard,
@@ -307,6 +307,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onToggleEars={onToggleEars}
                   optOpacity={optOpacity}
                   onChangeOpacity={onChangeOpacity}
+                  optAnimSpeed={optAnimSpeed}
+                  onChangeAnimSpeed={onChangeAnimSpeed}
                   optVolume={optVolume}
                   onToggleVolume={onToggleVolume}
                   optClipboard={optClipboard}
@@ -380,6 +382,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       onToggleEars={onToggleEars}
                       optOpacity={optOpacity}
                       onChangeOpacity={onChangeOpacity}
+                      optAnimSpeed={optAnimSpeed}
+                      onChangeAnimSpeed={onChangeAnimSpeed}
                     />
                   </motion.div>
                 )}

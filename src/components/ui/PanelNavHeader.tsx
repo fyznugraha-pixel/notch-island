@@ -468,13 +468,13 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
 
     const springTransition: Transition = React.useMemo(() => {
       if (optAnimSpeed === "snappy") {
-        return { type: "spring" as const, stiffness: 440, damping: 35, mass: 0.65 };
+        return { type: "spring" as const, stiffness: 380, damping: 27, mass: 0.68 };
       }
       if (optAnimSpeed === "bouncy") {
-        return { type: "spring" as const, stiffness: 260, damping: 20, mass: 0.8 };
+        return { type: "spring" as const, stiffness: 260, damping: 19, mass: 0.78 };
       }
-      // Default "smooth" (ultra-buttery Apple SwiftUI .smooth response)
-      return { type: "spring" as const, stiffness: 280, damping: 28, mass: 0.85 };
+      // Default "normal" (smooth Apple Dynamic Island fluid response with gentle cushion)
+      return { type: "spring" as const, stiffness: 290, damping: 24, mass: 0.76 };
     }, [optAnimSpeed]);
 
     const [isHovered, setIsHovered] = React.useState(false);

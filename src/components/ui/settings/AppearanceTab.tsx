@@ -1,5 +1,5 @@
 import React from "react";
-import { Moon, Type, Layout, Smile, Layers, Scaling } from "lucide-react";
+import { Moon, Type, Layout, Smile, Layers, Scaling, Activity } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
@@ -18,6 +18,8 @@ export interface AppearanceTabProps {
   onToggleEars: () => void;
   optOpacity: number;
   onChangeOpacity: (val: number) => void;
+  optAnimSpeed: "snappy" | "smooth" | "bouncy";
+  onChangeAnimSpeed: (speed: "snappy" | "smooth" | "bouncy") => void;
 }
 
 export const AppearanceTab: React.FC<AppearanceTabProps> = ({
@@ -33,6 +35,8 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onToggleEars,
   optOpacity,
   onChangeOpacity,
+  optAnimSpeed,
+  onChangeAnimSpeed,
 }) => {
   return (
     <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col gap-1 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
@@ -142,6 +146,25 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
               { value: 1.0, label: t("settings_theme_solid") },
               { value: 0.8, label: t("settings_theme_glass") },
               { value: 0.5, label: t("settings_theme_clear") },
+            ]}
+          />
+        }
+      />
+
+      {/* 6. Animasi */}
+      <SettingRow
+        icon={<Activity size={18} />}
+        iconBgClass="bg-[#2c2010]"
+        iconColorClass="text-[#ff9f0a]"
+        title={t("settings_animations")}
+        control={
+          <IosSegmentedControl
+            value={optAnimSpeed}
+            onChange={(val) => onChangeAnimSpeed(val as "snappy" | "smooth" | "bouncy")}
+            options={[
+              { value: "snappy", label: t("settings_anim_snappy"), tooltip: t("settings_anim_snappy_tip") },
+              { value: "smooth", label: t("settings_anim_smooth"), tooltip: t("settings_anim_smooth_tip") },
+              { value: "bouncy", label: t("settings_anim_bouncy"), tooltip: t("settings_anim_bouncy_tip") },
             ]}
           />
         }

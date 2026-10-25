@@ -2619,9 +2619,9 @@ export default function App() {
   const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
   const lyricsExpandedWidth = effectiveTabSize === "compact" ? 640 : effectiveTabSize === "large" ? 740 : 680;
 
-  let smoothSpring: any = { type: "spring", stiffness: 340, damping: 32, mass: 0.72 };
-  if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 440, damping: 35, mass: 0.65 };
-  if (optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 300, damping: 22, mass: 0.75 };
+  let smoothSpring: any = { type: "spring", stiffness: 290, damping: 24, mass: 0.76 };
+  if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 380, damping: 27, mass: 0.68 };
+  if (optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 260, damping: 19, mass: 0.78 };
 
   const variants = {
     initialState: { width: 0, height: 0, x: 0, y: startY, opacity: 0, borderRadius: radius("16px") },
@@ -3244,13 +3244,13 @@ export default function App() {
                     width: lastExpandedSizeRef.current.width,
                     height: lastExpandedSizeRef.current.height,
                   }}
-                  initial={{ scale: 0.94, y: isBot ? 8 : -8 }}
+                  initial={{ scale: 0.90, y: isBot ? 12 : -12 }}
                   animate={{
                     scale: 1,
                     y: 0,
                     transitionEnd: { transform: "none" },
                   }}
-                  exit={{ scale: 0.93, y: isBot ? 6 : -6 }}
+                  exit={{ scale: 0.92, y: isBot ? 8 : -8 }}
                   transition={{
                     scale: smoothSpring,
                     y: smoothSpring,
