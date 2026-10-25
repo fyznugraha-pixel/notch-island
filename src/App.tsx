@@ -3282,7 +3282,7 @@ export default function App() {
                     totalPages={isSubPage || (currentTab === "mini_note" && isNoteEditing) ? 0 : availableTabs.length}
                     currentPageIndex={isSubPage ? -1 : currentTabIndex}
                     onSelectPage={handleSelectTab}
-                    hideDotsBg={Boolean(currentTab === "media_expanded")}
+                    hideDotsBg={false}
                     isMusicPage={currentTab === "media_expanded"}
                     tabs={availableTabs}
                     optLanguage={optLanguage}
