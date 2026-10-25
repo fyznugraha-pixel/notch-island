@@ -1629,7 +1629,7 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
                 let (hit_w, hit_h, margin) = if h <= 10.0 {
                     (pill_w, pill_h, 0)
                 } else if h > 50.0 {
-                    (pill_w, pill_h, (2.0 * sf) as i32)
+                    (pill_w, pill_h, (4.0 * sf) as i32)
                 } else {
                     (pill_w, pill_h, (4.0 * sf) as i32)
                 };
@@ -1641,8 +1641,10 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
                     win_pos.y
                 };
 
+                let bottom_extra = if h > 50.0 { (6.0 * sf) as i32 } else { 0 };
+
                 return pt.x >= (pill_x - margin) && pt.x <= (pill_x + hit_w + margin)
-                    && pt.y >= (pill_y - margin) && pt.y <= (pill_y + hit_h + margin);
+                    && pt.y >= (pill_y - margin) && pt.y <= (pill_y + hit_h + margin + bottom_extra);
             }
         }
     }

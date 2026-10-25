@@ -496,10 +496,13 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
     };
 
     const handleMouseLeave = () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
       hoverTimeoutRef.current = window.setTimeout(() => {
         setIsHovered(false);
         setHoveredTabIdx(null);
-      }, 160);
+      }, 180);
     };
 
     const tabList = React.useMemo(() => {
@@ -516,14 +519,14 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
 
     return (
       <div
-        className="relative z-30 flex items-center justify-center w-full select-none shrink-0 py-1 bg-transparent border-none shadow-none backdrop-blur-none"
-        style={{ minHeight: 34 }}
+        className="relative z-30 flex items-center justify-center w-full select-none shrink-0 pt-0.5 pb-2 bg-transparent border-none shadow-none backdrop-blur-none cursor-pointer"
+        style={{ minHeight: 40 }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         onClick={(e) => e.stopPropagation()}
       >
         <motion.div
           layout
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
           initial={false}
           animate={{
             height: isHovered ? 34 : 20,

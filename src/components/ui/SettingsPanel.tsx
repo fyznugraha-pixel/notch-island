@@ -19,6 +19,7 @@ import { AppearanceTab } from "./settings/AppearanceTab";
 import { IdleTab } from "./settings/IdleTab";
 import { ModulesTab } from "./settings/ModulesTab";
 import { AdvancedTab } from "./settings/AdvancedTab";
+import { SearchResults } from "./settings/SearchResults";
 import { clearAllLyricsCache } from "../../services/lyricsService";
 import { clearArtworkCache } from "../../services/artworkService";
 import { clearShelfPreviewCache } from "../../services/shelfService";
@@ -264,16 +265,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         {/* Tab Content Body */}
         <div className="flex-1 w-full pt-0.5 pb-2 flex flex-col justify-start overflow-y-auto settings-scroll min-h-0 pr-0.5" data-scrollable="true">
           <AnimatePresence mode="wait">
-            {activeTab === "general" && (
+            {isSearchOpen && searchQuery.trim().length > 0 ? (
               <motion.div
-                key="general"
+                key="search-results"
                 variants={contentVariants}
                 initial="initial"
                 animate="animate"
                 exit="exit"
                 className="w-full"
               >
-                <GeneralTab
+                <SearchResults
+                  searchQuery={searchQuery}
+                  onNavigateTab={(tab) => {
+                    setActiveTab(tab);
+                    setIsSearchOpen(false);
+                    setSearchQuery("");
+                  }}
                   optLanguage={optLanguage}
                   onChangeLanguage={onChangeLanguage}
                   isAutostart={isAutostart}
@@ -286,20 +293,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onChangeNotifTime={onChangeNotifTime}
                   optNotifSound={optNotifSound}
                   onChangeNotifSound={onChangeNotifSound}
-                />
-              </motion.div>
-            )}
-
-            {activeTab === "appearance" && (
-              <motion.div
-                key="appearance"
-                variants={contentVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="w-full"
-              >
-                <AppearanceTab
                   optTheme={optTheme}
                   onChangeTheme={onChangeTheme}
                   optFontSize={optFontSize}
@@ -312,37 +305,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onToggleEars={onToggleEars}
                   optOpacity={optOpacity}
                   onChangeOpacity={onChangeOpacity}
-                />
-              </motion.div>
-            )}
-
-            {activeTab === "idle" && (
-              <motion.div
-                key="idle"
-                variants={contentVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="w-full"
-              >
-                <IdleTab
-                  layout={idleLayout}
-                  onChangeLayout={onChangeIdleLayout}
-                  runtimeData={idleRuntimeData}
-                />
-              </motion.div>
-            )}
-
-            {activeTab === "modules" && (
-              <motion.div
-                key="modules"
-                variants={contentVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="w-full"
-              >
-                <ModulesTab
                   optVolume={optVolume}
                   onToggleVolume={onToggleVolume}
                   optClipboard={optClipboard}
@@ -351,20 +313,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onToggleMedia={onToggleMedia}
                   optSoundFx={optSoundFx}
                   onToggleSoundFx={onToggleSoundFx}
-                />
-              </motion.div>
-            )}
-
-            {activeTab === "advanced" && (
-              <motion.div
-                key="advanced"
-                variants={contentVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="w-full"
-              >
-                <AdvancedTab
                   currentAppVersion={currentAppVersion}
                   updateStatus={updateStatus}
                   updateInfo={updateInfo}
@@ -378,6 +326,124 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onClose={onClose}
                 />
               </motion.div>
+            ) : (
+              <>
+                {activeTab === "general" && (
+                  <motion.div
+                    key="general"
+                    variants={contentVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="w-full"
+                  >
+                    <GeneralTab
+                      optLanguage={optLanguage}
+                      onChangeLanguage={onChangeLanguage}
+                      isAutostart={isAutostart}
+                      onToggleAutostart={onToggleAutostart}
+                      showGreeting={showGreeting}
+                      onToggleGreeting={onToggleGreeting}
+                      optAutoCompact={optAutoCompact}
+                      onToggleAutoCompact={onToggleAutoCompact}
+                      optNotifTime={optNotifTime}
+                      onChangeNotifTime={onChangeNotifTime}
+                      optNotifSound={optNotifSound}
+                      onChangeNotifSound={onChangeNotifSound}
+                    />
+                  </motion.div>
+                )}
+
+                {activeTab === "appearance" && (
+                  <motion.div
+                    key="appearance"
+                    variants={contentVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="w-full"
+                  >
+                    <AppearanceTab
+                      optTheme={optTheme}
+                      onChangeTheme={onChangeTheme}
+                      optFontSize={optFontSize}
+                      onChangeFontSize={onChangeFontSize}
+                      optIdleSize={optIdleSize}
+                      onChangeIdleSize={onChangeIdleSize}
+                      optTabSize={optTabSize}
+                      onChangeTabSize={onChangeTabSize}
+                      optEars={optEars}
+                      onToggleEars={onToggleEars}
+                      optOpacity={optOpacity}
+                      onChangeOpacity={onChangeOpacity}
+                    />
+                  </motion.div>
+                )}
+
+                {activeTab === "idle" && (
+                  <motion.div
+                    key="idle"
+                    variants={contentVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="w-full"
+                  >
+                    <IdleTab
+                      layout={idleLayout}
+                      onChangeLayout={onChangeIdleLayout}
+                      runtimeData={idleRuntimeData}
+                    />
+                  </motion.div>
+                )}
+
+                {activeTab === "modules" && (
+                  <motion.div
+                    key="modules"
+                    variants={contentVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="w-full"
+                  >
+                    <ModulesTab
+                      optVolume={optVolume}
+                      onToggleVolume={onToggleVolume}
+                      optClipboard={optClipboard}
+                      onToggleClipboard={onToggleClipboard}
+                      optMedia={optMedia}
+                      onToggleMedia={onToggleMedia}
+                      optSoundFx={optSoundFx}
+                      onToggleSoundFx={onToggleSoundFx}
+                    />
+                  </motion.div>
+                )}
+
+                {activeTab === "advanced" && (
+                  <motion.div
+                    key="advanced"
+                    variants={contentVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="w-full"
+                  >
+                    <AdvancedTab
+                      currentAppVersion={currentAppVersion}
+                      updateStatus={updateStatus}
+                      updateInfo={updateInfo}
+                      downloadProgress={downloadProgress}
+                      onCheckUpdate={handleCheckUpdate}
+                      onInstallUpdate={handleInstallUpdate}
+                      clearTempStatus={clearTempStatus}
+                      clearedResult={clearedResult}
+                      onClearTempFiles={handleClearTempFiles}
+                      onTestNotification={onTestNotification}
+                      onClose={onClose}
+                    />
+                  </motion.div>
+                )}
+              </>
             )}
           </AnimatePresence>
         </div>
