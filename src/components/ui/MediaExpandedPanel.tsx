@@ -18,7 +18,7 @@ import { ScrollingText } from "./ScrollingText";
 import { Tooltip } from "./Tooltip";
 import { LyricsView } from "./LyricsView";
 import { MediaQueueView, QueueTrackItem } from "./MediaQueueView";
-import { LyricsData } from "../../services/lyricsService";
+import { LyricsData, LyricsProviderId } from "../../services/lyricsService";
 import { formatMediaTime } from "../../utils/time";
 import { getWheelVerticalDirection } from "../../utils/gesture";
 import { t } from "../../services/i18n";
@@ -35,6 +35,8 @@ export interface MediaExpandedPanelProps {
   lyricsData: LyricsData | null;
   isLyricsLoading: boolean;
   onRefreshLyrics?: () => void;
+  currentLyricsProvider?: LyricsProviderId;
+  onChangeLyricsProvider?: (providerId: LyricsProviderId) => void;
   mediaProgress: { position: number; duration: number };
   onSetMediaProgress: React.Dispatch<
     React.SetStateAction<{ position: number; duration: number }>
@@ -85,6 +87,8 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   lyricsData,
   isLyricsLoading,
   onRefreshLyrics,
+  currentLyricsProvider,
+  onChangeLyricsProvider,
   mediaProgress,
   onSetMediaProgress,
   isSeeking,
@@ -114,6 +118,40 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   const remainingMediaDuration = !hasMedia
     ? 0
     : Math.max(0, mediaProgress.duration - currentMediaPosition);
+
+  const lastVolInvokeRef = React.useRef(0);
+  const pendingVolRef = React.useRef<number | null>(null);
+  const volTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const throttledSetMasterVolume = React.useCallback((level: number) => {
+    pendingVolRef.current = level;
+    const now = Date.now();
+    if (now - lastVolInvokeRef.current >= 18) {
+      lastVolInvokeRef.current = now;
+      if (volTimeoutRef.current) clearTimeout(volTimeoutRef.current);
+      invoke("set_master_volume", { level: level / 100.0 }).catch(console.error);
+    } else if (!volTimeoutRef.current) {
+      volTimeoutRef.current = setTimeout(() => {
+        volTimeoutRef.current = null;
+        if (pendingVolRef.current !== null) {
+          lastVolInvokeRef.current = Date.now();
+          invoke("set_master_volume", { level: pendingVolRef.current / 100.0 }).catch(console.error);
+        }
+      }, 18);
+    }
+  }, []);
+
+  const handleVolumeChange = (newLevel: number, isFinal = false) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(newLevel)));
+    onSetSoundLevel(clamped);
+    if (isFinal) {
+      if (volTimeoutRef.current) clearTimeout(volTimeoutRef.current);
+      lastVolInvokeRef.current = Date.now();
+      invoke("set_master_volume", { level: clamped / 100.0 }).catch(console.error);
+    } else {
+      throttledSetMasterVolume(clamped);
+    }
+  };
 
   return (
     <motion.div
@@ -343,8 +381,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   if (Math.abs(e.deltaY) < 1) return;
                   const dir = getWheelVerticalDirection(e);
                   const next = Math.max(0, Math.min(100, soundLevel + (dir > 0 ? 2 : -2)));
-                  onSetSoundLevel(next);
-                  invoke("set_master_volume", { level: next / 100.0 });
+                  handleVolumeChange(next, true);
                 }
               }}
               onPointerDown={(e) => {
@@ -352,10 +389,9 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                 const rect = e.currentTarget.getBoundingClientRect();
                 const percent = Math.max(
                   0,
-                  Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)
+                  Math.min(100, Math.round(((e.clientX - rect.left) / rect.width) * 100))
                 );
-                onSetSoundLevel(Math.round(percent));
-                invoke("set_master_volume", { level: percent / 100.0 });
+                handleVolumeChange(percent, false);
                 e.currentTarget.setPointerCapture(e.pointerId);
               }}
               onPointerMove={(e) => {
@@ -363,17 +399,22 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   const rect = e.currentTarget.getBoundingClientRect();
                   const percent = Math.max(
                     0,
-                    Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)
+                    Math.min(100, Math.round(((e.clientX - rect.left) / rect.width) * 100))
                   );
-                  onSetSoundLevel(Math.round(percent));
-                  invoke("set_master_volume", { level: percent / 100.0 });
+                  handleVolumeChange(percent, false);
                 }
               }}
               onPointerUp={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const percent = Math.max(
+                  0,
+                  Math.min(100, Math.round(((e.clientX - rect.left) / rect.width) * 100))
+                );
+                handleVolumeChange(percent, true);
                 e.currentTarget.releasePointerCapture(e.pointerId);
                 setTimeout(() => {
                   isAdjustingVolumeRef.current = false;
-                }, 500);
+                }, 300);
               }}
               onPointerCancel={(e) => {
                 try {
@@ -381,7 +422,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                 } catch {}
                 setTimeout(() => {
                   isAdjustingVolumeRef.current = false;
-                }, 500);
+                }, 300);
               }}
             >
               <div className="w-full h-[5px] group-hover:h-[8px] bg-white/[0.12] group-hover:bg-white/[0.2] media-volume-track rounded-full overflow-hidden flex relative pointer-events-none transition-[height,background-color] duration-150 ease-out">
@@ -426,6 +467,8 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                     onRefreshLyrics={onRefreshLyrics}
                     songTitle={media?.title || ""}
                     artist={media?.artist || ""}
+                    currentProvider={currentLyricsProvider}
+                    onChangeProvider={onChangeLyricsProvider}
                   />
                 </motion.div>
               ) : (

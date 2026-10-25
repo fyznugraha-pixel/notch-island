@@ -19,8 +19,10 @@ export interface NotifPayload {
   icon?: string;
   type?: string;
   aumid?: string;
+  appName?: string;
   subtitle?: string;
   headline?: string;
   secondaryText?: string;
   onClick?: () => void;
+  forceShow?: boolean;
 }

@@ -111,6 +111,8 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   const [activeSubmenu, setActiveSubmenu] = useState<null | "wifi" | "bluetooth">(null);
   const [localWifiOn, setLocalWifiOn] = useState<boolean | null>(null);
   const [localBtOn, setLocalBtOn] = useState<boolean | null>(null);
+  const [isDraggingBrightness, setIsDraggingBrightness] = useState(false);
+  const [isDraggingVolume, setIsDraggingVolume] = useState(false);
 
   const handleOpenWifi = () => {
     setIsModeDropdownOpen(false);
@@ -808,7 +810,9 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 }}
               >
                 <div
-                  className="absolute inset-y-0 left-0 bg-[#e4e4e7] transition-[width] duration-75"
+                  className={`absolute inset-y-0 left-0 bg-[#e4e4e7] ${
+                    isDraggingBrightness ? "" : "transition-[width] duration-75"
+                  }`}
                   style={{ width: `${Math.max(0, Math.min(100, displayLevel))}%` }}
                 />
                 <div
@@ -825,7 +829,12 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   value={Math.round(displayLevel)}
                   aria-label={t("cc_brightness")}
                   data-no-swipe="true"
-                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setIsDraggingBrightness(true);
+                  }}
+                  onPointerUp={() => setIsDraggingBrightness(false)}
+                  onPointerCancel={() => setIsDraggingBrightness(false)}
                   onMouseDown={(e) => e.stopPropagation()}
                   onChange={(e) => handleBrightnessChange(Number(e.target.value))}
                   className="absolute inset-0 w-full h-full opacity-0 m-0 cursor-pointer z-10"
@@ -869,7 +878,9 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 }}
               >
                 <div
-                  className="absolute inset-y-0 left-0 bg-[#e4e4e7] transition-[width] duration-75"
+                  className={`absolute inset-y-0 left-0 bg-[#e4e4e7] ${
+                    isDraggingVolume ? "" : "transition-[width] duration-75"
+                  }`}
                   style={{ width: `${Math.max(0, Math.min(100, soundLevel))}%` }}
                 />
                 <div
@@ -886,7 +897,12 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   value={Math.round(soundLevel)}
                   aria-label={t("cc_volume")}
                   data-no-swipe="true"
-                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setIsDraggingVolume(true);
+                  }}
+                  onPointerUp={() => setIsDraggingVolume(false)}
+                  onPointerCancel={() => setIsDraggingVolume(false)}
                   onMouseDown={(e) => e.stopPropagation()}
                   onChange={(e) => handleVolumeChange(Number(e.target.value))}
                   className="absolute inset-0 w-full h-full opacity-0 m-0 cursor-pointer z-10"

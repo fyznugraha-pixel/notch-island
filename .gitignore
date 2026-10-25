@@ -14,10 +14,13 @@ dist-ssr
 
 # Rust build artifacts
 target/
+target_check/
 wmi_test/target/
 
 # Design drafts
 UI Redesign/
+public/audio output UI/
+public/volume mixer/
 
 # Editor directories and files
 .vscode/*

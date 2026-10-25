@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Music, RotateCw } from "lucide-react";
-import { LyricsData } from "../../services/lyricsService";
+import { Music, RotateCw, ChevronDown, Check } from "lucide-react";
+import { LyricsData, LyricsProviderId, LYRICS_PROVIDERS_META } from "../../services/lyricsService";
 import { t } from "../../services/i18n";
 
 export interface LyricsViewProps {
@@ -12,6 +12,8 @@ export interface LyricsViewProps {
   onRefreshLyrics?: () => void;
   songTitle?: string;
   artist?: string;
+  currentProvider?: LyricsProviderId;
+  onChangeProvider?: (providerId: LyricsProviderId) => void;
 }
 
 export const LyricsView = React.memo<LyricsViewProps>(({
@@ -23,11 +25,27 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   onRefreshLyrics,
   songTitle,
   artist,
+  currentProvider = "auto",
+  onChangeProvider,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
   const lastActiveIndexRef = useRef<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!isProviderDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsProviderDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isProviderDropdownOpen]);
 
   // Sync offset calibration (default 0.0s)
   const [offset, setOffset] = useState<number>(() => {
@@ -153,6 +171,13 @@ export const LyricsView = React.memo<LyricsViewProps>(({
     setTimeout(() => setIsRefreshing(false), 600);
   };
 
+  const activeProviderMeta = LYRICS_PROVIDERS_META.find((p) => p.id === currentProvider);
+  const activeProviderBadge = currentProvider === "auto"
+    ? lyrics?.providerName
+      ? `Auto: ${lyrics.providerName}`
+      : "Auto"
+    : activeProviderMeta?.badge || "Library";
+
   return (
     <div className="relative w-full h-full flex flex-col select-none overflow-hidden">
       <div className="flex items-center justify-between py-2 px-2 shrink-0 z-30">
@@ -192,6 +217,66 @@ export const LyricsView = React.memo<LyricsViewProps>(({
             </div>
           )}
 
+          {/* Lyrics Provider Selector Dropdown (to the left of refresh button) */}
+          <div className="relative" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsProviderDropdownOpen((prev) => !prev)}
+              title="Ganti library lirik"
+              className="h-6 flex items-center gap-1 bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/[0.16] border border-white/10 rounded-full px-2 text-[10px] text-white/75 hover:text-white transition-all cursor-pointer font-medium select-none"
+            >
+              <span className="truncate max-w-[85px]">{activeProviderBadge}</span>
+              <ChevronDown
+                size={10}
+                className={`text-white/50 transition-transform duration-200 shrink-0 ${
+                  isProviderDropdownOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+
+            {isProviderDropdownOpen && (
+              <div
+                data-scrollable="true"
+                onWheel={(e) => e.stopPropagation()}
+                className="absolute right-0 top-full mt-1 w-40 max-w-[170px] max-h-[124px] overflow-y-auto lyrics-dropdown-scroll bg-neutral-900/98 backdrop-blur-2xl border border-white/15 rounded-xl shadow-none p-1 z-50 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150"
+              >
+                {LYRICS_PROVIDERS_META.map((provider) => {
+                  const isSelected = currentProvider === provider.id;
+                  const isDeliveredByThis = lyrics?.provider === provider.id;
+                  return (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      onClick={() => {
+                        setIsProviderDropdownOpen(false);
+                        onChangeProvider?.(provider.id);
+                      }}
+                      className={`w-full h-[26px] flex items-center justify-between gap-1.5 px-2 rounded-lg text-left text-[10.5px] transition-colors cursor-pointer select-none shrink-0 ${
+                        isSelected
+                          ? "text-white font-medium hover:bg-white/[0.06]"
+                          : "text-white/70 hover:bg-white/[0.06] hover:text-white"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        {isDeliveredByThis ? (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Aktif saat ini" />
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-transparent shrink-0" />
+                        )}
+                        <span className="truncate leading-tight font-medium">
+                          {provider.name}
+                        </span>
+                      </div>
+                      {isSelected && (
+                        <Check size={11} className="text-blue-400 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={handleRefreshClick}
@@ -227,11 +312,24 @@ export const LyricsView = React.memo<LyricsViewProps>(({
             <span className="text-[11px] text-white/40">{t("lyrics_instrumental_sub")}</span>
           </div>
         ) : !lyrics || (!lyrics.lines.length && !lyrics.plainLyrics) ? (
-          <div className="h-full flex flex-col items-center justify-center gap-1.5 text-white/40 text-center px-3 py-8">
-            <span className="text-xs font-medium">{t("lyrics_not_found")}</span>
-            <span className="text-[11px] text-white/30 truncate max-w-[200px]">
+          <div className="h-full flex flex-col items-center justify-center gap-2 text-white/40 text-center px-3 py-6">
+            <span className="text-xs font-medium text-white/70">{t("lyrics_not_found")}</span>
+            <span className="text-[11px] text-white/35 truncate max-w-[200px]">
               {songTitle || artist || "..."}
             </span>
+            <div className="flex flex-wrap items-center justify-center gap-1.5 mt-2 max-w-[220px]">
+              <span className="text-[9.5px] text-white/40 w-full mb-0.5">Cari di library lain:</span>
+              {LYRICS_PROVIDERS_META.filter((p) => p.id !== currentProvider).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onChangeProvider?.(p.id)}
+                  className="px-2 py-0.5 rounded-full bg-white/[0.07] hover:bg-white/[0.14] active:bg-white/[0.2] text-[10px] text-white/80 border border-white/10 transition-colors cursor-pointer select-none"
+                >
+                  {p.badge}
+                </button>
+              ))}
+            </div>
           </div>
         ) : lyrics.synced ? (
           <div className="flex flex-col space-y-3 py-6">

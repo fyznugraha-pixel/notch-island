@@ -4,6 +4,7 @@ import { cleanTitle, cleanArtist } from "./lyricsService";
 // In-memory LRU cache for high-res album artworks (songKey -> highResUrl | null)
 const artworkCache = new Map<string, string | null>();
 const pendingFetches = new Map<string, Promise<string | null>>();
+const failedArtworkUrls = new Set<string>();
 const artworkListeners = new Set<() => void>();
 
 const MAX_CACHE_SIZE = 60;
@@ -29,12 +30,26 @@ export function subscribeArtworkUpdates(callback: () => void): () => void {
 export function clearArtworkCache(): void {
   artworkCache.clear();
   pendingFetches.clear();
+  failedArtworkUrls.clear();
   artworkListeners.forEach((listener) => listener());
+}
+
+export function markArtworkUrlFailed(url: string | null | undefined): void {
+  if (!url) return;
+  if (!failedArtworkUrls.has(url)) {
+    failedArtworkUrls.add(url);
+    artworkListeners.forEach((listener) => listener());
+  }
+}
+
+export function isArtworkUrlFailed(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return failedArtworkUrls.has(url);
 }
 
 export function invalidateCachedArtwork(key: string): void {
   if (!key) return;
-  artworkCache.set(key, null);
+  artworkCache.delete(key);
   artworkListeners.forEach((listener) => listener());
 }
 
@@ -98,17 +113,36 @@ export function getBrandedMediaType(media: MediaPayload | null | undefined): str
 }
 
 /**
- * Identifies if the player is a third-party music client or browser web music,
- * where SMTC thumbnails are often generic placeholders (e.g. BitChord's "Alb..." box),
- * low-resolution, or missing entirely.
+ * Identifies players where studio high-res artwork (from iTunes/Apple Music or Deezer)
+ * is strongly preferred over low-res, placeholder, or flaky native SMTC thumbnails.
  */
 export function isThirdPartyMusicClient(media: MediaPayload | null | undefined): boolean {
   if (!media) return false;
   const appId = (media.app_id || "").toLowerCase();
   const artist = (media.artist || "").toLowerCase();
   const title = (media.title || "").toLowerCase();
+  const webSource = (media.web_source || "").toLowerCase();
 
-  const thirdPartySignatures = [
+  // YouTube / YouTube Music natively delivers the exact video/track thumbnail in SMTC;
+  // do not override with external iTunes queries.
+  if (
+    webSource.includes("youtube") ||
+    appId.includes("youtube") ||
+    artist.includes("youtube") ||
+    title.includes("youtube")
+  ) {
+    return false;
+  }
+
+  // Spotify Desktop delivers official high-res art directly in SMTC
+  if (appId.includes("spotify") || artist.includes("spotify")) {
+    return false;
+  }
+
+  const studioArtworkPreferredSignatures = [
+    "apple",
+    "applemusic",
+    "itunes",
     "bitchord",
     "cider",
     "foobar2000",
@@ -131,14 +165,14 @@ export function isThirdPartyMusicClient(media: MediaPayload | null | undefined):
     "groove",
   ];
 
-  for (const sig of thirdPartySignatures) {
+  for (const sig of studioArtworkPreferredSignatures) {
     if (appId.includes(sig) || artist.includes(sig) || title.includes(sig)) {
       return true;
     }
   }
 
-  // If it's a browser session playing audio/music tracks
-  if (media.is_browser && media.playback_type === 1) {
+  // If it's a browser session playing audio/music tracks (except YouTube)
+  if (media.is_browser && media.playback_type === 1 && !webSource.includes("youtube")) {
     return true;
   }
 
@@ -228,8 +262,8 @@ export function prefetchArtwork(media: MediaPayload | null | undefined): void {
 
 /**
  * Returns the best thumbnail URL for display.
- * For third-party clients (BitChord, Cider, Foobar, AIMP, etc.), official high-res artwork
- * takes precedence over low-res/placeholder SMTC thumbnails.
+ * Studio high-res artwork takes precedence for Apple Music and third-party players,
+ * while reliable native thumbnails (Spotify, YouTube) are displayed immediately.
  */
 export function getResolvedArtworkUrl(
   media: MediaPayload | null | undefined,
@@ -244,23 +278,33 @@ export function getResolvedArtworkUrl(
 
   const cacheKey = getArtworkCacheKey(media);
   const cachedHighRes = cacheKey ? artworkCache.get(cacheKey) : null;
+  const isHighResValid = Boolean(cachedHighRes && !isArtworkUrlFailed(cachedHighRes));
 
-  const isThirdParty = isThirdPartyMusicClient(media);
+  const isNativeFailed = thumbError || !media.thumbnail || isArtworkUrlFailed(media.thumbnail);
+  const nativeThumb = isNativeFailed ? null : media.thumbnail;
 
-  // If high-res art has been resolved:
-  if (cachedHighRes) {
-    // For third-party clients (BitChord, Cider, etc.) or when SMTC failed:
-    // always prefer the crystal-clear studio artwork!
-    if (isThirdParty || !media.thumbnail || thumbError) {
+  const preferStudioArt = isThirdPartyMusicClient(media);
+
+  // 1. If high-res studio artwork has resolved:
+  if (isHighResValid && cachedHighRes) {
+    // For Apple Music, BitChord, Cider, or when native thumbnail failed:
+    // always use the studio artwork!
+    if (preferStudioArt || !nativeThumb) {
       return cachedHighRes;
     }
-    // For official Spotify desktop: keep Spotify's own high-res thumbnail unless error
-    return media.thumbnail || cachedHighRes;
+    // For official Spotify desktop or YouTube: keep native cover, or fallback to studio art
+    return nativeThumb || cachedHighRes;
   }
 
-  // If SMTC thumbnail exists and hasn't failed, use it while high-res loads
-  if (media.thumbnail && !thumbError) {
-    return media.thumbnail;
+  // 2. While studio artwork is loading (or if search returned nothing),
+  // use native thumbnail if available and not failed:
+  if (nativeThumb) {
+    return nativeThumb;
+  }
+
+  // 3. If native thumb failed but high-res is available:
+  if (isHighResValid && cachedHighRes) {
+    return cachedHighRes;
   }
 
   return null;

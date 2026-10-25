@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Music2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { LyricsData } from "../../services/lyricsService";
 import { t } from "../../services/i18n";
 import { MediaPayload } from "../../types";
@@ -22,6 +23,22 @@ export interface IdleLyricsProps {
   onClick?: () => void;
 }
 
+const computeActiveIndex = (
+  time: number,
+  lyrics: LyricsData | null,
+  timeOffset: number
+): number => {
+  if (!lyrics?.synced || !lyrics.lines.length) return -1;
+  const lines = lyrics.lines;
+  const safeOffset = typeof timeOffset === "number" && !isNaN(timeOffset) ? timeOffset : 0;
+  const effectiveTime = time + safeOffset;
+  return lines.findIndex(
+    (line, i) =>
+      effectiveTime >= line.time &&
+      (i === lines.length - 1 || effectiveTime < lines[i + 1].time)
+  );
+};
+
 export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   lyricsData,
   currentTime,
@@ -37,12 +54,6 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   onClick,
 }) => {
   const safeTime = typeof currentTime === "number" && !isNaN(currentTime) ? currentTime : 0;
-  const [activeIndex, setActiveIndex] = useState<number>(-1);
-  const anchorRef = useRef<{ time: number; timestamp: number }>({
-    time: safeTime,
-    timestamp: performance.now(),
-  });
-  const lastEmittedRef = useRef({ curr: "", prev: "", next: "" });
 
   const [offset, setOffset] = useState<number>(() => {
     try {
@@ -53,7 +64,18 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
     }
   });
 
-  const tick = React.useCallback(() => {
+  // Calculate the active index immediately on initial mount so it never flashes top/title
+  const [activeIndex, setActiveIndex] = useState<number>(() =>
+    computeActiveIndex(safeTime, lyricsData, offset)
+  );
+
+  const anchorRef = useRef<{ time: number; timestamp: number }>({
+    time: safeTime,
+    timestamp: performance.now(),
+  });
+  const lastEmittedRef = useRef({ curr: "", prev: "", next: "" });
+
+  const tick = useCallback(() => {
     if (!lyricsData?.synced || !lyricsData.lines.length) {
       setActiveIndex(-1);
       return;
@@ -63,16 +85,8 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
     const liveTime = isPlaying
       ? anchorRef.current.time + (now - anchorRef.current.timestamp) / 1000
       : anchorRef.current.time;
-    const safeOffset = typeof offset === "number" && !isNaN(offset) ? offset : 0;
-    const effectiveTime = liveTime + safeOffset;
 
-    const lines = lyricsData.lines;
-    const idx = lines.findIndex(
-      (line, i) =>
-        effectiveTime >= line.time &&
-        (i === lines.length - 1 || effectiveTime < lines[i + 1].time)
-    );
-
+    const idx = computeActiveIndex(liveTime, lyricsData, offset);
     setActiveIndex((prev) => (prev !== idx ? idx : prev));
   }, [lyricsData, isPlaying, offset]);
 
@@ -89,6 +103,12 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
     tick();
   }, [safeTime, isPlaying, tick]);
 
+  // When lyrics track changes, immediately jump to current line
+  useEffect(() => {
+    setActiveIndex(computeActiveIndex(safeTime, lyricsData, offset));
+  }, [lyricsData]);
+
+  // Sync offset calibration from custom events
   useEffect(() => {
     const handleOffsetEvent = (e: any) => {
       if (e?.detail !== undefined && typeof e.detail === "number") {
@@ -106,7 +126,7 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
     return () => window.removeEventListener("notch_lyrics_offset_changed", handleOffsetEvent);
   }, []);
 
-  // Live sync interval every 100ms
+  // 100ms interval for smooth live sync
   useEffect(() => {
     if (!lyricsData?.synced || !lyricsData.lines.length) {
       setActiveIndex(-1);
@@ -127,23 +147,21 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   const prevLine = isInstrumental
     ? artist || ""
     : hasSyncedLyrics && activeIndex > 0
-    ? lines[activeIndex - 1]?.text || ""
-    : activeIndex === -1 && lines.length > 0
-    ? artist || ""
+    ? lines[activeIndex - 1]?.text?.trim() || ""
     : "";
 
   const currLine = isInstrumental
     ? t("lyrics_idle_instrumental")
     : hasSyncedLyrics && activeIndex >= 0
-    ? lines[activeIndex]?.text || ""
+    ? lines[activeIndex]?.text?.trim() || "•••"
     : songTitle || (isPlaying ? "♪ ♪ ♪" : "Paused");
 
   const nextLine = isInstrumental
     ? songTitle || ""
     : hasSyncedLyrics && activeIndex < lines.length - 1
-    ? lines[activeIndex + 1]?.text || ""
+    ? lines[activeIndex + 1]?.text?.trim() || ""
     : activeIndex === -1 && lines.length > 0
-    ? lines[0]?.text || ""
+    ? lines[0]?.text?.trim() || ""
     : "";
 
   // Notify parent of line updates for auto-layout width calculation
@@ -159,6 +177,20 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
     lastEmittedRef.current = { curr: currLine, prev: prevLine, next: nextLine };
     onActiveLineChange(currLine, prevLine, nextLine);
   }, [currLine, prevLine, nextLine, onActiveLineChange]);
+
+  const activeFontClass =
+    optFontSize === "small"
+      ? "text-[11.5px]"
+      : optFontSize === "large"
+      ? "text-[15px]"
+      : "text-[13px]";
+
+  const inactiveFontClass =
+    optFontSize === "small"
+      ? "text-[9px]"
+      : optFontSize === "large"
+      ? "text-[11px]"
+      : "text-[9.5px]";
 
   if (isLoading) {
     return (
@@ -198,34 +230,44 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
         )}
       </div>
 
-      {/* Center: 3-line synced lyrics with smooth transitions */}
-      <div className="flex-1 min-w-0 h-full flex flex-col justify-center px-1 overflow-hidden relative">
-        {/* Previous line */}
-        <span
-          key={`prev-${activeIndex}`}
-          className={`${optFontSize === "small" ? "text-[9px] min-h-[12px]" : optFontSize === "large" ? "text-[11.5px] min-h-[15px]" : "text-[10px] min-h-[13px]"} block font-medium text-white/35 idle-lyrics-sub truncate w-full text-center leading-tight tracking-tight select-none transition-all duration-300 ease-out`}
-        >
-          {prevLine || "\u00A0"}
-        </span>
+      {/* Center: Exactly 3 lines (previous, active synced in middle, next) */}
+      <div className="flex-1 min-w-0 h-full flex flex-col justify-center items-center px-1 overflow-hidden relative">
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.div
+            key={hasSyncedLyrics ? `line-${activeIndex}` : `track-${songTitle}-${currLine}`}
+            initial={{ opacity: 0.85, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -5 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full flex flex-col justify-center items-center select-none pointer-events-none"
+          >
+            {/* Top Line: Previous Lyric */}
+            <div className="w-full h-[13px] flex items-center justify-center overflow-hidden">
+              <span
+                className={`${inactiveFontClass} font-medium text-white/35 truncate w-full text-center leading-none`}
+              >
+                {prevLine || "\u00A0"}
+              </span>
+            </div>
 
-        {/* Active line — main focal point */}
-        <div
-          key={`curr-${activeIndex >= 0 ? activeIndex : currLine}`}
-          className="w-full flex items-center justify-center overflow-hidden select-none transition-all duration-300 ease-out"
-        >
-          <ScrollingText
-            text={currLine}
-            className={`${optFontSize === "small" ? "text-[11.5px]" : optFontSize === "large" ? "text-[15.5px]" : "text-[13px]"} font-bold text-white idle-lyrics-text tracking-tight leading-snug w-full text-center`}
-          />
-        </div>
+            {/* Middle Line: Synced Active Lyric (Centered, Bold, Highlighted) */}
+            <div className="w-full h-[22px] flex items-center justify-center overflow-hidden my-0.5">
+              <ScrollingText
+                text={currLine}
+                className={`${activeFontClass} font-bold text-white tracking-tight leading-none w-full text-center`}
+              />
+            </div>
 
-        {/* Next line */}
-        <span
-          key={`next-${activeIndex}`}
-          className={`${optFontSize === "small" ? "text-[9px] min-h-[12px]" : optFontSize === "large" ? "text-[11.5px] min-h-[15px]" : "text-[10px] min-h-[13px]"} block font-medium text-white/40 idle-lyrics-sub truncate w-full text-center leading-tight tracking-tight select-none transition-all duration-300 ease-out`}
-        >
-          {nextLine || "\u00A0"}
-        </span>
+            {/* Bottom Line: Next Lyric */}
+            <div className="w-full h-[13px] flex items-center justify-center overflow-hidden">
+              <span
+                className={`${inactiveFontClass} font-medium text-white/35 truncate w-full text-center leading-none`}
+              >
+                {nextLine || "\u00A0"}
+              </span>
+            </div>
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       {/* Right: Audio Visualizer */}

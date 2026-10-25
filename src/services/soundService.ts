@@ -1,4 +1,5 @@
 // Crisp, satisfying iOS / macOS Sonoma-inspired acoustic UI synthesis (Web Audio API)
+import { getDndStatus } from "./notificationHistoryService";
 
 let sharedAudioCtx: AudioContext | null = null;
 let lastVolumeTickMs = 0;
@@ -229,6 +230,7 @@ export function playChargingSound(isCharging = true) {
  * iOS AirPods Pro-inspired bright two-note connection chime (E5 -> B5).
  */
 export function playDeviceConnectSound() {
+  if (getDndStatus()) return;
   playIosGlassSequence([
     { freq: 659.25, delay: 0.0, duration: 0.22, gain: 0.16, cutoff: 3800 }, // E5
     { freq: 987.77, delay: 0.085, duration: 0.38, gain: 0.18, cutoff: 4600 }, // B5
@@ -239,6 +241,7 @@ export function playDeviceConnectSound() {
  * iOS "Rebound / Tri-tone" glass pluck notification sound.
  */
 export function playNotificationSound() {
+  if (getDndStatus()) return;
   playIosGlassSequence([
     { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 }, // E5
     { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 }, // A5
@@ -272,8 +275,21 @@ export function playTaskCompleteSound() {
  * iOS "Note" two-tone bell chime for task deadline reminders.
  */
 export function playReminderSound() {
+  if (getDndStatus()) return;
   playIosGlassSequence([
     { freq: 783.99, delay: 0.0, duration: 0.18, gain: 0.15, cutoff: 4000 }, // G5
     { freq: 1174.66, delay: 0.08, duration: 0.34, gain: 0.17, cutoff: 4800 }, // D6
+  ]);
+}
+
+/**
+ * iOS stereo sound check / audio test chime sequence (C5 -> E5 -> G5 -> C6).
+ */
+export function playAudioTestSound() {
+  playIosGlassSequence([
+    { freq: 523.25, delay: 0.0, duration: 0.22, gain: 0.18, cutoff: 4200 }, // C5
+    { freq: 659.25, delay: 0.10, duration: 0.22, gain: 0.20, cutoff: 4600 }, // E5
+    { freq: 783.99, delay: 0.20, duration: 0.26, gain: 0.22, cutoff: 5000 }, // G5
+    { freq: 1046.5, delay: 0.30, duration: 0.45, gain: 0.24, cutoff: 5400 }, // C6
   ]);
 }

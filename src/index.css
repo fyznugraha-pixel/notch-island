@@ -96,6 +96,28 @@
   background: rgba(255, 255, 255, 0.55) !important;
 }
 
+/* Sleek Mini Scrollbar for Lyrics Provider Dropdown */
+.lyrics-dropdown-scroll {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent !important;
+}
+.lyrics-dropdown-scroll::-webkit-scrollbar {
+  display: block !important;
+  width: 3px !important;
+}
+.lyrics-dropdown-scroll::-webkit-scrollbar-track {
+  background: transparent !important;
+  margin: 3px 0 !important;
+}
+.lyrics-dropdown-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-radius: 9999px !important;
+  transition: background-color 0.15s ease;
+}
+.lyrics-dropdown-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.6) !important;
+}
+
 /* Crisp font & vector rendering on Windows DirectWrite / WebView2 */
 #notch-pill {
   -webkit-font-smoothing: antialiased;
@@ -792,19 +814,25 @@ html.light [class*="border-white/15"],
 /* Scrollbars in Light Mode */
 html.light .todo-scroll::-webkit-scrollbar-thumb,
 html.light .settings-scroll::-webkit-scrollbar-thumb,
+html.light .lyrics-dropdown-scroll::-webkit-scrollbar-thumb,
 .light .todo-scroll::-webkit-scrollbar-thumb,
 .light .settings-scroll::-webkit-scrollbar-thumb,
+.light .lyrics-dropdown-scroll::-webkit-scrollbar-thumb,
 #notch-pill.light .todo-scroll::-webkit-scrollbar-thumb,
-#notch-pill.light .settings-scroll::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.18) !important;
+#notch-pill.light .settings-scroll::-webkit-scrollbar-thumb,
+#notch-pill.light .lyrics-dropdown-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25) !important;
 }
 html.light .todo-scroll::-webkit-scrollbar-thumb:hover,
 html.light .settings-scroll::-webkit-scrollbar-thumb:hover,
+html.light .lyrics-dropdown-scroll::-webkit-scrollbar-thumb:hover,
 .light .todo-scroll::-webkit-scrollbar-thumb:hover,
 .light .settings-scroll::-webkit-scrollbar-thumb:hover,
+.light .lyrics-dropdown-scroll::-webkit-scrollbar-thumb:hover,
 #notch-pill.light .todo-scroll::-webkit-scrollbar-thumb:hover,
-#notch-pill.light .settings-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.32) !important;
+#notch-pill.light .settings-scroll::-webkit-scrollbar-thumb:hover,
+#notch-pill.light .lyrics-dropdown-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.45) !important;
 }
 html.light .todo-scroll::-webkit-scrollbar-track,
 .light .todo-scroll::-webkit-scrollbar-track,

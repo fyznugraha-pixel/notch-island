@@ -3,6 +3,7 @@ use tauri::Manager;
 mod privacy;
 mod connectivity;
 mod system_monitor;
+mod audio_endpoints;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -13,13 +14,25 @@ struct AudioSessionInfo {
 }
 
 #[tauri::command]
+async fn get_audio_endpoints() -> Vec<audio_endpoints::AudioEndpointInfo> {
+    tauri::async_runtime::spawn_blocking(audio_endpoints::list_audio_endpoints)
+        .await
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+async fn set_default_audio_endpoint(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || audio_endpoints::set_default_endpoint(&id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume};
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
-        use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
-        use windows::Win32::Foundation::MAX_PATH;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
         use windows::core::Interface;
 
         let mut sessions = Vec::new();
@@ -36,17 +49,34 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                         if let Ok(pid) = session_ctrl2.GetProcessId() {
                                             if pid == 0 { continue; } // System sound
                                             
-                                            let mut process_name = String::from("Unknown");
-                                            if let Ok(handle) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
-                                                let mut buffer = [0u16; MAX_PATH as usize];
-                                                let len = GetModuleFileNameExW(handle, None, &mut buffer);
-                                                if len > 0 {
+                                            let mut process_name = String::new();
+                                            if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                                                let mut buffer = [0u16; 1024];
+                                                let mut len = buffer.len() as u32;
+                                                if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buffer.as_mut_ptr()), &mut len).is_ok() && len > 0 {
                                                     let full_path = String::from_utf16_lossy(&buffer[..len as usize]);
                                                     if let Some(name) = std::path::Path::new(&full_path).file_name() {
                                                         process_name = name.to_string_lossy().into_owned();
                                                     }
                                                 }
                                                 let _ = windows::Win32::Foundation::CloseHandle(handle);
+                                            }
+
+                                            // Fallback to display name if process name could not be resolved from binary
+                                            if process_name.is_empty() {
+                                                if let Ok(disp_ptr) = session_ctrl.GetDisplayName() {
+                                                    if !disp_ptr.is_null() {
+                                                        let s = disp_ptr.to_string().unwrap_or_default();
+                                                        if !s.is_empty() {
+                                                            process_name = s;
+                                                        }
+                                                        windows::Win32::System::Com::CoTaskMemFree(Some(disp_ptr.0 as *const std::ffi::c_void));
+                                                    }
+                                                }
+                                            }
+
+                                            if process_name.is_empty() {
+                                                process_name = format!("App ({})", pid);
                                             }
 
                                             if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
@@ -75,12 +105,16 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
 }
 
 #[tauri::command]
-fn set_app_volume(pid: u32, volume: f32) {
+fn set_app_volume(pid: u32, volume: f32, name: Option<String>) {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume};
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
         use windows::core::Interface;
         
+        let target_name_lower = name.as_ref().map(|n| n.trim().to_lowercase());
+        let clamped_vol = volume.clamp(0.0, 1.0);
+
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
@@ -92,11 +126,32 @@ fn set_app_volume(pid: u32, volume: f32) {
                                 if let Ok(session_ctrl) = session_enum.GetSession(i) {
                                     if let Ok(session_ctrl2) = session_ctrl.cast::<IAudioSessionControl2>() {
                                         if let Ok(spid) = session_ctrl2.GetProcessId() {
-                                            if spid == pid {
-                                                if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
-                                                    let _ = volume_ctrl.SetMasterVolume(volume, std::ptr::null());
+                                            if spid == 0 { continue; }
+                                            let mut is_match = spid == pid;
+                                            
+                                            if !is_match && target_name_lower.is_some() {
+                                                if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, spid) {
+                                                    let mut buffer = [0u16; 1024];
+                                                    let mut len = buffer.len() as u32;
+                                                    if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buffer.as_mut_ptr()), &mut len).is_ok() && len > 0 {
+                                                        let full_path = String::from_utf16_lossy(&buffer[..len as usize]);
+                                                        if let Some(file_name) = std::path::Path::new(&full_path).file_name() {
+                                                            let s_name = file_name.to_string_lossy().to_lowercase();
+                                                            if let Some(target) = &target_name_lower {
+                                                                if s_name == *target || s_name.replace(".exe", "") == target.replace(".exe", "") {
+                                                                    is_match = true;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    let _ = windows::Win32::Foundation::CloseHandle(handle);
                                                 }
-                                                break;
+                                            }
+
+                                            if is_match {
+                                                if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
+                                                    let _ = volume_ctrl.SetMasterVolume(clamped_vol, std::ptr::null());
+                                                }
                                             }
                                         }
                                     }
@@ -155,6 +210,99 @@ fn set_brightness_mode(mode: String) {
 fn read_clipboard_text(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
     app.clipboard().read_text().map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct ClipboardImageItem {
+    pub id: String,
+    pub path: String,
+    pub thumbnail: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[tauri::command]
+async fn read_clipboard_image(app: tauri::AppHandle) -> Result<Option<ClipboardImageItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_clipboard_manager::ClipboardExt;
+
+        let clipboard = app.clipboard();
+        let image = match clipboard.read_image() {
+            Ok(img) => img,
+            Err(_) => return Ok(None),
+        };
+
+        let width = image.width();
+        let height = image.height();
+        if width == 0 || height == 0 {
+            return Ok(None);
+        }
+
+        let rgba = image.rgba();
+        if rgba.len() != (width * height * 4) as usize {
+            return Ok(None);
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let id = format!("clip_img_{}", now);
+
+        let cache_dir = std::env::temp_dir().join("gili_clipboard_images");
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let img_path = cache_dir.join(format!("{}.png", id));
+
+        image::save_buffer(&img_path, rgba, width, height, image::ColorType::Rgba8)
+            .map_err(|e| e.to_string())?;
+
+        let max_thumb_dim = 320.0;
+        let scale = (max_thumb_dim / (width.max(height) as f32)).min(1.0);
+        let thumb_w = ((width as f32 * scale).round() as u32).max(1);
+        let thumb_h = ((height as f32 * scale).round() as u32).max(1);
+
+        let thumbnail = if let Some(img_buffer) = image::RgbaImage::from_raw(width, height, rgba.to_vec()) {
+            let resized = image::imageops::resize(&img_buffer, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            if resized.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+                use base64::Engine;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+                format!("data:image/jpeg;base64,{}", b64)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        Ok(Some(ClipboardImageItem {
+            id,
+            path: img_path.to_string_lossy().to_string(),
+            thumbnail,
+            width,
+            height,
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn copy_image_to_clipboard(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_clipboard_manager::ClipboardExt;
+
+        let img = image::open(&path).map_err(|e| e.to_string())?.to_rgba8();
+        let (w, h) = img.dimensions();
+        let tauri_img = tauri::image::Image::new(img.as_raw(), w, h);
+        app.clipboard().write_image(&tauri_img).map_err(|e| e.to_string())?;
+
+        let current_seq = unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() };
+        INTERNAL_CLIPBOARD_SEQ.store(current_seq, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -304,17 +452,43 @@ async fn extract_clipboard_text(app: tauri::AppHandle) -> Result<String, String>
 static LAST_ACTIVE_SMTC: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
 static LAST_SMTC_SEEK: std::sync::Mutex<Option<(std::time::Instant, f64)>> = std::sync::Mutex::new(None);
 
+fn is_smtc_session_playing(playback: &windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackInfo) -> bool {
+    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+    let status = playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed);
+    let is_status_paused = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Paused;
+    let (is_play_enabled, is_pause_enabled) = playback.Controls()
+        .map(|c| (c.IsPlayEnabled().unwrap_or(false), c.IsPauseEnabled().unwrap_or(false)))
+        .unwrap_or((false, false));
+
+    if is_status_paused {
+        false
+    } else if is_play_enabled && !is_pause_enabled {
+        false
+    } else if let Ok(rate_ref) = playback.PlaybackRate() {
+        if let Ok(rate) = rate_ref.Value() {
+            if rate == 0.0 {
+                return false;
+            }
+        }
+        if !is_play_enabled && is_pause_enabled {
+            true
+        } else {
+            status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing
+        }
+    } else if !is_play_enabled && is_pause_enabled {
+        true
+    } else {
+        status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing
+    }
+}
+
 fn resolve_smtc_session(
     manager: &windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager,
 ) -> Option<windows::Media::Control::GlobalSystemMediaTransportControlsSession> {
-    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
-
     if let Ok(sessions) = manager.GetSessions() {
         for s in sessions.into_iter() {
             if let Ok(playback) = s.GetPlaybackInfo() {
-                if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed)
-                    == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing
-                {
+                if is_smtc_session_playing(&playback) {
                     return Some(s);
                 }
             }
@@ -368,6 +542,51 @@ async fn smtc_action(action: String) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn fetch_external_lyrics_api(
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(6))
+            .build();
+
+        let req_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
+        let mut request = match req_method.as_str() {
+            "POST" => agent.post(&url),
+            _ => agent.get(&url),
+        };
+
+        if let Some(hdrs) = headers {
+            for (k, v) in hdrs {
+                request = request.set(&k, &v);
+            }
+        }
+
+        let response = if req_method == "POST" {
+            if let Some(b) = body {
+                request.send_string(&b)
+            } else {
+                request.call()
+            }
+        } else {
+            request.call()
+        };
+
+        match response {
+            Ok(resp) => resp
+                .into_string()
+                .map_err(|e| format!("Failed to read response body: {}", e)),
+            Err(e) => Err(format!("HTTP request error: {}", e)),
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -1266,6 +1485,66 @@ fn copy_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+async fn pick_files_dialog() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
+            COINIT_APARTMENTTHREADED,
+        };
+        use windows::Win32::UI::Shell::{
+            FileOpenDialog, IFileOpenDialog, FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST,
+            SIGDN_FILESYSPATH,
+        };
+
+        let com_init = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok() };
+        let result = (|| -> windows::core::Result<Vec<String>> {
+            unsafe {
+                let dialog: IFileOpenDialog =
+                    CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
+                let mut options = dialog.GetOptions()?;
+                options |= FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST;
+                dialog.SetOptions(options)?;
+
+                dialog.Show(None)?;
+
+                let items = dialog.GetResults()?;
+                let count = items.GetCount()?;
+                let mut paths = Vec::with_capacity(count as usize);
+
+                for i in 0..count {
+                    let item = items.GetItemAt(i)?;
+                    let name = item.GetDisplayName(SIGDN_FILESYSPATH)?;
+                    let path_str = name.to_string()?;
+                    CoTaskMemFree(Some(name.as_ptr() as *const _));
+                    paths.push(path_str);
+                }
+
+                Ok(paths)
+            }
+        })();
+
+        if com_init {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+
+        match result {
+            Ok(paths) => Ok(paths),
+            Err(e) => {
+                // User cancelled the file picker dialog (ERROR_CANCELLED / 0x800704C7)
+                if e.code().0 == -2147023673 || e.code().0 == 0x800704C7u32 as i32 {
+                    return Ok(Vec::new());
+                }
+                Err(e.to_string())
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn is_foreground_window_browser() -> Option<bool> {
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
@@ -1496,6 +1775,7 @@ pub fn run() {
             set_pill_hover,
             smtc_action,
             smtc_seek,
+            fetch_external_lyrics_api,
             update_pill_size,
             set_window_position,
             get_battery_status,
@@ -1511,12 +1791,17 @@ pub fn run() {
             set_brightness_mode,
             extract_clipboard_text,
             read_clipboard_text,
+            read_clipboard_image,
+            copy_image_to_clipboard,
             set_power_plan,
             get_audio_sessions,
             set_app_volume,
+            get_audio_endpoints,
+            set_default_audio_endpoint,
             show_in_folder,
             copy_file_to_clipboard,
             copy_files_to_clipboard,
+            pick_files_dialog,
             get_file_preview,
             set_shelf_drag,
             check_foreground_browser,
@@ -1530,6 +1815,8 @@ pub fn run() {
             connectivity::disconnect_wifi,
             connectivity::get_bluetooth_status,
             connectivity::toggle_bluetooth,
+            connectivity::get_hotspot_status,
+            connectivity::toggle_hotspot,
             system_monitor::get_system_metrics,
             system_monitor::clear_temp_files
         ])
@@ -1809,7 +2096,6 @@ pub fn run() {
                 let mut cached_browser_web_source: Option<(String, String)> = None;
                 let mut last_thumbnail: Option<String> = None;
                 let mut last_emitted_thumbnail: Option<String> = None;
-                let mut prev_track_thumbnail: Option<String> = None;
                 let mut track_change_ticks: u32 = 0;
                 let mut thumbnail_cache = std::collections::HashMap::<String, String>::new();
                 let mut last_is_charging = false;
@@ -1871,21 +2157,19 @@ pub fn run() {
                         let _ = app_handle.emit("caps-update", CapsPayload { is_on: current_caps == 1 });
                     }
                     
-                    // Volume Check (Throttled to 500ms)
-                    if counter % 5 == 0 {
-                        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-                        
-                        if let Some(enumerator) = &audio_enumerator {
-                            if let Ok(device) = unsafe { enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) } {
-                                if let Ok(volume_ctrl) = unsafe { device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) } {
-                                    if let Ok(level) = unsafe { volume_ctrl.GetMasterVolumeLevelScalar() } {
-                                        if (level - last_volume).abs() > 0.01 && last_volume != -1.0 {
-                                            #[derive(serde::Serialize, Clone)]
-                                            struct VolumePayload { level: f32 }
-                                            let _ = app_handle.emit("volume-update", VolumePayload { level });
-                                        }
-                                        last_volume = level;
+                    // Volume Check (Immediate 100ms check for instant hardware key HUD response)
+                    use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+                    
+                    if let Some(enumerator) = &audio_enumerator {
+                        if let Ok(device) = unsafe { enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) } {
+                            if let Ok(volume_ctrl) = unsafe { device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) } {
+                                if let Ok(level) = unsafe { volume_ctrl.GetMasterVolumeLevelScalar() } {
+                                    if (level - last_volume).abs() > 0.01 && last_volume != -1.0 {
+                                        #[derive(serde::Serialize, Clone)]
+                                        struct VolumePayload { level: f32 }
+                                        let _ = app_handle.emit("volume-update", VolumePayload { level });
                                     }
+                                    last_volume = level;
                                 }
                             }
                         }
@@ -1920,11 +2204,23 @@ pub fn run() {
                                                         if let Ok(visual) = notification.Visual() {
                                                             if let Ok(binding) = visual.GetBinding(&windows::core::HSTRING::from("ToastGeneric")) {
                                                                 if let Ok(elements) = binding.GetTextElements() {
-                                                                    if let Ok(elem) = elements.GetAt(0) {
-                                                                        title = elem.Text().unwrap_or_default().to_string();
-                                                                    }
-                                                                    if let Ok(elem) = elements.GetAt(1) {
-                                                                        body = elem.Text().unwrap_or_default().to_string();
+                                                                    if let Ok(count) = elements.Size() {
+                                                                        if count > 0 {
+                                                                            if let Ok(elem) = elements.GetAt(0) {
+                                                                                title = elem.Text().unwrap_or_default().to_string();
+                                                                            }
+                                                                            let mut body_lines = Vec::new();
+                                                                            for i in 1..count {
+                                                                                if let Ok(elem) = elements.GetAt(i) {
+                                                                                    let text = elem.Text().unwrap_or_default().to_string();
+                                                                                    let trimmed = text.trim();
+                                                                                    if !trimmed.is_empty() {
+                                                                                        body_lines.push(trimmed.to_string());
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            body = body_lines.join("\n");
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -2091,7 +2387,7 @@ pub fn run() {
                         if let Ok(sessions) = manager.GetSessions() {
                             for session in sessions.into_iter() {
                                 if let Ok(playback) = session.GetPlaybackInfo() {
-                                    if playback.PlaybackStatus().unwrap_or(windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) == windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+                                    if is_smtc_session_playing(&playback) {
                                         active_session = Some(session);
                                         break;
                                     }
@@ -2419,48 +2715,50 @@ pub fn run() {
                                 let cache_key = format!("{} - {}", artist.trim().to_lowercase(), title.trim().to_lowercase());
                                 
                                 if title != last_title || artist != last_artist {
-                                    prev_track_thumbnail = last_thumbnail.clone();
                                     track_change_ticks = 0;
                                     thumbnail_retries = 0;
                                     last_thumbnail = thumbnail_cache.get(&cache_key).cloned();
-                                    if let Some(cached) = thumbnail_cache.get(&cache_key) {
-                                        last_thumbnail = Some(cached.clone());
-                                    }
-                                }
-                                
-                                let _ = &track_change_ticks;
-                                if title == last_title && artist == last_artist {
+                                } else {
                                     track_change_ticks = track_change_ticks.saturating_add(1);
                                 }
-                                let needs_thumbnail = (last_thumbnail.is_none() && (thumbnail_retries < 40 || thumbnail_retries.is_multiple_of(10))) || (track_change_ticks <= 25 && track_change_ticks.is_multiple_of(3));
+                                
+                                let needs_thumbnail = last_thumbnail.is_none() && (thumbnail_retries < 40 || thumbnail_retries.is_multiple_of(10));
                                 if (title != last_title || artist != last_artist || needs_thumbnail) && !title.is_empty() {
                                     if let Ok(thumb_ref) = info.Thumbnail() {
                                         if let Ok(stream) = thumb_ref.OpenReadAsync().and_then(|r| r.get()) {
                                             if let Ok(size) = stream.Size() {
-                                                if size > 0 {
+                                                if size > 0 && size <= 10_000_000 {
                                                     use windows::Storage::Streams::DataReader;
                                                     if let Ok(reader) = DataReader::CreateDataReader(&stream) {
-                                                        if reader.LoadAsync(size as u32).and_then(|r| r.get()).is_ok() {
-                                                            let mut bytes = vec![0u8; size as usize];
-                                                            if reader.ReadBytes(&mut bytes).is_ok() {
-                                                                use base64::{Engine as _, engine::general_purpose::STANDARD};
-                                                                let mime = stream.ContentType().unwrap_or_default().to_string();
-                                                                let b64 = STANDARD.encode(&bytes);
-                                                                let mime_type = if mime.is_empty() { "image/png" } else { &mime };
-                                                                let uri = format!("data:{};base64,{}", mime_type, b64);
-                                                                let is_stale_from_prev = prev_track_thumbnail.as_ref() == Some(&uri);
-                                                                if !is_stale_from_prev || track_change_ticks >= 4 {
-                                                                    if !is_stale_from_prev || track_change_ticks >= 10 {
-                                                                        if thumbnail_cache.len() >= 30 && !thumbnail_cache.contains_key(&cache_key) {
-                                                                            if let Some(first_key) = thumbnail_cache.keys().next().cloned() {
-                                                                                thumbnail_cache.remove(&first_key);
-                                                                            }
+                                                        if let Ok(loaded) = reader.LoadAsync(size as u32).and_then(|r| r.get()) {
+                                                            if loaded > 0 {
+                                                                let mut bytes = vec![0u8; loaded as usize];
+                                                                if reader.ReadBytes(&mut bytes).is_ok() && bytes.len() >= 100 {
+                                                                    use base64::{Engine as _, engine::general_purpose::STANDARD};
+                                                                    let raw_mime = stream.ContentType().unwrap_or_default().to_string();
+                                                                    let detected_mime = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                                                                        "image/jpeg"
+                                                                    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+                                                                        "image/png"
+                                                                    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+                                                                        "image/webp"
+                                                                    } else if bytes.starts_with(b"BM") {
+                                                                        "image/bmp"
+                                                                    } else if !raw_mime.is_empty() {
+                                                                        &raw_mime
+                                                                    } else {
+                                                                        "image/jpeg"
+                                                                    };
+                                                                    let b64 = STANDARD.encode(&bytes);
+                                                                    let uri = format!("data:{};base64,{}", detected_mime, b64);
+                                                                    if thumbnail_cache.len() >= 40 && !thumbnail_cache.contains_key(&cache_key) {
+                                                                        if let Some(first_key) = thumbnail_cache.keys().next().cloned() {
+                                                                            thumbnail_cache.remove(&first_key);
                                                                         }
-                                                                        thumbnail_cache.insert(cache_key.clone(), uri.clone());
                                                                     }
+                                                                    thumbnail_cache.insert(cache_key.clone(), uri.clone());
                                                                     thumbnail_b64 = Some(uri);
                                                                 }
-
                                                             }
                                                         }
                                                     }
@@ -2471,10 +2769,7 @@ pub fn run() {
                                 }
                             }
                             if let Ok(playback_info) = session.GetPlaybackInfo() {
-                                use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
-                                if let Ok(status) = playback_info.PlaybackStatus() {
-                                    is_playing = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
-                                }
+                                is_playing = is_smtc_session_playing(&playback_info);
                             }
                             
                             if let Ok(timeline) = session.GetTimelineProperties() {
@@ -2520,26 +2815,13 @@ pub fn run() {
                             // If thumbnail was freshly read or found in cache, preserve it
                             let cache_key = format!("{} - {}", artist.trim().to_lowercase(), title.trim().to_lowercase());
                             if let Some(tb64) = thumbnail_b64 {
-                                let new_thumb = Some(tb64);
-                                if last_thumbnail != new_thumb {
-                                    last_thumbnail = new_thumb;
-                                    last_title.clear();
-                                }
-                            } else if title != last_title || artist != last_artist {
-                                if let Some(cached) = thumbnail_cache.get(&cache_key) {
-                                    last_thumbnail = Some(cached.clone());
-                                } else {
-                                    last_thumbnail = None;
-                                }
+                                last_thumbnail = Some(tb64);
                             } else if last_thumbnail.is_none() {
                                 if let Some(cached) = thumbnail_cache.get(&cache_key) {
                                     last_thumbnail = Some(cached.clone());
-                                    last_title.clear();
+                                } else if !title.is_empty() {
+                                    thumbnail_retries = thumbnail_retries.saturating_add(1);
                                 }
-                            }
-                            
-                            if last_thumbnail.is_none() && !title.is_empty() {
-                                thumbnail_retries = thumbnail_retries.saturating_add(1);
                             }
                         }
                     }

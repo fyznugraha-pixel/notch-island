@@ -96,3 +96,20 @@ export async function toggleBluetoothState(enable: boolean): Promise<boolean> {
     throw err;
   }
 }
+
+export async function fetchHotspotStatus(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("get_hotspot_status");
+  } catch {
+    return false;
+  }
+}
+
+export async function toggleHotspotState(enable: boolean): Promise<boolean> {
+  try {
+    return await invoke<boolean>("toggle_hotspot", { enable });
+  } catch (err) {
+    console.error("Failed to toggle Hotspot:", err);
+    throw err;
+  }
+}

@@ -1,13 +1,18 @@
 import React, { useState, useMemo } from "react";
-import { Search, Trash2, Copy, Check, Clipboard, X, Link2, FileText, Pin } from "lucide-react";
+import { Search, Trash2, Copy, Check, Clipboard, X, Link2, FileText, Pin, Image as ImageIcon } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
 
 export interface ClipboardItem {
   id: string;
+  type?: "text" | "image";
   text: string;
   timestamp: number;
   pinned?: boolean;
+  imagePath?: string;
+  thumbnail?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface ClipboardPanelProps {
@@ -44,7 +49,17 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const base = q ? items.filter((item) => item.text.toLowerCase().includes(q)) : items;
+    const base = q
+      ? items.filter((item) => {
+          if (item.type === "image") {
+            return (
+              "image screenshot gambar foto".includes(q) ||
+              item.text.toLowerCase().includes(q)
+            );
+          }
+          return item.text.toLowerCase().includes(q);
+        })
+      : items;
     return [...base].sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
@@ -139,16 +154,25 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
                         Pinned
                       </span>
                     )}
-                    <span
-                      className={`text-[9.5px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                        isUrl
-                          ? "bg-[#0a84ff]/20 text-[#0a84ff]"
-                          : "bg-white/10 text-white/60"
-                      }`}
-                    >
-                      {isUrl ? <Link2 size={10} /> : <FileText size={10} />}
-                      {isUrl ? "Link" : t("clipboard_chars", { count: item.text.length })}
-                    </span>
+                    {item.type === "image" ? (
+                      <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 bg-purple-500/20 text-purple-300">
+                        <ImageIcon size={10} />
+                        {item.width && item.height
+                          ? `${item.width}×${item.height}`
+                          : t("clipboard_badge_image")}
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[9.5px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                          isUrl
+                            ? "bg-[#0a84ff]/20 text-[#0a84ff]"
+                            : "bg-white/10 text-white/60"
+                        }`}
+                      >
+                        {isUrl ? <Link2 size={10} /> : <FileText size={10} />}
+                        {isUrl ? "Link" : t("clipboard_chars", { count: item.text.length })}
+                      </span>
+                    )}
                     <span className="text-[10px] text-white/35 font-medium tabular-nums">
                       {formatRelativeTime(item.timestamp)}
                     </span>
@@ -211,10 +235,28 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
                   </div>
                 </div>
 
-                {/* Text Content */}
-                <div className="text-[11.5px] text-white/80 line-clamp-2 break-words font-sans leading-snug group-hover:text-white transition-colors">
-                  {item.text}
-                </div>
+                {/* Content: Image Thumbnail or Text */}
+                {item.type === "image" && item.thumbnail ? (
+                  <div className="flex flex-col gap-1.5 mt-0.5">
+                    <div className="relative w-full h-[120px] rounded-xl overflow-hidden bg-black/40 border border-white/5 flex items-center justify-center">
+                      <img
+                        src={item.thumbnail}
+                        alt="Clipboard image"
+                        className="w-full h-full object-contain pointer-events-none select-none"
+                        loading="lazy"
+                      />
+                    </div>
+                    {item.text && (
+                      <div className="text-[10.5px] text-white/60 line-clamp-2 break-words font-sans leading-snug">
+                        {item.text}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-[11.5px] text-white/80 line-clamp-2 break-words font-sans leading-snug group-hover:text-white transition-colors">
+                    {item.text}
+                  </div>
+                )}
               </div>
             );
           })

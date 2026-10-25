@@ -15,6 +15,7 @@ import {
   ClipboardList,
   Volume2,
   Sparkles,
+  Bell,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getWeatherIcon } from "./NotifIcon";
@@ -38,6 +39,9 @@ export interface PanelNavHeaderProps {
   nextTooltip?: string;
   onToggleSettings?: () => void;
   isSettingsActive?: boolean;
+  onToggleNotifications?: () => void;
+  isNotificationsActive?: boolean;
+  unreadNotificationsCount?: number;
   hideTitleBar?: boolean;
   isMusicPage?: boolean;
 }
@@ -63,6 +67,7 @@ export interface PanelFrameProps extends PanelNavHeaderProps, PanelPageDotsProps
   isMusicPage?: boolean;
   tabs?: string[];
   optLanguage?: Language;
+  disableSwipe?: boolean;
 }
 
 export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
@@ -81,6 +86,9 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
     nextTooltip,
     onToggleSettings,
     isSettingsActive = false,
+    onToggleNotifications,
+    isNotificationsActive = false,
+    unreadNotificationsCount = 0,
     hideTitleBar = false,
     isMusicPage = false,
   }) => {
@@ -237,26 +245,56 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
         {/* Title Bar: [ < ] Centered Title [ Settings ] [ > ] */}
         {!hideTitleBar && (
           <div className="relative flex items-center justify-between gap-3 mt-2 w-full">
-            {/* Prev Button */}
-            {hasPrev ? (
-              <Tooltip content={prevTooltip || t("nav_prev")} side="bottom" align="start">
-                <motion.button
-                  whileTap={{ scale: 0.9 }}
-                  transition={iosSpring.press}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPrev?.();
-                  }}
-                  className={`${navButtonClass} z-10`}
+            {/* Left Action Cluster: [ Prev ] [ Notification Button ] */}
+            <div className="flex items-center gap-2 shrink-0 z-10">
+              {hasPrev ? (
+                <Tooltip content={prevTooltip || t("nav_prev")} side="bottom" align="start">
+                  <motion.button
+                    whileTap={{ scale: 0.9 }}
+                    transition={iosSpring.press}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPrev?.();
+                    }}
+                    className={navButtonClass}
+                  >
+                    <ChevronLeft size={16} strokeWidth={2} className="shrink-0" />
+                  </motion.button>
+                </Tooltip>
+              ) : (
+                <div className={navDisabledClass}>
+                  <ChevronLeft size={16} strokeWidth={2} />
+                </div>
+              )}
+
+              {/* Notification Button (on the right side of slide previous button) */}
+              {onToggleNotifications && (
+                <Tooltip
+                  content={isNotificationsActive ? t("nav_back") : t("tab_notifications")}
+                  side="bottom"
+                  align="start"
                 >
-                  <ChevronLeft size={16} strokeWidth={2} className="shrink-0" />
-                </motion.button>
-              </Tooltip>
-            ) : (
-              <div className={`${navDisabledClass} z-10`}>
-                <ChevronLeft size={16} strokeWidth={2} />
-              </div>
-            )}
+                  <motion.button
+                    whileTap={{ scale: 0.9 }}
+                    transition={iosSpring.press}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleNotifications();
+                    }}
+                    className={`${
+                      isNotificationsActive
+                        ? "w-8 h-8 rounded-full bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.5)] flex items-center justify-center shrink-0 cursor-pointer"
+                        : navButtonClass
+                    } relative`}
+                  >
+                    <Bell size={15} strokeWidth={2} />
+                    {unreadNotificationsCount > 0 && !isNotificationsActive && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6]" />
+                    )}
+                  </motion.button>
+                </Tooltip>
+              )}
+            </div>
 
             {/* Centered Section Title */}
             <div className="absolute inset-x-20 flex items-center justify-center overflow-hidden min-w-0 pointer-events-none">
@@ -358,6 +396,11 @@ const getTabMetadata = (key: string): { label: string; icon: React.ReactNode } =
       return {
         label: t("tab_volume_mixer"),
         icon: <Volume2 size={13} strokeWidth={2.2} />,
+      };
+    case "notif_center":
+      return {
+        label: t("tab_notifications") || "Notifikasi",
+        icon: <Bell size={13} strokeWidth={2.2} />,
       };
     default:
       return {
@@ -536,6 +579,9 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     nextTooltip,
     onToggleSettings,
     isSettingsActive,
+    onToggleNotifications,
+    isNotificationsActive,
+    unreadNotificationsCount,
     hideTitleBar = false,
     totalPages,
     currentPageIndex,
@@ -544,6 +590,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     isMusicPage = false,
     tabs,
     optLanguage,
+    disableSwipe = false,
     battery,
     time,
     weather,
@@ -557,6 +604,9 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     const swipeResetTimerRef = React.useRef<number | null>(null);
 
     const handleWheel = (e: React.WheelEvent) => {
+      if (disableSwipe) {
+        return;
+      }
       // Shift is dedicated to brightness adjustment on the notch pill; do not trigger tab swipe
       if (e.shiftKey) {
         return;
@@ -565,8 +615,9 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       const target = e.target as HTMLElement | null;
       if (
         target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA") &&
-        (target as HTMLInputElement).type !== "range"
+        (target.closest('.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"]') ||
+          ((target.tagName === "INPUT" || target.tagName === "TEXTAREA") &&
+            (target as HTMLInputElement).type !== "range"))
       ) {
         return;
       }
@@ -612,11 +663,15 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     };
 
     const handlePanEnd = (e: any, info: { offset: { x: number; y: number } }) => {
+      if (disableSwipe) {
+        return;
+      }
       const target = (e?.target || e?.srcElement) as HTMLElement | null;
       if (
         target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA") &&
-        (target as HTMLInputElement).type !== "range"
+        (target.closest('.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"]') ||
+          ((target.tagName === "INPUT" || target.tagName === "TEXTAREA") &&
+            (target as HTMLInputElement).type !== "range"))
       ) {
         return;
       }
@@ -653,6 +708,9 @@ export const PanelFrame = React.memo<PanelFrameProps>(
             nextTooltip={nextTooltip}
             onToggleSettings={onToggleSettings}
             isSettingsActive={isSettingsActive}
+            onToggleNotifications={onToggleNotifications}
+            isNotificationsActive={isNotificationsActive}
+            unreadNotificationsCount={unreadNotificationsCount}
             hideTitleBar={hideTitleBar}
             isMusicPage={isMusicPage}
           />

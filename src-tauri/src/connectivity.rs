@@ -725,3 +725,113 @@ pub async fn toggle_bluetooth(enable: bool) -> Result<bool, String> {
     .await
     .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub async fn get_hotspot_status() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(windows)]
+        {
+            use windows::Networking::Connectivity::NetworkInformation;
+            use windows::Networking::NetworkOperators::{
+                NetworkOperatorTetheringManager, TetheringOperationalState,
+            };
+
+            let profile = match NetworkInformation::GetInternetConnectionProfile() {
+                Ok(p) => p,
+                Err(_) => {
+                    let profiles = NetworkInformation::GetConnectionProfiles()
+                        .map_err(|e| format!("Tidak dapat membaca profil jaringan: {}", e))?;
+                    profiles.GetAt(0)
+                        .map_err(|e| format!("Tidak ada profil jaringan aktif: {}", e))?
+                }
+            };
+
+            let manager = NetworkOperatorTetheringManager::CreateFromConnectionProfile(&profile)
+                .map_err(|e| format!("Gagal inisialisasi tethering: {}", e))?;
+            let state = manager.TetheringOperationalState()
+                .map_err(|e| format!("Gagal membaca status tethering: {}", e))?;
+
+            Ok(state == TetheringOperationalState::On)
+        }
+        #[cfg(not(windows))]
+        {
+            Err("Unsupported platform".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn toggle_hotspot(enable: bool) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            use windows::Networking::Connectivity::NetworkInformation;
+            use windows::Networking::NetworkOperators::{
+                NetworkOperatorTetheringManager, TetheringOperationalState,
+                TetheringOperationStatus,
+            };
+
+            let profile = match NetworkInformation::GetInternetConnectionProfile() {
+                Ok(p) => p,
+                Err(_) => {
+                    let profiles = NetworkInformation::GetConnectionProfiles()
+                        .map_err(|_| "Tidak ada profil koneksi internet/jaringan aktif untuk dibagikan".to_string())?;
+                    profiles.GetAt(0)
+                        .map_err(|_| "Tidak ada profil koneksi internet/jaringan aktif untuk dibagikan".to_string())?
+                }
+            };
+
+            let manager = NetworkOperatorTetheringManager::CreateFromConnectionProfile(&profile)
+                .map_err(|e| format!("Gagal inisialisasi manajer Hotspot: {}", e))?;
+
+            let current_state = manager.TetheringOperationalState()
+                .map_err(|e| format!("Gagal membaca status Hotspot: {}", e))?;
+
+            let is_on = current_state == TetheringOperationalState::On;
+
+            if enable {
+                if !is_on {
+                    let op = manager.StartTetheringAsync()
+                        .map_err(|e| format!("Gagal memulai Hotspot: {}", e))?;
+                    let result = op.get()
+                        .map_err(|e| format!("Gagal mengaktifkan Hotspot: {}", e))?;
+                    let status = result.Status()
+                        .map_err(|e| format!("Gagal membaca status hasil: {}", e))?;
+
+                    if status != TetheringOperationStatus::Success && status != TetheringOperationStatus::AlreadyOn {
+                        let err_msg = match status {
+                            TetheringOperationStatus::WiFiDeviceOff => "Wi-Fi perangkat dalam keadaan nonaktif. Nyalakan Wi-Fi terlebih dahulu.",
+                            TetheringOperationStatus::MobileBroadbandDeviceOff => "Perangkat mobile broadband nonaktif.",
+                            TetheringOperationStatus::NetworkLimitedConnectivity => "Koneksi jaringan terbatas, tidak dapat membagikan internet.",
+                            _ => "Gagal mengaktifkan Mobile Hotspot Windows.",
+                        };
+                        return Err(err_msg.to_string());
+                    }
+                }
+                Ok(true)
+            } else {
+                if is_on {
+                    let op = manager.StopTetheringAsync()
+                        .map_err(|e| format!("Gagal mematikan Hotspot: {}", e))?;
+                    let result = op.get()
+                        .map_err(|e| format!("Gagal menonaktifkan Hotspot: {}", e))?;
+                    let status = result.Status()
+                        .map_err(|e| format!("Gagal membaca status hasil: {}", e))?;
+
+                    if status != TetheringOperationStatus::Success {
+                        return Err("Gagal menonaktifkan Mobile Hotspot Windows.".to_string());
+                    }
+                }
+                Ok(false)
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            Err("Unsupported platform".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

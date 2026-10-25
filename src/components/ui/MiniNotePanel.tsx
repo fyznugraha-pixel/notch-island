@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Plus,
   Trash2,
@@ -7,6 +7,8 @@ import {
   Pin,
   Search,
   ChevronLeft,
+  ChevronRight,
+  X,
   ListTodo,
   List,
   Bold,
@@ -48,9 +50,9 @@ const STORAGE_KEY = "gili_mini_notes_v2";
 export function loadMiniNotes(): MiniNoteItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
@@ -193,20 +195,24 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
     onEditingChange?.(Boolean(editingNoteId));
   }, [editingNoteId, onEditingChange]);
 
+  const handleExitEditor = useCallback(() => {
+    saveMiniNotes(notesRef.current);
+    setEditingNoteId(null);
+  }, []);
+
   useEffect(() => {
     if (!editingNoteId) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        setEditingNoteId(null);
+        handleExitEditor();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [editingNoteId]);
+  }, [editingNoteId, handleExitEditor]);
 
   const sortedFilteredNotes = useMemo(() => {
-    if (editingNoteId) return [];
     const q = searchQuery.trim().toLowerCase();
     return [...notes]
       .filter((n) => {
@@ -225,6 +231,61 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
       });
   }, [notes, searchQuery]);
 
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const el = cardsRowRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    setCanScrollLeft(el.scrollLeft > 6);
+    setCanScrollRight(maxScroll - el.scrollLeft > 6);
+  }, []);
+
+  useEffect(() => {
+    updateScrollState();
+    const el = cardsRowRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => updateScrollState());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sortedFilteredNotes.length, updateScrollState]);
+
+  const scrollByAmount = useCallback((amount: number) => {
+    if (!cardsRowRef.current) return;
+    cardsRowRef.current.scrollBy({ left: amount, behavior: "smooth" });
+    window.setTimeout(updateScrollState, 150);
+    window.setTimeout(updateScrollState, 350);
+  }, [updateScrollState]);
+
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRowRef.current || !cardsRowRef.current) return;
+      const dx = e.clientX - dragStartXRef.current;
+      if (Math.abs(dx) > 5) {
+        hasDraggedRef.current = true;
+      }
+      cardsRowRef.current.scrollLeft = scrollStartLeftRef.current - dx;
+      updateScrollState();
+    };
+
+    const handleGlobalMouseUp = () => {
+      if (isDraggingRowRef.current) {
+        isDraggingRowRef.current = false;
+        window.setTimeout(() => {
+          hasDraggedRef.current = false;
+        }, 80);
+      }
+    };
+
+    window.addEventListener("mousemove", handleGlobalMouseMove);
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+    };
+  }, [updateScrollState]);
+
   const pinnedCount = useMemo(() => notes.filter((n) => n.pinned).length, [notes]);
   const activeNote = useMemo(
     () => notes.find((n) => n.id === editingNoteId) || null,
@@ -242,7 +303,11 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
       checklist: [],
       updatedAt: Date.now(),
     };
-    setNotes((prev) => [next, ...prev]);
+    setNotes((prev) => {
+      const updated = [next, ...prev];
+      saveMiniNotes(updated);
+      return updated;
+    });
     setEditingNoteId(next.id);
   };
 
@@ -257,14 +322,22 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
 
   const handleTogglePin = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setNotes((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, pinned: !n.pinned, updatedAt: Date.now() } : n))
-    );
+    setNotes((prev) => {
+      const updated = prev.map((n) =>
+        n.id === id ? { ...n, pinned: !n.pinned, updatedAt: Date.now() } : n
+      );
+      saveMiniNotes(updated);
+      return updated;
+    });
   };
 
   const handleDeleteNote = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setNotes((prev) => prev.filter((n) => n.id !== id));
+    setNotes((prev) => {
+      const updated = prev.filter((n) => n.id !== id);
+      saveMiniNotes(updated);
+      return updated;
+    });
     if (editingNoteId === id) {
       setEditingNoteId(null);
     }
@@ -337,7 +410,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
         <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
           <button
             type="button"
-            onClick={() => setEditingNoteId(null)}
+            onClick={handleExitEditor}
             className="flex items-center gap-2.5 text-[#e4e4e7] hover:text-white transition-colors cursor-pointer"
           >
             <span className="w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] flex items-center justify-center">
@@ -380,7 +453,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
 
             <button
               type="button"
-              onClick={() => setEditingNoteId(null)}
+              onClick={handleExitEditor}
               className="h-8 px-4 rounded-full bg-[#3882F6] hover:bg-[#2563eb] text-white text-[12.5px] font-semibold transition-colors cursor-pointer"
             >
               {t("note_done")}
@@ -582,7 +655,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
   // Horizontal Swipe Cards View (Image 1)
   return (
     <div className="flex flex-col w-full h-full min-h-0 px-6 pb-3 select-none text-white overflow-hidden">
-      {/* Top Toolbar: Note count + Search + New Note Button */}
+      {/* Top Toolbar: Note count + Chevrons + Search + New Note Button */}
       <div className="flex items-center justify-between gap-2.5 mt-1 mb-2.5 shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-[13px] font-bold text-white">
@@ -596,6 +669,30 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Toolbar Navigation Chevrons if horizontal overflow exists */}
+          {(canScrollLeft || canScrollRight) && (
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => scrollByAmount(-210)}
+                disabled={!canScrollLeft}
+                title={t("note_prev")}
+                className="w-[30px] h-[30px] rounded-[9px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollByAmount(210)}
+                disabled={!canScrollRight}
+                title={t("note_next")}
+                className="w-[30px] h-[30px] rounded-[9px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+
           <div className="w-[185px] h-[32px] rounded-[10px] bg-[#121216] border border-[#1e1e25] px-2.5 flex items-center gap-1.5 focus-within:border-[#3882F6]/60 transition-colors">
             <Search size={13} className="text-[#a1a1aa] shrink-0" />
             <input
@@ -605,6 +702,15 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
               placeholder={t("note_search_placeholder")}
               className="w-full bg-transparent text-[12px] text-white placeholder-[#71717a] outline-none"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="text-[#a1a1aa] hover:text-white transition-colors cursor-pointer shrink-0"
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
 
           <button
@@ -618,121 +724,153 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
         </div>
       </div>
 
-      {/* Horizontal Swipe Note Cards Row */}
-      <div
-        ref={cardsRowRef}
-        onWheel={(e) => {
-          if (!cardsRowRef.current) return;
-          const { scrollLeft, scrollWidth, clientWidth } = cardsRowRef.current;
-          const maxScrollLeft = scrollWidth - clientWidth;
-          if (maxScrollLeft > 4) {
-            const isHorizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
-            if (isHorizontal) {
-              const movingLeft = e.deltaX < 0;
-              const movingRight = e.deltaX > 0;
-              if ((movingLeft && scrollLeft <= 1) || (movingRight && scrollLeft >= maxScrollLeft - 1)) {
-                return;
-              }
+      {/* Horizontal Swipe Note Cards Row with Chevrons and Gesture Isolation */}
+      <div className="relative w-full shrink-0">
+        {/* Floating Left Scroll Chevron */}
+        {canScrollLeft && (
+          <button
+            type="button"
+            onClick={(e) => {
               e.stopPropagation();
-              cardsRowRef.current.scrollLeft += e.deltaX;
-              return;
+              scrollByAmount(-210);
+            }}
+            title={t("note_prev")}
+            className="absolute left-1.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
+          >
+            <ChevronLeft size={16} />
+          </button>
+        )}
+
+        {/* Floating Right Scroll Chevron */}
+        {canScrollRight && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              scrollByAmount(210);
+            }}
+            title={t("note_next")}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
+          >
+            <ChevronRight size={16} />
+          </button>
+        )}
+
+        <div
+          ref={cardsRowRef}
+          data-scrollable="true"
+          data-no-swipe="true"
+          onScroll={updateScrollState}
+          onWheel={(e) => {
+            if (!cardsRowRef.current) return;
+            e.stopPropagation();
+            const el = cardsRowRef.current;
+            const delta = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            if (Math.abs(delta) > 0) {
+              el.scrollLeft += delta;
+              updateScrollState();
             }
-          }
-        }}
-        onMouseDown={(e) => {
-          if (!cardsRowRef.current) return;
-          isDraggingRowRef.current = true;
-          hasDraggedRef.current = false;
-          dragStartXRef.current = e.clientX;
-          scrollStartLeftRef.current = cardsRowRef.current.scrollLeft;
-        }}
-        onMouseMove={(e) => {
-          if (!isDraggingRowRef.current || !cardsRowRef.current) return;
-          const dx = e.clientX - dragStartXRef.current;
-          if (Math.abs(dx) > 4) {
-            hasDraggedRef.current = true;
-          }
-          cardsRowRef.current.scrollLeft = scrollStartLeftRef.current - dx;
-        }}
-        onMouseUp={() => {
-          isDraggingRowRef.current = false;
-        }}
-        onMouseLeave={() => {
-          isDraggingRowRef.current = false;
-        }}
-        className="flex items-stretch gap-2.5 overflow-x-auto overflow-y-hidden no-scrollbar pb-0.5 shrink-0"
-      >
-        {sortedFilteredNotes.map((note) => {
-          const preview = getNotePreviewText(note);
-          const dotHex = NOTE_COLOR_MAP[note.color] || NOTE_COLOR_MAP.blue;
-
-          return (
-            <div
-              key={note.id}
-              onClick={() => {
-                if (hasDraggedRef.current) return;
-                setEditingNoteId(note.id);
-              }}
-              className={`group w-[196px] shrink-0 h-[156px] rounded-[18px] p-3.5 bg-[#101015] flex flex-col gap-1.5 cursor-pointer transition-all ${
-                note.pinned
-                  ? "border border-[#3882F6]/80 hover:border-[#3882F6]"
-                  : "border border-[#1e1e25] hover:border-[#3a3a43]"
-              }`}
-            >
-              {/* Card Header: Color Dot + Pin | Timestamp or Hover Actions */}
-              <div className="flex items-center justify-between h-6 shrink-0">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    style={{ backgroundColor: dotHex }}
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                  />
-                  {note.pinned && <Pin size={12} className="text-[#a1a1aa]" />}
-                </div>
-
-                <span className="text-[11px] text-[#a1a1aa] tabular-nums group-hover:hidden">
-                  {formatCardTimestamp(note.updatedAt, optLanguage)}
-                </span>
-
-                <div className="hidden group-hover:flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={(e) => handleTogglePin(note.id, e)}
-                    className={`w-[24px] h-[24px] rounded-[7px] flex items-center justify-center transition-colors cursor-pointer ${
-                      note.pinned
-                        ? "bg-[#3882F6]/20 text-[#3882F6]"
-                        : "bg-[#1d1d25] hover:bg-[#2a2a35] text-[#d4d4d8]"
-                    }`}
-                  >
-                    <Pin size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteNote(note.id, e)}
-                    className="w-[24px] h-[24px] rounded-[7px] bg-[#1d1d25] hover:bg-rose-500/20 text-[#ff7b72] flex items-center justify-center transition-colors cursor-pointer"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Card Title */}
-              <div className="text-[14px] font-bold text-white truncate shrink-0">
-                {note.id === "note-default-1" &&
-                (note.title === "Catatan cepat Gili" || note.title === "Gili Quick Note")
-                  ? t("note_default_title")
-                  : (note.title || t("note_title"))}
-              </div>
-
-              {/* Card Preview Body */}
-              <p className="text-[12px] text-[#a1a1aa] leading-[1.42] line-clamp-4 overflow-hidden">
-                {note.id === "note-default-1" &&
-                (note.content.startsWith("Tekan Ctrl") || note.content.startsWith("Press Ctrl"))
-                  ? t("note_default_content")
-                  : (preview || t("note_placeholder"))}
+          }}
+          onMouseDown={(e) => {
+            if (!cardsRowRef.current) return;
+            if ((e.target as HTMLElement)?.closest("button")) return;
+            e.stopPropagation();
+            isDraggingRowRef.current = true;
+            hasDraggedRef.current = false;
+            dragStartXRef.current = e.clientX;
+            scrollStartLeftRef.current = cardsRowRef.current.scrollLeft;
+          }}
+          className="notes-horizontal-scroll flex items-stretch gap-2.5 overflow-x-auto overflow-y-hidden no-scrollbar pb-0.5 shrink-0 cursor-grab active:cursor-grabbing select-none"
+        >
+          {sortedFilteredNotes.length === 0 ? (
+            <div className="w-full h-[156px] flex flex-col items-center justify-center text-center text-[#71717a] border border-dashed border-[#1e1e25] rounded-[18px] px-4">
+              <p className="text-[13px] font-medium text-[#a1a1aa]">
+                {searchQuery ? t("note_empty_search") : t("note_empty_notes")}
               </p>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="mt-1.5 text-[12px] text-[#3882F6] hover:underline cursor-pointer"
+                >
+                  {t("note_clear")}
+                </button>
+              )}
             </div>
-          );
-        })}
+          ) : (
+            sortedFilteredNotes.map((note) => {
+              const preview = getNotePreviewText(note);
+              const dotHex = NOTE_COLOR_MAP[note.color] || NOTE_COLOR_MAP.blue;
+
+              return (
+                <div
+                  key={note.id}
+                  onClick={() => {
+                    if (hasDraggedRef.current) return;
+                    setEditingNoteId(note.id);
+                  }}
+                  className={`group w-[196px] shrink-0 h-[156px] rounded-[18px] p-3.5 bg-[#101015] flex flex-col gap-1.5 cursor-pointer transition-all ${
+                    note.pinned
+                      ? "border border-[#3882F6]/80 hover:border-[#3882F6]"
+                      : "border border-[#1e1e25] hover:border-[#3a3a43]"
+                  }`}
+                >
+                  {/* Card Header: Color Dot + Pin | Timestamp or Hover Actions */}
+                  <div className="flex items-center justify-between h-6 shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        style={{ backgroundColor: dotHex }}
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                      />
+                      {note.pinned && <Pin size={12} className="text-[#a1a1aa]" />}
+                    </div>
+
+                    <span className="text-[11px] text-[#a1a1aa] tabular-nums group-hover:hidden">
+                      {formatCardTimestamp(note.updatedAt, optLanguage)}
+                    </span>
+
+                    <div className="hidden group-hover:flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => handleTogglePin(note.id, e)}
+                        className={`w-[24px] h-[24px] rounded-[7px] flex items-center justify-center transition-colors cursor-pointer ${
+                          note.pinned
+                            ? "bg-[#3882F6]/20 text-[#3882F6]"
+                            : "bg-[#1d1d25] hover:bg-[#2a2a35] text-[#d4d4d8]"
+                        }`}
+                      >
+                        <Pin size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteNote(note.id, e)}
+                        className="w-[24px] h-[24px] rounded-[7px] bg-[#1d1d25] hover:bg-rose-500/20 text-[#ff7b72] flex items-center justify-center transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Card Title */}
+                  <div className="text-[14px] font-bold text-white truncate shrink-0">
+                    {note.id === "note-default-1" &&
+                    (note.title === "Catatan cepat Gili" || note.title === "Gili Quick Note")
+                      ? t("note_default_title")
+                      : (note.title || t("note_title"))}
+                  </div>
+
+                  {/* Card Preview Body */}
+                  <p className="text-[12px] text-[#a1a1aa] leading-[1.42] line-clamp-4 overflow-hidden">
+                    {note.id === "note-default-1" &&
+                    (note.content.startsWith("Tekan Ctrl") || note.content.startsWith("Press Ctrl"))
+                      ? t("note_default_content")
+                      : (preview || t("note_placeholder"))}
+                  </p>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

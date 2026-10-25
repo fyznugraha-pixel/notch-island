@@ -133,7 +133,18 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     const [isHoveringDrop, setIsHoveringDrop] = useState(false);
     const isDraggingRef = useRef(false);
     const isMountedRef = useRef(true);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleChooseFiles = async () => {
+      if (!onAddFiles) return;
+      try {
+        const selected = await invoke<string[]>("pick_files_dialog");
+        if (selected && Array.isArray(selected) && selected.length > 0) {
+          onAddFiles(selected);
+        }
+      } catch (err) {
+        console.error("Failed to pick files:", err);
+      }
+    };
 
     useEffect(() => {
       isMountedRef.current = true;
@@ -319,27 +330,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
           }
         }}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            if (!e.target.files || !onAddFiles) return;
-            const paths: string[] = [];
-            for (let i = 0; i < e.target.files.length; i++) {
-              const p = (e.target.files[i] as any).path;
-              if (typeof p === "string" && (p.includes("\\") || p.includes("/"))) {
-                paths.push(p);
-              }
-            }
-            if (paths.length > 0) {
-              onAddFiles(paths);
-            }
-            e.target.value = "";
-          }}
-        />
-
         {files.length === 0 ? (
           /* Empty / Active Drop Zone */
           <div
@@ -367,7 +357,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
             {!isHoveringDrop && (
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={handleChooseFiles}
                 className="mt-1.5 h-8 px-4 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 text-[11.5px] font-medium transition-colors cursor-pointer"
               >
                 {t("shelf_choose_files")}
@@ -405,7 +395,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
 
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={handleChooseFiles}
                 className="h-[28px] px-2.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/8 text-zinc-200 hover:text-white text-[11.5px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
                 title={t("shelf_choose_files")}
               >
@@ -587,7 +577,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 {/* Add Tile at the end of the row */}
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={handleChooseFiles}
                   className="w-[146px] h-[108px] shrink-0 rounded-[16px] border border-dashed border-white/15 hover:border-white/30 hover:bg-white/[0.03] flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:text-white transition-colors cursor-pointer"
                 >
                   <div className="w-8 h-8 rounded-full bg-white/[0.05] flex items-center justify-center">

@@ -10,7 +10,10 @@ import {
   subscribeArtworkUpdates,
   invalidateCachedArtwork,
   getArtworkCacheKey,
+  markArtworkUrlFailed,
+  isArtworkUrlFailed,
 } from "../../services/artworkService";
+import { getMediaBranding } from "../../utils/playerBranding";
 
 export function useResolvedThumbnail(media: MediaPayload | null | undefined): string | null {
   const [, setTick] = useState(0);
@@ -22,6 +25,39 @@ export function useResolvedThumbnail(media: MediaPayload | null | undefined): st
   }, []);
 
   return getResolvedArtworkUrl(media, false);
+}
+
+function renderPlayerFallback(media: MediaPayload, iconSize: number) {
+  const branding = getMediaBranding(media);
+
+  if (branding.imageSrc) {
+    return (
+      <div
+        className="w-full h-full flex items-center justify-center p-2 select-none"
+        style={{ backgroundColor: branding.color }}
+      >
+        <img
+          src={branding.imageSrc}
+          alt={branding.name}
+          className="w-full h-full object-contain select-none pointer-events-none"
+        />
+      </div>
+    );
+  }
+
+  if (media.playback_type === 2) {
+    return (
+      <div className="w-full h-full bg-neutral-900 flex items-center justify-center select-none">
+        <Film size={iconSize} className="text-blue-400" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full bg-neutral-800/80 flex items-center justify-center select-none">
+      <Music size={iconSize} className="text-sky-400 [html.light_&]:text-sky-600" />
+    </div>
+  );
 }
 
 export const MediaThumbnail = ({
@@ -117,54 +153,27 @@ export const MediaThumbnail = ({
 
   const currentThumb = getResolvedArtworkUrl(media, thumbError);
 
-  if (currentThumb) {
+  if (currentThumb && !isArtworkUrlFailed(currentThumb)) {
     return (
-      <img
-        key={currentThumb}
-        src={currentThumb}
-        alt="Album Art"
-        className="w-full h-full object-cover"
-        onError={() => {
-          if (currentThumb === media.thumbnail) {
-            setThumbError(true);
-          } else {
-            const key = getArtworkCacheKey(media);
-            invalidateCachedArtwork(key);
-          }
-        }}
-      />
-    );
-  }
-
-  // Fallbacks for specific media players when no cover art is found
-  const appId = (media.app_id || "").toLowerCase();
-  const artist = (media.artist || "").toLowerCase();
-  const isVLC = appId.includes("vlc") || artist.includes("vlc");
-  const isWMP =
-    appId.includes("wmplayer") ||
-    appId.includes("zune") ||
-    artist.includes("windows media player") ||
-    artist.includes("media player");
-
-  if (isVLC) {
-    return (
-      <div className="w-full h-full bg-[#E57E24] flex items-center justify-center">
-        <img src="/logo/vlc.png" alt="VLC" className="w-full h-full object-cover" />
+      <div className="w-full h-full relative flex items-center justify-center overflow-hidden">
+        <img
+          key={currentThumb}
+          src={currentThumb}
+          alt={media.title || "Album Art"}
+          className="w-full h-full object-cover select-none pointer-events-none"
+          onError={() => {
+            if (currentThumb === media.thumbnail) {
+              setThumbError(true);
+            } else {
+              markArtworkUrlFailed(currentThumb);
+              const key = getArtworkCacheKey(media);
+              invalidateCachedArtwork(key);
+            }
+          }}
+        />
       </div>
     );
   }
 
-  if (isWMP) {
-    return (
-      <div className="w-full h-full bg-neutral-900 flex items-center justify-center p-1">
-        <img src="/logo/windows-media-player.png" alt="Windows Media Player" className="w-full h-full object-contain" />
-      </div>
-    );
-  }
-
-  if (media.playback_type === 2) {
-    return <Film size={iconSize} className="text-blue-400" />;
-  }
-
-  return <Music size={iconSize} className="text-sky-400 [html.light_&]:text-sky-600" />;
+  return renderPlayerFallback(media, iconSize);
 };
