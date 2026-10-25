@@ -1,5 +1,5 @@
 import React from "react";
-import { Globe, Zap, Smile, AppWindow, Clock, Volume2 } from "lucide-react";
+import { Globe, Zap, Smile, AppWindow, Clock, Volume2, Timer } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
@@ -19,6 +19,8 @@ export interface GeneralTabProps {
   onChangeNotifTime: (sec: number) => void;
   optNotifSound: string;
   onChangeNotifSound: (soundId: string) => void;
+  optCloseDelay: number;
+  onChangeCloseDelay: (sec: number) => void;
 }
 
 export const GeneralTab: React.FC<GeneralTabProps> = ({
@@ -34,6 +36,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
   onChangeNotifTime,
   optNotifSound,
   onChangeNotifSound,
+  optCloseDelay,
+  onChangeCloseDelay,
 }) => {
   const isId = optLanguage === "id";
 
@@ -106,7 +110,28 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
         }
       />
 
-      {/* 5. Durasi notifikasi */}
+      {/* 5. Durasi tutup notch / Delay tutup panel */}
+      <SettingRow
+        icon={<Timer size={18} />}
+        iconBgClass="bg-[#1e1c33]"
+        iconColorClass="text-[#7c7cff]"
+        title={t("settings_close_delay")}
+        subtitle={t("settings_close_delay_desc")}
+        control={
+          <IosSegmentedControl
+            value={optCloseDelay}
+            onChange={(val) => onChangeCloseDelay(val as number)}
+            options={[
+              { value: 0, label: isId ? "Instan" : "Instant", tooltip: t("settings_close_delay_tip_0") },
+              { value: 1, label: isId ? "1 dtk" : "1s", tooltip: t("settings_close_delay_tip_1") },
+              { value: 3, label: isId ? "3 dtk" : "3s", tooltip: t("settings_close_delay_tip_3") },
+              { value: -1, label: isId ? "Manual" : "Manual", tooltip: t("settings_close_delay_tip_never") },
+            ]}
+          />
+        }
+      />
+
+      {/* 6. Durasi notifikasi */}
       <SettingRow
         icon={<Clock size={18} />}
         iconBgClass="bg-[#2e161c]"

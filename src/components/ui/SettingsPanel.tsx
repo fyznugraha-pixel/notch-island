@@ -119,8 +119,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangeNotifTime,
   optNotifSound,
   onChangeNotifSound,
-  optCloseDelay: _optCloseDelay,
-  onChangeCloseDelay: _onChangeCloseDelay,
+  optCloseDelay,
+  onChangeCloseDelay,
   optTheme,
   onChangeTheme,
   idleLayout,
@@ -293,6 +293,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onChangeNotifTime={onChangeNotifTime}
                   optNotifSound={optNotifSound}
                   onChangeNotifSound={onChangeNotifSound}
+                  optCloseDelay={optCloseDelay}
+                  onChangeCloseDelay={onChangeCloseDelay}
                   optTheme={optTheme}
                   onChangeTheme={onChangeTheme}
                   optFontSize={optFontSize}
@@ -350,6 +352,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       onChangeNotifTime={onChangeNotifTime}
                       optNotifSound={optNotifSound}
                       onChangeNotifSound={onChangeNotifSound}
+                      optCloseDelay={optCloseDelay}
+                      onChangeCloseDelay={onChangeCloseDelay}
                     />
                   </motion.div>
                 )}

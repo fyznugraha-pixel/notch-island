@@ -50,6 +50,8 @@ export interface SearchResultsProps {
   onChangeNotifTime: (sec: number) => void;
   optNotifSound: string;
   onChangeNotifSound: (soundId: string) => void;
+  optCloseDelay?: number;
+  onChangeCloseDelay?: (sec: number) => void;
   // Appearance props
   optTheme: "dark" | "light" | "auto";
   onChangeTheme: (theme: "dark" | "light" | "auto") => void;
@@ -118,6 +120,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onChangeNotifTime,
   optNotifSound,
   onChangeNotifSound,
+  optCloseDelay,
+  onChangeCloseDelay,
   optTheme,
   onChangeTheme,
   optFontSize,
@@ -313,6 +317,29 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           ]}
         />
       ),
+    },
+    {
+      id: "close_delay",
+      tab: "general",
+      tabLabel: t("settings_subtab_general"),
+      title: t("settings_close_delay"),
+      subtitle: t("settings_close_delay_desc"),
+      keywords: ["close", "delay", "tutup", "durasi", "auto close", "notch close", "timeout", "timer", "panel"],
+      icon: <Timer size={18} />,
+      iconBgClass: "bg-[#1e1c33]",
+      iconColorClass: "text-[#7c7cff]",
+      control: optCloseDelay !== undefined && onChangeCloseDelay ? (
+        <IosSegmentedControl
+          value={optCloseDelay}
+          onChange={(val) => onChangeCloseDelay(val as number)}
+          options={[
+            { value: 0, label: optLanguage === "id" ? "Instan" : "Instant", tooltip: t("settings_close_delay_tip_0") },
+            { value: 1, label: optLanguage === "id" ? "1 dtk" : "1s", tooltip: t("settings_close_delay_tip_1") },
+            { value: 3, label: optLanguage === "id" ? "3 dtk" : "3s", tooltip: t("settings_close_delay_tip_3") },
+            { value: -1, label: optLanguage === "id" ? "Manual" : "Manual", tooltip: t("settings_close_delay_tip_never") },
+          ]}
+        />
+      ) : null,
     },
     {
       id: "notif_sound",
