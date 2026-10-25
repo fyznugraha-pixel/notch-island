@@ -1,5 +1,5 @@
 import React from "react";
-import { Moon, Type, Layout, Smile, Layers } from "lucide-react";
+import { Moon, Type, Layout, Smile, Layers, Scaling } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
@@ -10,6 +10,8 @@ export interface AppearanceTabProps {
   onChangeTheme: (theme: "dark" | "light" | "auto") => void;
   optFontSize: "small" | "default" | "large";
   onChangeFontSize: (size: "small" | "default" | "large") => void;
+  optIdleSize: "compact" | "default" | "large";
+  onChangeIdleSize: (size: "compact" | "default" | "large") => void;
   optTabSize: "compact" | "default" | "large";
   onChangeTabSize: (size: "compact" | "default" | "large") => void;
   optEars: boolean;
@@ -23,6 +25,8 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onChangeTheme,
   optFontSize,
   onChangeFontSize,
+  optIdleSize,
+  onChangeIdleSize,
   optTabSize,
   onChangeTabSize,
   optEars,
@@ -31,7 +35,7 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onChangeOpacity,
 }) => {
   return (
-    <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col justify-between shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+    <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col gap-1 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
       {/* 1. Tema */}
       <SettingRow
         icon={<Moon size={18} />}
@@ -70,7 +74,26 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
         }
       />
 
-      {/* 3. Ukuran panel tab */}
+      {/* 3. Ukuran Idle */}
+      <SettingRow
+        icon={<Scaling size={18} />}
+        iconBgClass="bg-[#14261d]"
+        iconColorClass="text-[#30d158]"
+        title={t("settings_idle_size")}
+        control={
+          <IosSegmentedControl
+            value={optIdleSize}
+            onChange={(val) => onChangeIdleSize(val as "compact" | "default" | "large")}
+            options={[
+              { value: "compact", label: t("settings_idle_compact"), tooltip: t("settings_idle_tip_compact") },
+              { value: "default", label: t("settings_idle_default"), tooltip: t("settings_idle_tip_default") },
+              { value: "large", label: t("settings_idle_large"), tooltip: t("settings_idle_tip_large") },
+            ]}
+          />
+        }
+      />
+
+      {/* 4. Ukuran panel tab */}
       <SettingRow
         icon={<Layout size={18} />}
         iconBgClass="bg-[#13262d]"

@@ -125,8 +125,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   idleLayout,
   onChangeIdleLayout,
   idleRuntimeData,
-  optIdleSize: _optIdleSize,
-  onChangeIdleSize: _onChangeIdleSize,
+  optIdleSize,
+  onChangeIdleSize,
   optTabSize,
   onChangeTabSize,
   optFontSize,
@@ -304,6 +304,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onChangeTheme={onChangeTheme}
                   optFontSize={optFontSize}
                   onChangeFontSize={onChangeFontSize}
+                  optIdleSize={optIdleSize}
+                  onChangeIdleSize={onChangeIdleSize}
                   optTabSize={optTabSize}
                   onChangeTabSize={onChangeTabSize}
                   optEars={optEars}
