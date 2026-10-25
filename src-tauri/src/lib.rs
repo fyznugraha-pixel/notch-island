@@ -4,6 +4,7 @@ mod privacy;
 mod connectivity;
 mod system_monitor;
 mod audio_endpoints;
+mod migration;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -797,7 +798,8 @@ fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
             }
             let win_title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
             let win_title_lower = win_title.trim().to_lowercase();
-            if win_title_lower == "notch"
+            if win_title_lower == "gili"
+                || win_title_lower == "notch"
                 || win_title_lower == "program manager"
                 || win_title_lower == "windows input experience"
             {
@@ -823,7 +825,7 @@ fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
 
             let is_generic_host = matches!(
                 exe_stem.as_str(),
-                "" | "applicationframehost" | "explorer" | "svchost" | "system" | "msedgewebview2" | "notch"
+                "" | "applicationframehost" | "explorer" | "svchost" | "system" | "msedgewebview2" | "notch" | "gili"
             );
 
             let mut matched = false;
@@ -1759,15 +1761,18 @@ fn detect_browser_web_source(current_title: &str, current_artist: &str) -> Optio
 pub fn run() {
     #[cfg(windows)]
     {
+        // Migrate and clean up any legacy Notch artifacts before checking mutex
+        migration::run_legacy_migration();
+
         use windows::Win32::System::Threading::CreateMutexW;
         use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
         use windows::core::w;
 
         unsafe {
-            let mutex = CreateMutexW(None, true, w!("com_faiz_notch_single_instance_mutex"));
+            let mutex = CreateMutexW(None, true, w!("com_faiz_gili_single_instance_mutex"));
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE};
-                if let Ok(hwnd) = FindWindowW(None, w!("Notch")) {
+                if let Ok(hwnd) = FindWindowW(None, w!("Gili")) {
                     if !hwnd.0.is_null() {
                         let _ = ShowWindow(hwnd, SW_RESTORE);
                         let _ = SetForegroundWindow(hwnd);
@@ -1848,15 +1853,15 @@ pub fn run() {
             use tauri::tray::TrayIconBuilder;
             use tauri::Emitter;
             
-            let toggle_i = MenuItem::with_id(app, "toggle_visibility", "Show / Hide Notch (Ctrl+Shift+D)", true, None::<&str>)?;
+            let toggle_i = MenuItem::with_id(app, "toggle_visibility", "Show / Hide Gili (Ctrl+Shift+D)", true, None::<&str>)?;
             let cc_i = MenuItem::with_id(app, "open_control_center", "Open Control Center", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Quit Notch Island", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Quit Gili", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &settings_i, &sep, &quit_i])?;
 
             let mut tray_builder = TrayIconBuilder::new()
-                .tooltip("Notch Island (Running in Background)")
+                .tooltip("Gili (Running in Background)")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| {
