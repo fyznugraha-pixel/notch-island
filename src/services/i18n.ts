@@ -52,6 +52,11 @@ export const translations = {
   settings_autostart_desc: { en: "Gili launches automatically when you log in", id: "Gili jalan otomatis saat kamu masuk" },
   settings_greeting: { en: "Startup Greeting", id: "Sapaan saat menyala" },
   settings_greeting_desc: { en: "Brief greeting when Gili first opens", id: "Sapaan singkat saat Gili pertama tampil" },
+  settings_greeting_name_title: { en: "Greeting Name", id: "Nama Sapaan" },
+  settings_greeting_name_desc: { en: "System username or custom display name", id: "Nama akun sistem atau nama kustom" },
+  settings_greeting_name_auto: { en: "Auto", id: "Otomatis" },
+  settings_greeting_name_custom: { en: "Custom", id: "Kustom" },
+  settings_greeting_name_placeholder: { en: "Enter your name...", id: "Ketik namamu..." },
   settings_updates: { en: "Software Update", id: "Pembaruan Perangkat Lunak" },
   settings_updates_desc: { en: "Keep Gili updated automatically", id: "Selalu perbarui Gili otomatis" },
   settings_check_update: { en: "Check for Updates", id: "Periksa Pembaruan" },
@@ -66,6 +71,11 @@ export const translations = {
   settings_notif_duration_desc: { en: "How long pop-up stays on screen", id: "Lama pop-up bertahan di layar" },
   settings_notif_sound: { en: "Notification Sound", id: "Suara Notifikasi" },
   settings_notif_sound_desc: { en: "Tone played when notifications arrive", id: "Suara saat ada notifikasi masuk" },
+  sound_upload_mp3: { en: "Upload Audio (MP3)...", id: "Unggah Audio (MP3)..." },
+  sound_custom_section: { en: "Custom Sounds", id: "Suara Kustom" },
+  sound_preset_section: { en: "Preset Sounds", id: "Suara Bawaan" },
+  sound_delete_tooltip: { en: "Delete custom sound", id: "Hapus suara kustom" },
+  sound_upload_error_size: { en: "File too large (max 8MB)", id: "File terlalu besar (maks 8MB)" },
   settings_clear_temp: { en: "Clear Temp Files", id: "Bersihkan File Sementara" },
   settings_clear_temp_desc: { en: "Clean Windows temporary files and cache", id: "Bersihkan cache dan file temporary Windows" },
   settings_clearing_temp: { en: "Cleaning...", id: "Membersihkan..." },
@@ -155,8 +165,15 @@ export const translations = {
   settings_font_tip_small: { en: "Small text scale (92%)", id: "Skala teks kecil (92%)" },
   settings_font_tip_default: { en: "Normal text scale (100%)", id: "Skala teks normal (100%)" },
   settings_font_tip_large: { en: "Large text scale (108%)", id: "Skala teks besar (108%)" },
+  settings_shape: { en: "Shape", id: "Bentuk" },
+  settings_shape_desc: { en: "Choose between anchored notch or floating island", id: "Pilih menempel di layar atau melayang" },
+  settings_shape_notch: { en: "Anchored", id: "Menempel" },
+  settings_shape_island: { en: "Floating", id: "Melayang" },
+  settings_top_offset: { en: "Distance from Top", id: "Jarak dari atas" },
+  settings_top_offset_desc: { en: "Gap between screen edge and island", id: "Jarak celah antara tepi atas layar dan island" },
   settings_ears: { en: "Gili Ears", id: "Telinga Gili" },
   settings_ears_desc: { en: "Concave curve at top corners of notch", id: "Lengkung cekung di sudut atas notch" },
+  settings_ears_disabled_island: { en: "Not available in Island mode", id: "Tidak tersedia di mode Island" },
   settings_weather_anim: { en: "Weather Animation", id: "Animasi Cuaca" },
   settings_weather_anim_desc: { en: "Rain, snow & lightning effects", id: "Efek hujan, salju & petir di Gili" },
   settings_position: { en: "Position", id: "Posisi" },
@@ -166,10 +183,10 @@ export const translations = {
   settings_pos_bottom_tip: { en: "Bottom of screen", id: "Posisi bawah layar" },
   settings_transparency: { en: "Transparency", id: "Transparansi" },
   settings_theme_solid: { en: "Solid", id: "Solid" },
-  settings_theme_glass: { en: "Glass", id: "Kaca" },
+  settings_theme_glass: { en: "Liquid Glass", id: "Liquid Glass" },
   settings_theme_clear: { en: "Clear", id: "Bening" },
   settings_theme_solid_tip: { en: "Solid dark theme", id: "Tema gelap solid" },
-  settings_theme_glass_tip: { en: "Glassmorphism blur", id: "Tema glassmorphism" },
+  settings_theme_glass_tip: { en: "Liquid glass with chromatic refraction", id: "Liquid glass dengan refraksi kromatik" },
   settings_theme_clear_tip: { en: "High transparency", id: "Transparansi tinggi" },
   settings_animations: { en: "Animations", id: "Animasi" },
   settings_anim_snappy: { en: "Snappy", id: "Snappy" },
@@ -215,7 +232,7 @@ export const translations = {
   cc_focus_sleep: { en: "Sleep Mode", id: "Mode Tidur" },
   cc_focus_normal_desc: { en: "All notifications active", id: "Semua notifikasi aktif" },
   cc_focus_dnd_desc: { en: "Mute sound & alerts", id: "Senyapkan suara & notifikasi" },
-  cc_focus_gaming_desc: { en: "High performance", id: "Performa tinggi aktif" },
+  cc_focus_gaming_desc: { en: "High performance • Click to open", id: "Performa tinggi • Klik untuk buka" },
   cc_focus_sleep_desc: { en: "Dim & silent night", id: "Redup & mode malam" },
   cc_power_eco: { en: "Eco", id: "Hemat" },
   cc_power_balanced: { en: "Balanced", id: "Seimbang" },
@@ -399,7 +416,7 @@ export const translations = {
   pomo_reset_default: { en: "Reset to defaults", id: "Setel ulang ke bawaan" },
   pomo_focus_done_badge: { en: "FOCUS SESSION COMPLETE", id: "SESI FOKUS SELESAI" },
   pomo_break_done_badge: { en: "BREAK COMPLETE", id: "WAKTU REHAT SELESAI" },
-  pomo_time_for_break: { en: "Time for a {m} min break", id: "Waktunya rehat {m} menit" },
+  pomo_time_for_break: { en: "Time for a {min} min break", id: "Waktunya rehat {min} menit" },
   pomo_time_for_focus: { en: "Ready for next focus session", id: "Siap untuk sesi fokus berikutnya" },
   pomo_skip: { en: "Skip", id: "Lewati" },
   pomo_start_break: { en: "Start break", id: "Mulai rehat" },
@@ -571,8 +588,27 @@ export function t(key: TranslationKey, params?: Record<string, string | number>)
     } else if (normalized.curr !== undefined && normalized.current === undefined) {
       normalized.current = normalized.curr;
     }
+    if (normalized.min !== undefined && normalized.m === undefined) {
+      normalized.m = normalized.min;
+    } else if (normalized.m !== undefined && normalized.min === undefined) {
+      normalized.min = normalized.m;
+    }
+    if (normalized.minutes !== undefined) {
+      if (normalized.min === undefined) normalized.min = normalized.minutes;
+      if (normalized.m === undefined) normalized.m = normalized.minutes;
+    }
+    if (normalized.count !== undefined && normalized.num === undefined) {
+      normalized.num = normalized.count;
+    } else if (normalized.num !== undefined && normalized.count === undefined) {
+      normalized.count = normalized.num;
+    }
     for (const [k, v] of Object.entries(normalized)) {
       text = text.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+    }
+    // Fallback: If only 1 param was provided and there is still an unreplaced {tag}, replace it
+    const paramValues = Object.values(params);
+    if (paramValues.length === 1 && /\{[a-zA-Z0-9_]+\}/.test(text)) {
+      text = text.replace(/\{[a-zA-Z0-9_]+\}/g, String(paramValues[0]));
     }
   }
   return text;

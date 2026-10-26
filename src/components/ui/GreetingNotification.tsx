@@ -56,7 +56,8 @@ export const GreetingNotification: React.FC<GreetingNotificationProps> = ({
         transition={iosSpring.bouncy}
       >
         <video
-          src="/logo-greating.mp4"
+          key={isLightMode ? "greeting-light" : "greeting-dark"}
+          src={isLightMode ? "/gili-greating-light.mp4" : "/logo-greating.mp4"}
           autoPlay
           loop
           muted

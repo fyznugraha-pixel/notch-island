@@ -36,6 +36,11 @@ export interface SettingsPanelProps {
   onToggleAutostart: () => void;
   showGreeting: boolean;
   onToggleGreeting: () => void;
+  greetingNameMode: "auto" | "custom";
+  onChangeGreetingNameMode: (mode: "auto" | "custom") => void;
+  customGreetingName: string;
+  onChangeCustomGreetingName: (name: string) => void;
+  onTestGreeting?: () => void;
   onTestNotification?: () => void;
   optNotifTime: number;
   onChangeNotifTime: (sec: number) => void;
@@ -46,6 +51,10 @@ export interface SettingsPanelProps {
   // Appearance
   optTheme: "dark" | "light" | "auto";
   onChangeTheme: (theme: "dark" | "light" | "auto") => void;
+  notchShape: "notch" | "island";
+  onChangeNotchShape: (shape: "notch" | "island") => void;
+  islandTopOffset: number;
+  onChangeIslandTopOffset: (offset: number) => void;
   idleLayout: IdleLayoutConfig;
   onChangeIdleLayout: (layout: IdleLayoutConfig) => void;
   idleRuntimeData: IdleRuntimeData;
@@ -74,6 +83,7 @@ export interface SettingsPanelProps {
   onToggleMedia: () => void;
   optSoundFx?: boolean;
   onToggleSoundFx?: () => void;
+  isLightMode?: boolean;
   onClose: () => void;
 }
 
@@ -114,6 +124,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onToggleAutostart,
   showGreeting,
   onToggleGreeting,
+  greetingNameMode,
+  onChangeGreetingNameMode,
+  customGreetingName,
+  onChangeCustomGreetingName,
+  onTestGreeting,
   onTestNotification,
   optNotifTime,
   onChangeNotifTime,
@@ -123,6 +138,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangeCloseDelay,
   optTheme,
   onChangeTheme,
+  notchShape,
+  onChangeNotchShape,
+  islandTopOffset,
+  onChangeIslandTopOffset,
   idleLayout,
   onChangeIdleLayout,
   idleRuntimeData,
@@ -136,8 +155,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onToggleEars,
   optWeatherAnim: _optWeatherAnim,
   onToggleWeatherAnim: _onToggleWeatherAnim,
-  optPosition: _optPosition,
-  onChangePosition: _onChangePosition,
+  optPosition,
+  onChangePosition,
   optOpacity,
   onChangeOpacity,
   optAnimSpeed,
@@ -150,6 +169,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onToggleMedia,
   optSoundFx = true,
   onToggleSoundFx,
+  isLightMode = false,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsSubtab>("general");
@@ -159,7 +179,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
-  const [currentAppVersion, setCurrentAppVersion] = useState<string>("3.3.4");
+  const [currentAppVersion, setCurrentAppVersion] = useState<string>("3.3.5");
 
   const [clearTempStatus, setClearTempStatus] = useState<"idle" | "cleaning" | "done" | "error">("idle");
   const [clearedResult, setClearedResult] = useState<{
@@ -263,7 +283,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         />
 
         {/* Tab Content Body */}
-        <div className="flex-1 w-full pt-0.5 pb-2 flex flex-col justify-start overflow-y-auto settings-scroll min-h-0 pr-0.5" data-scrollable="true">
+        <div className="flex-1 w-full pt-0.5 pb-2 flex flex-col justify-start overflow-y-auto settings-scroll min-h-0 pr-0.5 rounded-[22px]" data-scrollable="true">
           <AnimatePresence mode="wait">
             {isSearchOpen && searchQuery.trim().length > 0 ? (
               <motion.div
@@ -287,6 +307,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onToggleAutostart={onToggleAutostart}
                   showGreeting={showGreeting}
                   onToggleGreeting={onToggleGreeting}
+                  greetingNameMode={greetingNameMode}
+                  onChangeGreetingNameMode={onChangeGreetingNameMode}
+                  customGreetingName={customGreetingName}
+                  onChangeCustomGreetingName={onChangeCustomGreetingName}
                   optAutoCompact={optAutoCompact}
                   onToggleAutoCompact={onToggleAutoCompact}
                   optNotifTime={optNotifTime}
@@ -297,6 +321,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onChangeCloseDelay={onChangeCloseDelay}
                   optTheme={optTheme}
                   onChangeTheme={onChangeTheme}
+                  notchShape={notchShape}
+                  onChangeNotchShape={onChangeNotchShape}
+                  islandTopOffset={islandTopOffset}
+                  onChangeIslandTopOffset={onChangeIslandTopOffset}
+                  optPosition={optPosition}
+                  onChangePosition={onChangePosition}
+                  isLightMode={isLightMode}
                   optFontSize={optFontSize}
                   onChangeFontSize={onChangeFontSize}
                   optIdleSize={optIdleSize}
@@ -348,6 +379,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       onToggleAutostart={onToggleAutostart}
                       showGreeting={showGreeting}
                       onToggleGreeting={onToggleGreeting}
+                      greetingNameMode={greetingNameMode}
+                      onChangeGreetingNameMode={onChangeGreetingNameMode}
+                      customGreetingName={customGreetingName}
+                      onChangeCustomGreetingName={onChangeCustomGreetingName}
+                      onTestGreeting={onTestGreeting}
                       optAutoCompact={optAutoCompact}
                       onToggleAutoCompact={onToggleAutoCompact}
                       optNotifTime={optNotifTime}
@@ -372,6 +408,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     <AppearanceTab
                       optTheme={optTheme}
                       onChangeTheme={onChangeTheme}
+                      notchShape={notchShape}
+                      onChangeNotchShape={onChangeNotchShape}
+                      islandTopOffset={islandTopOffset}
+                      onChangeIslandTopOffset={onChangeIslandTopOffset}
+                      optPosition={optPosition}
+                      onChangePosition={onChangePosition}
+                      isLightMode={isLightMode}
                       optFontSize={optFontSize}
                       onChangeFontSize={onChangeFontSize}
                       optIdleSize={optIdleSize}

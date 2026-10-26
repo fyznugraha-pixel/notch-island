@@ -57,6 +57,7 @@ export interface PanelPageDotsProps {
   optLanguage?: Language;
   isLightMode?: boolean;
   optAnimSpeed?: "snappy" | "smooth" | "bouncy";
+  themeMode?: "solid" | "glass" | "clear";
 }
 
 export interface PanelFrameProps extends PanelNavHeaderProps, PanelPageDotsProps {
@@ -459,12 +460,22 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
     optLanguage,
     isLightMode,
     optAnimSpeed = "smooth",
+    themeMode,
   }) => {
     if (totalPages <= 1) return null;
 
     const activeIsLightMode =
       isLightMode ??
       (typeof document !== "undefined" && document.documentElement.classList.contains("light"));
+
+    const isGlassOrClear =
+      themeMode === "glass" ||
+      themeMode === "clear" ||
+      (typeof document !== "undefined" &&
+        (document.getElementById("notch-pill")?.getAttribute("data-theme-mode") === "glass" ||
+         document.getElementById("notch-pill")?.getAttribute("data-theme-mode") === "clear"));
+
+    const useDarkNavbar = activeIsLightMode && !isGlassOrClear;
 
     const springTransition: Transition = React.useMemo(() => {
       if (optAnimSpeed === "snappy") {
@@ -532,11 +543,15 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
             paddingRight: isHovered ? 8 : 4,
           }}
           transition={springTransition}
-          className={`relative flex items-center justify-center rounded-full pointer-events-auto select-none overflow-hidden transition-[background-color,border-color,box-shadow] duration-250 ease-out ${
+          className={`notch-nav-container relative flex items-center justify-center rounded-full pointer-events-auto select-none overflow-hidden transition-[background-color,border-color,box-shadow] duration-250 ease-out ${
             isHovered
-              ? activeIsLightMode
-                ? "bg-black/[0.08] backdrop-blur-2xl border border-black/12 shadow-[0_4px_16px_rgba(0,0,0,0.08),inset_0_1px_1px_rgba(255,255,255,0.4)] gap-1"
-                : "bg-white/[0.12] backdrop-blur-2xl border border-white/20 shadow-[0_8px_24px_rgba(0,0,0,0.35),inset_0_1px_1px_rgba(255,255,255,0.2)] gap-1"
+              ? `notch-nav-pill ${
+                  useDarkNavbar
+                    ? "bg-black/[0.08] backdrop-blur-2xl border border-black/12 shadow-[0_4px_16px_rgba(0,0,0,0.08),inset_0_1px_1px_rgba(255,255,255,0.4)]"
+                    : isGlassOrClear && themeMode === "clear"
+                    ? "bg-white/[0.08] backdrop-blur-xl border border-white/15 shadow-none"
+                    : "bg-white/[0.12] backdrop-blur-2xl border border-white/20 shadow-[0_8px_24px_rgba(0,0,0,0.25),inset_0_1px_1px_rgba(255,255,255,0.2)]"
+                } gap-1 is-hovered`
               : "bg-transparent border border-transparent shadow-none backdrop-blur-none gap-1.5 cursor-pointer"
           }`}
         >
@@ -560,12 +575,12 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
                         e.stopPropagation();
                         onSelectPage?.(idx);
                       }}
-                      className={`h-[5px] rounded-full cursor-pointer transition-all duration-200 ${
+                      className={`notch-nav-dot h-[5px] rounded-full cursor-pointer transition-all duration-200 ${
                         isCurrent
-                          ? "w-[16px] bg-[#3882F6] shadow-[0_0_8px_rgba(56,130,246,0.5)]"
-                          : activeIsLightMode
+                          ? "is-active w-[16px] bg-[#3882F6] shadow-[0_0_8px_rgba(56,130,246,0.5)]"
+                          : useDarkNavbar
                           ? "w-[5px] bg-black/25 hover:bg-black/50"
-                          : "w-[5px] bg-white/45 hover:bg-white/70"
+                          : "w-[5px] bg-white/50 hover:bg-white/80"
                       }`}
                     />
                   );
@@ -591,15 +606,24 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
                           e.stopPropagation();
                           onSelectPage?.(idx);
                         }}
-                        className={`relative w-[28px] h-[28px] rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors duration-150 select-none ${
+                        className={`notch-nav-btn relative w-[28px] h-[28px] rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors duration-150 select-none ${
                           isCurrent
-                            ? "bg-[#3882F6] text-white shadow-sm shadow-[#3882F6]/40"
-                            : activeIsLightMode
+                            ? "is-active bg-[#3882F6] !text-white shadow-sm shadow-[#3882F6]/40"
+                            : isGlassOrClear && activeIsLightMode
+                            ? "!text-white/90 hover:!text-white hover:bg-white/18 drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+                            : useDarkNavbar
                             ? "text-neutral-500 hover:text-[#1d1d1f] hover:bg-black/[0.08]"
                             : "text-white/75 hover:text-white hover:bg-white/15"
                         }`}
                       >
-                        {tab.icon}
+                        <span
+                          className="flex items-center justify-center pointer-events-none"
+                          style={{
+                            color: isCurrent || (isGlassOrClear && activeIsLightMode) ? "#ffffff" : undefined,
+                          }}
+                        >
+                          {tab.icon}
+                        </span>
                       </button>
                     </Tooltip>
                   );
@@ -643,6 +667,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     micActive,
     isLightMode,
     optAnimSpeed,
+    themeMode,
     children,
     contentClassName = "flex-1 min-w-0 w-full h-full relative z-10 overflow-hidden flex flex-col",
   }) => {
@@ -804,6 +829,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
           optLanguage={optLanguage}
           isLightMode={isLightMode}
           optAnimSpeed={optAnimSpeed}
+          themeMode={themeMode}
         />
       </motion.div>
     );

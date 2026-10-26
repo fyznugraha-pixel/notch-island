@@ -173,25 +173,37 @@ export default function App() {
   const triggerGreeting = async () => {
     try {
       let username = "";
+      let nameMode = "auto";
+      let customName = "";
       try {
-        username = localStorage.getItem("island_username") || "";
+        nameMode = localStorage.getItem("island_greeting_name_mode") || "auto";
+        const rawCustom = localStorage.getItem("island_custom_greeting_name");
+        customName = (rawCustom && rawCustom !== "undefined" && rawCustom !== "null" ? rawCustom : "").trim();
       } catch {}
 
-      if (!username) {
-        username = await invoke<string>("get_username");
-        try {
-          if (username) localStorage.setItem("island_username", username);
-        } catch {}
+      if (nameMode === "custom" && customName) {
+        username = customName;
       } else {
-        invoke<string>("get_username")
-          .then((u) => {
-            if (u) {
-              try {
-                localStorage.setItem("island_username", u);
-              } catch {}
-            }
-          })
-          .catch(() => {});
+        try {
+          username = localStorage.getItem("island_username") || "";
+        } catch {}
+
+        if (!username) {
+          username = await invoke<string>("get_username");
+          try {
+            if (username) localStorage.setItem("island_username", username);
+          } catch {}
+        } else {
+          invoke<string>("get_username")
+            .then((u) => {
+              if (u) {
+                try {
+                  localStorage.setItem("island_username", u);
+                } catch {}
+              }
+            })
+            .catch(() => {});
+        }
       }
 
       const hour = new Date().getHours();
@@ -429,6 +441,20 @@ export default function App() {
       if (s === "false") return false;
     } catch {}
     return true;
+  });
+  const [greetingNameMode, setGreetingNameMode] = useState<"auto" | "custom">(() => {
+    try {
+      const m = localStorage.getItem("island_greeting_name_mode");
+      if (m === "custom") return "custom";
+    } catch {}
+    return "auto";
+  });
+  const [customGreetingName, setCustomGreetingName] = useState<string>(() => {
+    try {
+      const v = localStorage.getItem("island_custom_greeting_name");
+      if (v && v !== "undefined" && v !== "null") return v;
+    } catch {}
+    return "";
   });
   const [greetingStage, setGreetingStage] = useState<"compact" | "expanded">("compact");
 
@@ -1334,7 +1360,13 @@ export default function App() {
   const [optClipboard, setOptClipboard] = useState(true);
   const [optMedia, setOptMedia] = useState(true);
   const [optSoundFx, setOptSoundFx] = useState<boolean>(() => isSoundEffectsEnabled());
-  const [optPosition, setOptPosition] = useState<"top"|"bottom">("top");
+  const [optPosition, setOptPosition] = useState<"top"|"bottom">(() => {
+    try {
+      const p = localStorage.getItem("island_position");
+      if (p === "bottom" || p === "top") return p;
+    } catch {}
+    return "top";
+  });
   const [optOpacity, setOptOpacity] = useState<number>(1.0);
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy"|"smooth"|"bouncy">("smooth");
   const [optAccent, setOptAccent] = useState<"default"|"pink"|"blue"|"green">("default");
@@ -1342,6 +1374,21 @@ export default function App() {
   const [optNotifSound, setOptNotifSound] = useState<string>(() => getSavedNotifSound());
   const optNotifSoundRef = useRef(optNotifSound);
   useEffect(() => { optNotifSoundRef.current = optNotifSound; }, [optNotifSound]);
+  const [notchShape, setNotchShape] = useState<"notch" | "island">(() => {
+    try {
+      const s = localStorage.getItem("island_notch_shape");
+      if (s === "island" || s === "notch") return s;
+    } catch {}
+    return "notch";
+  });
+  const [islandTopOffset, setIslandTopOffset] = useState<number>(() => {
+    try {
+      const o = Number(localStorage.getItem("island_top_offset"));
+      if (!isNaN(o) && o >= 6 && o <= 16) return o;
+    } catch {}
+    return 10;
+  });
+  const [shapeTransitionY, setShapeTransitionY] = useState(0);
   const [optEars, setOptEars] = useState<boolean>(true);
   const [optWeatherAnim, setOptWeatherAnim] = useState<boolean>(true);
   const [optTheme, setOptTheme] = useState<"dark" | "light" | "auto">(() => {
@@ -1413,6 +1460,50 @@ export default function App() {
       } catch {}
     }
   };
+
+  const handleChangeNotchShape = useCallback(async (shape: "notch" | "island") => {
+    if (shape !== notchShape) {
+      const offset = islandTopOffset || 10;
+      // Counter-offset Y for butter-smooth physical detachment/docking spring
+      setShapeTransitionY(shape === "island" ? -offset : offset);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setShapeTransitionY(0);
+        });
+      });
+    }
+
+    setNotchShape(shape);
+    try { localStorage.setItem("island_notch_shape", shape); } catch {}
+    if (store) {
+      try {
+        await store.set("notch_shape", shape);
+        await store.save();
+      } catch {}
+    }
+    invoke("set_window_position", {
+      isBottom: optPosition === "bottom",
+      topOffset: islandTopOffset,
+      isIsland: shape === "island",
+    }).catch(console.error);
+  }, [store, optPosition, islandTopOffset, notchShape]);
+
+  const handleChangeIslandTopOffset = useCallback(async (offset: number) => {
+    const clamped = Math.max(6, Math.min(16, Math.round(offset)));
+    setIslandTopOffset(clamped);
+    try { localStorage.setItem("island_top_offset", String(clamped)); } catch {}
+    if (store) {
+      try {
+        await store.set("island_top_offset", clamped);
+        await store.save();
+      } catch {}
+    }
+    invoke("set_window_position", {
+      isBottom: optPosition === "bottom",
+      topOffset: clamped,
+      isIsland: notchShape === "island",
+    }).catch(console.error);
+  }, [store, optPosition, notchShape]);
   
   const [camActive, setCamActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
@@ -1445,15 +1536,40 @@ export default function App() {
         await unregisterAll();
       } catch (e) {}
 
-      try {
-        await register("CommandOrControl+Shift+D", (event) => {
+      // Toggle hide / show poni (notch)
+      const registerHideShortcut = async () => {
+        const onTrigger = (event: { state: string }) => {
           if (event.state === "Pressed") {
-            setIsHidden(prev => !prev);
+            setIsHidden((prev) => !prev);
           }
-        });
-      } catch (err) {
-        console.error("Failed to register shortcut CommandOrControl+Shift+D:", err);
-      }
+        };
+
+        let registered = false;
+        try {
+          await register("CommandOrControl+Slash", onTrigger);
+          registered = true;
+        } catch (err) {
+          console.warn("Failed to register CommandOrControl+Slash, trying CommandOrControl+/:", err);
+        }
+
+        if (!registered) {
+          try {
+            await register("CommandOrControl+/", onTrigger);
+            registered = true;
+          } catch (err) {
+            console.error("Failed to register CommandOrControl+/:", err);
+          }
+        }
+
+        // Secondary / legacy shortcut: Ctrl + Shift + D
+        try {
+          await register("CommandOrControl+Shift+D", onTrigger);
+        } catch (err) {
+          console.error("Failed to register shortcut CommandOrControl+Shift+D:", err);
+        }
+      };
+
+      await registerHideShortcut();
 
       try {
         await register("CommandOrControl+Shift+N", async (event) => {
@@ -1501,10 +1617,37 @@ export default function App() {
             localStorage.setItem("island_show_greeting", String(greet));
           } catch {}
         }
+        const nameMode = await s.get('greeting_name_mode');
+        if (nameMode !== null) {
+          const modeVal = nameMode === "custom" ? "custom" : "auto";
+          setGreetingNameMode(modeVal);
+          try {
+            localStorage.setItem("island_greeting_name_mode", modeVal);
+          } catch {}
+        }
+        const customName = await s.get('custom_greeting_name');
+        if (typeof customName === 'string' && customName !== "undefined" && customName !== "null") {
+          setCustomGreetingName(customName);
+          try {
+            localStorage.setItem("island_custom_greeting_name", customName);
+          } catch {}
+        } else {
+          try {
+            const cached = localStorage.getItem("island_custom_greeting_name");
+            if (cached === "undefined" || cached === "null") {
+              localStorage.removeItem("island_custom_greeting_name");
+              setCustomGreetingName("");
+            }
+          } catch {}
+        }
         const v = await s.get('opt_volume'); if (v !== null) setOptVolume(v as boolean);
         const c = await s.get('opt_clipboard'); if (c !== null) setOptClipboard(c as boolean);
         const m = await s.get('opt_media'); if (m !== null) setOptMedia(m as boolean);
-        const p = await s.get('opt_position'); if (p !== null) setOptPosition(p as string as any);
+        const p = await s.get('opt_position');
+        if (p === 'top' || p === 'bottom') {
+          setOptPosition(p);
+          try { localStorage.setItem("island_position", p); } catch {}
+        }
         const o = await s.get('opt_opacity'); if (o !== null) setOptOpacity(Number(o));
         const a = await s.get('opt_anim_speed'); if (a !== null) setOptAnimSpeed(a as string as any);
         const acc = await s.get('opt_accent'); if (acc !== null) setOptAccent(acc as string as any);
@@ -1518,6 +1661,16 @@ export default function App() {
         if (cd === 0 || cd === 1 || cd === 3 || cd === -1) {
           setOptCloseDelay(cd as number);
           try { localStorage.setItem("island_close_delay", String(cd)); } catch {}
+        }
+        const shape = await s.get('notch_shape');
+        if (shape === 'notch' || shape === 'island') {
+          setNotchShape(shape);
+          try { localStorage.setItem("island_notch_shape", shape); } catch {}
+        }
+        const topOff = await s.get('island_top_offset');
+        if (typeof topOff === 'number' && topOff >= 6 && topOff <= 16) {
+          setIslandTopOffset(topOff);
+          try { localStorage.setItem("island_top_offset", String(topOff)); } catch {}
         }
         const ears = await s.get('opt_ears'); if (typeof ears === 'boolean') setOptEars(ears);
         const wa = await s.get('opt_weather_anim'); if (typeof wa === 'boolean') setOptWeatherAnim(wa);
@@ -1622,6 +1775,7 @@ export default function App() {
       cancelCollapseTimer();
       if (currentNotifRef.current) return;
       if (currentTabRef.current !== null) return;
+      if (focusModeRef.current === "Gaming") return;
       if (variantRef.current === "compact") {
         startCompactHoverTimer(80);
       } else if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
@@ -1653,6 +1807,7 @@ export default function App() {
         if (isInside) {
           isCursorInsideNotchRef.current = true;
           cancelCollapseTimer();
+          if (focusModeRef.current === "Gaming") return;
           const hasOpenPanel =
             isExpandedRef.current ||
             isQuickControlRef.current ||
@@ -2508,6 +2663,11 @@ export default function App() {
       .catch(console.error);
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "/" || e.code === "Slash")) {
+        e.preventDefault();
+        setIsHidden((prev) => !prev);
+        return;
+      }
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
         setIsQuickControl(false);
@@ -2573,10 +2733,10 @@ export default function App() {
     variant = "pomo_complete_alert";
   } else if (optAutoCompact && isBrowserActive) {
     variant = "compact";
-  } else if (media && (!isPausedMediaCollapsed || isPlaying)) {
-    variant = showLyrics ? "lyrics_idle" : "media";
   } else if (pomodoro.isRunning && pomodoro.settings.showIdleTimer) {
     variant = "pomo_idle";
+  } else if (media && (!isPausedMediaCollapsed || isPlaying)) {
+    variant = showLyrics ? "lyrics_idle" : "media";
   }
 
   if (isHidden) {
@@ -2625,8 +2785,16 @@ export default function App() {
     currentTab === "notif_center" ? (t("tab_notifications") || "Notifikasi") :
     t("tab_settings");
 
+  const isIsland = notchShape === "island";
+  const effectiveEars = notchShape === "notch" && (optEars ?? true);
   const isBot = optPosition === 'bottom';
-  const radius = (r: string) => isBot ? `${r} ${r} 0px 0px` : `0px 0px ${r} ${r}`;
+  const radius = (bottomR: string, islandR?: string) => {
+    if (isIsland) {
+      const r = islandR ?? (isExpandedPanel ? "32px" : bottomR);
+      return `${r} ${r} ${r} ${r}`;
+    }
+    return isBot ? `${bottomR} ${bottomR} 0px 0px` : `0px 0px ${bottomR} ${bottomR}`;
+  };
   const startY = isBot ? 20 : -20;
 
   const idleMultiplier = effectiveIdleSize === "compact" ? 0.88 : effectiveIdleSize === "large" ? 1.15 : 1.0;
@@ -2637,40 +2805,45 @@ export default function App() {
   const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
   const lyricsExpandedWidth = effectiveTabSize === "compact" ? 652 : effectiveTabSize === "large" ? 740 : 680;
 
-  let smoothSpring: any = { type: "spring", stiffness: 290, damping: 24, mass: 0.76 };
-  if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 380, damping: 27, mass: 0.68 };
-  if (optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 260, damping: 19, mass: 0.78 };
+  const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let smoothSpring: any = prefersReducedMotion 
+    ? { duration: 0 } 
+    : { type: "spring", stiffness: 290, damping: 24, mass: 0.76 };
+  if (!prefersReducedMotion && optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 380, damping: 27, mass: 0.68 };
+  if (!prefersReducedMotion && optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 260, damping: 19, mass: 0.78 };
+
+  const currentY = isBot ? -shapeTransitionY : shapeTransitionY;
 
   const variants = {
     initialState: { width: 0, height: 0, x: 0, y: startY, opacity: 0, borderRadius: radius("16px") },
     hidden: { width: 0, height: 0, x: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
-    compact: { width: Math.round(52 * idleMultiplier), height: Math.round(7 * (idleHeight / 32)), x: 0, y: 0, opacity: 0.95, borderRadius: radius("4px") },
-    idle: { width: idleWidth, height: idleHeight, x: 0, y: 0, opacity: 1, borderRadius: radius(idleHeight >= 36 ? "14px" : "12px") },
-    pomo_idle: { width: Math.round(280 * idleMultiplier), height: Math.round(40 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("20px") },
-    pomo_complete_alert: { width: 520, height: 112, x: 0, y: 0, opacity: 1, borderRadius: radius("28px") },
-    quick_note: { width: 520, height: 154, x: 0, y: 0, opacity: 1, borderRadius: radius("28px") },
-    drag_over: { width: 660, height: 330, x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    media: { width: mediaPillWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    lyrics_idle: { width: lyricsIdleWidth, height: Math.round(lyricsIdleBaseHeight * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    media_expanded: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    notif_greeting: { width: dynamicWidth, height: 52, x: 0, y: 0, opacity: 1, borderRadius: radius("18px") },
-    notif: { width: dynamicWidth, height: Math.round((isMultilineBody ? 82 : 68) * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius(isMultilineBody ? "22px" : "18px") },
-    notif_small: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    notif_volume: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: 0, opacity: 1, borderRadius: radius("16px") },
-    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? 424 : 412) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    todo: { width: tabWidth, height: Math.round(todoDynamicHeight * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    pomodoro: { width: tabWidth, height: Math.round(338 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    drop_shelf: { width: tabWidth, height: Math.round((isBot ? 370 : 348) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    sys_monitor: { width: tabWidth, height: Math.round((isBot ? 356 : 318) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    mini_note: { width: tabWidth, height: Math.round((isNoteEditing ? 370 : 352) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    clipboard: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    settings: { width: tabWidth, height: Math.round(435 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    volume_mixer: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    notif_center: { width: tabWidth, height: Math.round((isBot ? 400 : 376) * tabHeightMultiplier), x: 0, y: 0, opacity: 1, borderRadius: radius("32px") },
-    onboarding: { width: Math.min(tabWidth, 460), height: 195, x: 0, y: 0, opacity: 1, borderRadius: radius("26px") },
+    compact: { width: Math.round(52 * idleMultiplier), height: Math.round(7 * (idleHeight / 32)), x: 0, y: currentY, opacity: 0.95, borderRadius: radius("4px", `${Math.round(7 * (idleHeight / 32) / 2)}px`) },
+    idle: { width: idleWidth, height: idleHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius(idleHeight >= 36 ? "14px" : "12px", `${Math.round(idleHeight / 2)}px`) },
+    pomo_idle: { width: Math.round(280 * idleMultiplier), height: Math.round(40 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("20px", `${Math.round(40 * (idleHeight / 32) / 2)}px`) },
+    pomo_complete_alert: { width: 520, height: 112, x: 0, y: currentY, opacity: 1, borderRadius: radius("28px") },
+    quick_note: { width: 520, height: 154, x: 0, y: currentY, opacity: 1, borderRadius: radius("28px") },
+    drag_over: { width: 660, height: 330, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    media: { width: mediaPillWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", `${Math.round(48 * (idleHeight / 32) / 2)}px`) },
+    lyrics_idle: { width: lyricsIdleWidth, height: Math.round(lyricsIdleBaseHeight * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", `${Math.round(lyricsIdleBaseHeight * (idleHeight / 32) / 2)}px`) },
+    media_expanded: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    notif_greeting: { width: dynamicWidth, height: 52, x: 0, y: currentY, opacity: 1, borderRadius: radius("18px", "26px") },
+    notif: { width: dynamicWidth, height: Math.round((isMultilineBody ? 82 : 68) * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius(isMultilineBody ? "22px" : "18px", "28px") },
+    notif_small: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
+    notif_volume: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
+    notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
+    notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
+    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? 424 : 412) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    todo: { width: tabWidth, height: Math.round(todoDynamicHeight * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    pomodoro: { width: tabWidth, height: Math.round(338 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    drop_shelf: { width: tabWidth, height: Math.round((isBot ? 370 : 348) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    sys_monitor: { width: tabWidth, height: Math.round((isBot ? 356 : 318) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    mini_note: { width: tabWidth, height: Math.round((isNoteEditing ? 370 : 352) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    clipboard: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    settings: { width: tabWidth, height: Math.round(435 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    volume_mixer: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    notif_center: { width: tabWidth, height: Math.round((isBot ? 400 : 376) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    onboarding: { width: Math.min(tabWidth, 460), height: 195, x: 0, y: currentY, opacity: 1, borderRadius: radius("26px") },
   };
 
   const tabVariants: any = {
@@ -2713,14 +2886,20 @@ export default function App() {
     invoke("update_pill_size", { 
       width: currentSize.width, 
       height: currentSize.height,
-      isBottom: optPosition === "bottom"
+      isBottom: optPosition === "bottom",
+      topOffset: islandTopOffset,
+      isIsland: notchShape === "island",
     }).catch(console.error);
     invoke("enforce_always_on_top").catch(console.error);
-  }, [variant, optPosition, showLyrics, dynamicWidth, idleWidth, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight]);
+  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight]);
   
   useEffect(() => {
-    invoke("set_window_position", { isBottom: optPosition === "bottom" }).catch(console.error);
-  }, [optPosition]);
+    invoke("set_window_position", { 
+      isBottom: optPosition === "bottom",
+      topOffset: islandTopOffset,
+      isIsland: notchShape === "island",
+    }).catch(console.error);
+  }, [optPosition, notchShape, islandTopOffset]);
 
   useEffect(() => {
     const handleFocus = () => {
@@ -2864,10 +3043,16 @@ export default function App() {
         ref={notchPillRef}
         id="notch-pill"
         data-position={optPosition}
-        data-theme-mode={Number(optOpacity) >= 0.95 ? "solid" : Number(optOpacity) >= 0.75 ? "glass" : "clear"}
+        data-notch-shape={notchShape}
+        data-theme-mode={variant === "notif_greeting" ? "solid" : Number(optOpacity) >= 0.95 ? "solid" : Number(optOpacity) >= 0.75 ? "glass" : "clear"}
         data-font-size={optFontSize}
         data-idle-size={effectiveIdleSize}
         data-tab-size={effectiveTabSize}
+        style={{
+          "--shape-radius-top": isIsland ? (isExpandedPanel ? "32px" : `${Math.round(idleHeight / 2)}px`) : (isBot ? "32px" : "0px"),
+          "--shape-radius-bottom": isExpandedPanel ? "32px" : `${Math.round(idleHeight / 2)}px`,
+          "--top-offset": isIsland ? `${islandTopOffset}px` : "0px",
+        } as React.CSSProperties}
         initial="initialState"
         animate={variant}
         variants={variants}
@@ -2883,6 +3068,9 @@ export default function App() {
             variant === "pomo_complete_alert" ||
             variant === "todo_deadline_alert"
           ) {
+            return;
+          }
+          if (focusModeRef.current === "Gaming") {
             return;
           }
           if (variant === "compact" && !compactHoverTimerRef.current && !isQuickControl && !isExpanded) {
@@ -2905,6 +3093,9 @@ export default function App() {
           if (currentTab !== null) {
             return;
           }
+          if (focusModeRef.current === "Gaming") {
+            return;
+          }
           if (variant === "compact") {
             startCompactHoverTimer(80);
             return;
@@ -2922,6 +3113,30 @@ export default function App() {
             return;
           }
           if (variant === "idle") {
+            openLastOrPreferredTab();
+          }
+        }}
+        onClick={() => {
+          if (currentTab !== null || isExpandedPanel) return;
+          if (
+            notif ||
+            isOnboarding ||
+            isDragOver ||
+            variant === "pomo_complete_alert" ||
+            variant === "todo_deadline_alert"
+          ) {
+            return;
+          }
+          if (variant === "compact") {
+            cancelCompactHoverTimer();
+            handleCompactHoverTrigger();
+          } else if (variant === "media" || variant === "lyrics_idle") {
+            goToTab("media_expanded", 0);
+          } else if (variant === "pomo_idle") {
+            goToTab("pomodoro", 0);
+          } else if (variant === "todo_idle_countdown") {
+            goToTab("todo", 0);
+          } else if (variant === "idle") {
             openLastOrPreferredTab();
           }
         }}
@@ -2996,7 +3211,8 @@ export default function App() {
         <NotchSurface
           containerRef={notchPillRef}
           position={optPosition}
-          withEars={Boolean((optEars ?? true) && variant !== "compact" && variant !== "hidden")}
+          notchShape={notchShape}
+          withEars={Boolean(effectiveEars && variant !== "compact" && variant !== "hidden")}
           isExpanded={Boolean(
             isExpandedPanel ||
             isExpanded ||
@@ -3010,6 +3226,8 @@ export default function App() {
             isMiniNote ||
             isClipboard ||
             isVolumeMixer ||
+            variant === "quick_note" ||
+            variant === "onboarding" ||
             variant === "drag_over" ||
             variant === "pomo_complete_alert" ||
             (notif && !isSmallNotif && !isMediumNotif)
@@ -3024,6 +3242,8 @@ export default function App() {
               ? "drag_over"
               : "default"
           }
+          themeMode={variant === "notif_greeting" ? "solid" : Number(optOpacity) >= 0.95 ? "solid" : Number(optOpacity) >= 0.75 ? "glass" : "clear"}
+          isLightMode={isLightMode}
         />
 
         <div className="absolute inset-0 z-10 overflow-hidden rounded-[inherit] pointer-events-auto">
@@ -3078,6 +3298,7 @@ export default function App() {
                 totalSec={pomodoro.totalSec}
                 isRunning={pomodoro.isRunning}
                 taskTitle={focusedTaskTitle}
+                isLightMode={isLightMode}
                 onClick={() => goToTab("pomodoro", 0)}
               />
             )}
@@ -3096,6 +3317,7 @@ export default function App() {
 
             {variant === "quick_note" && isQuickNoteOpen && (
               <QuickNoteNotchCard
+                isLightMode={isLightMode}
                 onSave={(text, color, pinned) => {
                   createQuickNoteItem(text, color, pinned);
                   playTaskCompleteSound();
@@ -3189,8 +3411,18 @@ export default function App() {
                     <MediaThumbnail media={media!} />
                   </div>
                   <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
-                    <ScrollingText text={media!.title} className="text-[13.5px] font-semibold text-white tracking-tight leading-tight" />
-                    <ScrollingText text={media!.artist} className="text-[11px] font-medium text-white/55 leading-tight mt-0.5" />
+                    <ScrollingText
+                      text={media!.title}
+                      className={`text-[13px] font-semibold tracking-tight leading-[1.2] translate-y-[1px] ${
+                        isLightMode ? "text-[#1d1d1f]" : "text-white"
+                      }`}
+                    />
+                    <ScrollingText
+                      text={media!.artist}
+                      className={`text-[10.5px] font-medium leading-[1.2] mt-[1px] ${
+                        isLightMode ? "text-neutral-500" : "text-white/55"
+                      }`}
+                    />
                   </div>
                   <div className="flex items-center shrink-0">
                     <AudioVisualizer isPlaying={isPlaying} onToggle={() => handleMediaControl("toggle")} optAccent={optAccent} />
@@ -3312,6 +3544,7 @@ export default function App() {
                     micActive={micActive}
                     isLightMode={isLightMode}
                     optAnimSpeed={optAnimSpeed}
+                    themeMode={variant === "notif_greeting" ? "solid" : Number(optOpacity) >= 0.95 ? "solid" : Number(optOpacity) >= 0.75 ? "glass" : "clear"}
                   >
                     <div className="relative w-full h-full min-w-0 overflow-hidden">
                       <AnimatePresence custom={slideDirection}>
@@ -3531,6 +3764,30 @@ export default function App() {
                                 setTimeout(() => triggerGreeting(), 150);
                               }
                             }}
+                            greetingNameMode={greetingNameMode}
+                            onChangeGreetingNameMode={async (mode) => {
+                              setGreetingNameMode(mode);
+                              try {
+                                localStorage.setItem("island_greeting_name_mode", mode);
+                              } catch {}
+                              if (store) await store.set("greeting_name_mode", mode);
+                            }}
+                            customGreetingName={customGreetingName}
+                            onChangeCustomGreetingName={async (name) => {
+                              const cleanName = (name && name !== "undefined" && name !== "null") ? name : "";
+                              setCustomGreetingName(cleanName);
+                              try {
+                                if (cleanName) {
+                                  localStorage.setItem("island_custom_greeting_name", cleanName);
+                                } else {
+                                  localStorage.removeItem("island_custom_greeting_name");
+                                }
+                              } catch {}
+                              if (store) await store.set("custom_greeting_name", cleanName);
+                            }}
+                            onTestGreeting={() => {
+                              triggerGreeting();
+                            }}
                             optNotifTime={optNotifTime}
                             onChangeNotifTime={async (sec) => {
                               setOptNotifTime(sec);
@@ -3672,8 +3929,14 @@ export default function App() {
                                 }
                               }
                             }}
+                            notchShape={notchShape}
+                            onChangeNotchShape={handleChangeNotchShape}
+                            islandTopOffset={islandTopOffset}
+                            onChangeIslandTopOffset={handleChangeIslandTopOffset}
+                            isLightMode={isLightMode}
                             optEars={optEars}
                             onToggleEars={async () => {
+                              if (notchShape === "island") return;
                               const next = !optEars;
                               setOptEars(next);
                               if (store) await store.set("opt_ears", next);
@@ -3687,7 +3950,18 @@ export default function App() {
                             optPosition={optPosition}
                             onChangePosition={async (pos) => {
                               setOptPosition(pos);
-                              if (store) await store.set("opt_position", pos);
+                              try { localStorage.setItem("island_position", pos); } catch {}
+                              if (store) {
+                                try {
+                                  await store.set("opt_position", pos);
+                                  await store.save();
+                                } catch {}
+                              }
+                              invoke("set_window_position", {
+                                isBottom: pos === "bottom",
+                                topOffset: islandTopOffset,
+                                isIsland: notchShape === "island",
+                              }).catch(console.error);
                             }}
                             optOpacity={optOpacity}
                             onChangeOpacity={async (val) => {
@@ -3835,31 +4109,44 @@ export default function App() {
                 <div className="shrink-0 transition-transform hover:scale-105 active:scale-95">
                   <NotifIcon type={notif.icon} />
                 </div>
-                <div className={(variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") ? "flex items-center gap-2 overflow-hidden min-w-0" : "flex flex-col justify-center overflow-hidden min-w-0 flex-1"}>
-                  <ScrollingText text={notif.title} className={`text-[13px] font-semibold tracking-tight leading-tight ${(variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") ? "shrink-0" : "w-full"} ${isLightMode ? 'text-[#1d1d1f]' : 'text-white'}`} />
-                  {notif.body && (
-                    <AnimatePresence mode="popLayout">
-                      <motion.div 
-                        key={notif.body}
-                        initial={{ opacity: 0, y: 6, scale: 0.96 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                        transition={iosSpring.smooth}
-                        className="min-w-0 flex items-center w-full"
-                      >
-                        {(variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") ? (
-                          <ScrollingText text={notif.body} className="text-[12.5px] leading-tight tracking-tight text-ios-green font-semibold shrink-0" />
-                        ) : isMultilineBody ? (
-                          <p className={`text-[12px] leading-snug tracking-tight line-clamp-2 break-words font-medium ${isLightMode ? 'text-neutral-600' : 'text-ios-secondary'}`}>
-                            {notif.body}
-                          </p>
-                        ) : (
-                          <ScrollingText text={notif.body} className={`text-[12.5px] leading-tight tracking-tight ${isLightMode ? 'text-neutral-500 font-medium' : 'text-ios-secondary font-medium'}`} />
-                        )}
-                      </motion.div>
-                    </AnimatePresence>
-                  )}
-                </div>
+                {(variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") ? (
+                  <div className="flex items-center min-w-0 overflow-hidden">
+                    <p className="text-[13px] font-semibold tracking-tight leading-tight truncate">
+                      <span className={isLightMode ? 'text-[#1d1d1f]' : 'text-white'}>
+                        {notif.title}
+                      </span>
+                      {notif.body && (
+                        <span className={`ml-1.5 tabular-nums ${isLightMode ? 'text-emerald-700' : 'text-ios-green'}`}>
+                          {notif.body}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col justify-center overflow-hidden min-w-0 flex-1">
+                    <ScrollingText text={notif.title} className={`text-[13px] font-semibold tracking-tight leading-tight w-full ${isLightMode ? 'text-[#1d1d1f]' : 'text-white'}`} />
+                    {notif.body && (
+                      <AnimatePresence mode="popLayout">
+                        <motion.div 
+                          key={notif.body}
+                          initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                          transition={iosSpring.smooth}
+                          className="min-w-0 flex items-center w-full"
+                        >
+                          {isMultilineBody ? (
+                            <p className={`text-[12px] leading-snug tracking-tight line-clamp-2 break-words font-medium ${isLightMode ? 'text-neutral-600' : 'text-ios-secondary'}`}>
+                              {notif.body}
+                            </p>
+                          ) : (
+                            <ScrollingText text={notif.body} className={`text-[12.5px] leading-tight tracking-tight ${isLightMode ? 'text-neutral-500 font-medium' : 'text-ios-secondary font-medium'}`} />
+                          )}
+                        </motion.div>
+                      </AnimatePresence>
+                    )}
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

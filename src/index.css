@@ -154,17 +154,17 @@ html.light #notch-pill,
 }
 
 #notch-pill[data-theme-mode="glass"] {
-  --notch-bg: rgba(0, 0, 0, 0.8);
-  --notch-stroke: rgba(255, 255, 255, 0.08);
-  --notch-shadow: drop-shadow(0 8px 32px rgba(0, 0, 0, 0.65));
-  --notch-blur: blur(28px) saturate(190%);
+  --notch-bg: rgba(24, 24, 32, 0.52);
+  --notch-stroke: rgba(255, 255, 255, 0.22);
+  --notch-shadow: drop-shadow(0 16px 44px rgba(0, 0, 0, 0.68));
+  --notch-blur: blur(36px) saturate(210%);
 }
 
 #notch-pill[data-theme-mode="clear"] {
-  --notch-bg: rgba(0, 0, 0, 0.6);
-  --notch-stroke: rgba(255, 255, 255, 0.1);
-  --notch-shadow: drop-shadow(0 6px 28px rgba(0, 0, 0, 0.5));
-  --notch-blur: blur(22px) saturate(180%);
+  --notch-bg: rgba(18, 18, 26, 0.36);
+  --notch-stroke: rgba(255, 255, 255, 0.16);
+  --notch-shadow: drop-shadow(0 12px 36px rgba(0, 0, 0, 0.50));
+  --notch-blur: blur(28px) saturate(200%);
 }
 
 /* Light Mode Tokens */
@@ -180,19 +180,19 @@ html.light #notch-pill,
 html.light #notch-pill[data-theme-mode="glass"],
 .light #notch-pill[data-theme-mode="glass"],
 #notch-pill.light[data-theme-mode="glass"] {
-  --notch-bg: rgba(246, 246, 250, 0.88);
-  --notch-stroke: rgba(0, 0, 0, 0.08);
+  --notch-bg: rgba(246, 246, 250, 0.72);
+  --notch-stroke: rgba(255, 255, 255, 0.85);
   --notch-shadow: drop-shadow(0 16px 40px rgba(0, 0, 0, 0.13));
-  --notch-blur: blur(28px) saturate(190%);
+  --notch-blur: blur(36px) saturate(210%);
 }
 
 html.light #notch-pill[data-theme-mode="clear"],
 .light #notch-pill[data-theme-mode="clear"],
 #notch-pill.light[data-theme-mode="clear"] {
-  --notch-bg: rgba(246, 246, 250, 0.75);
-  --notch-stroke: rgba(0, 0, 0, 0.08);
-  --notch-shadow: drop-shadow(0 14px 32px rgba(0, 0, 0, 0.11));
-  --notch-blur: blur(22px) saturate(180%);
+  --notch-bg: rgba(255, 255, 255, 0.08);
+  --notch-stroke: rgba(255, 255, 255, 0.75);
+  --notch-shadow: none !important;
+  --notch-blur: blur(20px) saturate(180%);
 }
 
 /* Make noise subtle on light glass */
@@ -200,6 +200,401 @@ html.light .bg-noise,
 .light .bg-noise,
 #notch-pill.light .bg-noise {
   opacity: 0.02 !important;
+}
+
+/* ========================================================
+   PREMIUM APPLE LIQUID GLASS INTERIOR (Whole UI Translucency)
+   Transforms all internal cards, tiles, and rows into Liquid Glass
+   ======================================================== */
+#notch-pill[data-notch-shape="island"] {
+  --notch-shadow: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+#notch-pill[data-notch-shape="island"] .notch-surface-shadow {
+  display: none !important;
+  box-shadow: none !important;
+}
+
+#notch-pill[data-theme-mode="glass"] .notch-surface-shadow,
+#notch-pill[data-theme-mode="clear"] .notch-surface-shadow {
+  display: none !important;
+  box-shadow: none !important;
+}
+
+#notch-pill[data-theme-mode="glass"] [class*="shadow-"],
+#notch-pill[data-theme-mode="clear"] [class*="shadow-"] {
+  box-shadow: none !important;
+}
+
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#101015]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#111114]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#121216]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#121217]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#141416]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#18181f]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#1c1c1e]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#17171d]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#18181b]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#18181c]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#15151c]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#15151d]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#16161a]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#19191e]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#1a1a20]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#202028]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-neutral-900/"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-neutral-800/"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#111114]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#121216]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#121217]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#141416]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#18181f]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#1c1c1e]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#17171d]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#18181b]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#18181c]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#15151c]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#15151d]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#16161a]"] {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow: inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.22) !important;
+}
+
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#101015]"]:hover,
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#121217]"]:hover,
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#18181f]"]:hover,
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"]:hover,
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#121217]"]:hover {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.05) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  box-shadow: inset 0 1.25px 2px 0 rgba(255, 255, 255, 0.35) !important;
+}
+
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#1d1d25]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#1e1e24]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#23232a]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#2a2a31]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#2e2e36]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#1d1d25]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#1e1e24]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#23232a]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#2a2a31]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#2e2e36]"] {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.22) !important;
+}
+
+#notch-pill[data-theme-mode="glass"] [class*="hover:bg-[#282830]"]:hover,
+#notch-pill[data-theme-mode="glass"] [class*="hover:bg-[#252530]"]:hover,
+#notch-pill[data-theme-mode="clear"] [class*="hover:bg-[#282830]"]:hover,
+#notch-pill[data-theme-mode="clear"] [class*="hover:bg-[#252530]"]:hover {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.07) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.30) !important;
+}
+
+/* Light Mode Liquid Glass Interior */
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#101015]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#111114]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#121216]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#121217]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#141416]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#18181f]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#1c1c1e]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#17171d]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#18181b]"],
+html.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#18181c]"],
+.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#101015]"],
+.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#111114]"],
+.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#121216]"],
+.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#121217]"],
+.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#141416]"],
+.light #notch-pill[data-theme-mode="glass"] [class*="bg-[#1c1c1e]"] {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.44) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.85) !important;
+  box-shadow: inset 0 1.5px 2px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Light Mode Clear Interior (Ultra-clean, crystal-clear transparent cards without dark accents or shadows) */
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#111114]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#121216]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#121217]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#141416]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#18181f]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#1c1c1e]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#17171d]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#18181b]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#18181c]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#111114]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#121216]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#121217]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#141416]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#1c1c1e]"] {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.60) !important;
+}
+
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"]:hover,
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#121217]"]:hover,
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"]:hover,
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#121217]"]:hover {
+  background: rgba(255, 255, 255, 0.32) !important;
+  border-color: rgba(255, 255, 255, 0.65) !important;
+  box-shadow: inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.75) !important;
+}
+
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#1d1d25]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#1e1e24]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#23232a]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#2a2a31]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#2e2e36]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#1d1d25]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#1e1e24]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#23232a]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#2a2a31]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#2e2e36]"] {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.40) !important;
+  color: #1d1d1f !important;
+  box-shadow: none !important;
+}
+
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#08080b]"],
+html.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#15151b]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#08080b]"],
+.light #notch-pill[data-theme-mode="clear"] [class*="bg-[#15151b]"] {
+  background-color: rgba(255, 255, 255, 0.20) !important;
+  border: 1px solid rgba(255, 255, 255, 0.40) !important;
+  box-shadow: inset 0 1px 1.5px rgba(255, 255, 255, 0.45) !important;
+}
+
+/* Ensure no dark drop shadows pollute clear mode in light mode */
+html.light #notch-pill[data-theme-mode="clear"] [class*="shadow-"],
+.light #notch-pill[data-theme-mode="clear"] [class*="shadow-"] {
+  box-shadow: none !important;
+}
+
+/* ========================================================
+   LIGHT MODE: NAVBAR IN LIQUID GLASS & CLEAR MODES
+   Icons turn crisp white for maximum visibility on glass / clear
+   Unhovered state has strictly no frame (only dots)
+   ======================================================== */
+.notch-nav-container:not(.is-hovered),
+html.light .notch-nav-container:not(.is-hovered),
+.light .notch-nav-container:not(.is-hovered),
+#notch-pill .notch-nav-container:not(.is-hovered) {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.light #notch-pill[data-theme-mode="glass"] .notch-nav-btn:not(.is-active),
+html.light #notch-pill[data-theme-mode="clear"] .notch-nav-btn:not(.is-active),
+.light #notch-pill[data-theme-mode="glass"] .notch-nav-btn:not(.is-active),
+.light #notch-pill[data-theme-mode="clear"] .notch-nav-btn:not(.is-active),
+#notch-pill.light[data-theme-mode="glass"] .notch-nav-btn:not(.is-active),
+#notch-pill.light[data-theme-mode="clear"] .notch-nav-btn:not(.is-active) {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+html.light #notch-pill[data-theme-mode="glass"] .notch-nav-btn:not(.is-active) svg,
+html.light #notch-pill[data-theme-mode="clear"] .notch-nav-btn:not(.is-active) svg,
+.light #notch-pill[data-theme-mode="glass"] .notch-nav-btn:not(.is-active) svg,
+.light #notch-pill[data-theme-mode="clear"] .notch-nav-btn:not(.is-active) svg,
+#notch-pill.light[data-theme-mode="glass"] .notch-nav-btn:not(.is-active) svg,
+#notch-pill.light[data-theme-mode="clear"] .notch-nav-btn:not(.is-active) svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+html.light #notch-pill[data-theme-mode="glass"] .notch-nav-btn:not(.is-active):hover,
+html.light #notch-pill[data-theme-mode="clear"] .notch-nav-btn:not(.is-active):hover,
+.light #notch-pill[data-theme-mode="glass"] .notch-nav-btn:not(.is-active):hover,
+.light #notch-pill[data-theme-mode="clear"] .notch-nav-btn:not(.is-active):hover,
+#notch-pill.light[data-theme-mode="glass"] .notch-nav-btn:not(.is-active):hover,
+#notch-pill.light[data-theme-mode="clear"] .notch-nav-btn:not(.is-active):hover {
+  background-color: rgba(255, 255, 255, 0.16) !important;
+  color: #ffffff !important;
+}
+
+html.light #notch-pill[data-theme-mode="glass"] .notch-nav-btn:not(.is-active):hover svg,
+html.light #notch-pill[data-theme-mode="clear"] .notch-nav-btn:not(.is-active):hover svg,
+.light #notch-pill[data-theme-mode="glass"] .notch-nav-btn:not(.is-active):hover svg,
+.light #notch-pill[data-theme-mode="clear"] .notch-nav-btn:not(.is-active):hover svg,
+#notch-pill.light[data-theme-mode="glass"] .notch-nav-btn:not(.is-active):hover svg,
+#notch-pill.light[data-theme-mode="clear"] .notch-nav-btn:not(.is-active):hover svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* Dots in Light Mode for Liquid Glass and Clear */
+html.light #notch-pill[data-theme-mode="glass"] .notch-nav-dot:not(.is-active),
+html.light #notch-pill[data-theme-mode="clear"] .notch-nav-dot:not(.is-active),
+.light #notch-pill[data-theme-mode="glass"] .notch-nav-dot:not(.is-active),
+.light #notch-pill[data-theme-mode="clear"] .notch-nav-dot:not(.is-active),
+#notch-pill.light[data-theme-mode="glass"] .notch-nav-dot:not(.is-active),
+#notch-pill.light[data-theme-mode="clear"] .notch-nav-dot:not(.is-active) {
+  background-color: rgba(255, 255, 255, 0.55) !important;
+}
+
+html.light #notch-pill[data-theme-mode="glass"] .notch-nav-dot:not(.is-active):hover,
+html.light #notch-pill[data-theme-mode="clear"] .notch-nav-dot:not(.is-active):hover,
+.light #notch-pill[data-theme-mode="glass"] .notch-nav-dot:not(.is-active):hover,
+.light #notch-pill[data-theme-mode="clear"] .notch-nav-dot:not(.is-active):hover,
+#notch-pill.light[data-theme-mode="glass"] .notch-nav-dot:not(.is-active):hover,
+#notch-pill.light[data-theme-mode="clear"] .notch-nav-dot:not(.is-active):hover {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Ensure active nav button and SVG is ALWAYS white in all light modes */
+html.light .notch-nav-btn.is-active,
+.light .notch-nav-btn.is-active,
+#notch-pill.light .notch-nav-btn.is-active {
+  background-color: #3882F6 !important;
+  color: #ffffff !important;
+}
+
+html.light .notch-nav-btn.is-active svg,
+.light .notch-nav-btn.is-active svg,
+#notch-pill.light .notch-nav-btn.is-active svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* ========================================================
+   GREETING NAME CUSTOMIZATION FORM PER THEME
+   ======================================================== */
+.greeting-name-card {
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.greeting-name-title {
+  color: rgba(255, 255, 255, 0.9);
+}
+.greeting-name-subtitle {
+  color: #71717a;
+}
+.greeting-name-input-box {
+  background-color: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.greeting-name-input {
+  color: #ffffff;
+}
+.greeting-name-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+.greeting-name-icon,
+.greeting-name-clear-btn {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Light Mode: Base / Solid */
+html.light .greeting-name-card,
+.light .greeting-name-card,
+#notch-pill.light .greeting-name-card {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.07) !important;
+}
+html.light .greeting-name-title,
+.light .greeting-name-title,
+#notch-pill.light .greeting-name-title {
+  color: #1d1d1f !important;
+}
+html.light .greeting-name-subtitle,
+.light .greeting-name-subtitle,
+#notch-pill.light .greeting-name-subtitle {
+  color: #6b7280 !important;
+}
+html.light .greeting-name-input-box,
+.light .greeting-name-input-box,
+#notch-pill.light .greeting-name-input-box {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+html.light .greeting-name-input,
+.light .greeting-name-input,
+#notch-pill.light .greeting-name-input {
+  color: #1d1d1f !important;
+}
+html.light .greeting-name-input::placeholder,
+.light .greeting-name-input::placeholder,
+#notch-pill.light .greeting-name-input::placeholder {
+  color: rgba(0, 0, 0, 0.4) !important;
+}
+html.light .greeting-name-icon,
+html.light .greeting-name-clear-btn,
+.light .greeting-name-icon,
+.light .greeting-name-clear-btn,
+#notch-pill.light .greeting-name-icon,
+#notch-pill.light .greeting-name-clear-btn {
+  color: #6b7280 !important;
+}
+html.light .greeting-name-clear-btn:hover,
+.light .greeting-name-clear-btn:hover,
+#notch-pill.light .greeting-name-clear-btn:hover {
+  color: #1d1d1f !important;
+}
+
+/* Light Mode: Liquid Glass */
+html.light #notch-pill[data-theme-mode="glass"] .greeting-name-card,
+.light #notch-pill[data-theme-mode="glass"] .greeting-name-card,
+#notch-pill.light[data-theme-mode="glass"] .greeting-name-card {
+  background-color: rgba(255, 255, 255, 0.35) !important;
+  border-color: rgba(255, 255, 255, 0.55) !important;
+}
+html.light #notch-pill[data-theme-mode="glass"] .greeting-name-input-box,
+.light #notch-pill[data-theme-mode="glass"] .greeting-name-input-box,
+#notch-pill.light[data-theme-mode="glass"] .greeting-name-input-box {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Light Mode: Clear */
+html.light #notch-pill[data-theme-mode="clear"] .greeting-name-card,
+.light #notch-pill[data-theme-mode="clear"] .greeting-name-card,
+#notch-pill.light[data-theme-mode="clear"] .greeting-name-card {
+  background-color: rgba(255, 255, 255, 0.20) !important;
+  border-color: rgba(255, 255, 255, 0.38) !important;
+}
+html.light #notch-pill[data-theme-mode="clear"] .greeting-name-input-box,
+.light #notch-pill[data-theme-mode="clear"] .greeting-name-input-box,
+#notch-pill.light[data-theme-mode="clear"] .greeting-name-input-box {
+  background-color: rgba(255, 255, 255, 0.40) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  box-shadow: none !important;
+}
+
+/* Dark Mode: Liquid Glass */
+#notch-pill[data-theme-mode="glass"]:not(.light) .greeting-name-card {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+#notch-pill[data-theme-mode="glass"]:not(.light) .greeting-name-input-box {
+  background-color: rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* Dark Mode: Clear */
+#notch-pill[data-theme-mode="clear"]:not(.light) .greeting-name-card {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+#notch-pill[data-theme-mode="clear"]:not(.light) .greeting-name-input-box {
+  background-color: rgba(0, 0, 0, 0.22);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* Light Card Surface (Solid, pristine frosted card) */
@@ -1197,6 +1592,13 @@ html.light :not([class*="/"]):is([class*="bg-[#3882F6]"], [class*="bg-[#007aff]"
   color: #ffffff !important;
 }
 
+/* Selected Idle Option Icon in Light Mode: Crisp Blue Icon on White Tile */
+html.light [class*="bg-[#007aff]"] .idle-option-icon-box svg,
+.light [class*="bg-[#007aff]"] .idle-option-icon-box svg,
+#notch-pill.light [class*="bg-[#007aff]"] .idle-option-icon-box svg {
+  color: #007aff !important;
+}
+
 /* Translucent Tint Badges in Light Mode: Vibrant Accent Color */
 html.light [class*="bg-[#007aff]/"],
 html.light [class*="bg-[#3882F6]/"],
@@ -1289,10 +1691,13 @@ html.light [class*="bg-[#2b2413]"],
 
 html.light [class*="bg-[#142333]"],
 html.light [class*="bg-[#182338]"],
+html.light [class*="bg-[#14262d]"],
 .light [class*="bg-[#142333]"],
 .light [class*="bg-[#182338]"],
+.light [class*="bg-[#14262d]"],
 #notch-pill.light [class*="bg-[#142333]"],
-#notch-pill.light [class*="bg-[#182338]"] {
+#notch-pill.light [class*="bg-[#182338]"],
+#notch-pill.light [class*="bg-[#14262d]"] {
   background-color: rgba(10, 132, 255, 0.14) !important;
 }
 

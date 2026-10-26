@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { motion } from "framer-motion";
 import {
   Plus,
   Trash2,
@@ -882,9 +883,14 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
 export interface QuickNoteNotchCardProps {
   onSave: (text: string, color: NoteColor, pinned: boolean) => void;
   onCancel: () => void;
+  isLightMode?: boolean;
 }
 
-export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({ onSave, onCancel }) => {
+export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
+  onSave,
+  onCancel,
+  isLightMode = false,
+}) => {
   const [text, setText] = useState("");
   const [color, setColor] = useState<NoteColor>("blue");
   const [pinned, setPinned] = useState(false);
@@ -906,48 +912,76 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({ onSave, 
   };
 
   return (
-    <div
-      className="w-full h-full flex flex-col justify-between px-6 py-3.5 select-none text-white"
+    <motion.div
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      className={`w-full h-full flex flex-col justify-between px-7 py-4 select-none ${
+        isLightMode ? "text-[#1d1d1f]" : "text-white"
+      }`}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Top Row: Icon + Label | Shortcut Badge */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-[30px] h-[30px] rounded-[9px] bg-[#3882F6]/15 text-[#3882F6] flex items-center justify-center shrink-0">
+          <div
+            className={`w-[28px] h-[28px] rounded-[8px] flex items-center justify-center shrink-0 ${
+              isLightMode
+                ? "bg-[#3882F6]/15 text-[#2563eb]"
+                : "bg-[#3882F6]/20 text-[#60a5fa]"
+            }`}
+          >
             <StickyNote size={15} />
           </div>
-          <span className="text-[12.5px] font-medium text-[#a1a1aa]">
+          <span
+            className={`text-[13px] font-semibold tracking-tight ${
+              isLightMode ? "text-[#27272a]" : "text-[#e4e4e7]"
+            }`}
+          >
             {t("note_quick_title")}
           </span>
         </div>
 
-        <kbd className="px-2 py-0.5 rounded-[6px] border border-[#2a2a33] bg-[#101015] text-[10px] font-medium text-[#a1a1aa] tracking-wider">
+        <kbd
+          className={`px-2 py-0.5 rounded-[6px] text-[10px] font-semibold tracking-wider font-mono ${
+            isLightMode
+              ? "border border-black/10 bg-black/[0.04] text-[#71717a]"
+              : "border border-white/10 bg-white/[0.06] text-[#a1a1aa]"
+          }`}
+        >
           CTRL ⇧ N
         </kbd>
       </div>
 
       {/* Middle Input */}
-      <input
-        ref={inputRef}
-        type="text"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            handleSubmit();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            onCancel();
-          }
-        }}
-        placeholder={t("note_quick_placeholder")}
-        className="w-full bg-transparent text-[17px] font-bold text-white placeholder-[#52525b] outline-none tracking-tight my-1"
-      />
+      <div className="my-auto py-1">
+        <input
+          ref={inputRef}
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleSubmit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              onCancel();
+            }
+          }}
+          placeholder={t("note_quick_placeholder")}
+          className={`w-full bg-transparent text-[16px] font-medium outline-none tracking-tight leading-normal ${
+            isLightMode
+              ? "text-[#18181b] placeholder-[#a1a1aa]"
+              : "text-white placeholder-[#71717a]"
+          }`}
+        />
+      </div>
 
       {/* Bottom Row: Color Dots + Pin Toggle | Cancel + Save Button */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             {NOTE_COLORS.map((c) => {
               const isSelected = color === c;
@@ -957,35 +991,52 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({ onSave, 
                   type="button"
                   onClick={() => setColor(c)}
                   style={{ backgroundColor: NOTE_COLOR_MAP[c] }}
-                  className={`w-[18px] h-[18px] rounded-full transition-transform cursor-pointer ${
+                  className={`w-[18px] h-[18px] rounded-full transition-all cursor-pointer ${
                     isSelected
-                      ? "ring-2 ring-white ring-offset-2 ring-offset-black scale-105"
-                      : "opacity-80 hover:opacity-100"
+                      ? isLightMode
+                        ? "ring-2 ring-[#2563eb] ring-offset-2 ring-offset-[#f4f4f5] scale-110 shadow-sm"
+                        : "ring-2 ring-white ring-offset-2 ring-offset-[#0d0d12] scale-110 shadow-sm"
+                      : "opacity-75 hover:opacity-100 hover:scale-105"
                   }`}
+                  aria-label={c}
                 />
               );
             })}
           </div>
 
+          <div
+            className={`w-[1px] h-[16px] ${
+              isLightMode ? "bg-black/10" : "bg-white/10"
+            }`}
+          />
+
           <button
             type="button"
             onClick={() => setPinned((p) => !p)}
-            className={`h-[30px] px-3 rounded-[10px] border text-[12px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`h-[28px] px-2.5 rounded-[8px] border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
               pinned
-                ? "bg-[#3882F6]/20 border-[#3882F6]/50 text-[#8db8ff]"
-                : "bg-[#17171d] border-[#2a2a33] text-[#d4d4d8] hover:text-white"
+                ? isLightMode
+                  ? "bg-[#3882F6]/15 border-[#3882F6]/40 text-[#2563eb]"
+                  : "bg-[#3882F6]/20 border-[#3882F6]/50 text-[#93c5fd]"
+                : isLightMode
+                ? "bg-black/[0.04] border-black/10 text-[#52525b] hover:bg-black/[0.08] hover:text-[#18181b]"
+                : "bg-white/[0.04] border-white/10 text-[#a1a1aa] hover:bg-white/[0.08] hover:text-white"
             }`}
           >
-            <Pin size={12} />
+            <Pin size={12} className={pinned ? "fill-current" : ""} />
             <span>{pinned ? t("note_pinned_btn") : t("note_pin_btn")}</span>
           </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={onCancel}
-            className="text-[12.5px] font-medium text-[#a1a1aa] hover:text-white transition-colors cursor-pointer px-1"
+            className={`text-[12px] font-medium transition-colors cursor-pointer px-2.5 py-1 rounded-[6px] ${
+              isLightMode
+                ? "text-[#71717a] hover:text-[#18181b] hover:bg-black/[0.05]"
+                : "text-[#a1a1aa] hover:text-white hover:bg-white/[0.06]"
+            }`}
           >
             {t("note_cancel")}
           </button>
@@ -993,15 +1044,15 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({ onSave, 
           <button
             type="button"
             onClick={handleSubmit}
-            className="h-[32px] pl-3.5 pr-2.5 rounded-[10px] bg-[#3882F6] hover:bg-[#2563eb] text-white text-[12.5px] font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+            className="h-[30px] pl-3 pr-2.5 rounded-[8px] bg-[#3882F6] hover:bg-[#2563eb] active:scale-95 text-white text-[12px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shadow-[#3882F6]/25"
           >
             <span>{t("note_save")}</span>
-            <kbd className="px-1.5 py-0.5 rounded-[5px] bg-black/25 border border-white/20 text-[10px] font-medium">
+            <kbd className="px-1.5 py-0.5 rounded-[4px] bg-black/25 border border-white/20 text-[9.5px] font-medium tracking-tight">
               Enter
             </kbd>
           </button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };

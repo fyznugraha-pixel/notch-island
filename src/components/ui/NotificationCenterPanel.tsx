@@ -464,9 +464,11 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
             ) : (
               groupedNotifications.map((group) => (
                 <div key={group.key} className="flex flex-col gap-1.5">
-                  <div className={`text-[10px] font-bold uppercase tracking-widest px-1 py-0.5 sticky top-0 backdrop-blur-md z-10 ${
-                    isLightMode ? "text-neutral-500 bg-[#f6f6fa]/95" : "text-white/40 bg-[#0c0c0e]/90"
-                  }`}>
+                  <div
+                    className={`text-[10px] font-bold uppercase tracking-widest px-1 py-1 ${
+                      isLightMode ? "text-neutral-500" : "text-white/40"
+                    }`}
+                  >
                     {group.label}
                   </div>
                   {group.items.map((item) => (

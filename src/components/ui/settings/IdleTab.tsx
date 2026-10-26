@@ -46,7 +46,32 @@ const renderOptionIcon = (
   isLightMode: boolean
 ) => {
   if (isSelected) {
-    // When selected, ALL icons are crisp pure white to contrast against the blue background!
+    if (isLightMode) {
+      // In light mode, selected item has white tile and crisp blue icon
+      switch (id) {
+        case "battery":
+          return <BatteryCharging size={14} className="!text-[#007aff]" />;
+        case "clock":
+          return <Clock size={14} className="!text-[#007aff]" />;
+        case "date":
+          return <Calendar size={14} className="!text-[#007aff]" />;
+        case "smart":
+          return <Layers size={14} className="!text-[#007aff]" />;
+        case "ping":
+          return <Activity size={14} className="!text-[#007aff]" />;
+        case "weather":
+          return <Sun size={14} className="!text-[#007aff]" />;
+        case "todo":
+          return <ListTodo size={14} className="!text-[#007aff]" />;
+        case "fps":
+          return <Gauge size={14} className="!text-[#007aff]" />;
+        case "none":
+        default:
+          return <EyeOff size={14} className="!text-[#007aff]" />;
+      }
+    }
+
+    // When selected in dark mode, icons are pure white against translucent tile
     switch (id) {
       case "battery":
         return <BatteryCharging size={14} className="text-white" />;
@@ -124,7 +149,7 @@ const getOptionBgClass = (
   isLightMode: boolean
 ) => {
   if (isSelected) {
-    return "bg-white/20 text-white";
+    return isLightMode ? "bg-white text-[#007aff] shadow-sm" : "bg-white/20 text-white";
   }
 
   if (isLightMode) {
@@ -449,7 +474,7 @@ export const IdleTab: React.FC<IdleTabProps> = ({
             isLightMode ? "text-neutral-500" : "text-[#71717a]"
           }`}
         >
-          {t("settings_idle_pick_for").replace("{pos}", activeSlotName)}
+          {t("settings_idle_pick_for", { pos: activeSlotName })}
         </span>
 
         {/* 3x3 Grid */}
@@ -472,7 +497,7 @@ export const IdleTab: React.FC<IdleTabProps> = ({
                 }`}
               >
                 <div
-                  className={`w-4 h-4 rounded-[4px] flex items-center justify-center shrink-0 ${getOptionBgClass(
+                  className={`w-4 h-4 rounded-[4px] flex items-center justify-center shrink-0 idle-option-icon-box ${getOptionBgClass(
                     itemId,
                     isSelected,
                     isLightMode

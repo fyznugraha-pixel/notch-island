@@ -1,5 +1,6 @@
 // Crisp, satisfying iOS / macOS Sonoma-inspired acoustic UI synthesis (Web Audio API)
 import { getDndStatus } from "./notificationHistoryService";
+import { ensureCustomSoundAudioUrl, preloadActiveCustomSound } from "./customSoundStorage";
 
 let sharedAudioCtx: AudioContext | null = null;
 let lastVolumeTickMs = 0;
@@ -267,13 +268,42 @@ export function setSavedNotifSound(soundId: string): void {
   } catch {}
 }
 
+function playDefaultGlassChime(): void {
+  playIosGlassSequence([
+    { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 }, // E5
+    { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 }, // A5
+    { freq: 1318.51, delay: 0.11, duration: 0.28, gain: 0.16, cutoff: 4800 }, // E6
+  ]);
+}
+
+if (typeof window !== "undefined") {
+  const initialSaved = getSavedNotifSound();
+  if (initialSaved.startsWith("custom_")) {
+    preloadActiveCustomSound(initialSaved);
+  }
+}
+
 function playSoundById(soundId: string): void {
   if (soundId === "glass") {
-    playIosGlassSequence([
-      { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 }, // E5
-      { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 }, // A5
-      { freq: 1318.51, delay: 0.11, duration: 0.28, gain: 0.16, cutoff: 4800 }, // E6
-    ]);
+    playDefaultGlassChime();
+    return;
+  }
+
+  if (soundId.startsWith("custom_")) {
+    ensureCustomSoundAudioUrl(soundId)
+      .then((url) => {
+        if (!url) {
+          playDefaultGlassChime();
+          return;
+        }
+        const audio = new Audio(url);
+        audio.volume = 0.8;
+        audio.play().catch((err) => {
+          console.debug("Failed to play custom sound audio, falling back to glass:", err);
+          playDefaultGlassChime();
+        });
+      })
+      .catch(() => playDefaultGlassChime());
     return;
   }
 
@@ -284,21 +314,13 @@ function playSoundById(soundId: string): void {
       audio.volume = 0.75;
       audio.play().catch((err) => {
         console.debug("Failed to play notification audio file, falling back to glass:", err);
-        playIosGlassSequence([
-          { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 },
-          { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 },
-          { freq: 1318.51, delay: 0.11, duration: 0.28, gain: 0.16, cutoff: 4800 },
-        ]);
+        playDefaultGlassChime();
       });
     } catch {
-      // fallback
+      playDefaultGlassChime();
     }
   } else {
-    playIosGlassSequence([
-      { freq: 659.25, delay: 0.0, duration: 0.13, gain: 0.14, cutoff: 3600 },
-      { freq: 880.0, delay: 0.055, duration: 0.15, gain: 0.15, cutoff: 4200 },
-      { freq: 1318.51, delay: 0.11, duration: 0.28, gain: 0.16, cutoff: 4800 },
-    ]);
+    playDefaultGlassChime();
   }
 }
 

@@ -8,6 +8,8 @@ export interface NotchPathParams {
   height: number;
   earRadius: number;
   bottomRadius: number;
+  topRadius?: number;
+  isIsland?: boolean;
   isBottom?: boolean;
   dpr?: number;
 }
@@ -50,6 +52,23 @@ export function buildNotchPath(params: NotchPathParams): string {
   const totalW = snapToPhysicalPixel(w + 2 * re, dpr);
   const bodyLeft = re;
   const bodyRight = snapToPhysicalPixel(re + w, dpr);
+
+  if (params.isIsland) {
+    const rawRt = params.topRadius !== undefined ? Math.max(0, params.topRadius) : rawRb;
+    const rt = snapToPhysicalPixel(Math.min(rawRt, h / 2, w / 2), dpr);
+    return [
+      `M ${rt} 0`,
+      `H ${w - rt}`,
+      rt > 0 ? `A ${rt} ${rt} 0 0 1 ${w} ${rt}` : `L ${w} 0`,
+      `V ${h - rb}`,
+      rb > 0 ? `A ${rb} ${rb} 0 0 1 ${w - rb} ${h}` : `L ${w} ${h}`,
+      `H ${rb}`,
+      rb > 0 ? `A ${rb} ${rb} 0 0 1 0 ${h - rb}` : `L 0 ${h}`,
+      `V ${rt}`,
+      rt > 0 ? `A ${rt} ${rt} 0 0 1 ${rt} 0` : `L 0 0`,
+      `Z`,
+    ].join(" ");
+  }
 
   if (re === 0) {
     // Rectangular notch without ears (fallback or compact mode)
@@ -147,6 +166,10 @@ export function buildNotchOutlinePath(params: NotchPathParams): string {
   const totalW = snapToPhysicalPixel(w + 2 * re, dpr);
   const bodyLeft = re;
   const bodyRight = snapToPhysicalPixel(re + w, dpr);
+
+  if (params.isIsland) {
+    return buildNotchPath(params);
+  }
 
   if (re === 0) {
     if (!isBottom) {

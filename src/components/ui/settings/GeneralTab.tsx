@@ -1,5 +1,5 @@
 import React from "react";
-import { Globe, Zap, Smile, AppWindow, Clock, Volume2, Timer } from "lucide-react";
+import { Globe, Zap, Smile, AppWindow, Clock, Volume2, Timer, User, X } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
@@ -13,6 +13,11 @@ export interface GeneralTabProps {
   onToggleAutostart: () => void;
   showGreeting: boolean;
   onToggleGreeting: () => void;
+  greetingNameMode: "auto" | "custom";
+  onChangeGreetingNameMode: (mode: "auto" | "custom") => void;
+  customGreetingName: string;
+  onChangeCustomGreetingName: (name: string) => void;
+  onTestGreeting?: () => void;
   optAutoCompact: boolean;
   onToggleAutoCompact: () => void;
   optNotifTime: number;
@@ -30,6 +35,11 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
   onToggleAutostart,
   showGreeting,
   onToggleGreeting,
+  greetingNameMode,
+  onChangeGreetingNameMode,
+  customGreetingName,
+  onChangeCustomGreetingName,
+  onTestGreeting,
   optAutoCompact,
   onToggleAutoCompact,
   optNotifTime,
@@ -93,6 +103,60 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
           />
         }
       />
+
+      {showGreeting && (
+        <div className="greeting-name-card mx-1 my-0.5 p-2.5 rounded-[14px] bg-white/[0.04] border border-white/[0.08] flex flex-col gap-2 transition-all">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0 pr-2">
+              <User size={15} className="text-[#af52de] shrink-0" />
+              <div className="flex flex-col min-w-0">
+                <span className="greeting-name-title text-[12px] font-semibold text-white/90 leading-tight">
+                  {t("settings_greeting_name_title")}
+                </span>
+                <span className="greeting-name-subtitle text-[10px] text-[#71717a] leading-tight mt-0.5 truncate">
+                  {t("settings_greeting_name_desc")}
+                </span>
+              </div>
+            </div>
+            <IosSegmentedControl
+              value={greetingNameMode}
+              onChange={(val) => onChangeGreetingNameMode(val as "auto" | "custom")}
+              options={[
+                { value: "auto", label: t("settings_greeting_name_auto") },
+                { value: "custom", label: t("settings_greeting_name_custom") },
+              ]}
+            />
+          </div>
+
+          {greetingNameMode === "custom" && (
+            <div className="greeting-name-input-box flex items-center gap-2 px-3 py-1.5 rounded-[10px] bg-black/40 border border-white/10 focus-within:border-[#af52de]/60 transition-colors">
+              <User size={13} className="greeting-name-icon text-[#a1a1aa] shrink-0" />
+              <input
+                type="text"
+                value={customGreetingName && customGreetingName !== "undefined" ? customGreetingName : ""}
+                onChange={(e) => onChangeCustomGreetingName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && onTestGreeting) {
+                    onTestGreeting();
+                  }
+                }}
+                placeholder={t("settings_greeting_name_placeholder")}
+                maxLength={30}
+                className="greeting-name-input flex-1 bg-transparent text-[12px] text-white placeholder-[#71717a] outline-none"
+              />
+              {customGreetingName && customGreetingName !== "undefined" && (
+                <button
+                  type="button"
+                  onClick={() => onChangeCustomGreetingName("")}
+                  className="greeting-name-clear-btn text-[#71717a] hover:text-white transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 4. Mode ringkas otomatis */}
       <SettingRow

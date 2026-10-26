@@ -646,7 +646,30 @@ async fn smtc_seek(position_sec: f64) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-fn position_notch_window(window: &tauri::WebviewWindow, is_bottom: bool) {
+#[derive(Clone, Copy, Debug)]
+pub struct PillState {
+    pub width: f32,
+    pub height: f32,
+    pub is_bottom: bool,
+    pub top_offset: f32,
+    pub is_island: bool,
+}
+
+impl Default for PillState {
+    fn default() -> Self {
+        Self {
+            width: 120.0,
+            height: 35.0,
+            is_bottom: false,
+            top_offset: 0.0,
+            is_island: false,
+        }
+    }
+}
+
+pub struct PillSize(pub std::sync::Mutex<PillState>);
+
+fn position_notch_window(window: &tauri::WebviewWindow, is_bottom: bool, top_offset_phys: i32) {
     if let Ok(Some(monitor)) = window.current_monitor() {
         let work_area = monitor.work_area();
         let physical_size = monitor.size();
@@ -655,9 +678,10 @@ fn position_notch_window(window: &tauri::WebviewWindow, is_bottom: bool) {
 
         let x = physical_pos.x + (physical_size.width as i32 - window_size.width as i32) / 2;
         let y = if is_bottom {
-            work_area.position.y + (work_area.size.height as i32 - window_size.height as i32)
+            let base = work_area.position.y + (work_area.size.height as i32 - window_size.height as i32);
+            base - top_offset_phys
         } else {
-            physical_pos.y
+            physical_pos.y + top_offset_phys
         };
 
         let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
@@ -665,14 +689,109 @@ fn position_notch_window(window: &tauri::WebviewWindow, is_bottom: bool) {
 }
 
 #[tauri::command]
-fn set_window_position(is_bottom: bool, window: tauri::WebviewWindow) {
-    position_notch_window(&window, is_bottom);
+fn set_window_position(
+    is_bottom: bool,
+    top_offset: Option<f32>,
+    is_island: Option<bool>,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, PillSize>,
+) {
+    let top_offset = top_offset.unwrap_or(0.0);
+    let is_island = is_island.unwrap_or(false);
+    if let Ok(mut size) = state.0.lock() {
+        size.is_bottom = is_bottom;
+        size.top_offset = top_offset;
+        size.is_island = is_island;
+    }
+    let sf = window.scale_factor().unwrap_or(1.0);
+    let phys_offset = if is_island { (top_offset as f64 * sf).round() as i32 } else { 0 };
+    position_notch_window(&window, is_bottom, phys_offset);
 }
 
 #[tauri::command]
-fn update_pill_size(width: f32, height: f32, is_bottom: bool, state: tauri::State<'_, PillSize>) {
+fn update_pill_size(
+    width: f32,
+    height: f32,
+    is_bottom: bool,
+    top_offset: Option<f32>,
+    is_island: Option<bool>,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, PillSize>,
+) {
+    let top_offset = top_offset.unwrap_or(0.0);
+    let is_island = is_island.unwrap_or(false);
     if let Ok(mut size) = state.0.lock() {
-        *size = (width, height, is_bottom);
+        let should_reposition = size.top_offset != top_offset || size.is_island != is_island || size.is_bottom != is_bottom;
+        size.width = width;
+        size.height = height;
+        size.is_bottom = is_bottom;
+        size.top_offset = top_offset;
+        size.is_island = is_island;
+
+        if should_reposition {
+            let sf = window.scale_factor().unwrap_or(1.0);
+            let phys_offset = if is_island { (top_offset as f64 * sf).round() as i32 } else { 0 };
+            position_notch_window(&window, is_bottom, phys_offset);
+        }
+    }
+}
+
+fn calculate_notch_hit(
+    pt: windows::Win32::Foundation::POINT,
+    win_pos: tauri::PhysicalPosition<i32>,
+    win_size: tauri::PhysicalSize<u32>,
+    sf: f64,
+    pill: &PillState,
+) -> bool {
+    let pill_w = (pill.width as f64 * sf) as i32;
+    let pill_h = (pill.height as f64 * sf) as i32;
+
+    let (hit_w, hit_h, margin) = if pill.height <= 10.0 {
+        (pill_w, pill_h, 0)
+    } else {
+        (pill_w, pill_h, (4.0 * sf) as i32)
+    };
+
+    let pill_x = win_pos.x + (win_size.width as i32 - hit_w) / 2;
+    let pill_y = if pill.is_bottom {
+        win_pos.y + (win_size.height as i32) - hit_h
+    } else {
+        win_pos.y
+    };
+
+    let is_closed = pill.height <= 50.0;
+
+    if pill.is_island && !pill.is_bottom && is_closed {
+        // Hot zone for Island mode when closed (top):
+        // Covers from the top edge of screen (y = win_pos.y - phys_offset)
+        // down to the bottom of the pill + margin.
+        // Width has 8px tolerance on both sides.
+        let phys_offset = (pill.top_offset as f64 * sf).round() as i32;
+        let side_tolerance = (8.0 * sf) as i32;
+        let min_x = pill_x - margin - side_tolerance;
+        let max_x = pill_x + hit_w + margin + side_tolerance;
+        let min_y = pill_y - phys_offset; // Top bezel
+        let max_y = pill_y + hit_h + margin;
+
+        pt.x >= min_x && pt.x <= max_x && pt.y >= min_y && pt.y <= max_y
+    } else if pill.is_island && pill.is_bottom && is_closed {
+        // Hot zone for Island mode when closed (bottom):
+        // Covers from the top of the pill - margin
+        // down to the bottom edge of screen (y = pill_y + hit_h + phys_offset).
+        let phys_offset = (pill.top_offset as f64 * sf).round() as i32;
+        let side_tolerance = (8.0 * sf) as i32;
+        let min_x = pill_x - margin - side_tolerance;
+        let max_x = pill_x + hit_w + margin + side_tolerance;
+        let min_y = pill_y - margin;
+        let max_y = pill_y + hit_h + phys_offset; // Bottom screen edge
+
+        pt.x >= min_x && pt.x <= max_x && pt.y >= min_y && pt.y <= max_y
+    } else {
+        let bottom_extra = if pill.height > 50.0 { (6.0 * sf) as i32 } else { 0 };
+        pt.x >= (pill_x - margin)
+            && pt.x <= (pill_x + hit_w + margin)
+            && pt.y >= (pill_y - margin)
+            && pt.y <= (pill_y + hit_h + margin + bottom_extra)
     }
 }
 
@@ -894,7 +1013,7 @@ fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
 fn _unused_marker() {
 }
 
-struct PillSize(std::sync::Mutex<(f32, f32, bool)>);
+
 
 #[tauri::command]
 fn get_battery_status() -> Option<(bool, u8)> {
@@ -1618,33 +1737,13 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
         let mut pt = POINT { x: 0, y: 0 };
         if unsafe { GetCursorPos(&mut pt) }.is_ok() {
             if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (window.outer_position(), window.outer_size(), window.scale_factor()) {
-                let (w, h, is_bottom) = if let Ok(size) = state.0.lock() {
+                let pill = if let Ok(size) = state.0.lock() {
                     *size
                 } else {
-                    (120.0, 35.0, false)
+                    PillState::default()
                 };
 
-                let pill_w = (w as f64 * sf) as i32;
-                let pill_h = (h as f64 * sf) as i32;
-                let (hit_w, hit_h, margin) = if h <= 10.0 {
-                    (pill_w, pill_h, 0)
-                } else if h > 50.0 {
-                    (pill_w, pill_h, (4.0 * sf) as i32)
-                } else {
-                    (pill_w, pill_h, (4.0 * sf) as i32)
-                };
-
-                let pill_x = win_pos.x + (win_size.width as i32 - hit_w) / 2;
-                let pill_y = if is_bottom {
-                    win_pos.y + (win_size.height as i32) - hit_h
-                } else {
-                    win_pos.y
-                };
-
-                let bottom_extra = if h > 50.0 { (6.0 * sf) as i32 } else { 0 };
-
-                return pt.x >= (pill_x - margin) && pt.x <= (pill_x + hit_w + margin)
-                    && pt.y >= (pill_y - margin) && pt.y <= (pill_y + hit_h + margin + bottom_extra);
+                return calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
             }
         }
     }
@@ -1800,7 +1899,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(PillSize(std::sync::Mutex::new((120.0, 35.0, false))))
+        .manage(PillSize(std::sync::Mutex::new(PillState::default())))
         .invoke_handler(tauri::generate_handler![
             set_pill_hover,
             smtc_action,
@@ -1912,7 +2011,7 @@ pub fn run() {
             let _ = window.set_shadow(false);
 
             // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI berubah
-            position_notch_window(&window, false);
+            position_notch_window(&window, false, 0);
             let win_for_events = window.clone();
             let app_for_events = app.handle().clone();
             window.on_window_event(move |event| {
@@ -1925,13 +2024,15 @@ pub fn run() {
                         if win_for_events.is_minimized().unwrap_or(false) {
                             let _ = win_for_events.unminimize();
                         }
-                        let is_bottom = app_for_events
+                        let (is_bottom, top_offset, is_island) = app_for_events
                             .state::<PillSize>()
                             .0
                             .lock()
-                            .map(|s| s.2)
-                            .unwrap_or(false);
-                        position_notch_window(&win_for_events, is_bottom);
+                            .map(|s| (s.is_bottom, s.top_offset, s.is_island))
+                            .unwrap_or((false, 0.0, false));
+                        let sf = win_for_events.scale_factor().unwrap_or(1.0);
+                        let phys_offset = if is_island { (top_offset as f64 * sf).round() as i32 } else { 0 };
+                        position_notch_window(&win_for_events, is_bottom, phys_offset);
                     }
                     _ => {}
                 }
@@ -1977,30 +2078,13 @@ pub fn run() {
                     if unsafe { GetCursorPos(&mut pt) }.is_ok() {
                         if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (win_clone.outer_position(), win_clone.outer_size(), win_clone.scale_factor()) {
                             // Ambil ukuran dinamis dari React
-                            let (w, h, is_bottom) = if let Ok(size) = app_handle_poll.state::<PillSize>().0.lock() {
+                            let pill = if let Ok(size) = app_handle_poll.state::<PillSize>().0.lock() {
                                 *size
                             } else {
-                                (120.0, 35.0, false)
+                                PillState::default()
                             };
 
-                            let pill_w = (w as f64 * sf) as i32;
-                            let pill_h = (h as f64 * sf) as i32;
-
-                            let (hit_w, hit_h, margin) = if h <= 10.0 {
-                                (pill_w, pill_h, 0)
-                            } else {
-                                (pill_w, pill_h, (4.0 * sf) as i32)
-                            };
-
-                            let pill_x = win_pos.x + (win_size.width as i32 - hit_w) / 2;
-                            let pill_y = if is_bottom {
-                                win_pos.y + (win_size.height as i32) - hit_h
-                            } else {
-                                win_pos.y
-                            };
-                            
-                            let in_pill = pt.x >= (pill_x - margin) && pt.x <= (pill_x + hit_w + margin)
-                                && pt.y >= (pill_y - margin) && pt.y <= (pill_y + hit_h + margin);
+                            let in_pill = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
 
                             if IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed) {
                                 let _ = win_clone.set_ignore_cursor_events(true);
@@ -2025,7 +2109,7 @@ pub fn run() {
                             if in_pill {
                                 time_since_left_pill = std::time::Instant::now();
                                 click_outside_emitted = false;
-                            } else if h > 50.0 && time_since_left_pill.elapsed().as_millis() >= 400 {
+                            } else if pill.height > 50.0 && time_since_left_pill.elapsed().as_millis() >= 400 {
                                 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
                                 use tauri::Emitter;
                                 let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
@@ -2095,7 +2179,7 @@ pub fn run() {
                     }
                     let is_expanded = app_handle_ping
                         .try_state::<PillSize>()
-                        .and_then(|s| s.0.lock().ok().map(|g| g.1 > 50.0))
+                        .and_then(|s| s.0.lock().ok().map(|g| g.height > 50.0))
                         .unwrap_or(false);
                     std::thread::sleep(std::time::Duration::from_secs(if is_expanded { 3 } else { 12 }));
                 }

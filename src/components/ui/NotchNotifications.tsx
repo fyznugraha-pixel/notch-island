@@ -589,23 +589,24 @@ export const PomodoroIdlePill: React.FC<{
   totalSec: number;
   isRunning: boolean;
   taskTitle?: string | null;
+  isLightMode?: boolean;
   onClick: () => void;
-}> = ({ mode, remainingSec, totalSec, isRunning, taskTitle, onClick }) => {
+}> = ({ mode, remainingSec, totalSec, isRunning, taskTitle, isLightMode = false, onClick }) => {
   const circumference = 56.5;
   const progress = totalSec > 0 ? Math.max(0, Math.min(1, remainingSec / totalSec)) : 0;
   const dash = `${(progress * circumference).toFixed(1)} ${circumference}`;
 
   const ringColor = !isRunning
-    ? "#7a7a86"
+    ? isLightMode ? "#94a3b8" : "#7a7a86"
     : mode === "focus"
-    ? "#ff8a7a"
-    : "#5eead4";
+    ? isLightMode ? "#e11d48" : "#ff8a7a"
+    : isLightMode ? "#0d9488" : "#5eead4";
 
   const timeColor = !isRunning
-    ? "text-[#a1a1aa]"
+    ? isLightMode ? "text-neutral-500" : "text-[#a1a1aa]"
     : mode === "focus"
-    ? "text-white"
-    : "text-[#5eead4]";
+    ? isLightMode ? "text-[#1d1d1f]" : "text-white"
+    : isLightMode ? "text-teal-600" : "text-[#5eead4]";
 
   return (
     <motion.div
@@ -614,12 +615,14 @@ export const PomodoroIdlePill: React.FC<{
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96 }}
       onClick={onClick}
-      className="absolute inset-0 flex items-center justify-between px-5 cursor-pointer select-none text-white"
+      className={`absolute inset-0 flex items-center justify-between px-5 cursor-pointer select-none ${
+        isLightMode ? "text-neutral-900" : "text-white"
+      }`}
     >
       <div className="flex items-center gap-2 min-w-0">
         <div className="relative w-5 h-5 shrink-0">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="absolute inset-0">
-            <circle cx="12" cy="12" r="9" stroke="#2a2a31" strokeWidth="3" />
+            <circle cx="12" cy="12" r="9" stroke={isLightMode ? "#e2e8f0" : "#2a2a31"} strokeWidth="3" />
             <circle
               cx="12"
               cy="12"
@@ -632,14 +635,16 @@ export const PomodoroIdlePill: React.FC<{
             />
           </svg>
           {!isRunning && (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="#c4c4cc" className="absolute inset-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={isLightMode ? "#64748b" : "#c4c4cc"} className="absolute inset-0">
               <rect x="9" y="8.5" width="2" height="7" rx="0.8" />
               <rect x="13" y="8.5" width="2" height="7" rx="0.8" />
             </svg>
           )}
         </div>
         {taskTitle && (
-          <span className="text-[12px] font-medium text-white/85 truncate max-w-[125px]">
+          <span className={`text-[12px] font-medium truncate max-w-[125px] ${
+            isLightMode ? "text-neutral-700" : "text-white/85"
+          }`}>
             {taskTitle}
           </span>
         )}

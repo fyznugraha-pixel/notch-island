@@ -18,10 +18,13 @@ import {
   Trash2,
   Send,
   RotateCcw,
+  Sliders,
+  MoveVertical,
   AlertTriangle,
   LayoutTemplate,
   Search,
   Activity,
+  User,
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
@@ -45,6 +48,10 @@ export interface SearchResultsProps {
   onToggleAutostart: () => void;
   showGreeting: boolean;
   onToggleGreeting: () => void;
+  greetingNameMode?: "auto" | "custom";
+  onChangeGreetingNameMode?: (mode: "auto" | "custom") => void;
+  customGreetingName?: string;
+  onChangeCustomGreetingName?: (name: string) => void;
   optAutoCompact: boolean;
   onToggleAutoCompact: () => void;
   optNotifTime: number;
@@ -56,6 +63,13 @@ export interface SearchResultsProps {
   // Appearance props
   optTheme: "dark" | "light" | "auto";
   onChangeTheme: (theme: "dark" | "light" | "auto") => void;
+  notchShape?: "notch" | "island";
+  onChangeNotchShape?: (shape: "notch" | "island") => void;
+  islandTopOffset?: number;
+  onChangeIslandTopOffset?: (offset: number) => void;
+  optPosition?: "top" | "bottom";
+  onChangePosition?: (pos: "top" | "bottom") => void;
+  isLightMode?: boolean;
   optFontSize: "small" | "default" | "large";
   onChangeFontSize: (size: "small" | "default" | "large") => void;
   optIdleSize: "compact" | "default" | "large";
@@ -117,6 +131,10 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onToggleAutostart,
   showGreeting,
   onToggleGreeting,
+  greetingNameMode,
+  onChangeGreetingNameMode,
+  customGreetingName,
+  onChangeCustomGreetingName,
   optAutoCompact,
   onToggleAutoCompact,
   optNotifTime,
@@ -127,6 +145,13 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onChangeCloseDelay,
   optTheme,
   onChangeTheme,
+  notchShape,
+  onChangeNotchShape,
+  islandTopOffset,
+  onChangeIslandTopOffset,
+  optPosition = "top",
+  onChangePosition,
+  isLightMode = false,
   optFontSize,
   onChangeFontSize,
   optIdleSize,
@@ -283,6 +308,42 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
         />
       ),
     },
+    ...(showGreeting && onChangeGreetingNameMode
+      ? [
+          {
+            id: "greeting_name",
+            tab: "general" as SettingsSubtab,
+            tabLabel: t("settings_subtab_general"),
+            title: t("settings_greeting_name_title"),
+            subtitle: t("settings_greeting_name_desc"),
+            keywords: ["greeting name", "nama sapaan", "username", "custom name", "nama kustom", "sapaan", "user"],
+            icon: <User size={18} />,
+            iconBgClass: "bg-[#26182e]",
+            iconColorClass: "text-[#af52de]",
+            control: (
+              <div className="flex items-center gap-1.5">
+                <IosSegmentedControl
+                  value={greetingNameMode || "auto"}
+                  onChange={(val) => onChangeGreetingNameMode(val as "auto" | "custom")}
+                  options={[
+                    { value: "auto", label: t("settings_greeting_name_auto") },
+                    { value: "custom", label: t("settings_greeting_name_custom") },
+                  ]}
+                />
+                {greetingNameMode === "custom" && onChangeCustomGreetingName && (
+                  <input
+                    type="text"
+                    value={customGreetingName && customGreetingName !== "undefined" ? customGreetingName : ""}
+                    onChange={(e) => onChangeCustomGreetingName(e.target.value)}
+                    placeholder={t("settings_greeting_name_placeholder")}
+                    className="greeting-name-input greeting-name-input-box w-24 px-2 py-1 text-[11px] rounded-[7px] outline-none focus:border-[#af52de]/60"
+                  />
+                )}
+              </div>
+            ),
+          },
+        ]
+      : []),
     {
       id: "auto_compact",
       tab: "general",
@@ -450,21 +511,107 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
       ),
     },
     {
+      id: "shape",
+      tab: "appearance",
+      tabLabel: t("settings_subtab_appearance"),
+      title: t("settings_shape"),
+      subtitle: t("settings_shape_desc"),
+      keywords: ["shape", "bentuk", "notch", "island", "dynamic island", "floating", "melayang", "menempel"],
+      icon: <Layout size={18} />,
+      iconBgClass: "bg-[#14262d]",
+      iconColorClass: "text-[#3882F6]",
+      control: (
+        <IosSegmentedControl
+          value={notchShape || "notch"}
+          onChange={(val) => onChangeNotchShape?.(val as "notch" | "island")}
+          options={[
+            { value: "notch", label: t("settings_shape_notch") },
+            { value: "island", label: t("settings_shape_island") },
+          ]}
+        />
+      ),
+    },
+    ...(notchShape === "island"
+      ? [
+          {
+            id: "top_offset",
+            tab: "appearance" as const,
+            tabLabel: t("settings_subtab_appearance"),
+            title: t("settings_top_offset"),
+            subtitle: t("settings_top_offset_desc"),
+            keywords: ["offset", "top", "gap", "jarak", "atas", "island"],
+            icon: <Sliders size={18} />,
+            iconBgClass: "bg-[#142333]",
+            iconColorClass: "text-[#3882F6]",
+            control: (
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={6}
+                  max={16}
+                  step={1}
+                  value={islandTopOffset || 10}
+                  onChange={(e) => onChangeIslandTopOffset?.(Number(e.target.value))}
+                  className={`w-[90px] h-1.5 ${
+                    isLightMode ? "bg-black/10" : "bg-[#1e1e25]"
+                  } rounded-full appearance-none cursor-pointer accent-[#3882F6]`}
+                  aria-label={t("settings_top_offset")}
+                />
+                <span
+                  className={`text-[12px] font-mono ${
+                    isLightMode ? "text-neutral-700 font-semibold" : "text-[#a1a1aa] font-medium"
+                  } min-w-[30px] text-right`}
+                >
+                  {islandTopOffset || 10}px
+                </span>
+              </div>
+            ),
+          },
+        ]
+      : []),
+    {
+      id: "position",
+      tab: "appearance" as const,
+      tabLabel: t("settings_subtab_appearance"),
+      title: t("settings_position"),
+      subtitle: t("settings_position"),
+      keywords: ["position", "posisi", "atas", "bawah", "top", "bottom", "screen"],
+      icon: <MoveVertical size={18} />,
+      iconBgClass: "bg-[#142333]",
+      iconColorClass: "text-[#32ade6]",
+      control: (
+        <IosSegmentedControl
+          value={optPosition || "top"}
+          onChange={(val) => onChangePosition?.(val as "top" | "bottom")}
+          options={[
+            { value: "top", label: t("settings_pos_top"), tooltip: t("settings_pos_top_tip") },
+            { value: "bottom", label: t("settings_pos_bottom"), tooltip: t("settings_pos_bottom_tip") },
+          ]}
+        />
+      ),
+    },
+    {
       id: "ears",
       tab: "appearance",
       tabLabel: t("settings_subtab_appearance"),
       title: t("settings_ears"),
-      subtitle: t("settings_ears_desc"),
+      subtitle: notchShape === "island" ? t("settings_ears_disabled_island") : t("settings_ears_desc"),
       keywords: ["ears", "telinga", "curve", "sudut", "lengkungan", "concave", "gili"],
       icon: <Smile size={18} />,
       iconBgClass: "bg-[#26182e]",
       iconColorClass: "text-[#af52de]",
       control: (
-        <IosSwitch
-          checked={optEars}
-          onChange={onToggleEars}
-          activeColor="blue"
-        />
+        <div
+          className={notchShape === "island" ? "opacity-40 pointer-events-none select-none" : ""}
+          aria-disabled={notchShape === "island"}
+        >
+          <IosSwitch
+            checked={notchShape === "island" ? false : optEars}
+            onChange={onToggleEars}
+            activeColor="blue"
+            disabled={notchShape === "island"}
+          />
+        </div>
       ),
     },
     {
