@@ -2499,6 +2499,56 @@ export default function App() {
     return () => cancelAnimationFrame(rafId);
   }, [needsFpsCounter, screenRefreshRate]);
 
+  const needsSystemMetrics =
+    idleLayout.left === "cpu" ||
+    idleLayout.left === "ram" ||
+    idleLayout.left === "netspeed" ||
+    idleLayout.center === "cpu" ||
+    idleLayout.center === "ram" ||
+    idleLayout.center === "netspeed" ||
+    idleLayout.right === "cpu" ||
+    idleLayout.right === "ram" ||
+    idleLayout.right === "netspeed" ||
+    isSettings;
+
+  const [sysMetrics, setSysMetrics] = useState<{
+    cpu_usage: number;
+    mem_usage: number;
+    mem_used_gb: number;
+    mem_total_gb: number;
+    wifi_down_mbps: number;
+    wifi_up_mbps: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!needsSystemMetrics) return;
+    let mounted = true;
+
+    const fetchMetrics = async () => {
+      try {
+        const res = await invoke<{
+          cpu_usage: number;
+          mem_usage: number;
+          mem_used_gb: number;
+          mem_total_gb: number;
+          wifi_down_mbps: number;
+          wifi_up_mbps: number;
+        }>("get_system_metrics");
+        if (!mounted) return;
+        setSysMetrics(res);
+      } catch {
+        // ignore
+      }
+    };
+
+    fetchMetrics();
+    const id = window.setInterval(fetchMetrics, 1500);
+    return () => {
+      mounted = false;
+      window.clearInterval(id);
+    };
+  }, [needsSystemMetrics]);
+
   const idleRuntimeData: IdleRuntimeData = useMemo(() => ({
     battery,
     time,
@@ -2509,11 +2559,17 @@ export default function App() {
     pendingTodosCount: pendingTodos.length,
     stashedFilesCount: stashedFiles.length,
     fps,
+    cpuUsage: sysMetrics?.cpu_usage,
+    ramUsage: sysMetrics?.mem_usage,
+    ramUsedGb: sysMetrics?.mem_used_gb,
+    ramTotalGb: sysMetrics?.mem_total_gb,
+    netDownMbps: sysMetrics?.wifi_down_mbps,
+    netUpMbps: sysMetrics?.wifi_up_mbps,
     focusMode,
     optLanguage,
     isLightMode,
     onOpenTab: (tab) => goToTab(tab),
-  }), [battery, time, dateDisplay, fullDateTitle, weather, networkPing, pendingTodos.length, stashedFiles.length, fps, focusMode, optLanguage, isLightMode]);
+  }), [battery, time, dateDisplay, fullDateTitle, weather, networkPing, pendingTodos.length, stashedFiles.length, fps, sysMetrics, focusMode, optLanguage, isLightMode]);
 
   const isSingleLine = notif && (!notif.body || notif.body.trim() === "");
   const isSmallNotif = notif?.icon === "battery" || notif?.icon === "volume" || notif?.icon === "capslock";

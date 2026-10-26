@@ -11,6 +11,10 @@ import {
   ListTodo,
   Gauge,
   EyeOff,
+  Cpu,
+  MemoryStick,
+  ArrowDown,
+  ArrowDownUp,
 } from "lucide-react";
 import {
   IdleLayoutConfig,
@@ -19,6 +23,7 @@ import {
   IdleRuntimeData,
   DEFAULT_IDLE_LAYOUT,
   getItemLabel,
+  formatNetSpeed,
 } from "../IdleLayoutSetting";
 import { t } from "../../../services/i18n";
 
@@ -32,6 +37,9 @@ const ALL_IDLE_ITEMS: IdleSlotItem[] = [
   "battery",
   "clock",
   "date",
+  "cpu",
+  "ram",
+  "netspeed",
   "smart",
   "ping",
   "weather",
@@ -55,6 +63,12 @@ const renderOptionIcon = (
           return <Clock size={14} className="!text-[#007aff]" />;
         case "date":
           return <Calendar size={14} className="!text-[#007aff]" />;
+        case "cpu":
+          return <Cpu size={14} className="!text-[#007aff]" />;
+        case "ram":
+          return <MemoryStick size={14} className="!text-[#007aff]" />;
+        case "netspeed":
+          return <ArrowDownUp size={14} className="!text-[#007aff]" />;
         case "smart":
           return <Layers size={14} className="!text-[#007aff]" />;
         case "ping":
@@ -79,6 +93,12 @@ const renderOptionIcon = (
         return <Clock size={14} className="text-white" />;
       case "date":
         return <Calendar size={14} className="text-white" />;
+      case "cpu":
+        return <Cpu size={14} className="text-white" />;
+      case "ram":
+        return <MemoryStick size={14} className="text-white" />;
+      case "netspeed":
+        return <ArrowDownUp size={14} className="text-white" />;
       case "smart":
         return <Layers size={14} className="text-white" />;
       case "ping":
@@ -103,6 +123,12 @@ const renderOptionIcon = (
         return <Clock size={14} className="text-blue-600" />;
       case "date":
         return <Calendar size={14} className="text-sky-600" />;
+      case "cpu":
+        return <Cpu size={14} className="text-violet-700" />;
+      case "ram":
+        return <MemoryStick size={14} className="text-purple-700" />;
+      case "netspeed":
+        return <ArrowDownUp size={14} className="text-sky-700" />;
       case "smart":
         return <Layers size={14} className="text-purple-600" />;
       case "ping":
@@ -127,6 +153,12 @@ const renderOptionIcon = (
       return <Clock size={14} className="text-[#0a84ff]" />;
     case "date":
       return <Calendar size={14} className="text-[#0a84ff]" />;
+    case "cpu":
+      return <Cpu size={14} className="text-[#a78bfa]" />;
+    case "ram":
+      return <MemoryStick size={14} className="text-[#c084fc]" />;
+    case "netspeed":
+      return <ArrowDownUp size={14} className="text-[#38bdf8]" />;
     case "smart":
       return <Layers size={14} className="text-[#af52de]" />;
     case "ping":
@@ -160,6 +192,12 @@ const getOptionBgClass = (
         return "bg-blue-100/90";
       case "date":
         return "bg-sky-100/90";
+      case "cpu":
+        return "bg-violet-100/90";
+      case "ram":
+        return "bg-purple-100/90";
+      case "netspeed":
+        return "bg-sky-100/90";
       case "smart":
         return "bg-purple-100/90";
       case "ping":
@@ -184,6 +222,12 @@ const getOptionBgClass = (
       return "bg-[#142333]";
     case "date":
       return "bg-[#182338]";
+    case "cpu":
+      return "bg-[#221833]";
+    case "ram":
+      return "bg-[#2a1836]";
+    case "netspeed":
+      return "bg-[#102538]";
     case "smart":
       return "bg-[#26182e]";
     case "ping":
@@ -341,6 +385,39 @@ export const IdleTab: React.FC<IdleTabProps> = ({
           >
             {runtimeData.fps ?? 60} FPS
           </span>
+        );
+      case "cpu":
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-violet-700" : "text-[#a78bfa]"
+            }`}
+          >
+            <Cpu size={11} />
+            <span>{Math.round(runtimeData.cpuUsage ?? 24)}%</span>
+          </div>
+        );
+      case "ram":
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-purple-700" : "text-[#c084fc]"
+            }`}
+          >
+            <MemoryStick size={11} />
+            <span>{Math.round(runtimeData.ramUsage ?? 52)}%</span>
+          </div>
+        );
+      case "netspeed":
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-sky-700" : "text-[#38bdf8]"
+            }`}
+          >
+            <ArrowDown size={11} />
+            <span>{formatNetSpeed(runtimeData.netDownMbps ?? 1.2 * 8)}</span>
+          </div>
         );
       case "none":
       default:

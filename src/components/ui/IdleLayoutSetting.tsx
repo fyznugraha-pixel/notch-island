@@ -17,6 +17,10 @@ import {
   BellOff,
   Gamepad2,
   BedDouble,
+  Cpu,
+  MemoryStick,
+  ArrowDown,
+  ArrowDownUp,
 } from "lucide-react";
 import { t, Language } from "../../services/i18n";
 import { getWeatherIcon } from "./NotifIcon";
@@ -26,6 +30,9 @@ export type IdleSlotItem =
   | "battery"
   | "clock"
   | "date"
+  | "cpu"
+  | "ram"
+  | "netspeed"
   | "smart"
   | "ping"
   | "weather"
@@ -51,6 +58,9 @@ const VALID_ITEMS: Set<string> = new Set([
   "battery",
   "clock",
   "date",
+  "cpu",
+  "ram",
+  "netspeed",
   "smart",
   "ping",
   "weather",
@@ -101,10 +111,33 @@ export interface IdleRuntimeData {
   pendingTodosCount: number;
   stashedFilesCount: number;
   fps?: number;
+  cpuUsage?: number;
+  ramUsage?: number;
+  ramUsedGb?: number;
+  ramTotalGb?: number;
+  netDownMbps?: number;
+  netUpMbps?: number;
   focusMode: "Normal" | "DND" | "Gaming" | "Sleep";
   optLanguage: Language;
   isLightMode?: boolean;
-  onOpenTab?: (tab: "quick_control" | "todo" | "drop_shelf") => void;
+  onOpenTab?: (tab: "quick_control" | "todo" | "drop_shelf" | "sys_monitor") => void;
+}
+
+export function formatNetSpeed(mbps?: number): string {
+  if (mbps === undefined || mbps === null || mbps <= 0.001) return "0 KB/s";
+  // mbps is Megabits/s from Rust Windows kernel API (1 Megabit = 1,000,000 bits)
+  // Convert to Bytes/sec: 8 bits = 1 byte
+  const bytesPerSec = (mbps * 1_000_000) / 8;
+  if (bytesPerSec >= 1024 * 1024 * 100) {
+    return `${Math.round(bytesPerSec / (1024 * 1024))} MB/s`;
+  }
+  if (bytesPerSec >= 1024 * 1024) {
+    return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+  }
+  if (bytesPerSec >= 1024) {
+    return `${Math.round(bytesPerSec / 1024)} KB/s`;
+  }
+  return "0 KB/s";
 }
 
 export function getItemLabel(item: IdleSlotItem): string {
@@ -115,6 +148,12 @@ export function getItemLabel(item: IdleSlotItem): string {
       return t("settings_slot_clock");
     case "date":
       return t("settings_slot_date");
+    case "cpu":
+      return t("settings_slot_cpu");
+    case "ram":
+      return t("settings_slot_ram");
+    case "netspeed":
+      return t("settings_slot_netspeed");
     case "smart":
       return t("settings_slot_smart");
     case "ping":
@@ -150,6 +189,18 @@ export function measureIdleSlotItemWidth(
     }
     case "date": {
       return Math.ceil(getTextWidth(data.dateDisplay, statFont) + 2);
+    }
+    case "cpu": {
+      const cpuVal = data.cpuUsage !== undefined ? Math.round(data.cpuUsage) : 24;
+      return Math.ceil(getTextWidth(`${cpuVal}%`, statFont) + 15);
+    }
+    case "ram": {
+      const ramVal = data.ramUsage !== undefined ? Math.round(data.ramUsage) : 52;
+      return Math.ceil(getTextWidth(`${ramVal}%`, statFont) + 15);
+    }
+    case "netspeed": {
+      const speedText = formatNetSpeed(data.netDownMbps);
+      return Math.ceil(getTextWidth(speedText, statFont) + 14);
     }
     case "smart": {
       if (data.focusMode !== "Normal") {
@@ -418,6 +469,89 @@ export const IdleSlotView: React.FC<{
         </span>
       );
     }
+
+    case "cpu": {
+      const cpuVal = data.cpuUsage !== undefined ? Math.round(data.cpuUsage) : isPreview ? 24 : 0;
+      return (
+        <div
+          onClick={(e) => {
+            if (!isPreview && data.onOpenTab) {
+              e.stopPropagation();
+              data.onOpenTab("sys_monitor");
+            }
+          }}
+          className="flex items-center gap-1 shrink-0 cursor-pointer"
+          title={`CPU: ${cpuVal}%`}
+        >
+          <Cpu
+            size={10.5}
+            className={`shrink-0 ${
+              data.isLightMode && !isPreview ? "text-violet-700" : "text-[#a78bfa]"
+            }`}
+          />
+          <span className={`${baseTextClass} tabular-nums`}>
+            {cpuVal}%
+          </span>
+        </div>
+      );
+    }
+
+    case "ram": {
+      const ramVal = data.ramUsage !== undefined ? Math.round(data.ramUsage) : isPreview ? 52 : 0;
+      const usedGb = data.ramUsedGb?.toFixed(1);
+      const totalGb = data.ramTotalGb?.toFixed(1);
+      const tip = usedGb && totalGb ? `RAM: ${ramVal}% (${usedGb}/${totalGb} GB)` : `RAM: ${ramVal}%`;
+      return (
+        <div
+          onClick={(e) => {
+            if (!isPreview && data.onOpenTab) {
+              e.stopPropagation();
+              data.onOpenTab("sys_monitor");
+            }
+          }}
+          className="flex items-center gap-1 shrink-0 cursor-pointer"
+          title={tip}
+        >
+          <MemoryStick
+            size={10.5}
+            className={`shrink-0 ${
+              data.isLightMode && !isPreview ? "text-purple-700" : "text-[#c084fc]"
+            }`}
+          />
+          <span className={`${baseTextClass} tabular-nums`}>
+            {ramVal}%
+          </span>
+        </div>
+      );
+    }
+
+    case "netspeed": {
+      const speedStr = formatNetSpeed(data.netDownMbps ?? (isPreview ? 1.2 * 8 : undefined));
+      const downM = data.netDownMbps ? (data.netDownMbps / 8).toFixed(2) : "0.00";
+      const upM = data.netUpMbps ? (data.netUpMbps / 8).toFixed(2) : "0.00";
+      return (
+        <div
+          onClick={(e) => {
+            if (!isPreview && data.onOpenTab) {
+              e.stopPropagation();
+              data.onOpenTab("sys_monitor");
+            }
+          }}
+          className="flex items-center gap-0.5 shrink-0 cursor-pointer"
+          title={`↓ ${downM} MB/s · ↑ ${upM} MB/s`}
+        >
+          <ArrowDown
+            size={10}
+            className={`shrink-0 ${
+              data.isLightMode && !isPreview ? "text-sky-700" : "text-[#38bdf8]"
+            }`}
+          />
+          <span className={`${baseTextClass} tabular-nums`}>
+            {speedStr}
+          </span>
+        </div>
+      );
+    }
   }
 };
 
@@ -431,6 +565,9 @@ const ITEM_OPTIONS: { id: IdleSlotItem; icon: React.ReactNode }[] = [
   { id: "battery", icon: <BatteryCharging size={12} className="text-emerald-400" /> },
   { id: "clock", icon: <Clock size={12} className="text-sky-400" /> },
   { id: "date", icon: <Calendar size={12} className="text-rose-400" /> },
+  { id: "cpu", icon: <Cpu size={12} className="text-violet-400" /> },
+  { id: "ram", icon: <MemoryStick size={12} className="text-purple-400" /> },
+  { id: "netspeed", icon: <ArrowDownUp size={12} className="text-sky-400" /> },
   { id: "smart", icon: <Layers size={12} className="text-indigo-400" /> },
   { id: "ping", icon: <Activity size={12} className="text-green-400" /> },
   { id: "weather", icon: <CloudSun size={12} className="text-amber-400" /> },
