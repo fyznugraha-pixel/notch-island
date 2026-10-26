@@ -51,18 +51,43 @@ export async function getAllCustomSounds(): Promise<CustomSoundRecord[]> {
   }
 }
 
-export async function saveCustomSound(file: File): Promise<CustomSoundRecord> {
-  const arrayBuffer = await file.arrayBuffer();
+function getAudioMimeType(fileName: string, mime?: string): string {
+  if (mime && mime.startsWith("audio/")) return mime;
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "mp3":
+      return "audio/mpeg";
+    case "wav":
+      return "audio/wav";
+    case "ogg":
+      return "audio/ogg";
+    case "m4a":
+      return "audio/mp4";
+    case "aac":
+      return "audio/aac";
+    case "flac":
+      return "audio/flac";
+    default:
+      return "audio/mpeg";
+  }
+}
+
+export async function saveCustomSoundFromBuffer(
+  fileName: string,
+  arrayBuffer: ArrayBuffer,
+  mimeType?: string
+): Promise<CustomSoundRecord> {
   const id = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  const rawName = file.name.replace(/\.[^/.]+$/, "").trim();
+  const rawName = fileName.replace(/\.[^/.]+$/, "").trim();
   const cleanName = rawName.slice(0, 32) || "Custom Audio";
+  const resolvedMime = getAudioMimeType(fileName, mimeType);
 
   const record: CustomSoundRecord = {
     id,
     name: cleanName,
-    fileName: file.name,
-    mimeType: file.type || "audio/mpeg",
-    size: file.size,
+    fileName,
+    mimeType: resolvedMime,
+    size: arrayBuffer.byteLength,
     data: arrayBuffer,
     createdAt: Date.now(),
   };
@@ -76,11 +101,16 @@ export async function saveCustomSound(file: File): Promise<CustomSoundRecord> {
     req.onerror = () => reject(req.error);
   });
 
-  const blob = new Blob([arrayBuffer], { type: record.mimeType });
+  const blob = new Blob([arrayBuffer], { type: resolvedMime });
   const objectUrl = URL.createObjectURL(blob);
   cachedObjectUrls.set(id, objectUrl);
 
   return record;
+}
+
+export async function saveCustomSound(file: File): Promise<CustomSoundRecord> {
+  const arrayBuffer = await file.arrayBuffer();
+  return saveCustomSoundFromBuffer(file.name, arrayBuffer, file.type);
 }
 
 export async function deleteCustomSound(id: string): Promise<void> {
@@ -120,7 +150,8 @@ export async function ensureCustomSoundAudioUrl(id: string): Promise<string | nu
 
     if (!record || !record.data) return null;
 
-    const blob = new Blob([record.data], { type: record.mimeType || "audio/mpeg" });
+    const mime = getAudioMimeType(record.fileName || "", record.mimeType);
+    const blob = new Blob([record.data], { type: mime });
     const objectUrl = URL.createObjectURL(blob);
     cachedObjectUrls.set(id, objectUrl);
     return objectUrl;

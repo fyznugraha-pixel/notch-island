@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, Check, Volume2, UploadCloud, Trash2 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   NOTIF_SOUND_LIST,
   previewNotificationSound,
@@ -9,6 +10,7 @@ import {
 import {
   getAllCustomSounds,
   saveCustomSound,
+  saveCustomSoundFromBuffer,
   deleteCustomSound,
   CustomSoundRecord,
 } from "../../../services/customSoundStorage";
@@ -72,16 +74,37 @@ export const NotifSoundPicker: React.FC<NotifSoundPickerProps> = ({
     setIsOpen(false);
   };
 
+  const handleUploadClick = async () => {
+    setErrorMessage(null);
+    try {
+      setIsUploading(true);
+      const res = await invoke<{ file_name: string; bytes: number[] } | null>("pick_audio_file_dialog");
+      if (res && res.bytes && res.bytes.length > 0) {
+        const arrayBuffer = new Uint8Array(res.bytes).buffer;
+        const record = await saveCustomSoundFromBuffer(res.file_name, arrayBuffer);
+        setCustomSounds((prev) => [...prev, record]);
+        onChange(record.id);
+        previewNotificationSound(record.id);
+        return;
+      }
+    } catch (err) {
+      console.debug("Native file dialog fallback to HTML input:", err);
+      fileInputRef.current?.click();
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    e.target.value = "";
     setErrorMessage(null);
 
     if (file.size > MAX_FILE_SIZE) {
       setErrorMessage(t("sound_upload_error_size"));
       setTimeout(() => setErrorMessage(null), 3500);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
@@ -91,12 +114,12 @@ export const NotifSoundPicker: React.FC<NotifSoundPickerProps> = ({
       setCustomSounds((prev) => [...prev, record]);
       onChange(record.id);
       previewNotificationSound(record.id);
-      setIsOpen(false);
     } catch (err) {
       console.error("Failed to upload custom sound:", err);
       setErrorMessage("Gagal memproses file audio");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
       setIsUploading(false);
     }
   };
@@ -235,7 +258,7 @@ export const NotifSoundPicker: React.FC<NotifSoundPickerProps> = ({
             <button
               type="button"
               disabled={isUploading}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handleUploadClick}
               className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-[9px] text-[11px] font-medium text-[#af52de] hover:bg-[#af52de]/15 border border-dashed border-[#af52de]/30 hover:border-[#af52de]/60 transition-all cursor-pointer select-none disabled:opacity-50"
             >
               <UploadCloud size={13} className="shrink-0" />

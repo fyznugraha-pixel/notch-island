@@ -528,22 +528,22 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
 
     return (
       <div
-        className="relative z-30 flex items-center justify-center w-full select-none shrink-0 pt-0.5 pb-1 bg-transparent border-none shadow-none backdrop-blur-none cursor-pointer"
+        className="relative z-30 flex items-center justify-center w-full select-none shrink-0 pt-0.5 pb-1 bg-transparent border-none shadow-none backdrop-blur-none pointer-events-none"
         style={{ minHeight: 28 }}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        onClick={(e) => e.stopPropagation()}
       >
         <motion.div
           layout
           initial={false}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          onClick={(e) => e.stopPropagation()}
           animate={{
             height: isHovered ? 34 : 20,
-            paddingLeft: isHovered ? 8 : 4,
-            paddingRight: isHovered ? 8 : 4,
+            paddingLeft: isHovered ? 8 : 10,
+            paddingRight: isHovered ? 8 : 10,
           }}
           transition={springTransition}
-          className={`notch-nav-container relative flex items-center justify-center rounded-full pointer-events-auto select-none overflow-hidden transition-[background-color,border-color,box-shadow] duration-250 ease-out ${
+          className={`notch-nav-container relative flex items-center justify-center rounded-full pointer-events-auto select-none overflow-hidden transition-[background-color,border-color,box-shadow] duration-250 ease-out cursor-pointer ${
             isHovered
               ? `notch-nav-pill ${
                   useDarkNavbar
@@ -552,7 +552,7 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
                     ? "bg-white/[0.08] backdrop-blur-xl border border-white/15 shadow-none"
                     : "bg-white/[0.12] backdrop-blur-2xl border border-white/20 shadow-[0_8px_24px_rgba(0,0,0,0.25),inset_0_1px_1px_rgba(255,255,255,0.2)]"
                 } gap-1 is-hovered`
-              : "bg-transparent border border-transparent shadow-none backdrop-blur-none gap-1.5 cursor-pointer"
+              : "bg-transparent border border-transparent shadow-none backdrop-blur-none gap-1.5"
           }`}
         >
           <AnimatePresence initial={false} mode="wait">

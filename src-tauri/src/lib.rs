@@ -1690,6 +1690,102 @@ async fn pick_files_dialog() -> Result<Vec<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Serialize, Clone)]
+struct PickedAudioFile {
+    file_name: String,
+    bytes: Vec<u8>,
+}
+
+#[tauri::command]
+async fn pick_audio_file_dialog() -> Result<Option<PickedAudioFile>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
+            COINIT_APARTMENTTHREADED,
+        };
+        use windows::Win32::UI::Shell::{
+            FileOpenDialog, IFileOpenDialog, FOS_FILEMUSTEXIST, SIGDN_FILESYSPATH,
+        };
+        use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
+        use windows::core::w;
+
+        let com_init = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok() };
+        let result = (|| -> windows::core::Result<Option<PickedAudioFile>> {
+            unsafe {
+                let dialog: IFileOpenDialog =
+                    CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
+                let mut options = dialog.GetOptions()?;
+                options |= FOS_FILEMUSTEXIST;
+                dialog.SetOptions(options)?;
+
+                let filter = [
+                    COMDLG_FILTERSPEC {
+                        pszName: w!("Audio Files (*.mp3;*.wav;*.ogg;*.m4a;*.aac;*.flac)"),
+                        pszSpec: w!("*.mp3;*.wav;*.ogg;*.m4a;*.aac;*.flac"),
+                    },
+                    COMDLG_FILTERSPEC {
+                        pszName: w!("All Files (*.*)"),
+                        pszSpec: w!("*.*"),
+                    },
+                ];
+                let _ = dialog.SetFileTypes(&filter);
+
+                if let Err(e) = dialog.Show(None) {
+                    if e.code().0 == -2147023673 || e.code().0 == 0x800704C7u32 as i32 {
+                        return Ok(None);
+                    }
+                    return Err(e);
+                }
+
+                let item = dialog.GetResult()?;
+                let name = item.GetDisplayName(SIGDN_FILESYSPATH)?;
+                let path_str = name.to_string()?;
+                CoTaskMemFree(Some(name.as_ptr() as *const _));
+
+                let path = std::path::Path::new(&path_str);
+                let file_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("audio.mp3")
+                    .to_string();
+
+                let bytes = match std::fs::read(path) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return Err(windows::core::Error::new(
+                            windows::core::HRESULT(-1),
+                            e.to_string(),
+                        ))
+                    }
+                };
+
+                // Limit file size to 15MB
+                if bytes.len() > 15 * 1024 * 1024 {
+                    return Err(windows::core::Error::new(
+                        windows::core::HRESULT(-1),
+                        "Audio file exceeds 15MB limit".to_string(),
+                    ));
+                }
+
+                Ok(Some(PickedAudioFile { file_name, bytes }))
+            }
+        })();
+
+        if com_init {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+
+        match result {
+            Ok(opt) => Ok(opt),
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn is_foreground_window_browser() -> Option<bool> {
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
@@ -1932,6 +2028,7 @@ pub fn run() {
             copy_file_to_clipboard,
             copy_files_to_clipboard,
             pick_files_dialog,
+            pick_audio_file_dialog,
             get_file_preview,
             set_shelf_drag,
             check_foreground_browser,
