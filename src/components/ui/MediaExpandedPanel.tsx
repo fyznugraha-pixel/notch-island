@@ -100,6 +100,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   isAdjustingVolumeRef,
   queueHistory = [],
 }) => {
+  const isCompact = (_tabWidth ?? 660) <= 600;
   const hasMedia = Boolean(media && (media.title || media.artist));
   const activePlaying = Boolean(hasMedia && isPlaying);
   const displayTitle = hasMedia
@@ -163,8 +164,8 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
       exit="exit"
       className="absolute inset-0 w-full h-full flex px-3 pb-2.5 pt-1.5 min-w-0 cursor-default gap-3 relative gpu-accelerated"
     >
-      {/* Left Column: Player Controls (Fixed 320px width so progress bar and controls never shift) */}
-      <div className="w-[320px] h-full flex flex-col justify-between min-w-0 relative z-10 shrink-0 overflow-hidden">
+      {/* Left Column: Player Controls */}
+      <div className={`h-full flex flex-col justify-between min-w-0 relative z-10 shrink-0 overflow-hidden ${isCompact ? "w-[298px]" : "w-[320px]"}`}>
         <div className="flex items-center gap-3.5 px-0.5">
           <div className="w-14 h-14 bg-neutral-800/50 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-lg border border-white/10 relative">
             {hasMedia && media ? (
@@ -299,10 +300,10 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center justify-center gap-6 relative">
-            <div className="w-9 h-9 opacity-0 pointer-events-none shrink-0" />
+          <div className={`flex items-center justify-center relative ${isCompact ? "gap-4" : "gap-6"}`}>
+            <div className={`${isCompact ? "w-8 h-8" : "w-9 h-9"} opacity-0 pointer-events-none shrink-0`} />
 
-            <div className="flex items-center gap-7">
+            <div className={`flex items-center ${isCompact ? "gap-5" : "gap-7"}`}>
               <Tooltip content={t("media_prev")} side="top">
                 <motion.button
                   whileHover={{ scale: 1.1 }}
@@ -311,9 +312,9 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                     e.stopPropagation();
                     onMediaControl("prev");
                   }}
-                  className="w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10 media-control-btn"
+                  className={`${isCompact ? "w-9 h-9" : "w-10 h-10"} flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10 media-control-btn`}
                 >
-                  <SkipBack size={22} fill="currentColor" />
+                  <SkipBack size={isCompact ? 20 : 22} fill="currentColor" />
                 </motion.button>
               </Tooltip>
               <Tooltip content={activePlaying ? t("media_pause") : t("media_play")} side="top">
@@ -324,12 +325,12 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                     e.stopPropagation();
                     onMediaControl("toggle");
                   }}
-                  className="w-11 h-11 flex items-center justify-center text-white hover:bg-white/10 media-play-btn rounded-full shrink-0 transition-colors cursor-pointer"
+                  className={`${isCompact ? "w-10 h-10" : "w-11 h-11"} flex items-center justify-center text-white hover:bg-white/10 media-play-btn rounded-full shrink-0 transition-colors cursor-pointer`}
                 >
                   {activePlaying ? (
-                    <Pause size={26} fill="currentColor" />
+                    <Pause size={isCompact ? 24 : 26} fill="currentColor" />
                   ) : (
-                    <Play size={26} fill="currentColor" className="ml-0.5" />
+                    <Play size={isCompact ? 24 : 26} fill="currentColor" className="ml-0.5" />
                   )}
                 </motion.button>
               </Tooltip>
@@ -341,9 +342,9 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                     e.stopPropagation();
                     onMediaControl("next");
                   }}
-                  className="w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10 media-control-btn"
+                  className={`${isCompact ? "w-9 h-9" : "w-10 h-10"} flex items-center justify-center rounded-full transition-all shrink-0 text-white/60 hover:text-white hover:bg-white/10 media-control-btn`}
                 >
-                  <SkipForward size={22} fill="currentColor" />
+                  <SkipForward size={isCompact ? 20 : 22} fill="currentColor" />
                 </motion.button>
               </Tooltip>
             </div>

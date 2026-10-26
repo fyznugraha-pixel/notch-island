@@ -2635,7 +2635,7 @@ export default function App() {
 
   const tabWidth = effectiveTabSize === "compact" ? 600 : effectiveTabSize === "large" ? 700 : 660;
   const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
-  const lyricsExpandedWidth = effectiveTabSize === "compact" ? 640 : effectiveTabSize === "large" ? 740 : 680;
+  const lyricsExpandedWidth = effectiveTabSize === "compact" ? 652 : effectiveTabSize === "large" ? 740 : 680;
 
   let smoothSpring: any = { type: "spring", stiffness: 290, damping: 24, mass: 0.76 };
   if (optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 380, damping: 27, mass: 0.68 };
