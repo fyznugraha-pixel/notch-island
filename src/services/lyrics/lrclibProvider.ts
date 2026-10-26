@@ -90,7 +90,7 @@ export const lrclibProvider: LyricsProvider = {
       }
     }
 
-    const headers = { "User-Agent": "Gili/4.0.0 (https://github.com/faiz)" };
+    const headers = { "User-Agent": "Gili/4.0.1 (https://github.com/faiz)" };
 
     try {
       let getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTitle)}&artist_name=${encodeURIComponent(effectiveArtist)}`;

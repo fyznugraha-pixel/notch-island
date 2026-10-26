@@ -24,7 +24,6 @@ import { MediaThumbnail, useResolvedThumbnail } from "./components/ui/MediaThumb
 import { prefetchArtwork, getResolvedArtworkUrl } from "./services/artworkService";
 import { AudioVisualizer } from "./components/ui/AudioVisualizer";
 import { ScrollingText } from "./components/ui/ScrollingText";
-import { WeatherAnimation } from "./components/ui/WeatherAnimation";
 import { NotchSurface } from "./components/ui/NotchSurface";
 import { PanelFrame } from "./components/ui/PanelNavHeader";
 import { getTextWidth } from "./utils/text";
@@ -1393,7 +1392,6 @@ export default function App() {
   });
   const [shapeTransitionY, setShapeTransitionY] = useState(0);
   const [optEars, setOptEars] = useState<boolean>(true);
-  const [optWeatherAnim, setOptWeatherAnim] = useState<boolean>(true);
   const [optTheme, setOptTheme] = useState<"dark" | "light" | "auto">(() => {
     try {
       const s = localStorage.getItem("island_theme");
@@ -1676,7 +1674,6 @@ export default function App() {
           try { localStorage.setItem("island_top_offset", String(topOff)); } catch {}
         }
         const ears = await s.get('opt_ears'); if (typeof ears === 'boolean') setOptEars(ears);
-        const wa = await s.get('opt_weather_anim'); if (typeof wa === 'boolean') setOptWeatherAnim(wa);
         const ac = await s.get('opt_auto_compact'); if (typeof ac === 'boolean') setOptAutoCompact(ac);
         const lang = await s.get('opt_language');
         if (lang === 'en' || lang === 'id') {
@@ -3332,7 +3329,6 @@ export default function App() {
         />
 
         <div className="absolute inset-0 z-10 overflow-hidden rounded-[inherit] pointer-events-auto">
-          <WeatherAnimation weatherCode={optWeatherAnim ? (weather?.code || null) : null} />
           <AnimatePresence>
             {isDragOver && (
               <motion.div
@@ -4029,12 +4025,6 @@ export default function App() {
                               const next = !optEars;
                               setOptEars(next);
                               if (store) await store.set("opt_ears", next);
-                            }}
-                            optWeatherAnim={optWeatherAnim}
-                            onToggleWeatherAnim={async () => {
-                              const next = !optWeatherAnim;
-                              setOptWeatherAnim(next);
-                              if (store) await store.set("opt_weather_anim", next);
                             }}
                             optPosition={optPosition}
                             onChangePosition={async (pos) => {

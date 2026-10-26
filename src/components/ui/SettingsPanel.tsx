@@ -66,8 +66,6 @@ export interface SettingsPanelProps {
   onChangeFontSize: (size: "small" | "default" | "large") => void;
   optEars: boolean;
   onToggleEars: () => void;
-  optWeatherAnim: boolean;
-  onToggleWeatherAnim: () => void;
   optPosition: "top" | "bottom";
   onChangePosition: (pos: "top" | "bottom") => void;
   optOpacity: number;
@@ -153,8 +151,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangeFontSize,
   optEars,
   onToggleEars,
-  optWeatherAnim: _optWeatherAnim,
-  onToggleWeatherAnim: _onToggleWeatherAnim,
   optPosition,
   onChangePosition,
   optOpacity,
@@ -179,7 +175,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
-  const [currentAppVersion, setCurrentAppVersion] = useState<string>("4.0.0");
+  const [currentAppVersion, setCurrentAppVersion] = useState<string>("4.0.1");
 
   const [clearTempStatus, setClearTempStatus] = useState<"idle" | "cleaning" | "done" | "error">("idle");
   const [clearedResult, setClearedResult] = useState<{
