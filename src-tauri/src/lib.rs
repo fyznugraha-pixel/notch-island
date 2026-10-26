@@ -5,6 +5,7 @@ mod connectivity;
 mod system_monitor;
 mod audio_endpoints;
 mod migration;
+mod windows_dnd;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -1947,7 +1948,9 @@ pub fn run() {
             connectivity::get_hotspot_status,
             connectivity::toggle_hotspot,
             system_monitor::get_system_metrics,
-            system_monitor::clear_temp_files
+            system_monitor::clear_temp_files,
+            windows_dnd::set_windows_dnd,
+            windows_dnd::get_windows_dnd
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};

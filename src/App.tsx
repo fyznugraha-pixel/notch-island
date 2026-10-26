@@ -482,7 +482,9 @@ export default function App() {
     const wasSleep = focusMode === "Sleep";
     setFocusMode(nextMode);
     focusModeRef.current = nextMode;
-    setDndStatus(nextMode === "DND");
+    const isDnd = nextMode === "DND";
+    setDndStatus(isDnd);
+    invoke("set_windows_dnd", { enabled: isDnd }).catch(console.error);
 
     if (nextMode === "DND") {
       setNotif(null);
@@ -1928,6 +1930,16 @@ export default function App() {
       })
       .catch(console.error);
 
+    invoke<boolean>("get_windows_dnd")
+      .then((isWinDnd) => {
+        if (isWinDnd) {
+          setFocusMode("DND");
+          focusModeRef.current = "DND";
+          setDndStatus(true);
+        }
+      })
+      .catch(() => {});
+
     const unlistenPrivacy = listen<{cam: boolean, mic: boolean}>("privacy-update", (event) => {
       setCamActive(event.payload.cam);
       setMicActive(event.payload.mic);
@@ -2183,15 +2195,31 @@ export default function App() {
               if (focusModeRef.current !== "DND" && !pomoMuteNotifsRef.current) {
                 playNotificationSound();
               }
-              const notifSubtitle = ocrText.trim()
-                ? (ocrText.trim().length > 80 ? `${ocrText.trim().slice(0, 80)}…` : ocrText.trim())
+              const cleanOcr = ocrText.trim();
+              const hasOcr = Boolean(cleanOcr);
+              const notifSubtitle = hasOcr
+                ? (cleanOcr.length > 80 ? `${cleanOcr.slice(0, 80)}…` : cleanOcr)
                 : `${clipImage.width} × ${clipImage.height} px`;
 
               showNotif({
-                title: t("notif_image_copied_clipboard"),
+                title: hasOcr ? t("notif_ocr_detected") : t("notif_image_copied_clipboard"),
                 body: notifSubtitle,
                 headline: notifSubtitle,
                 icon: "clipboard",
+                onClick: hasOcr
+                  ? () => {
+                      isOcrWritingRef.current = true;
+                      writeText(cleanOcr)
+                        .then(() => {
+                          addClipboardItem(cleanOcr);
+                          showNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
+                          setTimeout(() => {
+                            isOcrWritingRef.current = false;
+                          }, 2000);
+                        })
+                        .catch(console.error);
+                    }
+                  : undefined,
               });
             }
             return;
@@ -3654,6 +3682,10 @@ export default function App() {
                                   writeText(item.text).catch(console.error);
                                   addClipboardItem(item.text);
                                 }
+                              }}
+                              onCopyText={(text) => {
+                                writeText(text).catch(console.error);
+                                addClipboardItem(text);
                               }}
                               onTogglePinItem={togglePinClipboardItem}
                               onUpdateItem={updateClipboardItem}

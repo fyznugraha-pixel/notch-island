@@ -19,6 +19,7 @@ export interface ClipboardItem {
 export interface ClipboardPanelProps {
   items: ClipboardItem[];
   onCopyItem: (item: ClipboardItem) => void;
+  onCopyText?: (text: string) => void;
   onDeleteItem: (id: string) => void;
   onTogglePinItem?: (id: string) => void;
   onUpdateItem?: (id: string, updates: Partial<ClipboardItem>) => void;
@@ -42,6 +43,7 @@ function formatRelativeTime(timestamp: number): string {
 export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
   items,
   onCopyItem,
+  onCopyText,
   onDeleteItem,
   onTogglePinItem,
   onUpdateItem,
@@ -49,6 +51,7 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedOcrId, setCopiedOcrId] = useState<string | null>(null);
   const [loadedThumbnails, setLoadedThumbnails] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -100,6 +103,20 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
     setCopiedId(item.id);
     setTimeout(() => {
       setCopiedId((prev) => (prev === item.id ? null : prev));
+    }, 1500);
+  };
+
+  const handleCopyOcrText = (e: React.MouseEvent, item: ClipboardItem) => {
+    e.stopPropagation();
+    if (!item.text) return;
+    if (onCopyText) {
+      onCopyText(item.text);
+    } else {
+      onCopyItem({ ...item, type: "text" });
+    }
+    setCopiedOcrId(item.id);
+    setTimeout(() => {
+      setCopiedOcrId((curr) => (curr === item.id ? null : curr));
     }, 1500);
   };
 
@@ -281,9 +298,38 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
                         </div>
                       )}
                     </div>
-                    {item.text && (
-                      <div className="text-[10.5px] text-white/60 line-clamp-2 break-words font-sans leading-snug">
-                        {item.text}
+                    {item.text && item.text.trim().length > 0 && (
+                      <div className="flex flex-col gap-1 mt-1 p-2 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="text-[10px] font-semibold text-purple-300 flex items-center gap-1">
+                            <FileText size={11} />
+                            {t("clipboard_ocr_extracted")}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopyOcrText(e, item)}
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                              copiedOcrId === item.id
+                                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                                : "bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/30"
+                            }`}
+                          >
+                            {copiedOcrId === item.id ? (
+                              <>
+                                <Check size={11} strokeWidth={2.5} />
+                                <span>{t("clipboard_copied_text")}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={11} />
+                                <span>{t("clipboard_copy_text")}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        <div className="text-[10.5px] text-white/70 line-clamp-3 break-words font-sans leading-relaxed select-text cursor-text">
+                          {item.text}
+                        </div>
                       </div>
                     )}
                   </div>
