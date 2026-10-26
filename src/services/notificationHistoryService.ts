@@ -150,10 +150,14 @@ export function loadNotificationHistory(): NotificationHistoryItem[] {
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      // Filter out greeting notifications and update any previously truncated seed texts
+      // Filter out greeting notifications, clipboard copy toasts, and update any previously truncated seed texts
       const sanitized = parsed
         .filter(
-          (item) => item.icon !== "sun" && item.icon !== "moon" && !item.title?.startsWith("Hi, ")
+          (item) =>
+            item.icon !== "sun" &&
+            item.icon !== "moon" &&
+            item.icon !== "clipboard" &&
+            !item.title?.startsWith("Hi, ")
         )
         .map((item) => {
           if (item.id === "notif-seed-3" && item.body && item.body.includes("memory us...")) {

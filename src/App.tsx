@@ -125,11 +125,12 @@ export default function App() {
   const notchPillRef = useRef<HTMLDivElement>(null);
 
   const showNotif = (newNotif: NotifPayload) => {
-    // Record real notifications to history (ignore transient hardware slider volume/brightness HUDs and boot greetings)
+    // Record real notifications to history (ignore transient hardware slider volume/brightness HUDs, boot greetings, and clipboard copy toasts)
     const isGreeting = newNotif.type === "greeting" || newNotif.icon === "sun" || newNotif.icon === "moon";
     const isHardwareHud = newNotif.icon === "volume" || newNotif.icon === "brightness";
+    const isClipboardNotif = newNotif.icon === "clipboard";
 
-    if (!isHardwareHud && !isGreeting) {
+    if (!isHardwareHud && !isGreeting && !isClipboardNotif) {
       const { appName } = categorizeNotification(newNotif);
       if (!isAppMuted(appName)) {
         const saved = addNotificationHistoryItem(newNotif);
