@@ -239,10 +239,10 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -5 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full flex flex-col justify-center items-center select-none pointer-events-none"
+            className="w-full flex flex-col justify-center items-center select-none pointer-events-none gap-[2px]"
           >
             {/* Top Line: Previous Lyric */}
-            <div className="w-full h-[13px] flex items-center justify-center overflow-hidden">
+            <div className="w-full h-[11px] flex items-center justify-center overflow-hidden">
               <span
                 className={`${inactiveFontClass} font-medium text-white/35 truncate w-full text-center leading-none`}
               >
@@ -251,7 +251,7 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
             </div>
 
             {/* Middle Line: Synced Active Lyric (Centered, Bold, Highlighted) */}
-            <div className="w-full h-[22px] flex items-center justify-center overflow-hidden my-0.5">
+            <div className="w-full h-[17px] flex items-center justify-center overflow-hidden">
               <ScrollingText
                 text={currLine}
                 className={`${activeFontClass} font-bold text-white tracking-tight leading-none w-full text-center`}
@@ -259,7 +259,7 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
             </div>
 
             {/* Bottom Line: Next Lyric */}
-            <div className="w-full h-[13px] flex items-center justify-center overflow-hidden">
+            <div className="w-full h-[11px] flex items-center justify-center overflow-hidden">
               <span
                 className={`${inactiveFontClass} font-medium text-white/35 truncate w-full text-center leading-none`}
               >

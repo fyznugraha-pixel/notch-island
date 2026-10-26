@@ -2799,7 +2799,7 @@ export default function App() {
 
   const idleMultiplier = effectiveIdleSize === "compact" ? 0.88 : effectiveIdleSize === "large" ? 1.15 : 1.0;
   const idleHeight = effectiveIdleSize === "compact" ? 28 : effectiveIdleSize === "large" ? 36 : 32;
-  const lyricsIdleBaseHeight = optFontSize === "large" ? 64 : optFontSize === "small" ? 54 : 58;
+  const lyricsIdleBaseHeight = optFontSize === "large" ? 64 : optFontSize === "small" ? 56 : 60;
 
   const tabWidth = effectiveTabSize === "compact" ? 600 : effectiveTabSize === "large" ? 700 : 660;
   const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
