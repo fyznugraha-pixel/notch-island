@@ -255,35 +255,35 @@ async fn read_clipboard_image(app: tauri::AppHandle) -> Result<Option<ClipboardI
         let _ = std::fs::create_dir_all(&cache_dir);
         let img_path = cache_dir.join(format!("{}.png", id));
 
-        image::save_buffer(&img_path, rgba, width, height, image::ColorType::Rgba8)
-            .map_err(|e| e.to_string())?;
+        let img_buffer = match image::RgbaImage::from_raw(width, height, rgba.to_vec()) {
+            Some(buf) => buf,
+            None => return Ok(None),
+        };
+
+        img_buffer.save(&img_path).map_err(|e| e.to_string())?;
 
         let max_thumb_dim = 320.0;
         let scale = (max_thumb_dim / (width.max(height) as f32)).min(1.0);
         let thumb_w = ((width as f32 * scale).round() as u32).max(1);
         let thumb_h = ((height as f32 * scale).round() as u32).max(1);
 
-        let thumbnail = if let Some(img_buffer) = image::RgbaImage::from_raw(width, height, rgba.to_vec()) {
-            let resized = image::imageops::resize(&img_buffer, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
-            let mut cursor = std::io::Cursor::new(Vec::new());
-            use base64::Engine;
-            // JPEG requires RGB8 (no alpha channel). Convert to RGB8 for compact base64 data URI.
-            let rgb = image::DynamicImage::ImageRgba8(resized.clone()).into_rgb8();
-            if rgb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-                format!("data:image/jpeg;base64,{}", b64)
-            } else {
-                cursor.set_position(0);
-                cursor.get_mut().clear();
-                if resized.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
-                    let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-                    format!("data:image/png;base64,{}", b64)
-                } else {
-                    String::new()
-                }
-            }
+        let resized = image::imageops::resize(&img_buffer, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        use base64::Engine;
+        // JPEG requires RGB8 (no alpha channel). Convert to RGB8 for compact base64 data URI.
+        let rgb = image::DynamicImage::ImageRgba8(resized.clone()).into_rgb8();
+        let thumbnail = if rgb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+            format!("data:image/jpeg;base64,{}", b64)
         } else {
-            String::new()
+            cursor.set_position(0);
+            cursor.get_mut().clear();
+            if resized.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+                format!("data:image/png;base64,{}", b64)
+            } else {
+                String::new()
+            }
         };
 
         Ok(Some(ClipboardImageItem {
@@ -317,147 +317,163 @@ async fn copy_image_to_clipboard(app: tauri::AppHandle, path: String) -> Result<
 }
 
 #[tauri::command]
-async fn extract_clipboard_text(app: tauri::AppHandle) -> Result<String, String> {
+async fn extract_image_text(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        use tauri_plugin_clipboard_manager::ClipboardExt;
-
-        let clipboard = app.clipboard();
-        let image = clipboard.read_image().map_err(|e| e.to_string())?;
-
-        let width = image.width();
-        let height = image.height();
-        if width == 0 || height == 0 {
-            return Err("Invalid image dimensions".to_string());
+        let p = std::path::Path::new(&path);
+        if !p.exists() {
+            return Err("Image file does not exist".to_string());
         }
 
-        let rgba = image.rgba();
-        if rgba.len() != (width * height * 4) as usize {
-            return Err("Invalid image byte size".to_string());
-        }
-
-        // Windows OCR memiliki batas ukuran (MaxImageDimension ~2600px).
-        // Jika screenshot melebihi 2500px (layar 2K/4K/dual monitor), resize proporsional.
-        let (final_rgba, final_width, final_height) = if width > 2500 || height > 2500 {
-            if let Some(img_buffer) = image::RgbaImage::from_raw(width, height, rgba.to_vec()) {
-                let scale = 2500.0 / (width.max(height) as f32);
-                let target_w = ((width as f32 * scale).round() as u32).max(1);
-                let target_h = ((height as f32 * scale).round() as u32).max(1);
-                let resized = image::imageops::resize(&img_buffer, target_w, target_h, image::imageops::FilterType::Triangle);
-                let (rw, rh) = resized.dimensions();
-                (resized.into_raw(), rw, rh)
+        // Check if image dimensions exceed Windows OCR limit (~2600px).
+        // If > 2500px, downscale to a temporary file so OCR succeeds without error.
+        let mut temp_resized_path: Option<std::path::PathBuf> = None;
+        let ocr_file_path = if let Ok(reader) = image::ImageReader::open(p) {
+            if let Ok(dimensions) = reader.into_dimensions() {
+                let (w, h) = dimensions;
+                if w > 2500 || h > 2500 {
+                    if let Ok(img) = image::open(p) {
+                        let scale = 2500.0 / (w.max(h) as f32);
+                        let tw = ((w as f32 * scale).round() as u32).max(1);
+                        let th = ((h as f32 * scale).round() as u32).max(1);
+                        let resized = img.resize(tw, th, image::imageops::FilterType::Triangle);
+                        let temp_path = std::env::temp_dir().join(format!("gili_ocr_tmp_{}_{}.png", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()));
+                        if resized.save(&temp_path).is_ok() {
+                            temp_resized_path = Some(temp_path.clone());
+                            temp_path
+                        } else {
+                            p.to_path_buf()
+                        }
+                    } else {
+                        p.to_path_buf()
+                    }
+                } else {
+                    p.to_path_buf()
+                }
             } else {
-                (rgba.to_vec(), width, height)
+                p.to_path_buf()
             }
         } else {
-            (rgba.to_vec(), width, height)
+            p.to_path_buf()
         };
-
-        let temp_dir = std::env::temp_dir();
-        let img_path = temp_dir.join(format!("notch_ocr_{}.png", std::process::id()));
-
-        image::save_buffer(&img_path, &final_rgba, final_width, final_height, image::ColorType::Rgba8)
-            .map_err(|e| e.to_string())?;
 
         let ocr_result = (|| -> Result<String, String> {
             use windows::Graphics::Imaging::BitmapDecoder;
             use windows::Media::Ocr::OcrEngine;
             use windows::Storage::{StorageFile, FileAccessMode};
             use std::os::windows::ffi::OsStrExt;
-            use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+            use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 
-            // Inisialisasi COM untuk thread ini (penting buat WinRT)
-            let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            let com_init = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).is_ok() };
 
-            let wide_path: Vec<u16> = img_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-            let hstring_path = windows::core::HSTRING::from_wide(&wide_path[..wide_path.len() - 1]).map_err(|e| e.to_string())?;
+            let res = (|| -> Result<String, String> {
+                let wide_path: Vec<u16> = ocr_file_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+                let hstring_path = windows::core::HSTRING::from_wide(&wide_path[..wide_path.len() - 1]).map_err(|e| e.to_string())?;
 
-            let file = StorageFile::GetFileFromPathAsync(&hstring_path).map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
-            let stream = file.OpenAsync(FileAccessMode::Read).map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
+                let file = StorageFile::GetFileFromPathAsync(&hstring_path).map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
+                let stream = file.OpenAsync(FileAccessMode::Read).map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
 
-            let decoder = BitmapDecoder::CreateAsync(&stream).map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
-            let software_bitmap = decoder.GetSoftwareBitmapAsync().map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
+                let decoder = BitmapDecoder::CreateAsync(&stream).map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
+                let software_bitmap = decoder.GetSoftwareBitmapAsync().map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
 
-            let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| e.to_string())?;
+                let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| e.to_string())?;
 
-            // Cegah STATUS_ACCESS_VIOLATION (0xC0000005) jika Windows tidak memiliki OCR language pack
-            let raw_ptr: *mut std::ffi::c_void = unsafe { std::mem::transmute_copy(&engine) };
-            if raw_ptr.is_null() {
-                return Err("OCR engine is not supported or language pack is missing".to_string());
-            }
+                let raw_ptr: *mut std::ffi::c_void = unsafe { std::mem::transmute_copy(&engine) };
+                if raw_ptr.is_null() {
+                    return Err("OCR engine is not supported or language pack is missing".to_string());
+                }
 
-            let result = engine.RecognizeAsync(&software_bitmap).map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
-            let lines = result.Lines().map_err(|e| e.to_string())?;
+                let result = engine.RecognizeAsync(&software_bitmap).map_err(|e| e.to_string())?.get().map_err(|e| e.to_string())?;
+                let lines = result.Lines().map_err(|e| e.to_string())?;
 
-            let mut min_x = f32::MAX;
-            let mut total_chars = 0;
-            let mut total_width = 0.0;
+                let mut min_x = f32::MAX;
+                let mut total_chars = 0;
+                let mut total_width = 0.0;
 
-            for line in &lines {
-                if let Ok(words) = line.Words() {
-                    for word in &words {
-                        if let Ok(rect) = word.BoundingRect() {
-                            if rect.X < min_x {
-                                min_x = rect.X;
-                            }
-                            if let Ok(text) = word.Text() {
-                                let text_str = text.to_string();
-                                if !text_str.is_empty() {
-                                    total_chars += text_str.chars().count();
-                                    total_width += rect.Width;
+                for line in &lines {
+                    if let Ok(words) = line.Words() {
+                        for word in &words {
+                            if let Ok(rect) = word.BoundingRect() {
+                                if rect.X < min_x {
+                                    min_x = rect.X;
+                                }
+                                if let Ok(text) = word.Text() {
+                                    let text_str = text.to_string();
+                                    if !text_str.is_empty() {
+                                        total_chars += text_str.chars().count();
+                                        total_width += rect.Width;
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            let avg_char_width = if total_chars > 0 {
-                let avg = total_width / (total_chars as f32);
-                if avg < 1.0 { 1.0 } else { avg }
-            } else {
-                10.0
-            };
+                let avg_char_width = if total_chars > 0 {
+                    let avg = total_width / (total_chars as f32);
+                    if avg < 1.0 { 1.0 } else { avg }
+                } else {
+                    10.0
+                };
 
-            if min_x == f32::MAX {
-                min_x = 0.0;
-            }
+                if min_x == f32::MAX {
+                    min_x = 0.0;
+                }
 
-            let mut formatted_text = String::new();
+                let mut formatted_text = String::new();
 
-            for line in &lines {
-                if let Ok(words) = line.Words() {
-                    let mut current_x = min_x;
-                    let mut line_text = String::new();
-                    for word in words {
-                        if let Ok(rect) = word.BoundingRect() {
-                            let x = rect.X;
-                            if x > current_x {
-                                let space_count = ((x - current_x) / avg_char_width).round() as i32;
-                                if space_count > 0 {
-                                    let count = space_count.min(100) as usize;
-                                    line_text.push_str(&" ".repeat(count));
+                for line in &lines {
+                    if let Ok(words) = line.Words() {
+                        let mut current_x = min_x;
+                        let mut line_text = String::new();
+                        for word in words {
+                            if let Ok(rect) = word.BoundingRect() {
+                                let x = rect.X;
+                                if x > current_x {
+                                    let space_count = ((x - current_x) / avg_char_width).round() as i32;
+                                    if space_count > 0 {
+                                        let count = space_count.min(100) as usize;
+                                        line_text.push_str(&" ".repeat(count));
+                                    }
+                                }
+                                if let Ok(text) = word.Text() {
+                                    let text_str = text.to_string();
+                                    line_text.push_str(&text_str);
+                                    current_x = x + rect.Width;
                                 }
                             }
-                            if let Ok(text) = word.Text() {
-                                let text_str = text.to_string();
-                                line_text.push_str(&text_str);
-                                current_x = x + rect.Width;
-                            }
                         }
+                        formatted_text.push_str(line_text.trim_end());
+                        formatted_text.push('\n');
                     }
-                    formatted_text.push_str(line_text.trim_end());
-                    formatted_text.push('\n');
                 }
+
+                Ok(formatted_text.trim_end().to_string())
+            })();
+
+            if com_init {
+                unsafe { CoUninitialize(); }
             }
 
-            Ok(formatted_text.trim_end().to_string())
+            res
         })();
 
-        let _ = std::fs::remove_file(&img_path);
+        if let Some(temp) = temp_resized_path {
+            let _ = std::fs::remove_file(temp);
+        }
+
         ocr_result
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn extract_clipboard_text(app: tauri::AppHandle) -> Result<String, String> {
+    if let Some(clip_img) = read_clipboard_image(app).await? {
+        extract_image_text(clip_img.path).await
+    } else {
+        Err("No image in clipboard".to_string())
+    }
 }
 
 static LAST_ACTIVE_SMTC: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
@@ -762,29 +778,30 @@ fn calculate_notch_hit(
 
     let is_closed = pill.height <= 50.0;
 
-    if pill.is_island && !pill.is_bottom && is_closed {
-        // Hot zone for Island mode when closed (top):
-        // Covers from the top edge of screen (y = win_pos.y - phys_offset)
-        // down to the bottom of the pill + margin.
-        // Width has 8px tolerance on both sides.
+    if pill.is_island && !pill.is_bottom {
+        // Hot zone for Island mode (top):
+        // Covers from the physical top edge of screen (y = pill_y - phys_offset)
+        // down to the bottom of the pill + margin + bottom_extra.
+        // Prevents jitter/flicker when cursor is pushed to the very top edge of screen.
         let phys_offset = (pill.top_offset as f64 * sf).round() as i32;
-        let side_tolerance = (8.0 * sf) as i32;
+        let side_tolerance = if is_closed { (8.0 * sf) as i32 } else { 0 };
         let min_x = pill_x - margin - side_tolerance;
         let max_x = pill_x + hit_w + margin + side_tolerance;
-        let min_y = pill_y - phys_offset; // Top bezel
-        let max_y = pill_y + hit_h + margin;
+        let min_y = pill_y - phys_offset; // Top bezel / physical screen edge
+        let bottom_extra = if pill.height > 50.0 { (6.0 * sf) as i32 } else { 0 };
+        let max_y = pill_y + hit_h + margin + bottom_extra;
 
         pt.x >= min_x && pt.x <= max_x && pt.y >= min_y && pt.y <= max_y
-    } else if pill.is_island && pill.is_bottom && is_closed {
-        // Hot zone for Island mode when closed (bottom):
+    } else if pill.is_island && pill.is_bottom {
+        // Hot zone for Island mode (bottom):
         // Covers from the top of the pill - margin
-        // down to the bottom edge of screen (y = pill_y + hit_h + phys_offset).
+        // down to the physical bottom edge of screen (y = pill_y + hit_h + phys_offset).
         let phys_offset = (pill.top_offset as f64 * sf).round() as i32;
-        let side_tolerance = (8.0 * sf) as i32;
+        let side_tolerance = if is_closed { (8.0 * sf) as i32 } else { 0 };
         let min_x = pill_x - margin - side_tolerance;
         let max_x = pill_x + hit_w + margin + side_tolerance;
         let min_y = pill_y - margin;
-        let max_y = pill_y + hit_h + phys_offset; // Bottom screen edge
+        let max_y = pill_y + hit_h + phys_offset; // Bottom physical screen edge
 
         pt.x >= min_x && pt.x <= max_x && pt.y >= min_y && pt.y <= max_y
     } else {
@@ -2015,6 +2032,7 @@ pub fn run() {
             get_brightness,
             set_brightness,
             set_brightness_mode,
+            extract_image_text,
             extract_clipboard_text,
             read_clipboard_text,
             read_clipboard_image,

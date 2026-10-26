@@ -587,26 +587,27 @@ export default function App() {
     width: number;
     height: number;
     ocrText?: string;
-  }) => {
+  }): ClipboardItem => {
+    const newItem: ClipboardItem = {
+      id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      type: "image",
+      text: item.ocrText || "",
+      timestamp: Date.now(),
+      pinned: false,
+      imagePath: item.imagePath,
+      thumbnail: item.thumbnail,
+      width: item.width,
+      height: item.height,
+    };
     setClipboardHistory((prev) => {
       if (prev.length > 0 && prev[0].imagePath === item.imagePath) return prev;
-      const newItem: ClipboardItem = {
-        id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        type: "image",
-        text: item.ocrText || "",
-        timestamp: Date.now(),
-        pinned: false,
-        imagePath: item.imagePath,
-        thumbnail: item.thumbnail,
-        width: item.width,
-        height: item.height,
-      };
       const updated = [newItem, ...prev.filter((p) => p.imagePath !== item.imagePath)].slice(0, 50);
       try {
         localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
       } catch {}
       return updated;
     });
+    return newItem;
   };
 
   const togglePinClipboardItem = (id: string) => {
@@ -2169,56 +2170,69 @@ export default function App() {
           } | null>("read_clipboard_image").catch(() => null);
 
           if (clipImage && clipImage.path) {
-            // Jalankan OCR di background untuk mengekstrak teks jika ada
-            isOcrRunningRef.current = true;
-            let ocrText = "";
-            try {
-              ocrText = await invoke<string>("extract_clipboard_text").catch(() => "");
-            } catch {
-              // ignore ocr error
-            } finally {
-              isOcrRunningRef.current = false;
-            }
-
-            addClipboardImageItem({
+            // Langsung tambahkan ke riwayat clipboard secara instan (0ms delay)
+            const addedItem = addClipboardImageItem({
               imagePath: clipImage.path,
               thumbnail: clipImage.thumbnail,
               width: clipImage.width,
               height: clipImage.height,
-              ocrText: ocrText.trim(),
+              ocrText: "",
             });
 
+            // Tampilkan notifikasi awal instan
             if (!isClipboardRef.current) {
               if (focusModeRef.current !== "DND" && !pomoMuteNotifsRef.current) {
                 playNotificationSound();
               }
-              const cleanOcr = ocrText.trim();
-              const hasOcr = Boolean(cleanOcr);
-              const notifSubtitle = hasOcr
-                ? (cleanOcr.length > 80 ? `${cleanOcr.slice(0, 80)}…` : cleanOcr)
-                : `${clipImage.width} × ${clipImage.height} px`;
-
+              const dimText = `${clipImage.width} × ${clipImage.height} px`;
               showNotif({
-                title: hasOcr ? t("notif_ocr_detected") : t("notif_image_copied_clipboard"),
-                body: notifSubtitle,
-                headline: notifSubtitle,
+                title: t("notif_image_copied_clipboard"),
+                body: dimText,
+                headline: dimText,
                 icon: "clipboard",
-                onClick: hasOcr
-                  ? () => {
-                      isOcrWritingRef.current = true;
-                      writeText(cleanOcr)
-                        .then(() => {
-                          addClipboardItem(cleanOcr);
-                          showNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
-                          setTimeout(() => {
-                            isOcrWritingRef.current = false;
-                          }, 2000);
-                        })
-                        .catch(console.error);
-                    }
-                  : undefined,
               });
             }
+
+            // Jalankan OCR di background secara asinkron tanpa menahan UI/clipboard
+            isOcrRunningRef.current = true;
+            invoke<string>("extract_image_text", { path: clipImage.path })
+              .then((ocrText) => {
+                const cleanOcr = ocrText ? ocrText.trim() : "";
+                if (cleanOcr) {
+                  // Perbarui teks OCR pada kartu riwayat clipboard
+                  updateClipboardItem(addedItem.id, { text: cleanOcr });
+
+                  // Perbarui notifikasi notch dengan snippet teks & click-to-copy
+                  if (!isClipboardRef.current) {
+                    const notifSubtitle = cleanOcr.length > 80 ? `${cleanOcr.slice(0, 80)}…` : cleanOcr;
+                    showNotif({
+                      title: t("notif_ocr_detected"),
+                      body: notifSubtitle,
+                      headline: notifSubtitle,
+                      icon: "clipboard",
+                      onClick: () => {
+                        isOcrWritingRef.current = true;
+                        writeText(cleanOcr)
+                          .then(() => {
+                            addClipboardItem(cleanOcr);
+                            showNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
+                            setTimeout(() => {
+                              isOcrWritingRef.current = false;
+                            }, 2000);
+                          })
+                          .catch(console.error);
+                      },
+                    });
+                  }
+                }
+              })
+              .catch((err) => {
+                console.debug("OCR extraction error:", err);
+              })
+              .finally(() => {
+                isOcrRunningRef.current = false;
+              });
+
             return;
           }
         } catch (err) {
@@ -2247,8 +2261,8 @@ export default function App() {
       const appName = event.payload.app_name || "Notification";
       const lower = appName.toLowerCase();
       
-      // Abaikan notif dari Snipping Tool hanya jika OCR sedang aktif
-      if ((lower.includes("snipping tool") || lower.includes("screensketch")) && isOcrRunningRef.current) return;
+      // Abaikan notif dari Snipping Tool / ScreenSketch karena Gili menangani screenshot via clipboard
+      if (lower.includes("snipping tool") || lower.includes("screensketch") || (event.payload.aumid && event.payload.aumid.toLowerCase().includes("screensketch"))) return;
       
       let iconType = "bell";
       if (lower.includes("whatsapp")) iconType = "whatsapp";
