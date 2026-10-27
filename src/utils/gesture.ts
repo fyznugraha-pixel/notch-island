@@ -34,15 +34,14 @@ export function getWheelVerticalDirection(e: React.WheelEvent | WheelEvent): 1 |
 }
 
 /**
- * Normalizes horizontal touchpad swipe delta for tab/page switching.
- * - On Windows Precision Touchpads: swiping fingers RIGHT emits deltaX < 0.
- *   Users expect swiping right to move to the Next tab on the right (positive direction).
- * - On physical tilt wheels: tilting right emits deltaX > 0.
+ * Normalizes horizontal wheel/touchpad swipe delta for tab/page switching.
+ * - On Windows Precision Touchpads:
+ *   - Swiping fingers LEFT (deltaX > 0) reveals the Next tab on the right (positive direction).
+ *   - Swiping fingers RIGHT (deltaX < 0) reveals the Prev tab on the left (negative direction).
+ * - On physical tilt wheels:
+ *   - Tilting wheel RIGHT (deltaX > 0) moves to Next tab.
+ *   - Tilting wheel LEFT (deltaX < 0) moves to Prev tab.
  */
 export function getNormalizedHorizontalDelta(e: React.WheelEvent | WheelEvent): number {
-  if (isPhysicalMouseWheel(e)) {
-    return e.deltaX;
-  }
-  // Invert touchpad deltaX so swiping RIGHT (deltaX < 0) produces positive delta (Next tab)
-  return -e.deltaX;
+  return e.deltaX;
 }

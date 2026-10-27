@@ -3692,9 +3692,8 @@ export default function App() {
         return;
       }
 
-      // If user is inside another expanded panel (like Todo, Pomodoro, Shelf, Settings, Monitor, Notif Center), don't hijack scroll for volume
-      const isOtherExpandedTab = Boolean(currentTab && currentTab !== "quick_control" && currentTab !== "media_expanded");
-      if (isOtherExpandedTab) {
+      // When any expanded panel is open, do not hijack wheel for master volume (panels have their own dedicated sliders)
+      if (currentTab !== null) {
         return;
       }
 
