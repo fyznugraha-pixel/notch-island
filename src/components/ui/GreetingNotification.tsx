@@ -44,7 +44,7 @@ export const GreetingNotification: React.FC<GreetingNotificationProps> = ({
       exit={{ opacity: 0, y: isBot ? 8 : -8, scale: 0.94, filter: "blur(6px)" }}
       transition={iosSpring.snappy}
       className={`absolute inset-0 z-40 flex items-center select-none cursor-pointer group transition-all duration-300 ${
-        isCompact ? "justify-center px-0" : "justify-start gap-3 pl-3.5 pr-6"
+        isCompact ? "justify-center px-0" : "justify-start gap-3 px-3.5"
       }`}
     >
       {/* Gili Logo Animation - smoothly glides from center to left on stage 2 */}

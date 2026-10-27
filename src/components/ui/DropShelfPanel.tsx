@@ -22,7 +22,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { Tooltip } from "./Tooltip";
 import { getWheelVerticalDirection, getNormalizedHorizontalDelta } from "../../utils/gesture";
-import { t, getLanguage } from "../../services/i18n";
+import { t } from "../../services/i18n";
 import { FilePreview, queueFilePreviews, getCachedPreview } from "../../services/shelfService";
 
 export interface StashedFile {
@@ -127,7 +127,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     onAddFiles,
     onDragStateChange,
   }) => {
-    const isEn = getLanguage() === "en";
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [previews, setPreviews] = useState<Record<string, FilePreview>>({});
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -302,8 +301,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
 
     return (
       <div
-        data-scrollable="true"
-        data-no-swipe="true"
         className="flex flex-col w-full h-full min-h-0 select-none overflow-hidden px-6 pb-1"
         onDragOver={(e) => {
           e.preventDefault();
@@ -434,7 +431,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 <button
                   onClick={() => handleScrollStep("left")}
                   className="absolute left-0 top-[40px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
-                  aria-label={isEn ? "Scroll left" : "Gulir ke kiri"}
+                  aria-label="Scroll left"
                 >
                   <ChevronLeft size={15} />
                 </button>
@@ -442,8 +439,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
 
               <div
                 ref={scrollRef}
-                data-scrollable="true"
-                data-no-swipe="true"
                 onScroll={checkScroll}
                 onWheel={(e) => {
                   if (scrollRef.current) {
@@ -452,12 +447,10 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                     const delta = isHoriz
                       ? getNormalizedHorizontalDelta(e)
                       : (getWheelVerticalDirection(e) > 0 ? -Math.abs(e.deltaY) : Math.abs(e.deltaY));
-                    const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
-                    const maxScroll = Math.max(0, scrollWidth - clientWidth);
-                    scrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, scrollLeft + delta));
+                    scrollRef.current.scrollLeft += delta;
                   }
                 }}
-                className="notes-horizontal-scroll flex items-start gap-3 overflow-x-auto overflow-y-hidden no-scrollbar w-full py-1 select-none"
+                className="flex items-start gap-3 overflow-x-auto overflow-y-hidden no-scrollbar scroll-smooth w-full py-1 select-none"
               >
                 <AnimatePresence initial={false}>
                   {files.map((file) => {
@@ -546,7 +539,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                 e.stopPropagation();
                                 onRemoveFile(file.id);
                               }}
-                              aria-label={isEn ? "Remove file" : "Hapus file"}
+                              aria-label="Remove file"
                               className="w-5 h-5 rounded-full bg-black/70 hover:bg-rose-500/80 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
                             >
                               <X size={10} strokeWidth={2.4} />
@@ -600,7 +593,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 <button
                   onClick={() => handleScrollStep("right")}
                   className="absolute right-0 top-[40px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
-                  aria-label={isEn ? "Scroll right" : "Gulir ke kanan"}
+                  aria-label="Scroll right"
                 >
                   <ChevronRight size={15} />
                 </button>

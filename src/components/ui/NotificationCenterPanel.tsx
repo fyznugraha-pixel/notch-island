@@ -1,13 +1,15 @@
 import React, { useState, useMemo } from "react";
 import {
+  MessageSquare,
   Bell,
   BellOff,
+  Clipboard,
+  Zap,
   Moon,
   Trash2,
   CheckCheck,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   NotificationHistoryItem,
   NotificationCategory,
@@ -21,8 +23,6 @@ import {
   setDndStatus,
 } from "../../services/notificationHistoryService";
 import { t, getLanguage } from "../../services/i18n";
-import { NotifIcon } from "./NotifIcon";
-import { resolveAppLogo } from "../../utils/appLogoResolver";
 
 export interface NotificationCenterPanelProps {
   notifications: NotificationHistoryItem[];
@@ -30,11 +30,29 @@ export interface NotificationCenterPanelProps {
   onDndChange?: (enabled: boolean) => void;
   isDndActive?: boolean;
   isLightMode?: boolean;
-  onGoToTab?: (tab: string) => void;
 }
 
-const getAppDotColor = (name: string, _category?: string, _isLightMode = false): string => {
-  return resolveAppLogo(name).color;
+const getAppDotColor = (name: string, category?: string, isLightMode = false): string => {
+  const lower = name.toLowerCase();
+  if (lower.includes("whatsapp")) return "#34c759";
+  if (lower.includes("telegram")) return "#229ed9";
+  if (lower.includes("discord")) return "#5865f2";
+  if (lower.includes("slack")) return "#e01e5a";
+  if (lower.includes("mail") || lower.includes("outlook")) return "#0078d4";
+  if (lower.includes("chrome") || lower.includes("google")) return "#ea4335";
+  if (lower.includes("edge") || lower.includes("msedge")) return "#0078d4";
+  if (lower.includes("firefox")) return "#ff7139";
+  if (lower.includes("brave")) return "#fb542b";
+  if (lower.includes("spotify")) return "#1ed760";
+  if (lower.includes("apple") || lower.includes("itunes")) return "#fc3c44";
+  if (lower.includes("pengingat") || lower.includes("reminder") || lower.includes("todo") || lower.includes("pomodoro")) return "#ff9f0a";
+  if (lower.includes("clipboard") || lower.includes("klip")) return "#0a84ff";
+  if (lower.includes("sistem") || lower.includes("system") || lower.includes("windows")) return isLightMode ? "#71717a" : "rgba(255, 255, 255, 0.75)";
+
+  if (category === "message") return "#34c759";
+  if (category === "reminder") return "#ff9f0a";
+  if (category === "clipboard") return "#0a84ff";
+  return isLightMode ? "#71717a" : "rgba(255, 255, 255, 0.75)";
 };
 
 export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = ({
@@ -43,26 +61,11 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
   onDndChange,
   isDndActive,
   isLightMode = false,
-  onGoToTab,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<NotificationCategory>("all");
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   const [mutedApps, setMutedApps] = useState<string[]>(() => getMutedApps());
   const isDnd = isDndActive ?? getDndStatus();
-  const isEn = getLanguage() === "en";
-
-  const formatAppName = (name: string) => {
-    if (isEn) {
-      if (name === "Pengingat") return "Reminders";
-      if (name === "Sistem") return "System";
-      if (name === "Pesan") return "Messages";
-    } else {
-      if (name === "Reminders" || name === "Reminder") return "Pengingat";
-      if (name === "System") return "Sistem";
-      if (name === "Messages" || name === "Message") return "Pesan";
-    }
-    return name;
-  };
 
   const handleToggleDnd = () => {
     const next = !isDnd;
@@ -98,93 +101,12 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
 
   const handleItemClick = async (item: NotificationHistoryItem) => {
     handleMarkAsRead(item.id);
-
-    const appName = (item.appName || "").trim();
-    const appLower = appName.toLowerCase();
-    const titleLower = (item.title || "").toLowerCase();
-    const bodyText = item.body || "";
-
-    // 1. Internal Notch Tabs (Reminders / To-Do, Clipboard, Water)
-    if (
-      item.category === "reminder" ||
-      appLower.includes("pengingat") ||
-      appLower.includes("reminder") ||
-      appLower.includes("todo")
-    ) {
-      onGoToTab?.("todo");
-      return;
-    }
-
-    if (
-      item.category === "clipboard" ||
-      appLower.includes("clipboard") ||
-      appLower.includes("papan klip")
-    ) {
-      onGoToTab?.("clipboard");
-      return;
-    }
-
-    if (appLower.includes("water") || appLower.includes("minum")) {
-      onGoToTab?.("water_reminder");
-      return;
-    }
-
-    // 2. Check if body or title contains an HTTP/HTTPS URL
-    const urlMatch = (bodyText + " " + item.title).match(/https?:\/\/[^\s]+/i);
-    const isBrowserApp =
-      appLower.includes("chrome") ||
-      appLower.includes("edge") ||
-      appLower.includes("firefox") ||
-      appLower.includes("brave") ||
-      appLower.includes("opera") ||
-      appLower.includes("browser");
-
-    // 3. Try native window activation first via Rust backend
     try {
-      const activated = await invoke<boolean>("activate_notification_app", {
+      await invoke("activate_notification_app", {
         appName: item.appName || item.title,
         aumid: item.aumid || null,
       });
-      if (activated) return;
-    } catch (err) {
-      console.warn("Failed to activate notification app:", err);
-    }
-
-    // 4. If URL found in browser/web notification, open link
-    if (urlMatch && (isBrowserApp || urlMatch[0].length > 10)) {
-      try {
-        await openUrl(urlMatch[0]);
-        return;
-      } catch {}
-    }
-
-    // 5. Deep-link URI protocol fallback for apps minimized to tray or closed
-    const combined = `${appLower} ${titleLower}`;
-    let protocolUrl = "";
-    if (combined.includes("whatsapp")) protocolUrl = "whatsapp://";
-    else if (combined.includes("telegram") || combined.includes("tg")) protocolUrl = "tg://";
-    else if (combined.includes("discord")) protocolUrl = "discord://";
-    else if (combined.includes("spotify")) protocolUrl = "spotify://";
-    else if (combined.includes("slack")) protocolUrl = "slack://";
-    else if (combined.includes("teams")) protocolUrl = "msteams://";
-    else if (combined.includes("zoom")) protocolUrl = "zoommtg://";
-    else if (combined.includes("line")) protocolUrl = "line://";
-    else if (combined.includes("steam")) protocolUrl = "steam://";
-    else if (combined.includes("vscode") || combined.includes("code")) protocolUrl = "vscode://";
-    else if (combined.includes("mail") || combined.includes("outlook")) protocolUrl = "mailto:";
-    else if (combined.includes("instagram")) protocolUrl = "https://instagram.com";
-    else if (combined.includes("twitter") || combined === "x" || combined.includes(" x ")) protocolUrl = "https://x.com";
-    else if (combined.includes("facebook")) protocolUrl = "https://facebook.com";
-    else if (combined.includes("youtube")) protocolUrl = "https://youtube.com";
-    else if (combined.includes("github")) protocolUrl = "https://github.com";
-
-    if (protocolUrl) {
-      try {
-        await openUrl(protocolUrl);
-      } catch (err) {
-        console.error("Failed to open app protocol:", err);
-      }
-    }
+    } catch {}
   };
 
   // Counts for pills
@@ -210,8 +132,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
     const map = new Map<string, AppItem>();
 
     for (const item of notifications) {
-      const defaultName = isEn ? "System" : "Sistem";
-      const name = (item.appName || defaultName).trim();
+      const name = (item.appName || "Sistem").trim();
       const existing = map.get(name);
       if (!existing) {
         map.set(name, {
@@ -254,9 +175,8 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
 
   // Filtered notifications list (category and optional app filter)
   const filteredNotifications = useMemo(() => {
-    const defaultName = isEn ? "System" : "Sistem";
     return notifications.filter((item) => {
-      if (selectedApp && (item.appName || defaultName).toLowerCase() !== selectedApp.toLowerCase()) {
+      if (selectedApp && (item.appName || "Sistem").toLowerCase() !== selectedApp.toLowerCase()) {
         return false;
       }
       if (selectedCategory === "unread") return !item.read;
@@ -326,6 +246,51 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
       return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
     } catch {
       return "";
+    }
+  };
+
+  const getCategoryIcon = (category: string) => {
+    switch (category) {
+      case "message":
+        return (
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+            isLightMode
+              ? "bg-emerald-100/90 border border-emerald-300/50 text-emerald-600"
+              : "bg-[#16382b] border border-[#34c759]/25 text-[#34c759]"
+          }`}>
+            <MessageSquare size={15} strokeWidth={2.2} />
+          </div>
+        );
+      case "reminder":
+        return (
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+            isLightMode
+              ? "bg-amber-100/90 border border-amber-300/50 text-amber-600"
+              : "bg-[#392c14] border border-[#ff9f0a]/25 text-[#ff9f0a]"
+          }`}>
+            <Bell size={15} strokeWidth={2.2} />
+          </div>
+        );
+      case "clipboard":
+        return (
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+            isLightMode
+              ? "bg-sky-100/90 border border-sky-300/50 text-sky-600"
+              : "bg-[#142e42] border border-[#0a84ff]/25 text-[#0a84ff]"
+          }`}>
+            <Clipboard size={15} strokeWidth={2.2} />
+          </div>
+        );
+      default:
+        return (
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+            isLightMode
+              ? "bg-neutral-100 border border-black/10 text-neutral-700"
+              : "bg-[#262629] border border-white/10 text-white/85"
+          }`}>
+            <Zap size={15} strokeWidth={2.2} />
+          </div>
+        );
     }
   };
 
@@ -432,13 +397,13 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
               type="button"
               onClick={() => setSelectedApp(null)}
               className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-500/20 text-blue-300 border border-blue-400/35 hover:bg-blue-500/30 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
-              title={isEn ? "Remove app filter" : "Hapus filter aplikasi"}
+              title="Hapus filter aplikasi"
             >
               <span
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: getAppDotColor(selectedApp, undefined, isLightMode) }}
               />
-              <span>{formatAppName(selectedApp)}</span>
+              <span>{selectedApp}</span>
               <span className="text-[10px] text-blue-300/80 font-bold ml-0.5">✕</span>
             </button>
           )}
@@ -493,7 +458,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                   {t("notif_empty") || "Tidak ada notifikasi"}
                 </span>
                 <span className={`text-[10px] ${isLightMode ? "text-neutral-400" : "text-white/35"}`}>
-                  {isEn ? "All new notifications will appear here" : "Semua notifikasi baru akan tercatat di sini"}
+                  Semua notifikasi baru akan tercatat di sini
                 </span>
               </div>
             ) : (
@@ -510,7 +475,6 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                     <div
                       key={item.id}
                       onClick={() => handleItemClick(item)}
-                      title={isEn ? `Open ${formatAppName(item.appName || item.title)}` : `Buka ${formatAppName(item.appName || item.title)}`}
                       className={`group relative flex items-start gap-3 p-2.5 rounded-2xl border transition-all duration-200 ease-out cursor-pointer ${
                         isLightMode
                           ? item.read
@@ -521,13 +485,8 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                             : "bg-white/[0.07] hover:bg-white/[0.12] border-white/15 shadow-[0_2px_12px_rgba(0,0,0,0.3)]"
                       }`}
                     >
-                      {/* Brand App / Category Icon Badge */}
-                      <NotifIcon
-                        type={item.icon}
-                        appName={item.appName}
-                        size={17}
-                        boxClassName="w-8 h-8 rounded-xl shrink-0 shadow-sm"
-                      />
+                      {/* Category / App Icon Badge */}
+                      {getCategoryIcon(item.category)}
 
                       {/* Body Text */}
                       <div className="flex-1 min-w-0 flex flex-col gap-1">
@@ -541,7 +500,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                             {!item.read && (
                               <span
                                 className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6] shrink-0 mt-1"
-                                title={t("notif_filter_unread") || (isEn ? "Unread" : "Belum dibaca")}
+                                title="Belum dibaca"
                               />
                             )}
                           </div>
@@ -554,7 +513,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                             <button
                               type="button"
                               onClick={(e) => handleDeleteItem(item.id, e)}
-                              title={isEn ? "Delete this notification" : "Hapus notifikasi ini"}
+                              title="Hapus notifikasi ini"
                               className={`opacity-0 group-hover:opacity-100 w-5 h-5 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
                                 isLightMode
                                   ? "bg-black/[0.06] hover:bg-red-500/15 text-neutral-500 hover:text-red-500"
@@ -605,7 +564,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                 <span className={`text-[9.5px] leading-tight truncate mt-0.5 ${
                   isLightMode ? "text-neutral-500" : "text-white/45"
                 }`}>
-                  {isDnd ? (isEn ? "Active" : "Aktif") : "22:00 – 06:00"}
+                  {isDnd ? "Aktif" : "22:00 – 06:00"}
                 </span>
               </div>
             </div>
@@ -654,7 +613,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                 <div className={`h-full flex flex-col items-center justify-center text-center py-6 px-1 ${
                   isLightMode ? "text-neutral-400" : "text-white/35"
                 }`}>
-                  <span className="text-[10.5px] leading-tight">{isEn ? "No notifications yet" : "Belum ada notifikasi"}</span>
+                  <span className="text-[10.5px] leading-tight">Belum ada notifikasi</span>
                 </div>
               ) : (
                 perAppList.map((app) => {
@@ -665,7 +624,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                     <div
                       key={app.name}
                       onClick={() => setSelectedApp(isSelected ? null : app.name)}
-                      title={isEn ? `Filter ${formatAppName(app.name)} notifications` : `Filter notifikasi ${app.name}`}
+                      title={`Filter notifikasi ${app.name}`}
                       className={`group flex items-center justify-between py-1 px-2 rounded-xl text-[11px] transition-all cursor-pointer select-none ${
                         isSelected
                           ? isLightMode
@@ -676,14 +635,12 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                           : "text-white/80 hover:bg-white/[0.07] hover:text-white"
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <NotifIcon
-                          appName={app.name}
-                          type={app.category}
-                          size={13}
-                          boxClassName="w-5 h-5 rounded-md shrink-0 shadow-xs"
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full shrink-0 shadow-sm"
+                          style={{ backgroundColor: getAppDotColor(app.name, app.category, isLightMode) }}
                         />
-                        <span className="truncate">{formatAppName(app.name)}</span>
+                        <span className="truncate">{app.name}</span>
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0 ml-1">

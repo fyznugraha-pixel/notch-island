@@ -21,8 +21,6 @@ wmi_test/target/
 UI Redesign/
 public/audio output UI/
 public/volume mixer/
-public/Quick-todo UI/
-public/water-reminder UI/
 
 # Editor directories and files
 .vscode/*

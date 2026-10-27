@@ -17,7 +17,7 @@ import {
   GeocodingCity,
   WeatherLocation,
 } from "../../services/weatherService";
-import { t, getLanguage } from "../../services/i18n";
+import { t } from "../../services/i18n";
 
 export interface OnboardingCardProps {
   onComplete: () => void;
@@ -320,7 +320,7 @@ export const OnboardingCard: React.FC<OnboardingCardProps> = ({
                   isLightMode ? "text-neutral-400" : "text-white/35"
                 }`}
               >
-                {getLanguage() === "id" ? "Ketik nama kotamu untuk mencari" : "Type your city name to search"}
+                Ketik nama kotamu untuk mencari
               </div>
             )}
           </div>

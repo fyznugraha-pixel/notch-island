@@ -1,9 +1,6 @@
 @import url('https://fonts.cdnfonts.com/css/sf-pro-display');
 
-html, body {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
+/* Clear default styles to allow Tailwind to take over */
 
 @keyframes marquee {
   0% { transform: translateX(0%); }

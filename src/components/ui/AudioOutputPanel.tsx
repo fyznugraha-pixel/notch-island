@@ -14,7 +14,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { playAudioTestSound } from "../../services/soundService";
-import { t, getLanguage } from "../../services/i18n";
+import { t } from "../../services/i18n";
 
 export interface AudioEndpoint {
   id: string;
@@ -49,7 +49,6 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
   soundLevel,
   onSetSoundLevel,
 }) => {
-  const isEn = getLanguage() === "en";
   const [endpoints, setEndpoints] = useState<AudioEndpoint[]>([]);
   const [activeDeviceId, setActiveDeviceId] = useState<string>("");
 
@@ -170,7 +169,7 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
         <button
           type="button"
           onClick={onBack}
-          aria-label={t("nav_back") || "Kembali"}
+          aria-label="Kembali"
           className="w-[34px] h-[34px] rounded-full bg-[#17171c] hover:bg-white/10 text-[#e4e4e7] border border-white/10 flex items-center justify-center transition-colors cursor-pointer"
         >
           <ChevronLeft size={16} strokeWidth={2.2} />
@@ -254,7 +253,7 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
               <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center">
                 <Plus size={16} strokeWidth={2.2} />
               </div>
-              <span>{t("audio_add_bluetooth")}</span>
+              <span>Tambah Bluetooth</span>
             </button>
           </div>
         </div>
@@ -326,11 +325,11 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
           <button
             type="button"
             onClick={handleTestSound}
-            title={isEn ? "Test audio output sound" : "Uji suara audio output"}
+            title="Uji suara audio output"
             className="h-[34px] px-3.5 rounded-xl border border-[#2a2a31] bg-white/[0.04] hover:bg-white/[0.12] text-[#e4e4e7] flex items-center gap-1.5 text-xs font-medium cursor-pointer transition-colors shrink-0"
           >
             <Play size={11} fill="currentColor" strokeWidth={2} />
-            <span>{isEn ? "Test sound" : "Tes suara"}</span>
+            <span>Tes suara</span>
           </button>
         </div>
       </div>

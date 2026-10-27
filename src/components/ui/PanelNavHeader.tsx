@@ -16,7 +16,6 @@ import {
   Volume2,
   Sparkles,
   Bell,
-  Droplet,
 } from "lucide-react";
 import { motion, AnimatePresence, type Transition } from "framer-motion";
 import { getWeatherIcon } from "./NotifIcon";
@@ -421,11 +420,6 @@ const getTabMetadata = (key: string): { label: string; icon: React.ReactNode } =
       return {
         label: t("tab_mini_note"),
         icon: <FileText size={13} strokeWidth={2.2} />,
-      };
-    case "water_reminder":
-      return {
-        label: t("tab_water_reminder") || "Air",
-        icon: <Droplet size={13} strokeWidth={2.2} />,
       };
     case "settings":
       return {

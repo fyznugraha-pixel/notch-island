@@ -31,7 +31,6 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
   onSave,
   onCancel,
 }) => {
-  const isEn = (optLanguage || getLanguage()) === "en";
   const now = new Date();
   const initialDate = useMemo(() => {
     if (initialDueAt) return new Date(initialDueAt);
@@ -337,7 +336,7 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
                   <Clock size={13} className="text-[#3882F6] shrink-0" />
                   <div className="flex items-center gap-0.5 text-[13.5px] font-bold tabular-nums text-white">
                     <span
-                      title={isEn ? "Scroll to adjust hour" : "Gulir untuk mengatur jam"}
+                      title="Scroll to adjust hour"
                       onWheel={(e) => {
                         if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
                           e.stopPropagation();
@@ -351,7 +350,7 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
                     </span>
                     <span className="text-zinc-500">:</span>
                     <span
-                      title={isEn ? "Scroll to adjust minute" : "Gulir untuk mengatur menit"}
+                      title="Scroll to adjust minute"
                       onWheel={(e) => {
                         if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
                           e.stopPropagation();

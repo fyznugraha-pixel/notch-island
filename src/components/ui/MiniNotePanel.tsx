@@ -154,7 +154,6 @@ export interface MiniNotePanelProps {
 }
 
 export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEditingChange }) => {
-  const isEn = (optLanguage || getLanguage()) === "en";
   const [notes, setNotes] = useState<MiniNoteItem[]>(() => loadMiniNotes());
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -438,7 +437,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
             <button
               type="button"
               onClick={handleCopyActiveNote}
-              title={isEn ? "Copy" : "Salin"}
+              title="Copy"
               className="w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
             >
               {copied ? <Check size={14} className="text-[#34c3a0]" /> : <Copy size={14} />}
@@ -447,7 +446,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
             <button
               type="button"
               onClick={() => handleDeleteNote(activeNote.id)}
-              title={t("action_delete") || (isEn ? "Delete" : "Hapus")}
+              title="Delete"
               className="w-8 h-8 rounded-full bg-[#17171c] hover:bg-rose-500/20 text-[#ff7b72] flex items-center justify-center transition-colors cursor-pointer"
             >
               <Trash2 size={14} />
@@ -580,7 +579,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                     ? "bg-[#23232a] text-white"
                     : "text-[#a1a1aa] hover:text-white"
                 }`}
-                title={isEn ? "Checklist" : "Daftar centang"}
+                title="Checklist"
               >
                 <ListTodo size={14} />
               </button>
@@ -588,21 +587,21 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                 type="button"
                 onClick={handleInsertBullet}
                 className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title={isEn ? "Bullet list" : "Daftar poin"}
+                title="Bullet list"
               >
                 <List size={14} />
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  const boldSnippet = (optLanguage || getLanguage()) === "en" ? "**text**" : "**teks**";
+                  const boldSnippet = getLanguage() === "en" ? "**text**" : "**teks**";
                   updateActiveNote((n) => ({
                     ...n,
                     content: n.content ? `${n.content} ${boldSnippet}` : boldSnippet,
                   }));
                 }}
                 className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title={isEn ? "Bold" : "Tebal"}
+                title="Bold"
               >
                 <Bold size={13.5} />
               </button>
@@ -615,7 +614,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                   }))
                 }
                 className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title={isEn ? "Link" : "Tautan"}
+                title="Link"
               >
                 <Link2 size={13.5} />
               </button>
@@ -885,16 +884,12 @@ export interface QuickNoteNotchCardProps {
   onSave: (text: string, color: NoteColor, pinned: boolean) => void;
   onCancel: () => void;
   isLightMode?: boolean;
-  shortcutLabel?: string;
-  isIsland?: boolean;
 }
 
 export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
   onSave,
   onCancel,
   isLightMode = false,
-  shortcutLabel = "CTRL ⇧ N",
-  isIsland = false,
 }) => {
   const [text, setText] = useState("");
   const [color, setColor] = useState<NoteColor>("blue");
@@ -902,38 +897,11 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const focusInput = () => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    };
-    focusInput();
-    const t1 = window.setTimeout(focusInput, 30);
-    const t2 = window.setTimeout(focusInput, 80);
-    const t3 = window.setTimeout(focusInput, 200);
-
-    window.addEventListener("focus", focusInput);
-    return () => {
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
-      window.removeEventListener("focus", focusInput);
-    };
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus();
+    }, 40);
+    return () => clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onCancel();
-      }
-    };
-    window.addEventListener("keydown", handleGlobalKeyDown, true);
-    return () => {
-      window.removeEventListener("keydown", handleGlobalKeyDown, true);
-    };
-  }, [onCancel]);
 
   const handleSubmit = () => {
     if (!text.trim()) {
@@ -949,9 +917,9 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-      className={`w-full h-full flex flex-col justify-between select-none ${
-        isIsland ? "px-7 py-5" : "px-7 py-4"
-      } ${isLightMode ? "text-[#1d1d1f]" : "text-white"}`}
+      className={`w-full h-full flex flex-col justify-between px-7 py-4 select-none ${
+        isLightMode ? "text-[#1d1d1f]" : "text-white"
+      }`}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Top Row: Icon + Label | Shortcut Badge */}
@@ -975,24 +943,21 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
           </span>
         </div>
 
-        {shortcutLabel ? (
-          <kbd
-            className={`px-2 py-0.5 rounded-[6px] text-[10px] font-semibold tracking-wider font-mono ${
-              isLightMode
-                ? "border border-black/10 bg-black/[0.04] text-[#71717a]"
-                : "border border-white/10 bg-white/[0.06] text-[#a1a1aa]"
-            }`}
-          >
-            {shortcutLabel}
-          </kbd>
-        ) : null}
+        <kbd
+          className={`px-2 py-0.5 rounded-[6px] text-[10px] font-semibold tracking-wider font-mono ${
+            isLightMode
+              ? "border border-black/10 bg-black/[0.04] text-[#71717a]"
+              : "border border-white/10 bg-white/[0.06] text-[#a1a1aa]"
+          }`}
+        >
+          CTRL ⇧ N
+        </kbd>
       </div>
 
       {/* Middle Input */}
       <div className="my-auto py-1">
         <input
           ref={inputRef}
-          autoFocus
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}

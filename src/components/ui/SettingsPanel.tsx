@@ -24,7 +24,6 @@ import { clearAllLyricsCache } from "../../services/lyricsService";
 import { clearArtworkCache } from "../../services/artworkService";
 import { clearShelfPreviewCache } from "../../services/shelfService";
 import { clearWeatherCache } from "../../services/weatherService";
-import { ShortcutActionId, ShortcutStatus } from "../../services/shortcuts";
 
 export interface SettingsPanelProps {
   slideDirection: number;
@@ -49,12 +48,6 @@ export interface SettingsPanelProps {
   onChangeNotifSound: (soundId: string) => void;
   optCloseDelay: number;
   onChangeCloseDelay: (sec: number) => void;
-  shortcuts: Record<ShortcutActionId, string | null>;
-  shortcutsEnabled: boolean;
-  shortcutStatuses: Record<ShortcutActionId, ShortcutStatus>;
-  onUpdateShortcut: (actionId: ShortcutActionId, shortcut: string | null) => Promise<{ success: boolean; error?: string }>;
-  onResetShortcut: (actionId: ShortcutActionId) => Promise<void>;
-  onToggleShortcutsEnabled: (enabled: boolean) => void;
   // Appearance
   optTheme: "dark" | "light" | "auto";
   onChangeTheme: (theme: "dark" | "light" | "auto") => void;
@@ -141,12 +134,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangeNotifSound,
   optCloseDelay,
   onChangeCloseDelay,
-  shortcuts,
-  shortcutsEnabled,
-  shortcutStatuses,
-  onUpdateShortcut,
-  onResetShortcut,
-  onToggleShortcutsEnabled,
   optTheme,
   onChangeTheme,
   notchShape,
@@ -188,7 +175,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
-  const [currentAppVersion, setCurrentAppVersion] = useState<string>("4.1.0");
+  const [currentAppVersion, setCurrentAppVersion] = useState<string>("4.0.2");
 
   const [clearTempStatus, setClearTempStatus] = useState<"idle" | "cleaning" | "done" | "error">("idle");
   const [clearedResult, setClearedResult] = useState<{
@@ -401,12 +388,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       onChangeNotifSound={onChangeNotifSound}
                       optCloseDelay={optCloseDelay}
                       onChangeCloseDelay={onChangeCloseDelay}
-                      shortcuts={shortcuts}
-                      shortcutsEnabled={shortcutsEnabled}
-                      shortcutStatuses={shortcutStatuses}
-                      onUpdateShortcut={onUpdateShortcut}
-                      onResetShortcut={onResetShortcut}
-                      onToggleShortcutsEnabled={onToggleShortcutsEnabled}
                     />
                   </motion.div>
                 )}

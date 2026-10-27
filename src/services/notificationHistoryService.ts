@@ -1,5 +1,4 @@
 import { NotifPayload } from "../types";
-import { getLanguage } from "./i18n";
 
 export type NotificationCategory = "all" | "unread" | "reminder" | "message" | "system";
 
@@ -19,57 +18,48 @@ const STORAGE_KEY = "island_notification_history";
 const MUTED_APPS_KEY = "island_muted_notification_apps";
 const DND_KEY = "island_dnd_enabled";
 
-function getInitialSeedNotifications(): NotificationHistoryItem[] {
-  const isEn = getLanguage() === "en";
-  return [
-    {
-      id: "notif-seed-1",
-      title: "Gene",
-      body: isEn
-        ? "Please check the attendance list, someone hasn't checked in yet"
-        : "Tolong cek absensi dulu ya, ada yang belum masuk",
-      category: "message",
-      appName: "WhatsApp",
-      timestamp: Date.now() - 15 * 60 * 1000,
-      read: false,
-      icon: "message",
-    },
-    {
-      id: "notif-seed-2",
-      title: isEn ? "Thesis Review Ch. 2" : "Revisi bab 2 TA",
-      body: isEn ? "Deadline 20:00 · 30 minutes left" : "Deadline 20:00 · 30 menit lagi",
-      category: "reminder",
-      appName: isEn ? "Reminders" : "Pengingat",
-      timestamp: Date.now() - 2 * 60 * 60 * 1000,
-      read: false,
-      icon: "bell",
-    },
-    {
-      id: "notif-seed-3",
-      title: isEn ? "Copied to clipboard" : "Disalin ke clipboard",
-      body: isEn
-        ? "add new tabs for cpu, gpu, wifi, and memory usage in island system monitor widget so device performance can be monitored directly"
-        : "tambah tab baru untuk cpu, gpu, wifi, dan memory usage di island system monitor widget agar performa perangkat bisa dipantau secara langsung",
-      category: "clipboard",
-      appName: "Clipboard",
-      timestamp: Date.now() - 26 * 60 * 60 * 1000,
-      read: true,
-      icon: "clipboard",
-    },
-    {
-      id: "notif-seed-4",
-      title: isEn ? "Battery full" : "Baterai penuh",
-      body: isEn
-        ? "Unplug charger to maintain battery health"
-        : "Lepas charger untuk menjaga kesehatan baterai",
-      category: "system",
-      appName: isEn ? "System" : "Sistem",
-      timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000,
-      read: false,
-      icon: "battery",
-    },
-  ];
-}
+const INITIAL_SEED_NOTIFICATIONS: NotificationHistoryItem[] = [
+  {
+    id: "notif-seed-1",
+    title: "Gene",
+    body: "Tolong cek absensi dulu ya, ada yang belum masuk",
+    category: "message",
+    appName: "WhatsApp",
+    timestamp: Date.now() - 15 * 60 * 1000,
+    read: false,
+    icon: "message",
+  },
+  {
+    id: "notif-seed-2",
+    title: "Revisi bab 2 TA",
+    body: "Deadline 20:00 · 30 menit lagi",
+    category: "reminder",
+    appName: "Pengingat",
+    timestamp: Date.now() - 2 * 60 * 60 * 1000,
+    read: false,
+    icon: "bell",
+  },
+  {
+    id: "notif-seed-3",
+    title: "Disalin ke clipboard",
+    body: "tambah tab baru untuk cpu, gpu, wifi, dan memory usage di island system monitor widget agar performa perangkat bisa dipantau secara langsung",
+    category: "clipboard",
+    appName: "Clipboard",
+    timestamp: Date.now() - 26 * 60 * 60 * 1000,
+    read: true,
+    icon: "clipboard",
+  },
+  {
+    id: "notif-seed-4",
+    title: "Baterai penuh",
+    body: "Lepas charger untuk menjaga kesehatan baterai",
+    category: "system",
+    appName: "Sistem",
+    timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000,
+    read: false,
+    icon: "battery",
+  },
+];
 
 export function categorizeNotification(notif: NotifPayload): {
   category: "message" | "reminder" | "clipboard" | "system";
@@ -81,30 +71,10 @@ export function categorizeNotification(notif: NotifPayload): {
   const aumid = (notif.aumid || "").toLowerCase();
   const explicitApp = (notif.appName || "").trim();
 
-  // 1. Detect WhatsApp & WhatsApp Web from explicitApp, title, body, or AUMID
-  const isWhatsApp =
-    explicitApp.toLowerCase().includes("whatsapp") ||
-    aumid.includes("whatsapp") ||
-    icon === "whatsapp" ||
-    title.includes("whatsapp") ||
-    body.includes("whatsapp") ||
-    title.includes("web.whatsapp.com") ||
-    body.includes("web.whatsapp.com");
-
-  if (isWhatsApp) {
-    const isWeb =
-      explicitApp.toLowerCase().includes("chrome") ||
-      explicitApp.toLowerCase().includes("edge") ||
-      explicitApp.toLowerCase().includes("brave") ||
-      explicitApp.toLowerCase().includes("firefox") ||
-      title.includes("web.whatsapp.com") ||
-      body.includes("web.whatsapp.com");
-    return { category: "message", appName: isWeb ? "WhatsApp Web" : "WhatsApp" };
-  }
-
   if (explicitApp) {
     const lowerApp = explicitApp.toLowerCase();
     if (
+      lowerApp.includes("whatsapp") ||
       lowerApp.includes("telegram") ||
       lowerApp.includes("discord") ||
       lowerApp.includes("slack") ||
@@ -134,13 +104,16 @@ export function categorizeNotification(notif: NotifPayload): {
   }
 
   if (
+    aumid.includes("whatsapp") ||
     aumid.includes("telegram") ||
     aumid.includes("discord") ||
     aumid.includes("slack") ||
     icon === "message" ||
     notif.type === "message"
   ) {
-    const appName = aumid.includes("telegram")
+    const appName = aumid.includes("whatsapp")
+      ? "WhatsApp"
+      : aumid.includes("telegram")
       ? "Telegram"
       : aumid.includes("discord")
       ? "Discord"
@@ -172,9 +145,8 @@ export function loadNotificationHistory(): NotificationHistoryItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null) {
-      const initial = getInitialSeedNotifications();
-      saveNotificationHistory(initial);
-      return initial;
+      saveNotificationHistory(INITIAL_SEED_NOTIFICATIONS);
+      return INITIAL_SEED_NOTIFICATIONS;
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
@@ -224,9 +196,9 @@ export function addNotificationHistoryItem(notif: NotifPayload): NotificationHis
     body: notif.body || "",
     category,
     appName,
-    timestamp: notif.timestamp || Date.now(),
+    timestamp: Date.now(),
     read: false,
-    icon: notif.icon || (appName.toLowerCase().includes("whatsapp") ? "whatsapp" : category),
+    icon: notif.icon,
     aumid: notif.aumid,
   };
 

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { AudioOutputPanel, AudioEndpoint } from "./AudioOutputPanel";
-import { t, getLanguage } from "../../services/i18n";
+import { t } from "../../services/i18n";
 
 export interface AudioSession {
   pid: number;
@@ -100,7 +100,6 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
   audioSessions,
   onUpdateAudioSessions,
 }) => {
-  const isEn = getLanguage() === "en";
   const [activeView, setActiveView] = useState<"mixer" | "output">("mixer");
   const [activeOutputDevice, setActiveOutputDevice] = useState<AudioEndpoint | null>(null);
 
@@ -271,7 +270,7 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
         {/* Left Column: Vertical iOS Master Volume Capsule */}
         <div
           role="slider"
-          aria-label={isEn ? "Master volume" : "Volume master"}
+          aria-label="Volume master"
           aria-orientation="vertical"
           aria-valuenow={soundLevel}
           onPointerDown={(e) => {
@@ -347,7 +346,7 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
             <button
               type="button"
               onClick={() => setActiveView("output")}
-              title={t("audio_select_device") || (getLanguage() === "id" ? "Pilih perangkat audio output" : "Select audio output device")}
+              title="Pilih perangkat audio output"
               className="bg-[#1c1c1e]/90 hover:bg-white/[0.08] active:scale-[0.99] border border-white/10 rounded-[14px] w-full h-[46px] flex items-center gap-3 px-3 text-white cursor-pointer transition-all shadow-sm text-left"
             >
               <span className="w-[30px] h-[30px] rounded-[8px] bg-[#0a84ff] text-white flex items-center justify-center shrink-0 shadow-sm">

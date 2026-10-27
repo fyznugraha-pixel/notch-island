@@ -31,7 +31,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Tooltip } from "./Tooltip";
 import { iosSpring, iosRiseVariants } from "../../utils/iosMotion";
-import { t, getLanguage } from "../../services/i18n";
+import { t } from "../../services/i18n";
 import { WifiSubmenu } from "./control-center/WifiSubmenu";
 import { BluetoothSubmenu } from "./control-center/BluetoothSubmenu";
 import { toggleWifiState, toggleBluetoothState } from "../../services/connectivityService";
@@ -108,7 +108,6 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   onSubmenuChange,
   isLightMode = false,
 }) => {
-  const isEn = getLanguage() === "en";
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const [isPowerMenuOpen, setIsPowerMenuOpen] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<null | "wifi" | "bluetooth">(null);
@@ -363,7 +362,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 <button
                   type="button"
                   onClick={handleQuickToggleWifi}
-                  aria-label={isEn ? "Toggle Wi-Fi" : "Alihkan Wi-Fi"}
+                  aria-label="Toggle Wi-Fi"
                   className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                     isWifiConnected
                       ? "bg-[#3882F6] text-white"
@@ -438,16 +437,8 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   <button
                     type="button"
                     onClick={handleQuickToggleDnd}
-                    aria-label={isEn ? "Toggle Do Not Disturb" : "Alihkan Jangan Ganggu"}
-                    title={
-                      focusMode === "DND"
-                        ? getLanguage() === "id"
-                          ? "Nonaktifkan Mode Jangan Ganggu"
-                          : "Disable Do Not Disturb"
-                        : getLanguage() === "id"
-                        ? "Aktifkan Mode Jangan Ganggu"
-                        : "Enable Do Not Disturb"
-                    }
+                    aria-label="Toggle DND"
+                    title={focusMode === "DND" ? "Nonaktifkan Mode Jangan Ganggu" : "Aktifkan Mode Jangan Ganggu"}
                     className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                       focusMode === "DND"
                         ? "bg-[#6366f1] text-white shadow-sm"
@@ -485,7 +476,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       setIsPowerMenuOpen(false);
                       setIsModeDropdownOpen((prev) => !prev);
                     }}
-                    aria-label={getLanguage() === "id" ? "Pilih Mode" : "Select Mode"}
+                    aria-label="Pilih Mode"
                     className="w-[28px] h-[40px] flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors shrink-0 cursor-pointer"
                   >
                     {isModeDropdownOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -557,7 +548,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 <button
                   type="button"
                   onClick={handleQuickToggleBt}
-                  aria-label={isEn ? "Toggle Bluetooth" : "Alihkan Bluetooth"}
+                  aria-label="Toggle Bluetooth"
                   className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                     isBtConnected
                       ? "bg-[#3882F6] text-white"
@@ -813,7 +804,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
               className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <ClipboardList size={16} />
-              <span>{t("tab_clipboard")}</span>
+              <span>Clipboard</span>
             </button>
 
             <button
@@ -825,7 +816,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
               className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <ListTodo size={16} />
-              <span>{t("todo_badge")}</span>
+              <span>Todo</span>
             </button>
 
             <button
