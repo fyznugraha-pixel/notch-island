@@ -4287,7 +4287,7 @@ export default function App() {
                           : optFontSize === "large"
                           ? "text-[14.5px]"
                           : "text-[13px]"
-                      } font-semibold tracking-tight leading-[1.2] translate-y-[1px] ${
+                      } font-semibold tracking-tight leading-[1.2] translate-y-[3.5px] ${
                         isLightMode ? "text-[#1d1d1f]" : "text-white"
                       }`}
                     />
