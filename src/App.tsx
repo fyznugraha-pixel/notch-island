@@ -135,6 +135,44 @@ export default function App() {
   const variantRef = useRef<string>("idle");
   const notchPillRef = useRef<HTMLDivElement>(null);
 
+  const triggerNotificationAudio = (notifItem: NotifPayload) => {
+    if (!notifItem) return;
+    if ((notifItem as any)._soundPlayed) return;
+
+    // Do not play if DND or Pomodoro mute is active
+    if (focusModeRef.current === "DND" || pomoMuteNotifsRef.current) return;
+
+    // Do not play sound for hardware HUDs, system toggles, greetings, or explicitly silent items
+    const silentIcons = [
+      "volume",
+      "brightness",
+      "capslock",
+      "battery",
+      "bluetooth",
+      "usb",
+      "headphones",
+      "sun",
+      "moon",
+      "wifi",
+    ];
+    if (
+      silentIcons.includes(notifItem.icon || "") ||
+      notifItem.type === "greeting" ||
+      (notifItem as any).silent
+    ) {
+      return;
+    }
+
+    // Do not play sound if source app is muted in settings
+    const app = notifItem.appName || notifItem.title || "";
+    if (app && isAppMuted(app)) {
+      return;
+    }
+
+    (notifItem as any)._soundPlayed = true;
+    playNotificationSound();
+  };
+
   const showNotif = (newNotif: NotifPayload) => {
     // Record real notifications to history (ignore transient hardware slider volume/brightness HUDs, boot greetings, and clipboard copy toasts)
     const isGreeting = newNotif.type === "greeting" || newNotif.icon === "sun" || newNotif.icon === "moon";
@@ -158,6 +196,16 @@ export default function App() {
 
     const active = currentNotifRef.current;
 
+    // Drop exact duplicate notifications already displaying
+    if (
+      active &&
+      active.title === newNotif.title &&
+      active.body === newNotif.body &&
+      active.appName === newNotif.appName
+    ) {
+      return;
+    }
+
     if (isHardwareHud) {
       if (active && active.icon !== newNotif.icon) {
         // Preserve active notification in queue so it can resume after volume/brightness HUD dismisses
@@ -173,12 +221,18 @@ export default function App() {
       setNotif(newNotif);
     } else if (active) {
       setNotifQueue((q) => {
-        const filtered = q.filter((n) => n.icon !== newNotif.icon);
+        // Prevent duplicate queued notifications
+        const isDuplicate = q.some(
+          (n) => n.title === newNotif.title && n.body === newNotif.body && n.appName === newNotif.appName
+        );
+        if (isDuplicate) return q;
+        const filtered = q.filter((n) => n.icon !== newNotif.icon || n.appName !== newNotif.appName);
         return [...filtered, newNotif];
       });
     } else {
       currentNotifRef.current = newNotif;
       setNotif(newNotif);
+      triggerNotificationAudio(newNotif);
     }
   };
 
@@ -2159,101 +2213,6 @@ export default function App() {
     invoke<boolean>("check_foreground_browser").then(setIsBrowserActive).catch(console.error);
     invoke<boolean>("request_notification_access").catch(() => {});
 
-    interface RealNotifPayload {
-      app_name: string;
-      title: string;
-      body: string;
-      aumid: string;
-    }
-
-    const unlistenRealNotif = listen<RealNotifPayload>("real-notif", (event) => {
-      const { app_name, title, body, aumid } = event.payload;
-      if (!title && !body) return;
-
-      const lowerApp = (app_name || "").toLowerCase();
-      const lowerAumid = (aumid || "").toLowerCase();
-      if (lowerApp.includes("gili") || lowerAumid.includes("gili")) return;
-
-      const lowerTitle = (title || "").toLowerCase();
-      const lowerBody = (body || "").toLowerCase();
-
-      const isWa =
-        lowerTitle.includes("whatsapp") ||
-        lowerBody.includes("whatsapp") ||
-        lowerBody.includes("web.whatsapp.com") ||
-        lowerTitle.includes("web.whatsapp.com") ||
-        lowerApp.includes("whatsapp");
-
-      let resolvedApp = app_name || "Notifikasi";
-      let resolvedIcon = "bell";
-      let cleanTitle = title || "";
-      let cleanBody = body || "";
-
-      if (isWa) {
-        resolvedApp =
-          lowerApp.includes("chrome") ||
-          lowerApp.includes("edge") ||
-          lowerApp.includes("brave") ||
-          lowerApp.includes("firefox") ||
-          lowerTitle.includes("web.whatsapp.com") ||
-          lowerBody.includes("web.whatsapp.com")
-            ? "WhatsApp Web"
-            : "WhatsApp";
-        resolvedIcon = "whatsapp";
-
-        if (cleanTitle.toLowerCase().includes("web.whatsapp.com") || cleanTitle.toLowerCase() === "whatsapp web") {
-          const lines = cleanBody.split("\n").filter((l) => l.trim().length > 0);
-          if (lines.length >= 2) {
-            cleanTitle = lines[0];
-            cleanBody = lines.slice(1).join("\n");
-          }
-        }
-
-        cleanBody = cleanBody
-          .split("\n")
-          .filter((line) => !line.toLowerCase().includes("web.whatsapp.com"))
-          .join("\n")
-          .trim();
-      } else if (lowerApp.includes("telegram") || lowerTitle.includes("telegram") || lowerBody.includes("web.telegram.org")) {
-        resolvedApp = "Telegram";
-        resolvedIcon = "telegram";
-      } else if (lowerApp.includes("discord") || lowerTitle.includes("discord")) {
-        resolvedApp = "Discord";
-        resolvedIcon = "discord";
-      } else if (lowerApp.includes("chrome")) {
-        resolvedApp = "Google Chrome";
-        resolvedIcon = "chrome";
-      } else if (lowerApp.includes("edge")) {
-        resolvedApp = "Microsoft Edge";
-        resolvedIcon = "edge";
-      } else if (lowerApp.includes("brave")) {
-        resolvedApp = "Brave";
-        resolvedIcon = "brave";
-      } else if (lowerApp.includes("firefox")) {
-        resolvedApp = "Firefox";
-        resolvedIcon = "firefox";
-      } else if (lowerApp.includes("spotify")) {
-        resolvedApp = "Spotify";
-        resolvedIcon = "spotify";
-      } else if (lowerApp.includes("youtube")) {
-        resolvedApp = "YouTube";
-        resolvedIcon = "youtube";
-      } else if (lowerApp.includes("instagram")) {
-        resolvedApp = "Instagram";
-        resolvedIcon = "instagram";
-      }
-
-      showNotif({
-        title: cleanTitle || resolvedApp,
-        body: cleanBody,
-        appName: resolvedApp,
-        icon: resolvedIcon,
-        aumid,
-        type: isWa ? "message" : "system",
-      });
-      playNotificationSound();
-    });
-
     let unlistenDragDrop: (() => void) | undefined;
     try {
       getCurrentWebview().onDragDropEvent((event) => {
@@ -2285,7 +2244,6 @@ export default function App() {
       unlistenMouseLeave.then(unlisten => unlisten());
       unlistenMouseEnter.then(unlisten => unlisten());
       unlistenBrowser.then(unlisten => unlisten());
-      unlistenRealNotif.then(unlisten => unlisten());
       if (unlistenDragDrop) unlistenDragDrop();
       clearTimeout(updateCheckTimeout);
       shortcutManager.destroy().catch(() => {});
@@ -2560,9 +2518,6 @@ export default function App() {
               const snippet = copiedText.trim().length > 110 
                 ? `${copiedText.trim().slice(0, 110)}…` 
                 : copiedText.trim();
-              if (focusModeRef.current !== "DND" && !pomoMuteNotifsRef.current) {
-                playNotificationSound();
-              }
               showNotif({
                 title: t("notif_copied_clipboard"),
                 body: snippet,
@@ -2594,9 +2549,6 @@ export default function App() {
 
             // Tampilkan notifikasi awal instan
             if (!isClipboardRef.current) {
-              if (focusModeRef.current !== "DND" && !pomoMuteNotifsRef.current) {
-                playNotificationSound();
-              }
               const dimText = `${clipImage.width} × ${clipImage.height} px`;
               showNotif({
                 title: t("notif_image_copied_clipboard"),
@@ -2670,57 +2622,135 @@ export default function App() {
       showNotif({ title: event.payload.name, body, icon: "bluetooth" });
     });
 
-    const unlistenRealNotif = listen<{app_name: string, title: string, body: string, aumid?: string}>("real-notif", (event) => {
-      const appName = event.payload.app_name || "Notification";
-      const lower = appName.toLowerCase();
-      
-      // Abaikan notif dari Snipping Tool / ScreenSketch karena Gili menangani screenshot via clipboard
-      if (lower.includes("snipping tool") || lower.includes("screensketch") || (event.payload.aumid && event.payload.aumid.toLowerCase().includes("screensketch"))) return;
-      
-      let iconType = "bell";
-      if (lower.includes("whatsapp")) iconType = "whatsapp";
-      else if (lower.includes("telegram")) iconType = "telegram";
-      else if (lower.includes("discord")) iconType = "discord";
-      else if (lower.includes("mail") || lower.includes("outlook")) iconType = "mail";
-      else if (lower.includes("instagram")) iconType = "instagram";
-      else if (lower.includes("threads")) iconType = "threads";
-      else if (lower.includes("tiktok")) iconType = "tiktok";
-      else if (lower.includes("netflix")) iconType = "netflix";
-      else if (lower.includes("reddit")) iconType = "reddit";
-      else if (lower.includes("vlc")) iconType = "vlc";
-      else if (lower.includes("media player") || lower.includes("wmplayer")) iconType = "windows-media-player";
-      else if (lower.includes("x") || lower.includes("twitter")) iconType = "x";
-      else if (lower.includes("youtube")) iconType = "youtube";
-      else if (lower.includes("slack") || lower.includes("teams")) iconType = "slack";
-      else if (lower.includes("snipping tool") || lower.includes("screensketch")) iconType = "camera";
-      
-      const rawTitle = (event.payload.title || "").trim();
-      const rawBody = (event.payload.body || "").trim();
-      
-      let displayTitle = appName;
-      let displayBody = rawBody || rawTitle;
+    interface RealNotifPayload {
+      app_name: string;
+      title: string;
+      body: string;
+      aumid?: string;
+    }
 
-      if (rawTitle && rawBody) {
-        displayTitle = `${appName} · ${rawTitle}`;
-        displayBody = rawBody;
-      } else if (rawTitle) {
-        displayTitle = appName;
-        displayBody = rawTitle;
-      } else if (rawBody) {
-        displayTitle = appName;
-        displayBody = rawBody;
+    const unlistenRealNotif = listen<RealNotifPayload>("real-notif", (event) => {
+      const { app_name, title, body, aumid } = event.payload;
+      if (!title && !body) return;
+
+      const lowerApp = (app_name || "").toLowerCase();
+      const lowerAumid = (aumid || "").toLowerCase();
+
+      // Abaikan notifikasi dari Gili Island sendiri
+      if (lowerApp.includes("gili") || lowerAumid.includes("gili")) return;
+
+      // Abaikan notif dari Snipping Tool / ScreenSketch karena ditangani via clipboard
+      if (
+        lowerApp.includes("snipping tool") ||
+        lowerApp.includes("screensketch") ||
+        lowerAumid.includes("screensketch")
+      ) {
+        return;
       }
-      
-      const isMuted = isAppMuted(appName) || focusModeRef.current === "DND" || pomoMuteNotifsRef.current;
-      if (!isMuted) {
-        playNotificationSound();
+
+      const lowerTitle = (title || "").toLowerCase();
+      const lowerBody = (body || "").toLowerCase();
+
+      const isWa =
+        lowerTitle.includes("whatsapp") ||
+        lowerBody.includes("whatsapp") ||
+        lowerBody.includes("web.whatsapp.com") ||
+        lowerTitle.includes("web.whatsapp.com") ||
+        lowerApp.includes("whatsapp");
+
+      let resolvedApp = app_name || "Notification";
+      let resolvedIcon = "bell";
+      let cleanTitle = (title || "").trim();
+      let cleanBody = (body || "").trim();
+
+      if (isWa) {
+        resolvedApp =
+          lowerApp.includes("chrome") ||
+          lowerApp.includes("edge") ||
+          lowerApp.includes("brave") ||
+          lowerApp.includes("firefox") ||
+          lowerTitle.includes("web.whatsapp.com") ||
+          lowerBody.includes("web.whatsapp.com")
+            ? "WhatsApp Web"
+            : "WhatsApp";
+        resolvedIcon = "whatsapp";
+
+        if (cleanTitle.toLowerCase().includes("web.whatsapp.com") || cleanTitle.toLowerCase() === "whatsapp web") {
+          const lines = cleanBody.split("\n").filter((l) => l.trim().length > 0);
+          if (lines.length >= 2) {
+            cleanTitle = lines[0];
+            cleanBody = lines.slice(1).join("\n");
+          }
+        }
+
+        cleanBody = cleanBody
+          .split("\n")
+          .filter((line) => !line.toLowerCase().includes("web.whatsapp.com"))
+          .join("\n")
+          .trim();
+      } else if (lowerApp.includes("telegram") || lowerTitle.includes("telegram") || lowerBody.includes("web.telegram.org")) {
+        resolvedApp = "Telegram";
+        resolvedIcon = "telegram";
+      } else if (lowerApp.includes("discord") || lowerTitle.includes("discord")) {
+        resolvedApp = "Discord";
+        resolvedIcon = "discord";
+      } else if (lowerApp.includes("slack") || lowerApp.includes("teams")) {
+        resolvedApp = lowerApp.includes("slack") ? "Slack" : "Microsoft Teams";
+        resolvedIcon = "slack";
+      } else if (lowerApp.includes("mail") || lowerApp.includes("outlook")) {
+        resolvedApp = lowerApp.includes("outlook") ? "Outlook" : "Mail";
+        resolvedIcon = "mail";
+      } else if (lowerApp.includes("chrome")) {
+        resolvedApp = "Google Chrome";
+        resolvedIcon = "chrome";
+      } else if (lowerApp.includes("edge")) {
+        resolvedApp = "Microsoft Edge";
+        resolvedIcon = "edge";
+      } else if (lowerApp.includes("brave")) {
+        resolvedApp = "Brave";
+        resolvedIcon = "brave";
+      } else if (lowerApp.includes("firefox")) {
+        resolvedApp = "Firefox";
+        resolvedIcon = "firefox";
+      } else if (lowerApp.includes("spotify")) {
+        resolvedApp = "Spotify";
+        resolvedIcon = "spotify";
+      } else if (lowerApp.includes("youtube")) {
+        resolvedApp = "YouTube";
+        resolvedIcon = "youtube";
+      } else if (lowerApp.includes("instagram")) {
+        resolvedApp = "Instagram";
+        resolvedIcon = "instagram";
+      } else if (lowerApp.includes("threads")) {
+        resolvedApp = "Threads";
+        resolvedIcon = "threads";
+      } else if (lowerApp.includes("tiktok")) {
+        resolvedApp = "TikTok";
+        resolvedIcon = "tiktok";
+      } else if (lowerApp.includes("netflix")) {
+        resolvedApp = "Netflix";
+        resolvedIcon = "netflix";
+      } else if (lowerApp.includes("reddit")) {
+        resolvedApp = "Reddit";
+        resolvedIcon = "reddit";
+      } else if (lowerApp.includes("vlc")) {
+        resolvedApp = "VLC";
+        resolvedIcon = "vlc";
+      } else if (lowerApp.includes("media player") || lowerApp.includes("wmplayer")) {
+        resolvedApp = "Windows Media Player";
+        resolvedIcon = "windows-media-player";
+      } else if (lowerApp.includes("x") || lowerApp.includes("twitter")) {
+        resolvedApp = "X";
+        resolvedIcon = "x";
       }
+
       showNotif({
-        title: displayTitle,
-        body: displayBody,
-        icon: iconType,
-        aumid: event.payload.aumid,
-        appName,
+        title: cleanTitle || resolvedApp,
+        body: cleanBody,
+        appName: resolvedApp,
+        icon: resolvedIcon,
+        aumid,
+        type: isWa ? "message" : "system",
       });
     });
 
@@ -2791,6 +2821,7 @@ export default function App() {
       currentNotifRef.current = nextNotif;
       setNotif(nextNotif);
       setNotifQueue(q => q.slice(1));
+      triggerNotificationAudio(nextNotif);
     } else if (notif) {
       let duration = optNotifTimeRef.current * 1000;
       const shortIcons = ["volume", "brightness", "battery", "bluetooth"];
@@ -4613,9 +4644,6 @@ export default function App() {
                                       },
                                     ];
                                 const randomSample = samples[Math.floor(Math.random() * samples.length)];
-                                if (focusModeRef.current !== "DND" && !pomoMuteNotifsRef.current) {
-                                  playNotificationSound();
-                                }
                                 showNotif(randomSample);
                               }, 400);
                             }}
