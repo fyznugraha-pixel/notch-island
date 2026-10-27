@@ -376,6 +376,20 @@ export default function App() {
   const isShortcutPinnedRef = useRef(false);
   const shortcutPinnedTimerRef = useRef<number | null>(null);
   const isClosingRef = useRef(false);
+  // Rust emits notch-mouse-enter only once per entry; if it lands mid-close we replay it afterwards
+  const pendingHoverOpenRef = useRef(false);
+  const notchHoverEnterRef = useRef<() => void>(() => {});
+
+  const finishClosing = () => {
+    isClosingRef.current = false;
+    if (!pendingHoverOpenRef.current) return;
+    pendingHoverOpenRef.current = false;
+    invoke<boolean>("is_cursor_in_notch")
+      .then((inside) => {
+        if (inside) notchHoverEnterRef.current();
+      })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     setLyricsData(null);
@@ -1189,9 +1203,7 @@ export default function App() {
     if (!isPlayingRef.current && mediaRef.current && !isPausedMediaCollapsedRef.current) {
       startPausedMediaCollapseTimer(2000);
     }
-    window.setTimeout(() => {
-      isClosingRef.current = false;
-    }, 450);
+    window.setTimeout(finishClosing, 450);
   }, [startPausedMediaCollapseTimer]);
 
   const openLastOrPreferredTab = () => {
@@ -1424,6 +1436,26 @@ export default function App() {
       window.setTimeout(() => {
         invoke<any[]>("get_audio_sessions").then(setAudioSessions).catch(console.error);
       }, fetchDelay);
+    }
+  };
+
+  notchHoverEnterRef.current = () => {
+    isCursorInsideNotchRef.current = true;
+    isShortcutPinnedRef.current = false;
+    if (shortcutPinnedTimerRef.current) {
+      clearTimeout(shortcutPinnedTimerRef.current);
+      shortcutPinnedTimerRef.current = null;
+    }
+    cancelCollapseTimer();
+    if (currentNotifRef.current) return;
+    if (currentTabRef.current !== null) return;
+    if (focusModeRef.current === "Gaming") return;
+    if (variantRef.current === "compact") {
+      startCompactHoverTimer(80);
+    } else if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
+      goToTab("media_expanded", 0);
+    } else if (variantRef.current === "idle") {
+      openLastOrPreferredTab();
     }
   };
 
@@ -2130,30 +2162,20 @@ export default function App() {
     const unlistenMouseLeave = listen("notch-mouse-leave", () => {
       cancelCompactHoverTimer();
       isCursorInsideNotchRef.current = false;
+      pendingHoverOpenRef.current = false;
       setIsDragOver(false);
       if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
       startCollapseTimer(350);
     });
 
     const unlistenMouseEnter = listen("notch-mouse-enter", () => {
-      if (isShelfDraggingRef.current || isClosingRef.current) return;
-      isCursorInsideNotchRef.current = true;
-      isShortcutPinnedRef.current = false;
-      if (shortcutPinnedTimerRef.current) {
-        clearTimeout(shortcutPinnedTimerRef.current);
-        shortcutPinnedTimerRef.current = null;
+      if (isShelfDraggingRef.current) return;
+      if (isClosingRef.current) {
+        isCursorInsideNotchRef.current = true;
+        pendingHoverOpenRef.current = true;
+        return;
       }
-      cancelCollapseTimer();
-      if (currentNotifRef.current) return;
-      if (currentTabRef.current !== null) return;
-      if (focusModeRef.current === "Gaming") return;
-      if (variantRef.current === "compact") {
-        startCompactHoverTimer(80);
-      } else if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
-        goToTab("media_expanded", 0);
-      } else if (variantRef.current === "idle") {
-        openLastOrPreferredTab();
-      }
+      notchHoverEnterRef.current();
     });
 
     const handleGlobalPointerDown = (e: MouseEvent | PointerEvent) => {
@@ -3734,7 +3756,6 @@ export default function App() {
         variants={variants}
         transition={smoothSpring}
         onAnimationComplete={() => {
-          isClosingRef.current = false;
           const pillEl = document.getElementById("notch-pill");
           if (pillEl) {
             const rect = pillEl.getBoundingClientRect();
@@ -3756,6 +3777,8 @@ export default function App() {
               dpr: window.devicePixelRatio || 1.0,
             }).catch(console.error);
           }
+          // After update_pill_size so a replayed hover is checked against the collapsed hit zone
+          finishClosing();
         }}
         onWheel={handleNotchWheel}
         onMouseMove={() => {
@@ -3778,7 +3801,10 @@ export default function App() {
           }
         }}
         onMouseEnter={() => {
-          if (isClosingRef.current) return;
+          if (isClosingRef.current) {
+            pendingHoverOpenRef.current = true;
+            return;
+          }
           isCursorInsideNotchRef.current = true;
           isShortcutPinnedRef.current = false;
           if (shortcutPinnedTimerRef.current) {
@@ -3849,6 +3875,7 @@ export default function App() {
         }}
         onMouseLeave={() => {
           cancelCompactHoverTimer();
+          pendingHoverOpenRef.current = false;
           if (isSwitchingTabRef.current) return;
           isCursorInsideNotchRef.current = false;
           startCollapseTimer(350);
