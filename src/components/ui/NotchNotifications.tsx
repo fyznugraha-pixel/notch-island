@@ -146,7 +146,7 @@ export const UniformHudPill: React.FC<{
             />
           )}
           {isBarHud && (
-            <div className={`w-full h-1.5 ${isLightMode ? "bg-black/10" : "bg-white/15"} rounded-full overflow-hidden mt-1.5`}>
+            <div className={`w-full h-1.5 ${isLightMode ? "bg-black/10" : "bg-white/15"} rounded-full overflow-hidden mt-1 -translate-y-0.5`}>
               <div
                 style={{ width: `${percentValue}%` }}
                 className={`h-full rounded-full transition-[width] duration-75 ease-out ${barColor}`}

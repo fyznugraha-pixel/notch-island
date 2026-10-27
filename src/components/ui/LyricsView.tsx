@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Music, RotateCw, ChevronDown, Check } from "lucide-react";
 import { LyricsData, LyricsProviderId, LYRICS_PROVIDERS_META } from "../../services/lyricsService";
-import { t } from "../../services/i18n";
+import { t, getLanguage } from "../../services/i18n";
 
 export interface LyricsViewProps {
   lyrics: LyricsData | null;
@@ -28,6 +28,7 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   currentProvider = "auto",
   onChangeProvider,
 }) => {
+  const isEn = getLanguage() === "en";
   const containerRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
   const lastActiveIndexRef = useRef<number>(-1);
@@ -225,7 +226,7 @@ export const LyricsView = React.memo<LyricsViewProps>(({
             <button
               type="button"
               onClick={() => setIsProviderDropdownOpen((prev) => !prev)}
-              title="Ganti library lirik"
+              title={isEn ? "Change lyrics library" : "Ganti library lirik"}
               className="h-6 flex items-center gap-1 bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/[0.16] border border-white/10 rounded-full px-2 text-[10px] text-white/75 hover:text-white transition-all cursor-pointer font-medium select-none shrink-0"
             >
               <span className="truncate max-w-[70px]">{activeProviderBadge}</span>
@@ -262,7 +263,7 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                     >
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         {isDeliveredByThis ? (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Aktif saat ini" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title={isEn ? "Currently active" : "Aktif saat ini"} />
                         ) : (
                           <span className="w-1.5 h-1.5 rounded-full bg-transparent shrink-0" />
                         )}
@@ -321,7 +322,9 @@ export const LyricsView = React.memo<LyricsViewProps>(({
               {songTitle || artist || "..."}
             </span>
             <div className="flex flex-wrap items-center justify-center gap-1.5 mt-2 max-w-[220px]">
-              <span className="text-[9.5px] text-white/40 w-full mb-0.5">Cari di library lain:</span>
+              <span className="text-[9.5px] text-white/40 w-full mb-0.5">
+                {isEn ? "Search in other library:" : "Cari di library lain:"}
+              </span>
               {LYRICS_PROVIDERS_META.filter((p) => p.id !== currentProvider).map((p) => (
                 <button
                   key={p.id}

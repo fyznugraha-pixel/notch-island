@@ -4,6 +4,8 @@ import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
 import { NotifSoundPicker } from "./NotifSoundPicker";
+import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
+import { ShortcutActionId, ShortcutStatus } from "../../../services/shortcuts";
 import { t, Language } from "../../../services/i18n";
 
 export interface GeneralTabProps {
@@ -26,6 +28,12 @@ export interface GeneralTabProps {
   onChangeNotifSound: (soundId: string) => void;
   optCloseDelay: number;
   onChangeCloseDelay: (sec: number) => void;
+  shortcuts: Record<ShortcutActionId, string | null>;
+  shortcutsEnabled: boolean;
+  shortcutStatuses: Record<ShortcutActionId, ShortcutStatus>;
+  onUpdateShortcut: (actionId: ShortcutActionId, shortcut: string | null) => Promise<{ success: boolean; error?: string }>;
+  onResetShortcut: (actionId: ShortcutActionId) => Promise<void>;
+  onToggleShortcutsEnabled: (enabled: boolean) => void;
 }
 
 export const GeneralTab: React.FC<GeneralTabProps> = ({
@@ -48,11 +56,18 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
   onChangeNotifSound,
   optCloseDelay,
   onChangeCloseDelay,
+  shortcuts,
+  shortcutsEnabled,
+  shortcutStatuses,
+  onUpdateShortcut,
+  onResetShortcut,
+  onToggleShortcutsEnabled,
 }) => {
   const isId = optLanguage === "id";
 
   return (
-    <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col gap-1 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+    <div className="flex flex-col gap-3 w-full">
+      <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col gap-1 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
       {/* 1. Bahasa */}
       <SettingRow
         icon={<Globe size={18} />}
@@ -228,6 +243,17 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
             onChange={onChangeNotifSound}
           />
         }
+      />
+      </div>
+
+      {/* 7. Pintasan Keyboard */}
+      <KeyboardShortcutsCard
+        shortcuts={shortcuts}
+        shortcutsEnabled={shortcutsEnabled}
+        shortcutStatuses={shortcutStatuses}
+        onUpdateShortcut={onUpdateShortcut}
+        onResetShortcut={onResetShortcut}
+        onToggleShortcutsEnabled={onToggleShortcutsEnabled}
       />
     </div>
   );

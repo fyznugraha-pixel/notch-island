@@ -50,7 +50,7 @@ export const ScrollingText = ({ text, className }: { text: string; className?: s
   const scrollEndPct = (((2 + scrollDur) / totalCycle) * 100).toFixed(1);
 
   return (
-    <div ref={containerRef} className={`overflow-hidden whitespace-nowrap ${className}`}>
+    <div ref={containerRef} className={`overflow-hidden whitespace-nowrap py-[1px] ${className}`}>
       {shouldScroll && (
         <style
           dangerouslySetInnerHTML={{
@@ -71,6 +71,7 @@ export const ScrollingText = ({ text, className }: { text: string; className?: s
                 display: "inline-block",
                 animation: `marquee-pause-scroll-${Math.round(overflowPx)} ${totalCycle}s ease-in-out infinite`,
                 willChange: "transform",
+                lineHeight: "1.3",
               }
             : {
                 display: "inline-block",
@@ -78,6 +79,7 @@ export const ScrollingText = ({ text, className }: { text: string; className?: s
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
+                lineHeight: "1.3",
               }
         }
       >

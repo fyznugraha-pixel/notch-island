@@ -16,6 +16,7 @@ import {
   Volume2,
   Sparkles,
   Bell,
+  Droplet,
 } from "lucide-react";
 import { motion, AnimatePresence, type Transition } from "framer-motion";
 import { getWeatherIcon } from "./NotifIcon";
@@ -421,6 +422,11 @@ const getTabMetadata = (key: string): { label: string; icon: React.ReactNode } =
         label: t("tab_mini_note"),
         icon: <FileText size={13} strokeWidth={2.2} />,
       };
+    case "water_reminder":
+      return {
+        label: t("tab_water_reminder") || "Air",
+        icon: <Droplet size={13} strokeWidth={2.2} />,
+      };
     case "settings":
       return {
         label: t("tab_settings"),
@@ -669,9 +675,9 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     optAnimSpeed,
     themeMode,
     children,
-    contentClassName = "flex-1 min-w-0 w-full h-full relative z-10 overflow-hidden flex flex-col",
+    contentClassName = "flex-1 min-h-0 min-w-0 w-full relative z-10 overflow-hidden flex flex-col",
   }) => {
-    const isSwipeCooldownRef = React.useRef(false);
+    const lastSwipeTimeRef = React.useRef(0);
     const accumulatedDeltaRef = React.useRef(0);
     const swipeResetTimerRef = React.useRef<number | null>(null);
     const isPanIgnoredRef = React.useRef(false);
@@ -689,11 +695,11 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       if (
         target &&
         (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
         ) ||
           target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
-          target.tagName === "BUTTON")
+          target.tagName === "SELECT")
       ) {
         return;
       }
@@ -701,38 +707,39 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       const absX = Math.abs(e.deltaX);
       const absY = Math.abs(e.deltaY);
 
-      if (absX < 2 || absY > absX * 0.85) {
+      // Require horizontal motion to be dominant, allowing natural diagonal hand gestures (up to ~55 deg)
+      if (absX < 2 || absY > absX * 1.35) {
         return;
       }
 
-      if (isSwipeCooldownRef.current) {
+      // Stop wheel event from bubbling to parent #notch-pill (prevents volume hijacking)
+      e.stopPropagation();
+
+      const now = Date.now();
+      // Cooldown between tab transitions to prevent skipping multiple tabs on one flick
+      if (now - lastSwipeTimeRef.current < 280) {
+        accumulatedDeltaRef.current = 0;
         return;
       }
 
-      if (Math.abs(accumulatedDeltaRef.current) === 0 && absX < 5) {
-        return;
-      }
-
+      // Windows Touchpad / Mouse Wheel:
+      // Swiping 2 fingers LEFT (deltaX > 0) -> reveal next tab on the right
+      // Swiping 2 fingers RIGHT (deltaX < 0) -> reveal previous tab on the left
       accumulatedDeltaRef.current += getNormalizedHorizontalDelta(e);
 
       if (swipeResetTimerRef.current) clearTimeout(swipeResetTimerRef.current);
       swipeResetTimerRef.current = window.setTimeout(() => {
         accumulatedDeltaRef.current = 0;
-      }, 120);
+      }, 220);
 
-      if (Math.abs(accumulatedDeltaRef.current) >= 30) {
-        const dir = accumulatedDeltaRef.current > 0 ? 1 : -1;
+      if (Math.abs(accumulatedDeltaRef.current) >= 20) {
+        const isNext = accumulatedDeltaRef.current > 0;
         accumulatedDeltaRef.current = 0;
-        isSwipeCooldownRef.current = true;
+        lastSwipeTimeRef.current = now;
 
-        window.setTimeout(() => {
-          isSwipeCooldownRef.current = false;
-          accumulatedDeltaRef.current = 0;
-        }, 240);
-
-        if (dir > 0 && hasNext) {
+        if (isNext && hasNext) {
           onNext();
-        } else if (dir < 0 && hasPrev) {
+        } else if (!isNext && hasPrev) {
           onPrev();
         }
       }
@@ -743,11 +750,11 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       if (
         target &&
         (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
         ) ||
           target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
-          target.tagName === "BUTTON")
+          target.tagName === "SELECT")
       ) {
         isPanIgnoredRef.current = true;
       } else {
@@ -766,16 +773,16 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       if (
         target &&
         (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
         ) ||
           target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
-          target.tagName === "BUTTON")
+          target.tagName === "SELECT")
       ) {
         return;
       }
 
-      if (Math.abs(info.offset.x) > 45 && Math.abs(info.offset.x) > Math.abs(info.offset.y) * 1.5) {
+      if (Math.abs(info.offset.x) > 35 && Math.abs(info.offset.x) > Math.abs(info.offset.y) * 1.1) {
         if (info.offset.x < 0 && hasNext) {
           onNext();
         } else if (info.offset.x > 0 && hasPrev) {
