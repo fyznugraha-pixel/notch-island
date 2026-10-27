@@ -1324,7 +1324,12 @@ export default function App() {
       if (configuredSec === -1) {
         return;
       }
-      const effectiveDelay = configuredSec > 0 ? configuredSec * 1000 : Math.max(_delayMs, 280);
+      const effectiveDelay =
+        configuredSec === 0
+          ? 0
+          : configuredSec > 0
+          ? configuredSec * 1000
+          : Math.max(_delayMs, 280);
 
       collapseTimerRef.current = window.setTimeout(async () => {
         if (isCursorInsideNotchRef.current || isSwitchingTabRef.current || isShortcutPinnedRef.current) return;
