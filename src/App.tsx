@@ -1450,7 +1450,12 @@ export default function App() {
 
   const handleToggleSettings = () => {
     if (currentTab === "settings") {
-      goToTab(tabBeforeSettingsRef.current ?? (media ? "media_expanded" : "quick_control"), -1);
+      const fallbackTab: ExpandedTab = media ? "media_expanded" : "quick_control";
+      const target = (tabBeforeSettingsRef.current && (tabBeforeSettingsRef.current as string) !== "settings")
+        ? tabBeforeSettingsRef.current
+        : fallbackTab;
+      tabBeforeSettingsRef.current = null;
+      goToTab(target, -1);
       return;
     }
     tabBeforeSettingsRef.current = currentTab;
@@ -1459,7 +1464,12 @@ export default function App() {
 
   const handleToggleNotifications = () => {
     if (currentTab === "notif_center") {
-      goToTab(tabBeforeNotifRef.current ?? (media ? "media_expanded" : "quick_control"), -1);
+      const fallbackTab: ExpandedTab = media ? "media_expanded" : "quick_control";
+      const target = (tabBeforeNotifRef.current && (tabBeforeNotifRef.current as string) !== "notif_center")
+        ? tabBeforeNotifRef.current
+        : fallbackTab;
+      tabBeforeNotifRef.current = null;
+      goToTab(target, -1);
       return;
     }
     tabBeforeNotifRef.current = currentTab;
@@ -2199,10 +2209,7 @@ export default function App() {
             startCompactHoverTimer(80);
           }
         } else if (isCursorInsideNotchRef.current) {
-          if (isSwitchingTabRef.current) return;
           cancelCompactHoverTimer();
-          isCursorInsideNotchRef.current = false;
-          startCollapseTimer(350);
         }
       }
     };

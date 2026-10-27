@@ -3,7 +3,7 @@
  * Handles data persistence, streak tracking, and reminder schedules.
  */
 
-import { getLanguage } from "./i18n";
+import { getLanguage } from "./i18n.ts";
 
 export interface WaterIntakeRecord {
   id: string;

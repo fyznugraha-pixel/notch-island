@@ -675,7 +675,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     optAnimSpeed,
     themeMode,
     children,
-    contentClassName = "flex-1 min-w-0 w-full h-full relative z-10 overflow-hidden flex flex-col",
+    contentClassName = "flex-1 min-h-0 min-w-0 w-full relative z-10 overflow-hidden flex flex-col",
   }) => {
     const isSwipeCooldownRef = React.useRef(false);
     const accumulatedDeltaRef = React.useRef(0);
@@ -695,11 +695,11 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       if (
         target &&
         (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
         ) ||
           target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
-          target.tagName === "BUTTON")
+          target.tagName === "SELECT")
       ) {
         return;
       }
@@ -749,11 +749,11 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       if (
         target &&
         (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
         ) ||
           target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
-          target.tagName === "BUTTON")
+          target.tagName === "SELECT")
       ) {
         isPanIgnoredRef.current = true;
       } else {
@@ -772,11 +772,11 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       if (
         target &&
         (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, button, select, [role="slider"]'
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
         ) ||
           target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
-          target.tagName === "BUTTON")
+          target.tagName === "SELECT")
       ) {
         return;
       }

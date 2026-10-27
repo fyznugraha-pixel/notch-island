@@ -335,8 +335,13 @@ export function previewNotificationSound(soundId: string): void {
 /**
  * Plays notification sound based on user preference.
  */
+let lastNotifSoundTime = 0;
+
 export function playNotificationSound(soundIdOverride?: string): void {
   if (getDndStatus() || !isSoundEffectsEnabled()) return;
+  const now = Date.now();
+  if (now - lastNotifSoundTime < 350) return;
+  lastNotifSoundTime = now;
   const soundId = soundIdOverride || getSavedNotifSound();
   playSoundById(soundId);
 }
