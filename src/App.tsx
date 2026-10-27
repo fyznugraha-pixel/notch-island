@@ -2181,9 +2181,43 @@ export default function App() {
     const handleGlobalPointerDown = (e: MouseEvent | PointerEvent) => {
       if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
       const notchElement = document.getElementById("notch-pill");
-      if (notchElement && !notchElement.contains(e.target as Node)) {
-        isCursorInsideNotchRef.current = false;
-        handleCloseImmediate();
+      if (notchElement) {
+        if (!notchElement.contains(e.target as Node)) {
+          const hasOpenPanel =
+            isExpandedRef.current ||
+            isQuickControlRef.current ||
+            isTodoRef.current ||
+            isPomodoroRef.current ||
+            isDropShelfRef.current ||
+            isSysMonitorRef.current ||
+            isMiniNoteRef.current ||
+            isWaterReminderRef.current ||
+            isClipboardRef.current ||
+            isVolumeMixerRef.current ||
+            isNotificationsRef.current ||
+            isSettingsRef.current;
+          if (hasOpenPanel) {
+            isCursorInsideNotchRef.current = false;
+            handleCloseImmediate();
+          } else {
+            // When notch is closed, clicking anywhere in the floating margin area above/near the notch opens it
+            const rect = notchElement.getBoundingClientRect();
+            const topMargin = isIsland ? Math.max(26, islandTopOffset + 14) : 10;
+            const bottomMargin = isIsland && isBot ? Math.max(26, islandTopOffset + 14) : 10;
+            const isNearNotch =
+              e.clientX >= rect.left - 16 &&
+              e.clientX <= rect.right + 16 &&
+              e.clientY >= (isBot ? rect.bottom - 4 : rect.top - topMargin) &&
+              e.clientY <= (isBot ? rect.bottom + bottomMargin : rect.top + rect.height + 6);
+            if (isNearNotch) {
+              if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
+                goToTab("media_expanded", 0);
+              } else if (variantRef.current === "idle") {
+                openLastOrPreferredTab();
+              }
+            }
+          }
+        }
       }
     };
 
@@ -2196,10 +2230,12 @@ export default function App() {
         const targetWidth = isAnyPanelOpen ? Math.max(currentSize.width, rect.width) : rect.width;
         const targetHeight = isAnyPanelOpen ? Math.max(currentSize.height, rect.height) : rect.height;
         const centerX = (rect.left + rect.right) / 2;
-        const minX = centerX - targetWidth / 2 - 14;
-        const maxX = centerX + targetWidth / 2 + 14;
-        const minY = isBot ? rect.bottom - targetHeight - 16 : rect.top - 8;
-        const maxY = isBot ? rect.bottom + 8 : rect.top + targetHeight + 16;
+        const minX = centerX - targetWidth / 2 - 16;
+        const maxX = centerX + targetWidth / 2 + 16;
+        const topPadding = isIsland ? Math.max(26, islandTopOffset + 14) : 12;
+        const bottomPadding = isIsland && isBot ? Math.max(26, islandTopOffset + 14) : 12;
+        const minY = isBot ? rect.bottom - targetHeight - bottomPadding : rect.top - topPadding;
+        const maxY = isBot ? rect.bottom + bottomPadding : rect.top + targetHeight + 16;
         const isInside =
           e.clientX >= minX &&
           e.clientX <= maxX &&
@@ -2229,6 +2265,12 @@ export default function App() {
             isSettingsRef.current;
           if (variantRef.current === "compact" && !compactHoverTimerRef.current && !hasOpenPanel) {
             startCompactHoverTimer(80);
+          } else if (!hasOpenPanel && !isClosingRef.current) {
+            if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
+              goToTab("media_expanded", 0);
+            } else if (variantRef.current === "idle") {
+              openLastOrPreferredTab();
+            }
           }
         } else if (isCursorInsideNotchRef.current) {
           cancelCompactHoverTimer();
@@ -3529,11 +3571,9 @@ export default function App() {
 
   useEffect(() => {
     const currentSize = variants[variant as keyof typeof variants] || variants.idle;
-    const isCollapsed = !isAnyPanelOpen;
-    if (isCollapsed) {
-      // During collapse animation (~350ms spring), keep the expanded hit zone active
-      // in Rust to prevent premature WS_EX_TRANSPARENT toggling / stutter.
-      // onAnimationComplete will send the final idle size once shrinking completes.
+    // Only delay size reduction during active collapse animation (~350ms spring)
+    // so hit area isn't cut short while the panel is visibly shrinking.
+    if (isClosingRef.current) {
       const fallbackTimer = window.setTimeout(() => {
         invoke("update_pill_size", {
           width: currentSize.width,
