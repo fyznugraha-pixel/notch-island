@@ -828,7 +828,7 @@ fn calculate_notch_hit(
     let side_tolerance = if is_closed {
         (12.0 * effective_sf) as i32
     } else {
-        (18.0 * effective_sf) as i32
+        (10.0 * effective_sf) as i32
     };
 
     let min_x = pill_x - margin - side_tolerance;
@@ -836,13 +836,13 @@ fn calculate_notch_hit(
 
     let (min_y, max_y) = if pill.is_bottom {
         let bottom_extra = (phys_offset + (18.0 * effective_sf) as i32).max((22.0 * effective_sf) as i32);
-        let top_extra = if is_closed { (4.0 * effective_sf) as i32 } else { (18.0 * effective_sf) as i32 };
+        let top_extra = if is_closed { (4.0 * effective_sf) as i32 } else { (10.0 * effective_sf) as i32 };
         (pill_y - margin - top_extra, pill_y + hit_h + margin + bottom_extra)
     } else {
         // When docked or floating at top, extend upwards all the way to screen edge and beyond (+18px buffer)
         // so hovering/touching anywhere in the 10+ px gap above the floating notch triggers reliably
         let top_extra = (phys_offset + (18.0 * effective_sf) as i32).max((22.0 * effective_sf) as i32);
-        let bottom_extra = if is_closed { (6.0 * effective_sf) as i32 } else { (24.0 * effective_sf) as i32 };
+        let bottom_extra = if is_closed { (6.0 * effective_sf) as i32 } else { (12.0 * effective_sf) as i32 };
         (pill_y - top_extra, pill_y + hit_h + margin + bottom_extra)
     };
 
