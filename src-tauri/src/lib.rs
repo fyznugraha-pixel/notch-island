@@ -847,6 +847,32 @@ fn calculate_notch_hit(
     }
 }
 
+#[cfg(windows)]
+fn is_window_click_through(window: &tauri::WebviewWindow) -> Option<bool> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TRANSPARENT};
+    let hwnd = windows::Win32::Foundation::HWND(window.hwnd().ok()?.0);
+    let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+    Some(ex_style & WS_EX_TRANSPARENT.0 != 0)
+}
+
+// After click-through is lifted, WebView2 ignores a resting cursor until the next WM_MOUSEMOVE,
+// so a touchpad tap right after entering the notch gets lost. A zero-distance move wakes it up.
+#[cfg(windows)]
+fn nudge_cursor() {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_MOVE, MOUSEINPUT,
+    };
+    let input = INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT { dx: 0, dy: 0, mouseData: 0, dwFlags: MOUSEEVENTF_MOVE, time: 0, dwExtraInfo: 0 },
+        },
+    };
+    unsafe {
+        SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
 static IS_SHELF_DRAGGING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[tauri::command]
@@ -2314,6 +2340,7 @@ pub fn run() {
                 let mut last_is_browser = false;
                 let mut browser_false_count: u32 = 0;
                 let mut click_outside_emitted = false;
+                let mut pending_cursor_nudge = false;
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     
@@ -2382,6 +2409,7 @@ pub fn run() {
                             
                             if in_pill != was_in_pill {
                                 was_in_pill = in_pill;
+                                pending_cursor_nudge = in_pill;
                                 let _ = win_clone.set_ignore_cursor_events(!in_pill);
                                 use tauri::Emitter;
                                 if !in_pill {
@@ -2390,6 +2418,17 @@ pub fn run() {
                                 } else {
                                     let _ = win_clone.emit("notch-mouse-enter", ());
                                 }
+                            } else if is_window_click_through(&win_clone) == Some(in_pill) {
+                                // Other commands (focus, interactive mode) flip click-through without
+                                // updating was_in_pill; re-sync so the notch never stays unclickable
+                                let _ = win_clone.set_ignore_cursor_events(!in_pill);
+                            }
+
+                            // set_ignore_cursor_events is applied async on the main thread, so wait
+                            // until the style is actually lifted before nudging
+                            if pending_cursor_nudge && is_window_click_through(&win_clone) == Some(false) {
+                                pending_cursor_nudge = false;
+                                nudge_cursor();
                             }
 
                             if in_pill {
