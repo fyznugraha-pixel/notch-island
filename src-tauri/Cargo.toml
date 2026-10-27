@@ -1,6 +1,6 @@
 [package]
 name = "gili"
-version = "4.0.2"
+version = "4.1.0"
 description = "Gili Island for Windows"
 authors = ["Faiz Anak Telkom University"]
 edition = "2021"
@@ -24,7 +24,7 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 windows-core = "0.58.0"
-windows = { version = "0.58.0", features = ["implement", "Media_Control", "UI_Notifications", "UI_Notifications_Management", "Foundation", "Foundation_Collections", "ApplicationModel", "Win32_System_Com", "Storage_Streams", "Win32_System_Power", "Win32_UI_WindowsAndMessaging", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_Media_MediaFoundation", "Win32_System_DataExchange", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Registry", "Win32_Storage_FileSystem", "Data_Xml_Dom", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem", "ApplicationModel_DataTransfer", "Media_Ocr", "Graphics_Imaging", "Storage", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_Shell_PropertiesSystem", "Win32_System_Memory", "Win32_Security", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_Properties", "Devices_Radios", "Networking_Connectivity", "Networking_NetworkOperators"] }
+windows = { version = "0.58.0", features = ["implement", "Media_Control", "UI_Notifications", "UI_Notifications_Management", "Foundation", "Foundation_Collections", "ApplicationModel", "Win32_System_Com", "Storage_Streams", "Win32_System_Power", "Win32_UI_WindowsAndMessaging", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_Media_MediaFoundation", "Win32_System_DataExchange", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Registry", "Win32_Storage_FileSystem", "Data_Xml_Dom", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem", "ApplicationModel_DataTransfer", "Media_Ocr", "Graphics_Imaging", "Storage", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_Shell_PropertiesSystem", "Win32_System_Memory", "Win32_Security", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_Properties", "Devices_Radios", "Networking_Connectivity", "Networking_NetworkOperators", "UI_ViewManagement"] }
 base64 = "0.22"
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-global-shortcut = "2.4.0"

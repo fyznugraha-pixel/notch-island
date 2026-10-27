@@ -3,12 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { load } from "@tauri-apps/plugin-store";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, ShortcutActionId, ShortcutStatus, shortcutManager } from "./services/shortcuts";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Bell,
   BellOff,
@@ -49,6 +48,17 @@ import { SettingsPanel } from "./components/ui/SettingsPanel";
 import { PomodoroPanel } from "./components/ui/PomodoroPanel";
 import { SystemMonitorPanel } from "./components/ui/SystemMonitorPanel";
 import { MiniNotePanel, QuickNoteNotchCard, createQuickNoteItem } from "./components/ui/MiniNotePanel";
+import { QuickTodoNotchCard, formatShortcutForBadge } from "./components/ui/QuickTodoNotchCard";
+import { WaterReminderPanel } from "./components/ui/water/WaterReminderPanel";
+import { WaterNotchToast, WaterToastType } from "./components/ui/water/WaterNotchToast";
+import {
+  loadWaterData,
+  logDrink,
+  undoLastDrink,
+  useStreakFreeze,
+  WaterData,
+} from "./services/waterService";
+import { useWaterReminder } from "./hooks/useWaterReminder";
 import { fetchHotspotStatus, toggleHotspotState } from "./services/connectivityService";
 import { usePomodoro } from "./hooks/usePomodoro";
 import { useTodoReminders } from "./hooks/useTodoReminders";
@@ -63,6 +73,8 @@ import {
   playDeviceConnectSound,
   playNotificationSound,
   playTaskCompleteSound,
+  playWaterDrinkSound,
+  playReminderSound,
   isSoundEffectsEnabled,
   setSoundEffectsEnabled,
   getSavedNotifSound,
@@ -307,6 +319,8 @@ export default function App() {
   
   const collapseTimerRef = useRef<number | null>(null);
   const isCursorInsideNotchRef = useRef(false);
+  const isShortcutPinnedRef = useRef(false);
+  const shortcutPinnedTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setLyricsData(null);
@@ -539,7 +553,7 @@ export default function App() {
       } as any);
     } catch (err: any) {
       setIsHotspotOn(!nextState);
-      const errMsg = typeof err === "string" ? err : (err?.message || "Gagal mengubah status Hotspot");
+      const errMsg = typeof err === "string" ? err : (err?.message || (getLanguage() === "id" ? "Gagal mengubah status Hotspot" : "Failed to change Hotspot status"));
       showNotif({
         title: t("cc_hotspot"),
         body: errMsg,
@@ -678,24 +692,25 @@ export default function App() {
     pendingTodosRef.current = pendingTodos;
   }, [pendingTodos]);
 
-  const addTodoItem = (text: string, dueAt?: number | null, reminders?: number[]) => {
+  const addTodoItem = (text: string, dueAt?: number | null, reminders?: number[]): TodoItem | undefined => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed) return undefined;
+    const newItem: TodoItem = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      text: trimmed,
+      completed: false,
+      createdAt: Date.now(),
+      dueAt: dueAt ?? null,
+      reminders: reminders ?? (dueAt ? [0, 10] : []),
+    };
     setTodoItems((prev) => {
-      const newItem: TodoItem = {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        text: trimmed,
-        completed: false,
-        createdAt: Date.now(),
-        dueAt: dueAt ?? null,
-        reminders: reminders ?? (dueAt ? [0, 10] : []),
-      };
       const updated = [newItem, ...prev];
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
       } catch {}
       return updated;
     });
+    return newItem;
   };
 
   const toggleTodoItem = useCallback((id: string) => {
@@ -909,10 +924,65 @@ export default function App() {
     | "drop_shelf"
     | "sys_monitor"
     | "mini_note"
+    | "water_reminder"
     | "clipboard"
     | "volume_mixer"
     | "notif_center"
     | "settings";
+
+  const [isWaterReminder, setIsWaterReminder] = useState(false);
+  const isWaterReminderRef = useRef(false);
+  useEffect(() => { isWaterReminderRef.current = isWaterReminder; }, [isWaterReminder]);
+
+  const [waterToast, setWaterToast] = useState<{
+    type: WaterToastType;
+    amount?: number;
+  } | null>(null);
+  const [waterDynamicHeight, setWaterDynamicHeight] = useState<number>(310);
+  const [waterData, setWaterData] = useState<WaterData>(() => loadWaterData());
+
+  useEffect(() => {
+    const handleWaterChanged = (e: Event) => {
+      const custom = e as CustomEvent<WaterData>;
+      if (custom.detail) {
+        setWaterData(custom.detail);
+      } else {
+        setWaterData(loadWaterData());
+      }
+    };
+    const handleTriggerToast = (e: Event) => {
+      const custom = e as CustomEvent<{ type: WaterToastType; amount?: number }>;
+      if (custom.detail) {
+        setWaterToast(custom.detail);
+        setIsHidden(false);
+        playReminderSound();
+      }
+    };
+    window.addEventListener("gili_water_changed", handleWaterChanged);
+    window.addEventListener("gili_trigger_water_toast", handleTriggerToast);
+    return () => {
+      window.removeEventListener("gili_water_changed", handleWaterChanged);
+      window.removeEventListener("gili_trigger_water_toast", handleTriggerToast);
+    };
+  }, []);
+
+  const { snooze: snoozeWaterReminder } = useWaterReminder({
+    isFocusMode: focusMode === "DND" || pomodoro.isRunning,
+    onTriggerToast: useCallback((toast: { type: WaterToastType; amount?: number }) => {
+      setWaterToast(toast);
+      setIsHidden(false);
+      playReminderSound();
+    }, []),
+  });
+
+  useEffect(() => {
+    if (!waterToast) return;
+    const timeoutMs = waterToast.type === "time_to_drink" ? 14000 : 5000;
+    const timer = setTimeout(() => {
+      setWaterToast(null);
+    }, timeoutMs);
+    return () => clearTimeout(timer);
+  }, [waterToast]);
 
   const [isPomodoro, setIsPomodoro] = useState(false);
   const isPomodoroRef = useRef(false);
@@ -930,6 +1000,19 @@ export default function App() {
   const isQuickNoteOpenRef = useRef(false);
   useEffect(() => { isQuickNoteOpenRef.current = isQuickNoteOpen; }, [isQuickNoteOpen]);
 
+  const [isQuickTodoOpen, setIsQuickTodoOpen] = useState(false);
+  const isQuickTodoOpenRef = useRef(false);
+  useEffect(() => { isQuickTodoOpenRef.current = isQuickTodoOpen; }, [isQuickTodoOpen]);
+  const [isQuickTodoSaved, setIsQuickTodoSaved] = useState(false);
+
+  useEffect(() => {
+    const isInteractive = isQuickNoteOpen || isQuickTodoOpen;
+    invoke("set_interactive_mode", { active: isInteractive }).catch(console.error);
+    if (isInteractive) {
+      invoke("focus_notch_window").catch(console.error);
+    }
+  }, [isQuickNoteOpen, isQuickTodoOpen]);
+
   const [slideDirection, setSlideDirection] = useState<number>(0);
   const [controlCenterSubmenu, setControlCenterSubmenu] = useState<null | "wifi" | "bluetooth">(null);
 
@@ -938,10 +1021,11 @@ export default function App() {
       "media_expanded",
       "quick_control",
       "todo",
-      "pomodoro",
-      "drop_shelf",
-      "sys_monitor",
       "mini_note",
+      "drop_shelf",
+      "pomodoro",
+      "water_reminder",
+      "sys_monitor",
       "settings",
     ];
   }, []);
@@ -951,6 +1035,7 @@ export default function App() {
     if (isNotifications) return "notif_center";
     if (isVolumeMixer) return "volume_mixer";
     if (isClipboard) return "clipboard";
+    if (isWaterReminder) return "water_reminder";
     if (isMiniNote) return "mini_note";
     if (isSysMonitor) return "sys_monitor";
     if (isDropShelf) return "drop_shelf";
@@ -959,7 +1044,7 @@ export default function App() {
     if (isQuickControl) return "quick_control";
     if (isExpanded) return "media_expanded";
     return null;
-  }, [isSettings, isNotifications, isVolumeMixer, isClipboard, isMiniNote, isSysMonitor, isDropShelf, isPomodoro, isTodo, isQuickControl, isExpanded]);
+  }, [isSettings, isNotifications, isVolumeMixer, isClipboard, isWaterReminder, isMiniNote, isSysMonitor, isDropShelf, isPomodoro, isTodo, isQuickControl, isExpanded]);
 
   const isSubPage = currentTab === "clipboard" || currentTab === "volume_mixer" || currentTab === "notif_center";
 
@@ -1015,6 +1100,12 @@ export default function App() {
 
   const handleCloseImmediate = useCallback(() => {
     if (isSwitchingTabRef.current) return;
+    isCursorInsideNotchRef.current = false;
+    isShortcutPinnedRef.current = false;
+    if (shortcutPinnedTimerRef.current) {
+      clearTimeout(shortcutPinnedTimerRef.current);
+      shortcutPinnedTimerRef.current = null;
+    }
     cancelCollapseTimer();
     cancelCompactHoverTimer();
     setSlideDirection(0);
@@ -1023,6 +1114,7 @@ export default function App() {
     setIsNotifications(false);
     setIsVolumeMixer(false);
     setIsClipboard(false);
+    setIsWaterReminder(false);
     setIsMiniNote(false);
     setIsSysMonitor(false);
     setIsPomodoro(false);
@@ -1031,6 +1123,8 @@ export default function App() {
     setIsQuickControl(false);
     setIsExpanded(false);
     setIsQuickNoteOpen(false);
+    setIsQuickTodoOpen(false);
+    setIsQuickTodoSaved(false);
     const now = Date.now();
     lastPanelClosedAtRef.current = now;
     try {
@@ -1119,7 +1213,7 @@ export default function App() {
   const startCollapseTimer = (_delayMs: number = 0) => {
     cancelCollapseTimer();
     cancelCompactHoverTimer();
-    if (isCursorInsideNotchRef.current || isSwitchingTabRef.current) return;
+    if (isCursorInsideNotchRef.current || isSwitchingTabRef.current || isShortcutPinnedRef.current) return;
 
     const pillEl = notchPillRef.current;
     if (pillEl) {
@@ -1145,7 +1239,9 @@ export default function App() {
       isDropShelfRef.current ||
       isSysMonitorRef.current ||
       isMiniNoteRef.current ||
+      isWaterReminderRef.current ||
       isQuickNoteOpenRef.current ||
+      isQuickTodoOpenRef.current ||
       isClipboardRef.current ||
       isVolumeMixerRef.current ||
       isNotificationsRef.current ||
@@ -1159,7 +1255,7 @@ export default function App() {
       const effectiveDelay = configuredSec > 0 ? configuredSec * 1000 : Math.max(_delayMs, 180);
 
       collapseTimerRef.current = window.setTimeout(async () => {
-        if (isCursorInsideNotchRef.current || isSwitchingTabRef.current) return;
+        if (isCursorInsideNotchRef.current || isSwitchingTabRef.current || isShortcutPinnedRef.current) return;
         if (optCloseDelayRef.current === -1) return;
 
         const currentPillEl = notchPillRef.current;
@@ -1196,6 +1292,10 @@ export default function App() {
         setIsDropShelf(false);
         setIsSysMonitor(false);
         setIsMiniNote(false);
+        setIsWaterReminder(false);
+        setIsQuickNoteOpen(false);
+        setIsQuickTodoOpen(false);
+        setIsQuickTodoSaved(false);
         setIsClipboard(false);
         setIsVolumeMixer(false);
         setIsSettings(false);
@@ -1261,6 +1361,9 @@ export default function App() {
     isMiniNoteRef.current = targetTab === "mini_note";
     setIsMiniNote(targetTab === "mini_note");
 
+    isWaterReminderRef.current = targetTab === "water_reminder";
+    setIsWaterReminder(targetTab === "water_reminder");
+
     isClipboardRef.current = targetTab === "clipboard";
     setIsClipboard(targetTab === "clipboard");
 
@@ -1325,6 +1428,21 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (isQuickTodoOpenRef.current || isQuickNoteOpenRef.current) {
+          setIsQuickTodoOpen(false);
+          setIsQuickTodoSaved(false);
+          setIsQuickNoteOpen(false);
+          invoke("restore_previous_foreground_window").catch(() => {});
+          return;
+        }
+        if (isShortcutPinnedRef.current || currentTabRef.current) {
+          isShortcutPinnedRef.current = false;
+          handleCloseImmediate();
+          return;
+        }
+      }
+
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
@@ -1532,74 +1650,237 @@ export default function App() {
 
   
 
+  const [shortcuts, setShortcuts] = useState<Record<ShortcutActionId, string | null>>(() => {
+    try {
+      const saved = localStorage.getItem("island_shortcuts");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const merged: Record<ShortcutActionId, string | null> = { ...DEFAULT_SHORTCUTS, ...parsed };
+        for (const action of SHORTCUT_ACTIONS) {
+          if (action.defaultShortcut && !merged[action.id]) {
+            merged[action.id] = action.defaultShortcut;
+          }
+        }
+        return merged;
+      }
+    } catch {}
+    return { ...DEFAULT_SHORTCUTS };
+  });
+
+  const [shortcutsEnabled, setShortcutsEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("island_shortcuts_enabled");
+      if (saved !== null) {
+        return saved === "true";
+      }
+    } catch {}
+    return true;
+  });
+
+  const [shortcutStatuses, setShortcutStatuses] = useState<Record<ShortcutActionId, ShortcutStatus>>({
+    toggle_notch: "inactive",
+    quick_task: "inactive",
+    quick_note: "inactive",
+    open_media: "inactive",
+    toggle_media_playback: "inactive",
+    toggle_focus_mode: "inactive",
+    toggle_hide: "inactive",
+  });
+
+  const handleShortcutToggleNotch = useCallback(() => {
+    if (isExpandedRef.current || currentTabRef.current !== null) {
+      isShortcutPinnedRef.current = false;
+      if (shortcutPinnedTimerRef.current) {
+        clearTimeout(shortcutPinnedTimerRef.current);
+        shortcutPinnedTimerRef.current = null;
+      }
+      handleCloseImmediate();
+    } else {
+      setIsHidden(false);
+      openLastOrPreferredTab();
+      invoke("focus_notch_window").catch(() => {});
+      isShortcutPinnedRef.current = true;
+      if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
+      shortcutPinnedTimerRef.current = window.setTimeout(() => {
+        const pillEl = notchPillRef.current;
+        const activeEl = document.activeElement;
+        const isTyping = activeEl && pillEl?.contains(activeEl) && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA");
+        if (!isTyping && !isCursorInsideNotchRef.current && isShortcutPinnedRef.current) {
+          isShortcutPinnedRef.current = false;
+          handleCloseImmediate();
+        }
+      }, 6000);
+    }
+  }, [handleCloseImmediate, openLastOrPreferredTab]);
+
+  const handleShortcutQuickTask = useCallback(async () => {
+    try {
+      await invoke("save_previous_foreground_window");
+    } catch {}
+    setIsHidden(false);
+    setIsQuickControl(false);
+    setIsTodo(false);
+    setIsPomodoro(false);
+    setIsDropShelf(false);
+    setIsSysMonitor(false);
+    setIsMiniNote(false);
+    setIsWaterReminder(false);
+    setIsClipboard(false);
+    setIsSettings(false);
+    setIsVolumeMixer(false);
+    setIsExpanded(false);
+    setIsQuickNoteOpen(false);
+    setIsQuickTodoSaved(false);
+    setIsQuickTodoOpen((prev) => !prev);
+    invoke("focus_notch_window").catch(() => {});
+  }, []);
+
+  const handleShortcutQuickNote = useCallback(async () => {
+    try {
+      await invoke("save_previous_foreground_window");
+    } catch {}
+    setIsHidden(false);
+    setIsQuickControl(false);
+    setIsTodo(false);
+    setIsPomodoro(false);
+    setIsDropShelf(false);
+    setIsSysMonitor(false);
+    setIsMiniNote(false);
+    setIsWaterReminder(false);
+    setIsClipboard(false);
+    setIsSettings(false);
+    setIsVolumeMixer(false);
+    setIsExpanded(false);
+    setIsQuickTodoOpen(false);
+    setIsQuickTodoSaved(false);
+    setIsQuickNoteOpen((prev) => !prev);
+    invoke("focus_notch_window").catch(() => {});
+  }, []);
+
+  const handleShortcutOpenMedia = useCallback(() => {
+    goToTab("media_expanded", 0);
+  }, []);
+
+  const handleShortcutToggleMediaPlayback = useCallback(() => {
+    invoke("smtc_action", { action: "toggle" }).catch(console.error);
+  }, []);
+
+  const handleShortcutToggleFocusMode = useCallback(() => {
+    const nextMode = focusModeRef.current === "Normal" ? "DND" : "Normal";
+    selectFocusMode(nextMode);
+  }, []);
+
+  const handleShortcutToggleHide = useCallback(() => {
+    setIsHidden((prev) => !prev);
+  }, []);
+
+  const shortcutHandlersRef = useRef({
+    toggle_notch: handleShortcutToggleNotch,
+    quick_task: handleShortcutQuickTask,
+    quick_note: handleShortcutQuickNote,
+    open_media: handleShortcutOpenMedia,
+    toggle_media_playback: handleShortcutToggleMediaPlayback,
+    toggle_focus_mode: handleShortcutToggleFocusMode,
+    toggle_hide: handleShortcutToggleHide,
+  });
+
   useEffect(() => {
-    const setupShortcut = async () => {
-      try {
-        await unregisterAll();
-      } catch (e) {}
+    shortcutHandlersRef.current = {
+      toggle_notch: handleShortcutToggleNotch,
+      quick_task: handleShortcutQuickTask,
+      quick_note: handleShortcutQuickNote,
+      open_media: handleShortcutOpenMedia,
+      toggle_media_playback: handleShortcutToggleMediaPlayback,
+      toggle_focus_mode: handleShortcutToggleFocusMode,
+      toggle_hide: handleShortcutToggleHide,
+    };
+    shortcutManager.updateHandlers(shortcutHandlersRef.current);
+  }, [
+    handleShortcutToggleNotch,
+    handleShortcutQuickTask,
+    handleShortcutQuickNote,
+    handleShortcutOpenMedia,
+    handleShortcutToggleMediaPlayback,
+    handleShortcutToggleFocusMode,
+    handleShortcutToggleHide,
+  ]);
 
-      // Toggle hide / show poni (notch)
-      const registerHideShortcut = async () => {
-        const onTrigger = (event: { state: string }) => {
-          if (event.state === "Pressed") {
-            setIsHidden((prev) => !prev);
-          }
-        };
-
-        let registered = false;
-        try {
-          await register("CommandOrControl+Slash", onTrigger);
-          registered = true;
-        } catch (err) {
-          console.warn("Failed to register CommandOrControl+Slash, trying CommandOrControl+/:", err);
-        }
-
-        if (!registered) {
-          try {
-            await register("CommandOrControl+/", onTrigger);
-            registered = true;
-          } catch (err) {
-            console.error("Failed to register CommandOrControl+/:", err);
-          }
-        }
-
-        // Secondary / legacy shortcut: Ctrl + Shift + D
-        try {
-          await register("CommandOrControl+Shift+D", onTrigger);
-        } catch (err) {
-          console.error("Failed to register shortcut CommandOrControl+Shift+D:", err);
-        }
-      };
-
-      await registerHideShortcut();
-
-      try {
-        await register("CommandOrControl+Shift+N", async (event) => {
-          if (event.state === "Pressed") {
-            setIsHidden(false);
-            setIsQuickControl(false);
-            setIsTodo(false);
-            setIsPomodoro(false);
-            setIsDropShelf(false);
-            setIsSysMonitor(false);
-            setIsMiniNote(false);
-            setIsClipboard(false);
-            setIsSettings(false);
-            setIsVolumeMixer(false);
-            setIsExpanded(false);
-            setIsQuickNoteOpen((prev) => !prev);
-            try {
-              const win = getCurrentWindow();
-              await win.setFocus();
-            } catch {}
-          }
-        });
-      } catch (err) {
-        console.error("Failed to register shortcut CommandOrControl+Shift+N:", err);
+  useEffect(() => {
+    let isCancelled = false;
+    const applyShortcuts = async () => {
+      const statuses = await shortcutManager.applyAll(
+        shortcuts,
+        shortcutsEnabled,
+        shortcutHandlersRef.current
+      );
+      if (!isCancelled) {
+        setShortcutStatuses(statuses);
       }
     };
-    setupShortcut();
+    applyShortcuts();
+    return () => {
+      isCancelled = true;
+    };
+  }, [shortcuts, shortcutsEnabled]);
 
+  const handleUpdateShortcut = useCallback(
+    async (actionId: ShortcutActionId, newShortcut: string | null): Promise<{ success: boolean; error?: string }> => {
+      const prevShortcut = shortcuts[actionId];
+      if (prevShortcut) {
+        await shortcutManager.unregisterShortcut(prevShortcut);
+      }
+
+      if (newShortcut) {
+        const testStatus = await shortcutManager.testRegister(actionId, newShortcut, shortcutHandlersRef.current[actionId]);
+        if (testStatus !== "ok") {
+          if (prevShortcut) {
+            await shortcutManager.testRegister(actionId, prevShortcut, shortcutHandlersRef.current[actionId]);
+          }
+          return { success: false, error: t("shortcut_err_conflict") };
+        }
+      }
+
+      const updated = { ...shortcuts, [actionId]: newShortcut };
+      setShortcuts(updated);
+      try {
+        localStorage.setItem("island_shortcuts", JSON.stringify(updated));
+      } catch {}
+      if (store) {
+        await store.set("shortcuts", updated);
+      }
+
+      const statuses = await shortcutManager.applyAll(updated, shortcutsEnabled, shortcutHandlersRef.current);
+      setShortcutStatuses(statuses);
+      return { success: true };
+    },
+    [shortcuts, shortcutsEnabled, store]
+  );
+
+  const handleResetShortcut = useCallback(
+    async (actionId: ShortcutActionId) => {
+      const defaultKey = DEFAULT_SHORTCUTS[actionId];
+      await handleUpdateShortcut(actionId, defaultKey);
+      await shortcutManager.resumeAll(shortcutsEnabled);
+    },
+    [handleUpdateShortcut, shortcutsEnabled]
+  );
+
+  const handleToggleShortcutsEnabled = useCallback(
+    async (enabled: boolean) => {
+      setShortcutsEnabled(enabled);
+      try {
+        localStorage.setItem("island_shortcuts_enabled", String(enabled));
+      } catch {}
+      if (store) {
+        await store.set("shortcuts_enabled", enabled);
+      }
+      const statuses = await shortcutManager.applyAll(shortcuts, enabled, shortcutHandlersRef.current);
+      setShortcutStatuses(statuses);
+    },
+    [shortcuts, store]
+  );
+
+  useEffect(() => {
     const initSettings = async () => {
       invoke<[string, string]>("get_system_info").then(res => {
         setWifiName(res[0]);
@@ -1691,6 +1972,30 @@ export default function App() {
         const isz = await s.get('opt_idle_size'); if (isz === 'compact' || isz === 'default' || isz === 'large') setOptIdleSize(isz);
         const tsz = await s.get('opt_tab_size'); if (tsz === 'compact' || tsz === 'default' || tsz === 'large') setOptTabSize(tsz);
         const fsz = await s.get('opt_font_size'); if (fsz === 'small' || fsz === 'default' || fsz === 'large') setOptFontSize(fsz);
+
+        const savedShortcuts = await s.get('shortcuts');
+        if (savedShortcuts && typeof savedShortcuts === 'object') {
+          const loaded: Record<ShortcutActionId, string | null> = {
+            ...DEFAULT_SHORTCUTS,
+            ...(savedShortcuts as any),
+          };
+          for (const action of SHORTCUT_ACTIONS) {
+            if (action.defaultShortcut && !loaded[action.id]) {
+              loaded[action.id] = action.defaultShortcut;
+            }
+          }
+          setShortcuts(loaded);
+          try {
+            localStorage.setItem("island_shortcuts", JSON.stringify(loaded));
+          } catch {}
+        }
+        const savedShortcutsEnabled = await s.get('shortcuts_enabled');
+        if (typeof savedShortcutsEnabled === 'boolean') {
+          setShortcutsEnabled(savedShortcutsEnabled);
+          try {
+            localStorage.setItem("island_shortcuts_enabled", String(savedShortcutsEnabled));
+          } catch {}
+        }
         
         const autostartInit = await s.get('autostart_initialized');
         if (!autostartInit) {
@@ -1773,6 +2078,11 @@ export default function App() {
     const unlistenMouseEnter = listen("notch-mouse-enter", () => {
       if (isShelfDraggingRef.current) return;
       isCursorInsideNotchRef.current = true;
+      isShortcutPinnedRef.current = false;
+      if (shortcutPinnedTimerRef.current) {
+        clearTimeout(shortcutPinnedTimerRef.current);
+        shortcutPinnedTimerRef.current = null;
+      }
       cancelCollapseTimer();
       if (currentNotifRef.current) return;
       if (currentTabRef.current !== null) return;
@@ -1807,6 +2117,11 @@ export default function App() {
           e.clientY <= rect.bottom;
         if (isInside) {
           isCursorInsideNotchRef.current = true;
+          isShortcutPinnedRef.current = false;
+          if (shortcutPinnedTimerRef.current) {
+            clearTimeout(shortcutPinnedTimerRef.current);
+            shortcutPinnedTimerRef.current = null;
+          }
           cancelCollapseTimer();
           if (focusModeRef.current === "Gaming") return;
           const hasOpenPanel =
@@ -1817,6 +2132,7 @@ export default function App() {
             isDropShelfRef.current ||
             isSysMonitorRef.current ||
             isMiniNoteRef.current ||
+            isWaterReminderRef.current ||
             isClipboardRef.current ||
             isVolumeMixerRef.current ||
             isNotificationsRef.current ||
@@ -1841,6 +2157,102 @@ export default function App() {
       setIsBrowserActive(Boolean(event.payload));
     });
     invoke<boolean>("check_foreground_browser").then(setIsBrowserActive).catch(console.error);
+    invoke<boolean>("request_notification_access").catch(() => {});
+
+    interface RealNotifPayload {
+      app_name: string;
+      title: string;
+      body: string;
+      aumid: string;
+    }
+
+    const unlistenRealNotif = listen<RealNotifPayload>("real-notif", (event) => {
+      const { app_name, title, body, aumid } = event.payload;
+      if (!title && !body) return;
+
+      const lowerApp = (app_name || "").toLowerCase();
+      const lowerAumid = (aumid || "").toLowerCase();
+      if (lowerApp.includes("gili") || lowerAumid.includes("gili")) return;
+
+      const lowerTitle = (title || "").toLowerCase();
+      const lowerBody = (body || "").toLowerCase();
+
+      const isWa =
+        lowerTitle.includes("whatsapp") ||
+        lowerBody.includes("whatsapp") ||
+        lowerBody.includes("web.whatsapp.com") ||
+        lowerTitle.includes("web.whatsapp.com") ||
+        lowerApp.includes("whatsapp");
+
+      let resolvedApp = app_name || "Notifikasi";
+      let resolvedIcon = "bell";
+      let cleanTitle = title || "";
+      let cleanBody = body || "";
+
+      if (isWa) {
+        resolvedApp =
+          lowerApp.includes("chrome") ||
+          lowerApp.includes("edge") ||
+          lowerApp.includes("brave") ||
+          lowerApp.includes("firefox") ||
+          lowerTitle.includes("web.whatsapp.com") ||
+          lowerBody.includes("web.whatsapp.com")
+            ? "WhatsApp Web"
+            : "WhatsApp";
+        resolvedIcon = "whatsapp";
+
+        if (cleanTitle.toLowerCase().includes("web.whatsapp.com") || cleanTitle.toLowerCase() === "whatsapp web") {
+          const lines = cleanBody.split("\n").filter((l) => l.trim().length > 0);
+          if (lines.length >= 2) {
+            cleanTitle = lines[0];
+            cleanBody = lines.slice(1).join("\n");
+          }
+        }
+
+        cleanBody = cleanBody
+          .split("\n")
+          .filter((line) => !line.toLowerCase().includes("web.whatsapp.com"))
+          .join("\n")
+          .trim();
+      } else if (lowerApp.includes("telegram") || lowerTitle.includes("telegram") || lowerBody.includes("web.telegram.org")) {
+        resolvedApp = "Telegram";
+        resolvedIcon = "telegram";
+      } else if (lowerApp.includes("discord") || lowerTitle.includes("discord")) {
+        resolvedApp = "Discord";
+        resolvedIcon = "discord";
+      } else if (lowerApp.includes("chrome")) {
+        resolvedApp = "Google Chrome";
+        resolvedIcon = "chrome";
+      } else if (lowerApp.includes("edge")) {
+        resolvedApp = "Microsoft Edge";
+        resolvedIcon = "edge";
+      } else if (lowerApp.includes("brave")) {
+        resolvedApp = "Brave";
+        resolvedIcon = "brave";
+      } else if (lowerApp.includes("firefox")) {
+        resolvedApp = "Firefox";
+        resolvedIcon = "firefox";
+      } else if (lowerApp.includes("spotify")) {
+        resolvedApp = "Spotify";
+        resolvedIcon = "spotify";
+      } else if (lowerApp.includes("youtube")) {
+        resolvedApp = "YouTube";
+        resolvedIcon = "youtube";
+      } else if (lowerApp.includes("instagram")) {
+        resolvedApp = "Instagram";
+        resolvedIcon = "instagram";
+      }
+
+      showNotif({
+        title: cleanTitle || resolvedApp,
+        body: cleanBody,
+        appName: resolvedApp,
+        icon: resolvedIcon,
+        aumid,
+        type: isWa ? "message" : "system",
+      });
+      playNotificationSound();
+    });
 
     let unlistenDragDrop: (() => void) | undefined;
     try {
@@ -1873,9 +2285,10 @@ export default function App() {
       unlistenMouseLeave.then(unlisten => unlisten());
       unlistenMouseEnter.then(unlisten => unlisten());
       unlistenBrowser.then(unlisten => unlisten());
+      unlistenRealNotif.then(unlisten => unlisten());
       if (unlistenDragDrop) unlistenDragDrop();
       clearTimeout(updateCheckTimeout);
-      unregisterAll().catch(() => {});
+      shortcutManager.destroy().catch(() => {});
     };
   }, []);
 
@@ -2624,16 +3037,14 @@ export default function App() {
       (notif.body.includes("\n") || bodyTextWidth > 320)
   );
 
-  // When font size is large, automatically enforce large idle & tab dimensions so text never clips
-  const effectiveIdleSize = optFontSize === "large" ? "large" : optIdleSize;
-  const effectiveTabSize = optFontSize === "large" ? "large" : optTabSize;
+  const effectiveIdleSize = optIdleSize;
+  const effectiveTabSize = optTabSize;
 
   const statFont = optFontSize === "small" ? "bold 9px 'SF Pro Display', sans-serif" : optFontSize === "large" ? "bold 11.5px 'SF Pro Display', sans-serif" : "bold 10px 'SF Pro Display', sans-serif";
 
-  const idleWidth = React.useMemo(
-    () => measureIdleLayoutWidth(idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize),
-    [idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize]
-  );
+  const idleWidth = React.useMemo(() => {
+    return measureIdleLayoutWidth(idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize);
+  }, [idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize]);
 
   const mediaPillWidth = React.useMemo(() => {
     if (!media) return idleWidth;
@@ -2648,18 +3059,27 @@ export default function App() {
 
   const lyricsIdleWidth = React.useMemo(() => {
     if (!media) return idleWidth;
-    const lyricFont = optFontSize === "small" ? "bold 12px 'Inter', sans-serif" : optFontSize === "large" ? "bold 15.5px 'Inter', sans-serif" : "bold 13.5px 'Inter', sans-serif";
-    const subFont = optFontSize === "small" ? "500 9px 'Inter', sans-serif" : optFontSize === "large" ? "500 11.5px 'Inter', sans-serif" : "500 10px 'Inter', sans-serif";
+    const isCompact = effectiveIdleSize === "compact";
+    const lyricFont =
+      optFontSize === "small"
+        ? "bold 12px 'Inter', sans-serif"
+        : optFontSize === "large"
+        ? "bold 15px 'Inter', sans-serif"
+        : "bold 13px 'Inter', sans-serif";
+    const subFont =
+      optFontSize === "small"
+        ? "500 9px 'Inter', sans-serif"
+        : optFontSize === "large"
+        ? "500 11px 'Inter', sans-serif"
+        : "500 9.5px 'Inter', sans-serif";
     const textToMeasure = activeIdleLyric.curr || media.title || "Now Playing";
     const currWidth = getTextWidth(textToMeasure, lyricFont);
-    const prevWidth = activeIdleLyric.prev ? getTextWidth(activeIdleLyric.prev, subFont) : 0;
     const nextWidth = activeIdleLyric.next ? getTextWidth(activeIdleLyric.next, subFont) : 0;
-    const adjacentMax = Math.max(prevWidth, nextWidth);
-    const maxText = Math.max(currWidth, Math.min(currWidth + 24, adjacentMax));
-    // Tight UI footprint: art (32px) + visualizer (24px) + padding (20px) + gaps (16px) + safety buffer (6px) = 98px
-    const basePadding = 98;
+    const maxText = Math.max(currWidth, Math.min(currWidth + 24, nextWidth));
+    // UI footprint: art (26-34px) + visualizer (24px) + padding (20px) + gaps (16px) + buffer
+    const basePadding = isCompact ? 90 : 96;
     return Math.min(560, Math.max(160, Math.ceil(maxText + basePadding)));
-  }, [media, activeIdleLyric, optFontSize, idleWidth]);
+  }, [media, activeIdleLyric, optFontSize, effectiveIdleSize, idleWidth]);
 
   const getDynamicWidth = () => {
     if (notif && (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon")) {
@@ -2671,7 +3091,7 @@ export default function App() {
       const rawBody = notif.body ? notif.body.replace(/[!.,]/g, "").trim().toUpperCase() : "";
       const bodyWidth = getTextWidth(rawBody, "bold 10px 'Inter', sans-serif") + Math.round(rawBody.length * 0.85);
       const contentTextWidth = Math.max(titleWidth, bodyWidth);
-      return Math.min(360, Math.ceil(contentTextWidth + 91));
+      return Math.min(380, Math.ceil(contentTextWidth + 116));
     }
 
     if (notif && !isSmallNotif && !isMediumNotif) {
@@ -2747,6 +3167,7 @@ export default function App() {
       setIsDropShelf(false);
       setIsSysMonitor(false);
       setIsMiniNote(false);
+      setIsWaterReminder(false);
       setIsClipboard(false);
       setIsSettings(false);
       setIsVolumeMixer(false);
@@ -2759,7 +3180,10 @@ export default function App() {
       .catch(console.error);
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === "/" || e.code === "Slash")) {
+      if (
+        ((e.ctrlKey || e.metaKey) && (e.key === "/" || e.code === "Slash")) ||
+        (e.ctrlKey && e.shiftKey && (e.key.toLowerCase() === "d" || e.code === "KeyD"))
+      ) {
         e.preventDefault();
         setIsHidden((prev) => !prev);
         return;
@@ -2772,6 +3196,10 @@ export default function App() {
         setIsDropShelf(false);
         setIsSysMonitor(false);
         setIsMiniNote(false);
+        setIsWaterReminder(false);
+        setIsQuickNoteOpen(false);
+        setIsQuickTodoOpen(false);
+        setIsQuickTodoSaved(false);
         setIsClipboard(false);
         setIsSettings(false);
         setIsVolumeMixer(false);
@@ -2799,6 +3227,10 @@ export default function App() {
     variant = "volume_mixer";
   } else if (isClipboard) {
     variant = "clipboard";
+  } else if (waterToast) {
+    variant = "water_toast";
+  } else if (isWaterReminder) {
+    variant = "water_reminder";
   } else if (isMiniNote) {
     variant = "mini_note";
   } else if (isSysMonitor) {
@@ -2815,6 +3247,8 @@ export default function App() {
     variant = showLyrics ? "media_expanded_lyrics" : "media_expanded";
   } else if (isDragOver) {
     variant = "drag_over";
+  } else if (isQuickTodoOpen) {
+    variant = "quick_todo";
   } else if (isQuickNoteOpen) {
     variant = "quick_note";
   } else if (notif && (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon")) {
@@ -2860,12 +3294,35 @@ export default function App() {
         variant === "drop_shelf" ||
         variant === "sys_monitor" ||
         variant === "mini_note" ||
+        variant === "water_reminder" ||
         variant === "clipboard" ||
         variant === "settings" ||
         variant === "volume_mixer" ||
         variant === "notif_center" ||
         variant === "media_expanded" ||
         variant === "media_expanded_lyrics")
+  );
+
+  const isAnyPanelOpen = Boolean(
+    isExpandedPanel ||
+      variant === "water_reminder" ||
+      variant === "water_toast" ||
+      variant === "quick_control" ||
+      variant === "todo" ||
+      variant === "pomodoro" ||
+      variant === "drop_shelf" ||
+      variant === "sys_monitor" ||
+      variant === "mini_note" ||
+      variant === "clipboard" ||
+      variant === "settings" ||
+      variant === "volume_mixer" ||
+      variant === "notif_center" ||
+      variant === "media_expanded" ||
+      variant === "media_expanded_lyrics" ||
+      variant === "quick_todo" ||
+      variant === "quick_note" ||
+      variant === "drag_over" ||
+      variant === "onboarding"
   );
 
   const panelTitle = 
@@ -2876,6 +3333,7 @@ export default function App() {
     currentTab === "drop_shelf" ? t("tab_file_shelf") :
     currentTab === "sys_monitor" ? t("tab_sys_monitor") :
     currentTab === "mini_note" ? t("tab_mini_note") :
+    currentTab === "water_reminder" ? (t("tab_water_reminder") || "Air") :
     currentTab === "clipboard" ? t("tab_clipboard") :
     currentTab === "volume_mixer" ? t("tab_volume_mixer") :
     currentTab === "notif_center" ? (t("tab_notifications") || "Notifikasi") :
@@ -2895,7 +3353,12 @@ export default function App() {
 
   const idleMultiplier = effectiveIdleSize === "compact" ? 0.88 : effectiveIdleSize === "large" ? 1.15 : 1.0;
   const idleHeight = effectiveIdleSize === "compact" ? 28 : effectiveIdleSize === "large" ? 36 : 32;
-  const lyricsIdleBaseHeight = optFontSize === "large" ? 64 : optFontSize === "small" ? 56 : 60;
+  const lyricsIdleBaseHeight =
+    optFontSize === "large" || effectiveIdleSize === "large"
+      ? 54
+      : effectiveIdleSize === "compact"
+      ? 44
+      : 48;
 
   const tabWidth = effectiveTabSize === "compact" ? 600 : effectiveTabSize === "large" ? 700 : 660;
   const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
@@ -2917,10 +3380,25 @@ export default function App() {
     idle: { width: idleWidth, height: idleHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius(idleHeight >= 36 ? "14px" : "12px", `${Math.round(idleHeight / 2)}px`) },
     pomo_idle: { width: Math.round(280 * idleMultiplier), height: Math.round(40 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("20px", `${Math.round(40 * (idleHeight / 32) / 2)}px`) },
     pomo_complete_alert: { width: 520, height: 112, x: 0, y: currentY, opacity: 1, borderRadius: radius("28px") },
-    quick_note: { width: 520, height: 154, x: 0, y: currentY, opacity: 1, borderRadius: radius("28px") },
+    quick_todo: {
+      width: 560,
+      height: isQuickTodoSaved ? (isIsland ? 342 : 330) : (isIsland ? 218 : 204),
+      x: 0,
+      y: currentY,
+      opacity: 1,
+      borderRadius: radius("28px"),
+    },
+    quick_note: {
+      width: 520,
+      height: isIsland ? 168 : 156,
+      x: 0,
+      y: currentY,
+      opacity: 1,
+      borderRadius: radius("28px"),
+    },
     drag_over: { width: 660, height: 330, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     media: { width: mediaPillWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", `${Math.round(48 * (idleHeight / 32) / 2)}px`) },
-    lyrics_idle: { width: lyricsIdleWidth, height: Math.round(lyricsIdleBaseHeight * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", `${Math.round(lyricsIdleBaseHeight * (idleHeight / 32) / 2)}px`) },
+    lyrics_idle: { width: lyricsIdleWidth, height: lyricsIdleBaseHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", `${Math.round(lyricsIdleBaseHeight / 2)}px`) },
     media_expanded: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     notif_greeting: { width: dynamicWidth, height: 52, x: 0, y: currentY, opacity: 1, borderRadius: radius("18px", "26px") },
@@ -2935,6 +3413,15 @@ export default function App() {
     drop_shelf: { width: tabWidth, height: Math.round((isBot ? 370 : 348) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     sys_monitor: { width: tabWidth, height: Math.round((isBot ? 356 : 318) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     mini_note: { width: tabWidth, height: Math.round((isNoteEditing ? 370 : 352) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    water_reminder: { width: tabWidth, height: Math.round(waterDynamicHeight * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    water_toast: {
+      width: waterToast?.type === "time_to_drink" ? 440 : waterToast?.type === "streak_threatened" ? 430 : 380,
+      height: waterToast?.type === "time_to_drink" ? 70 : waterToast?.type === "streak_threatened" ? 66 : 58,
+      x: 0,
+      y: currentY,
+      opacity: 1,
+      borderRadius: radius("20px", "24px"),
+    },
     clipboard: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     settings: { width: tabWidth, height: Math.round(435 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     volume_mixer: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
@@ -2979,15 +3466,51 @@ export default function App() {
 
   useEffect(() => {
     const currentSize = variants[variant as keyof typeof variants] || variants.idle;
+    const isCollapsed = !isAnyPanelOpen;
+    const pillEl = document.getElementById("notch-pill");
+    const rect = !isCollapsed && pillEl ? pillEl.getBoundingClientRect() : null;
+    const measuredWidth = rect && rect.width > 0 ? Math.round(rect.width) : currentSize.width;
+    const measuredHeight = rect && rect.height > 0 ? Math.round(rect.height) : currentSize.height;
+
+    const targetWidth = isCollapsed ? currentSize.width : Math.max(currentSize.width, measuredWidth);
+    const targetHeight = isCollapsed ? currentSize.height : Math.max(currentSize.height, measuredHeight);
+
     invoke("update_pill_size", { 
-      width: currentSize.width, 
-      height: currentSize.height,
+      width: targetWidth, 
+      height: targetHeight,
       isBottom: optPosition === "bottom",
       topOffset: islandTopOffset,
       isIsland: notchShape === "island",
+      dpr: window.devicePixelRatio || 1.0,
     }).catch(console.error);
     invoke("enforce_always_on_top").catch(console.error);
-  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight]);
+  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast]);
+
+  useEffect(() => {
+    const handleDprOrResize = () => {
+      const currentSize = variants[variant as keyof typeof variants] || variants.idle;
+      const isCollapsed = !isAnyPanelOpen;
+      const pillEl = document.getElementById("notch-pill");
+      const rect = !isCollapsed && pillEl ? pillEl.getBoundingClientRect() : null;
+      invoke("update_pill_size", {
+        width: isCollapsed ? currentSize.width : (rect && rect.width > currentSize.width ? Math.round(rect.width) : currentSize.width),
+        height: isCollapsed ? currentSize.height : (rect && rect.height > currentSize.height ? Math.round(rect.height) : currentSize.height),
+        isBottom: optPosition === "bottom",
+        topOffset: islandTopOffset,
+        isIsland: notchShape === "island",
+        dpr: window.devicePixelRatio || 1.0,
+      }).catch(console.error);
+    };
+
+    window.addEventListener("resize", handleDprOrResize);
+    const mediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    mediaQuery.addEventListener?.("change", handleDprOrResize);
+
+    return () => {
+      window.removeEventListener("resize", handleDprOrResize);
+      mediaQuery.removeEventListener?.("change", handleDprOrResize);
+    };
+  }, [variant, optPosition, notchShape, islandTopOffset, isAnyPanelOpen]);
   
   useEffect(() => {
     invoke("set_window_position", { 
@@ -3153,6 +3676,29 @@ export default function App() {
         animate={variant}
         variants={variants}
         transition={smoothSpring}
+        onAnimationComplete={() => {
+          const pillEl = document.getElementById("notch-pill");
+          if (pillEl) {
+            const rect = pillEl.getBoundingClientRect();
+            const currentSize = variants[variant as keyof typeof variants] || variants.idle;
+            const isCollapsed = !isAnyPanelOpen;
+            const finalWidth = isCollapsed
+              ? currentSize.width
+              : (rect.width > 0 ? Math.round(rect.width) : currentSize.width);
+            const finalHeight = isCollapsed
+              ? currentSize.height
+              : (rect.height > 0 ? Math.round(rect.height) : currentSize.height);
+
+            invoke("update_pill_size", {
+              width: finalWidth,
+              height: finalHeight,
+              isBottom: optPosition === "bottom",
+              topOffset: islandTopOffset,
+              isIsland: notchShape === "island",
+              dpr: window.devicePixelRatio || 1.0,
+            }).catch(console.error);
+          }
+        }}
         onWheel={handleNotchWheel}
         onMouseMove={() => {
           isCursorInsideNotchRef.current = true;
@@ -3175,6 +3721,11 @@ export default function App() {
         }}
         onMouseEnter={() => {
           isCursorInsideNotchRef.current = true;
+          isShortcutPinnedRef.current = false;
+          if (shortcutPinnedTimerRef.current) {
+            clearTimeout(shortcutPinnedTimerRef.current);
+            shortcutPinnedTimerRef.current = null;
+          }
           cancelCollapseTimer();
           setSlideDirection(0);
           if (
@@ -3322,6 +3873,7 @@ export default function App() {
             isMiniNote ||
             isClipboard ||
             isVolumeMixer ||
+            variant === "quick_todo" ||
             variant === "quick_note" ||
             variant === "onboarding" ||
             variant === "drag_over" ||
@@ -3410,15 +3962,86 @@ export default function App() {
               />
             )}
 
+            {variant === "quick_todo" && isQuickTodoOpen && (
+              <QuickTodoNotchCard
+                todoItems={todoItems}
+                optAccent={optAccent}
+                optLanguage={optLanguage}
+                isIsland={isIsland}
+                shortcutLabel={formatShortcutForBadge(shortcuts.quick_task)}
+                onSave={(text, dueAt, reminders) => {
+                  const created = addTodoItem(text, dueAt, reminders);
+                  playTaskCompleteSound();
+                  return created;
+                }}
+                onToggleTodo={toggleTodoItem}
+                onDeleteTodo={deleteTodoItem}
+                onSavedStateChange={setIsQuickTodoSaved}
+                onOpenTodoList={() => {
+                  setIsQuickTodoOpen(false);
+                  setIsQuickTodoSaved(false);
+                  goToTab("todo", 0);
+                }}
+                onCancel={() => {
+                  setIsQuickTodoOpen(false);
+                  setIsQuickTodoSaved(false);
+                  invoke("restore_previous_foreground_window").catch(() => {});
+                }}
+              />
+            )}
+
             {variant === "quick_note" && isQuickNoteOpen && (
               <QuickNoteNotchCard
                 isLightMode={isLightMode}
+                isIsland={isIsland}
+                shortcutLabel={formatShortcutForBadge(shortcuts.quick_note)}
                 onSave={(text, color, pinned) => {
                   createQuickNoteItem(text, color, pinned);
                   playTaskCompleteSound();
                   setIsQuickNoteOpen(false);
+                  invoke("restore_previous_foreground_window").catch(() => {});
                 }}
-                onCancel={() => setIsQuickNoteOpen(false)}
+                onCancel={() => {
+                  setIsQuickNoteOpen(false);
+                  invoke("restore_previous_foreground_window").catch(() => {});
+                }}
+              />
+            )}
+
+            {variant === "water_toast" && waterToast && (
+              <WaterNotchToast
+                type={waterToast.type}
+                data={waterData}
+                isLightMode={isLightMode}
+                loggedAmount={waterToast.amount}
+                onDrinkQuick={(amt) => {
+                  const result = logDrink(amt);
+                  playWaterDrinkSound();
+                  if (result.targetAchieved || result.streakIncreased) {
+                    setWaterToast({ type: "streak_increased", amount: amt });
+                  } else {
+                    setWaterToast({ type: "logged", amount: amt });
+                  }
+                }}
+                onUndo={() => {
+                  undoLastDrink();
+                  setWaterToast(null);
+                }}
+                onSnooze={(mins) => {
+                  snoozeWaterReminder(mins);
+                  setWaterToast(null);
+                }}
+                onFreeze={() => {
+                  useStreakFreeze();
+                  setWaterToast(null);
+                }}
+                onViewWaterTab={() => {
+                  setWaterToast(null);
+                  goToTab("water_reminder", 0);
+                }}
+                onDismiss={() => {
+                  setWaterToast(null);
+                }}
               />
             )}
 
@@ -3471,13 +4094,13 @@ export default function App() {
                       {camActive && (
                         <div
                           className="w-2 h-2 rounded-full bg-[#30d158] shadow-[0_0_8px_rgba(48,209,88,0.9)] animate-pulse shrink-0"
-                          title="Camera in use"
+                          title={optLanguage === "id" ? "Kamera sedang digunakan" : "Camera in use"}
                         />
                       )}
                       {micActive && (
                         <div
                           className="w-2 h-2 rounded-full bg-[#ff9f0a] shadow-[0_0_8px_rgba(255,159,10,0.9)] animate-pulse shrink-0"
-                          title="Microphone in use"
+                          title={optLanguage === "id" ? "Mikrofon sedang digunakan" : "Microphone in use"}
                         />
                       )}
                     </motion.div>
@@ -3502,19 +4125,31 @@ export default function App() {
                 className="absolute inset-0 flex items-center justify-between gap-2.5 px-3 cursor-pointer"
               >
                 <div className="w-full flex items-center justify-between gap-2.5 overflow-hidden">
-                  <div className="w-8 h-8 bg-neutral-800/80 rounded-[9px] border border-white/10 shadow-sm flex items-center justify-center shrink-0 overflow-hidden relative">
+                  <div className={`${effectiveIdleSize === "compact" ? "w-[26px] h-[26px] rounded-[7px]" : "w-8 h-8 rounded-[9px]"} bg-neutral-800/80 border border-white/10 shadow-sm flex items-center justify-center shrink-0 overflow-hidden relative`}>
                     <MediaThumbnail media={media!} />
                   </div>
                   <div className="flex flex-col justify-center overflow-hidden whitespace-nowrap flex-1 min-w-0">
                     <ScrollingText
                       text={media!.title}
-                      className={`text-[13px] font-semibold tracking-tight leading-[1.2] translate-y-[1px] ${
+                      className={`${
+                        optFontSize === "small"
+                          ? "text-[12px]"
+                          : optFontSize === "large"
+                          ? "text-[14.5px]"
+                          : "text-[13px]"
+                      } font-semibold tracking-tight leading-[1.2] translate-y-[1px] ${
                         isLightMode ? "text-[#1d1d1f]" : "text-white"
                       }`}
                     />
                     <ScrollingText
                       text={media!.artist}
-                      className={`text-[10.5px] font-medium leading-[1.2] mt-[1px] ${
+                      className={`${
+                        optFontSize === "small"
+                          ? "text-[9.5px]"
+                          : optFontSize === "large"
+                          ? "text-[11.5px]"
+                          : "text-[10.5px]"
+                      } font-medium leading-[1.2] mt-[1px] ${
                         isLightMode ? "text-neutral-500" : "text-white/55"
                       }`}
                     />
@@ -3547,6 +4182,7 @@ export default function App() {
                   media={media}
                   optAccent={optAccent}
                   optFontSize={optFontSize}
+                  optIdleSize={effectiveIdleSize}
                   isLoading={isLyricsLoading}
                   onActiveLineChange={handleActiveIdleLyricChange}
                   onTogglePlay={() => handleMediaControl("toggle")}
@@ -3827,6 +4463,27 @@ export default function App() {
                           </motion.div>
                         )}
 
+                        {currentTab === "water_reminder" && (
+                          <motion.div
+                            key="water_reminder"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <WaterReminderPanel
+                              optLanguage={optLanguage}
+                              isLightMode={isLightMode}
+                              onHeightChange={setWaterDynamicHeight}
+                              onTriggerToast={(type, amount) => {
+                                setWaterToast({ type, amount });
+                              }}
+                            />
+                          </motion.div>
+                        )}
+
                         {currentTab === "settings" && (
                           <SettingsPanel
                             slideDirection={slideDirection}
@@ -3974,6 +4631,12 @@ export default function App() {
                                 await store.save();
                               }
                             }}
+                            shortcuts={shortcuts}
+                            shortcutsEnabled={shortcutsEnabled}
+                            shortcutStatuses={shortcutStatuses}
+                            onUpdateShortcut={handleUpdateShortcut}
+                            onResetShortcut={handleResetShortcut}
+                            onToggleShortcutsEnabled={handleToggleShortcutsEnabled}
                             optTheme={optTheme}
                             onChangeTheme={async (theme) => {
                               setOptTheme(theme);
@@ -4005,28 +4668,6 @@ export default function App() {
                             onChangeFontSize={async (size) => {
                               setOptFontSize(size);
                               if (store) await store.set("opt_font_size", size);
-                              if (size === "large") {
-                                setOptIdleSize("large");
-                                setOptTabSize("large");
-                                if (store) {
-                                  await store.set("opt_idle_size", "large");
-                                  await store.set("opt_tab_size", "large");
-                                }
-                              } else if (size === "small") {
-                                setOptIdleSize("compact");
-                                setOptTabSize("compact");
-                                if (store) {
-                                  await store.set("opt_idle_size", "compact");
-                                  await store.set("opt_tab_size", "compact");
-                                }
-                              } else if (size === "default") {
-                                setOptIdleSize("default");
-                                setOptTabSize("default");
-                                if (store) {
-                                  await store.set("opt_idle_size", "default");
-                                  await store.set("opt_tab_size", "default");
-                                }
-                              }
                             }}
                             notchShape={notchShape}
                             onChangeNotchShape={handleChangeNotchShape}
@@ -4122,6 +4763,7 @@ export default function App() {
                               onDndChange={(enabled) => {
                                 selectFocusMode(enabled ? "DND" : "Normal");
                               }}
+                              onGoToTab={(tab) => goToTab(tab as any)}
                             />
                           </motion.div>
                         )}
@@ -4200,7 +4842,7 @@ export default function App() {
                 className="absolute inset-0 flex items-center gap-2.5 px-3.5 cursor-pointer justify-center select-none"
               >
                 <div className="shrink-0 transition-transform hover:scale-105 active:scale-95">
-                  <NotifIcon type={notif.icon} />
+                  <NotifIcon type={notif.icon} appName={notif.appName} />
                 </div>
                 {(variant === "notif_small" || variant === "notif_medium" || variant === "notif_clipboard") ? (
                   <div className="flex items-center min-w-0 overflow-hidden">

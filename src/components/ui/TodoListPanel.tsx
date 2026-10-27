@@ -64,9 +64,10 @@ function formatDueBadge(dueAt: number): {
   const nowMs = Date.now();
   const diffMin = Math.round((dueAt - nowMs) / 60_000);
   const dt = new Date(dueAt);
+  const isEndOfDay = dt.getHours() === 23 && dt.getMinutes() === 59;
   const hh = String(dt.getHours()).padStart(2, "0");
   const mm = String(dt.getMinutes()).padStart(2, "0");
-  const timeLabel = `${hh}:${mm}`;
+  const timeLabel = isEndOfDay ? "" : `${hh}:${mm}`;
 
   if (diffMin < 0) {
     const absMin = Math.abs(diffMin);
@@ -112,7 +113,8 @@ function formatDueBadge(dueAt: number): {
     dt.getDate() === today.getDate();
 
   if (isToday) {
-    return { badgeText: "", timeLabel, status: "upcoming" };
+    const todayLabel = getLanguage() === "id" ? "Hari ini" : "Today";
+    return { badgeText: isEndOfDay ? todayLabel : "", timeLabel, status: "upcoming" };
   }
 
   const locale = getLanguage() === "id" ? "id-ID" : "en-US";
@@ -638,13 +640,15 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
                         {dueInfo.badgeText}
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => setCalendarTargetId(task.id)}
-                      className="text-[11.5px] text-zinc-400 hover:text-zinc-200 tabular-nums w-9 text-right cursor-pointer"
-                    >
-                      {dueInfo.timeLabel}
-                    </button>
+                    {dueInfo.timeLabel ? (
+                      <button
+                        type="button"
+                        onClick={() => setCalendarTargetId(task.id)}
+                        className="text-[11.5px] text-zinc-400 hover:text-zinc-200 tabular-nums w-9 text-right cursor-pointer"
+                      >
+                        {dueInfo.timeLabel}
+                      </button>
+                    ) : null}
                   </div>
                 )}
               </div>

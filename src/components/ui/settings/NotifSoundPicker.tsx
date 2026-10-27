@@ -14,7 +14,7 @@ import {
   deleteCustomSound,
   CustomSoundRecord,
 } from "../../../services/customSoundStorage";
-import { t } from "../../../services/i18n";
+import { t, getLanguage } from "../../../services/i18n";
 
 export interface NotifSoundPickerProps {
   value: string;
@@ -116,7 +116,7 @@ export const NotifSoundPicker: React.FC<NotifSoundPickerProps> = ({
       previewNotificationSound(record.id);
     } catch (err) {
       console.error("Failed to upload custom sound:", err);
-      setErrorMessage("Gagal memproses file audio");
+      setErrorMessage(getLanguage() === "id" ? "Gagal memproses file audio" : "Failed to process audio file");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";

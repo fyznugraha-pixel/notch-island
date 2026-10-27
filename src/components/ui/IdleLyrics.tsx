@@ -17,6 +17,7 @@ export interface IdleLyricsProps {
   media?: MediaPayload | null;
   optAccent?: string;
   optFontSize?: "small" | "default" | "large";
+  optIdleSize?: "compact" | "default" | "large";
   isLoading?: boolean;
   onActiveLineChange?: (current: string, prev: string, next: string) => void;
   onTogglePlay?: () => void;
@@ -48,6 +49,7 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   media,
   optAccent,
   optFontSize = "default",
+  optIdleSize = "default",
   isLoading = false,
   onActiveLineChange,
   onTogglePlay,
@@ -144,12 +146,6 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   const lines = lyricsData?.lines || [];
   const hasSyncedLyrics = lyricsData?.synced && lines.length > 0;
 
-  const prevLine = isInstrumental
-    ? artist || ""
-    : hasSyncedLyrics && activeIndex > 0
-    ? lines[activeIndex - 1]?.text?.trim() || ""
-    : "";
-
   const currLine = isInstrumental
     ? t("lyrics_idle_instrumental")
     : hasSyncedLyrics && activeIndex >= 0
@@ -157,7 +153,7 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
     : songTitle || (isPlaying ? "♪ ♪ ♪" : "Paused");
 
   const nextLine = isInstrumental
-    ? songTitle || ""
+    ? [songTitle, artist].filter(Boolean).join(" · ")
     : hasSyncedLyrics && activeIndex < lines.length - 1
     ? lines[activeIndex + 1]?.text?.trim() || ""
     : activeIndex === -1 && lines.length > 0
@@ -169,28 +165,36 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
     if (!onActiveLineChange) return;
     if (
       lastEmittedRef.current.curr === currLine &&
-      lastEmittedRef.current.prev === prevLine &&
       lastEmittedRef.current.next === nextLine
     ) {
       return;
     }
-    lastEmittedRef.current = { curr: currLine, prev: prevLine, next: nextLine };
-    onActiveLineChange(currLine, prevLine, nextLine);
-  }, [currLine, prevLine, nextLine, onActiveLineChange]);
+    lastEmittedRef.current = { curr: currLine, prev: "", next: nextLine };
+    onActiveLineChange(currLine, "", nextLine);
+  }, [currLine, nextLine, onActiveLineChange]);
+
+  const isCompact = optIdleSize === "compact";
+  const isLarge = optIdleSize === "large" || optFontSize === "large";
 
   const activeFontClass =
     optFontSize === "small"
-      ? "text-[11.5px]"
+      ? "text-[12px]"
       : optFontSize === "large"
-      ? "text-[15px]"
+      ? "text-[14.5px]"
       : "text-[13px]";
 
   const inactiveFontClass =
     optFontSize === "small"
       ? "text-[9px]"
       : optFontSize === "large"
-      ? "text-[11px]"
+      ? "text-[10.5px]"
       : "text-[9.5px]";
+
+  const albumArtSizeClass = isCompact
+    ? "w-[26px] h-[26px] rounded-[7px]"
+    : isLarge
+    ? "w-[34px] h-[34px] rounded-[9px]"
+    : "w-[30px] h-[30px] rounded-[8px]";
 
   if (isLoading) {
     return (
@@ -198,8 +202,8 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
         className="w-full h-full flex items-center justify-between px-2.5 cursor-pointer select-none gap-2"
         onClick={onClick}
       >
-        <div className="w-[28px] h-[28px] rounded-[8px] bg-neutral-900 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden relative shadow-sm">
-          {media ? <MediaThumbnail media={media} /> : <Music2 size={13} className="text-white/60" />}
+        <div className={`${albumArtSizeClass} bg-neutral-900 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden relative shadow-sm`}>
+          {media ? <MediaThumbnail media={media} /> : <Music2 size={isCompact ? 12 : 13} className="text-white/60" />}
         </div>
 
         <div className="flex-1 flex items-center justify-center gap-1.5 text-white/50 animate-pulse text-[11px] font-medium min-w-0 px-1">
@@ -220,52 +224,45 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
       onClick={onClick}
     >
       {/* Left: Mini Album Art / App Icon */}
-      <div className="w-[32px] h-[32px] rounded-[9px] bg-neutral-900 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden relative shadow-sm group-hover:scale-105 transition-transform duration-200">
+      <div className={`${albumArtSizeClass} bg-neutral-900 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden relative shadow-sm group-hover:scale-105 transition-transform duration-200`}>
         {media ? (
           <MediaThumbnail media={media} />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-white/10 text-white/60">
-            <Music2 size={14} />
+            <Music2 size={isCompact ? 12 : 14} />
           </div>
         )}
       </div>
 
-      {/* Center: Exactly 3 lines (previous, active synced in middle, next) */}
-      <div className="flex-1 min-w-0 h-full flex flex-col justify-center items-center overflow-hidden relative">
+      {/* Center: Exactly 2 lines (current active lyric, followed by next lyric) */}
+      <div className="flex-1 min-w-0 h-full flex flex-col justify-center items-center overflow-visible relative">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={hasSyncedLyrics ? `line-${activeIndex}` : `track-${songTitle}-${currLine}`}
-            initial={{ opacity: 0.85, y: 5 }}
+            initial={{ opacity: 0.85, y: 3 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full flex flex-col justify-center items-center select-none pointer-events-none gap-[2px]"
+            exit={{ opacity: 0, y: -3 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full flex flex-col justify-center items-center select-none pointer-events-none"
           >
-            {/* Top Line: Previous Lyric */}
-            <div className="w-full h-[11px] flex items-center justify-center overflow-hidden">
-              <span
-                className={`${inactiveFontClass} font-medium text-white/35 truncate w-full text-center leading-none`}
-              >
-                {prevLine || "\u00A0"}
-              </span>
-            </div>
-
-            {/* Middle Line: Synced Active Lyric (Centered, Bold, Highlighted) */}
-            <div className="w-full h-[17px] flex items-center justify-center overflow-hidden">
+            {/* Line 1: Synced Active Lyric (Layer paling depan z-20, overflow-visible, descenders utuh) */}
+            <div className={`w-full relative z-20 overflow-visible flex items-center justify-center ${isCompact ? "translate-y-[1.5px]" : "translate-y-[1px]"}`}>
               <ScrollingText
                 text={currLine}
-                className={`${activeFontClass} font-bold text-white tracking-tight leading-none w-full text-center`}
+                className={`${activeFontClass} font-bold text-white tracking-tight w-full text-center leading-[1.25]`}
               />
             </div>
 
-            {/* Bottom Line: Next Lyric */}
-            <div className="w-full h-[11px] flex items-center justify-center overflow-hidden">
-              <span
-                className={`${inactiveFontClass} font-medium text-white/35 truncate w-full text-center leading-none`}
-              >
-                {nextLine || "\u00A0"}
-              </span>
-            </div>
+            {/* Line 2: Next Lyric (Upcoming, Dimmed, z-10, rapat di bawahnya) */}
+            {nextLine ? (
+              <div className="w-full relative z-10 overflow-hidden flex items-center justify-center -mt-[1px]">
+                <span
+                  className={`${inactiveFontClass} font-medium text-white/40 truncate w-full text-center leading-[1.2] tracking-tight`}
+                >
+                  {nextLine}
+                </span>
+              </div>
+            ) : null}
           </motion.div>
         </AnimatePresence>
       </div>
