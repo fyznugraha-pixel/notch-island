@@ -47,7 +47,7 @@ import { ControlCenterPanel } from "./components/ui/ControlCenterPanel";
 import { SettingsPanel } from "./components/ui/SettingsPanel";
 import { PomodoroPanel } from "./components/ui/PomodoroPanel";
 import { SystemMonitorPanel } from "./components/ui/SystemMonitorPanel";
-import { MiniNotePanel, QuickNoteNotchCard, createQuickNoteItem } from "./components/ui/MiniNotePanel";
+import { MiniNotePanel, QuickNoteNotchCard, createQuickNoteItem, deleteQuickNoteItem } from "./components/ui/MiniNotePanel";
 import { QuickTodoNotchCard, formatShortcutForBadge } from "./components/ui/QuickTodoNotchCard";
 import { WaterReminderPanel } from "./components/ui/water/WaterReminderPanel";
 import { WaterNotchToast, WaterToastType } from "./components/ui/water/WaterNotchToast";
@@ -1073,6 +1073,7 @@ export default function App() {
   const isQuickTodoOpenRef = useRef(false);
   useEffect(() => { isQuickTodoOpenRef.current = isQuickTodoOpen; }, [isQuickTodoOpen]);
   const [isQuickTodoSaved, setIsQuickTodoSaved] = useState(false);
+  const [isQuickNoteSaved, setIsQuickNoteSaved] = useState(false);
 
   useEffect(() => {
     const isInteractive = isQuickNoteOpen || isQuickTodoOpen;
@@ -1193,6 +1194,7 @@ export default function App() {
     setIsQuickControl(false);
     setIsExpanded(false);
     setIsQuickNoteOpen(false);
+    setIsQuickNoteSaved(false);
     setIsQuickTodoOpen(false);
     setIsQuickTodoSaved(false);
     const now = Date.now();
@@ -1523,6 +1525,7 @@ export default function App() {
           setIsQuickTodoOpen(false);
           setIsQuickTodoSaved(false);
           setIsQuickNoteOpen(false);
+          setIsQuickNoteSaved(false);
           invoke("restore_previous_foreground_window").catch(() => {});
           return;
         }
@@ -1820,6 +1823,7 @@ export default function App() {
     setIsVolumeMixer(false);
     setIsExpanded(false);
     setIsQuickNoteOpen(false);
+    setIsQuickNoteSaved(false);
     setIsQuickTodoSaved(false);
     setIsQuickTodoOpen((prev) => !prev);
     invoke("focus_notch_window").catch(() => {});
@@ -1843,6 +1847,7 @@ export default function App() {
     setIsExpanded(false);
     setIsQuickTodoOpen(false);
     setIsQuickTodoSaved(false);
+    setIsQuickNoteSaved(false);
     setIsQuickNoteOpen((prev) => !prev);
     invoke("focus_notch_window").catch(() => {});
   }, []);
@@ -3314,6 +3319,7 @@ export default function App() {
         setIsMiniNote(false);
         setIsWaterReminder(false);
         setIsQuickNoteOpen(false);
+        setIsQuickNoteSaved(false);
         setIsQuickTodoOpen(false);
         setIsQuickTodoSaved(false);
         setIsClipboard(false);
@@ -3506,7 +3512,7 @@ export default function App() {
     },
     quick_note: {
       width: 520,
-      height: isIsland ? 168 : 156,
+      height: isQuickNoteSaved ? (isIsland ? 342 : 330) : (isIsland ? 168 : 156),
       x: 0,
       y: currentY,
       opacity: 1,
@@ -4146,13 +4152,22 @@ export default function App() {
                 isIsland={isIsland}
                 shortcutLabel={formatShortcutForBadge(shortcuts.quick_note)}
                 onSave={(text, color, pinned) => {
-                  createQuickNoteItem(text, color, pinned);
+                  const created = createQuickNoteItem(text, color, pinned);
                   playTaskCompleteSound();
+                  return created;
+                }}
+                onDeleteNote={(id) => {
+                  deleteQuickNoteItem(id);
+                }}
+                onSavedStateChange={setIsQuickNoteSaved}
+                onOpenNotesList={() => {
                   setIsQuickNoteOpen(false);
-                  invoke("restore_previous_foreground_window").catch(() => {});
+                  setIsQuickNoteSaved(false);
+                  goToTab("mini_note", 0);
                 }}
                 onCancel={() => {
                   setIsQuickNoteOpen(false);
+                  setIsQuickNoteSaved(false);
                   invoke("restore_previous_foreground_window").catch(() => {});
                 }}
               />

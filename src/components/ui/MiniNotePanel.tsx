@@ -114,6 +114,12 @@ export function createQuickNoteItem(
   return next;
 }
 
+export function deleteQuickNoteItem(id: string): void {
+  const existing = loadMiniNotes();
+  saveMiniNotes(existing.filter((n) => n.id !== id));
+  notifyNotesUpdated();
+}
+
 function formatCardTimestamp(ts: number, lang?: Language): string {
   const now = new Date();
   const d = new Date(ts);
@@ -879,11 +885,14 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
 };
 
 /* ============================================================================
- * Quick Note Notch Card (`Ctrl + Shift + N`) — Image 3
+ * Quick Note Notch Card (`Ctrl + Shift + N`)
  * ========================================================================== */
 export interface QuickNoteNotchCardProps {
-  onSave: (text: string, color: NoteColor, pinned: boolean) => void;
+  onSave: (text: string, color: NoteColor, pinned: boolean) => MiniNoteItem | undefined;
   onCancel: () => void;
+  onDeleteNote?: (id: string) => void;
+  onOpenNotesList?: () => void;
+  onSavedStateChange?: (isSaved: boolean) => void;
   isLightMode?: boolean;
   shortcutLabel?: string;
   isIsland?: boolean;
@@ -892,6 +901,9 @@ export interface QuickNoteNotchCardProps {
 export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
   onSave,
   onCancel,
+  onDeleteNote,
+  onOpenNotesList,
+  onSavedStateChange,
   isLightMode = false,
   shortcutLabel = "CTRL ⇧ N",
   isIsland = false,
@@ -899,7 +911,11 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
   const [text, setText] = useState("");
   const [color, setColor] = useState<NoteColor>("blue");
   const [pinned, setPinned] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [savedNote, setSavedNote] = useState<MiniNoteItem | null>(null);
+  const [allNotes, setAllNotes] = useState<MiniNoteItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const autoCloseTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const focusInput = () => {
@@ -922,26 +938,84 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
   }, []);
 
   useEffect(() => {
+    onSavedStateChange?.(isSaved);
+  }, [isSaved, onSavedStateChange]);
+
+  useEffect(() => {
+    if (isSaved) {
+      setAllNotes(loadMiniNotes());
+      autoCloseTimerRef.current = window.setTimeout(() => {
+        onCancel();
+      }, 5000);
+    }
+    return () => {
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+      }
+    };
+  }, [isSaved, onCancel]);
+
+  useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         onCancel();
+        return;
+      }
+      if (isSaved) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpenNotesList?.();
+        }
       }
     };
     window.addEventListener("keydown", handleGlobalKeyDown, true);
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown, true);
     };
-  }, [onCancel]);
+  }, [isSaved, onCancel, onOpenNotesList]);
 
   const handleSubmit = () => {
-    if (!text.trim()) {
+    const trimmed = text.trim();
+    if (!trimmed) {
       onCancel();
       return;
     }
-    onSave(text, color, pinned);
+    const created = onSave(trimmed, color, pinned);
+    if (created) {
+      setSavedNote(created);
+    } else {
+      setSavedNote({
+        id: `note-${Date.now()}`,
+        title: trimmed.split("\n")[0]?.slice(0, 64) || t("note_title"),
+        content: trimmed,
+        color,
+        pinned,
+        updatedAt: Date.now(),
+      });
+    }
+    setIsSaved(true);
   };
+
+  const handleUndo = useCallback(() => {
+    if (savedNote) {
+      onDeleteNote?.(savedNote.id);
+    }
+    setIsSaved(false);
+    setSavedNote(null);
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+    }
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+    }, 40);
+  }, [savedNote, onDeleteNote]);
+
+  const recentNotes = useMemo(() => {
+    return allNotes.slice(0, 3);
+  }, [allNotes]);
 
   return (
     <motion.div
@@ -950,144 +1024,329 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
       className={`w-full h-full flex flex-col justify-between select-none ${
-        isIsland ? "px-7 py-5" : "px-7 py-4"
+        isSaved
+          ? isIsland
+            ? "px-6 py-5"
+            : "px-6 py-4.5"
+          : isIsland
+          ? "px-7 py-5"
+          : "px-7 py-4"
       } ${isLightMode ? "text-[#1d1d1f]" : "text-white"}`}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* Top Row: Icon + Label | Shortcut Badge */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div
-            className={`w-[28px] h-[28px] rounded-[8px] flex items-center justify-center shrink-0 ${
-              isLightMode
-                ? "bg-[#3882F6]/15 text-[#2563eb]"
-                : "bg-[#3882F6]/20 text-[#60a5fa]"
-            }`}
-          >
-            <StickyNote size={15} />
-          </div>
-          <span
-            className={`text-[13px] font-semibold tracking-tight ${
-              isLightMode ? "text-[#27272a]" : "text-[#e4e4e7]"
-            }`}
-          >
-            {t("note_quick_title")}
-          </span>
-        </div>
+      {!isSaved ? (
+        <>
+          {/* Top Row: Icon + Label | Shortcut Badge */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-[28px] h-[28px] rounded-[8px] flex items-center justify-center shrink-0 ${
+                  isLightMode
+                    ? "bg-[#3882F6]/15 text-[#2563eb]"
+                    : "bg-[#3882F6]/20 text-[#60a5fa]"
+                }`}
+              >
+                <StickyNote size={15} />
+              </div>
+              <span
+                className={`text-[13px] font-semibold tracking-tight ${
+                  isLightMode ? "text-[#27272a]" : "text-[#e4e4e7]"
+                }`}
+              >
+                {t("note_quick_title")}
+              </span>
+            </div>
 
-        {shortcutLabel ? (
-          <kbd
-            className={`px-2 py-0.5 rounded-[6px] text-[10px] font-semibold tracking-wider font-mono ${
-              isLightMode
-                ? "border border-black/10 bg-black/[0.04] text-[#71717a]"
-                : "border border-white/10 bg-white/[0.06] text-[#a1a1aa]"
-            }`}
-          >
-            {shortcutLabel}
-          </kbd>
-        ) : null}
-      </div>
-
-      {/* Middle Input */}
-      <div className="my-auto py-1">
-        <input
-          ref={inputRef}
-          autoFocus
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              handleSubmit();
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              onCancel();
-            }
-          }}
-          placeholder={t("note_quick_placeholder")}
-          className={`w-full bg-transparent text-[16px] font-medium outline-none tracking-tight leading-normal ${
-            isLightMode
-              ? "text-[#18181b] placeholder-[#a1a1aa]"
-              : "text-white placeholder-[#71717a]"
-          }`}
-        />
-      </div>
-
-      {/* Bottom Row: Color Dots + Pin Toggle | Cancel + Save Button */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            {NOTE_COLORS.map((c) => {
-              const isSelected = color === c;
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColor(c)}
-                  style={{ backgroundColor: NOTE_COLOR_MAP[c] }}
-                  className={`w-[18px] h-[18px] rounded-full transition-all cursor-pointer ${
-                    isSelected
-                      ? isLightMode
-                        ? "ring-2 ring-[#2563eb] ring-offset-2 ring-offset-[#f4f4f5] scale-110 shadow-sm"
-                        : "ring-2 ring-white ring-offset-2 ring-offset-[#0d0d12] scale-110 shadow-sm"
-                      : "opacity-75 hover:opacity-100 hover:scale-105"
-                  }`}
-                  aria-label={c}
-                />
-              );
-            })}
+            {shortcutLabel ? (
+              <kbd
+                className={`px-2 py-0.5 rounded-[6px] text-[10px] font-semibold tracking-wider font-mono ${
+                  isLightMode
+                    ? "border border-black/10 bg-black/[0.04] text-[#71717a]"
+                    : "border border-white/10 bg-white/[0.06] text-[#a1a1aa]"
+                }`}
+              >
+                {shortcutLabel}
+              </kbd>
+            ) : null}
           </div>
 
+          {/* Middle Input */}
+          <div className="my-auto py-1">
+            <input
+              ref={inputRef}
+              autoFocus
+              type="text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSubmit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  onCancel();
+                }
+              }}
+              placeholder={t("note_quick_placeholder")}
+              className={`w-full bg-transparent text-[16px] font-medium outline-none tracking-tight leading-normal ${
+                isLightMode
+                  ? "text-[#18181b] placeholder-[#a1a1aa]"
+                  : "text-white placeholder-[#71717a]"
+              }`}
+            />
+          </div>
+
+          {/* Bottom Row: Color Dots + Pin Toggle | Cancel + Save Button */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                {NOTE_COLORS.map((c) => {
+                  const isSelected = color === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setColor(c)}
+                      style={{ backgroundColor: NOTE_COLOR_MAP[c] }}
+                      className={`w-[18px] h-[18px] rounded-full transition-all cursor-pointer ${
+                        isSelected
+                          ? isLightMode
+                            ? "ring-2 ring-[#2563eb] ring-offset-2 ring-offset-[#f4f4f5] scale-110 shadow-sm"
+                            : "ring-2 ring-white ring-offset-2 ring-offset-[#0d0d12] scale-110 shadow-sm"
+                          : "opacity-75 hover:opacity-100 hover:scale-105"
+                      }`}
+                      aria-label={c}
+                    />
+                  );
+                })}
+              </div>
+
+              <div
+                className={`w-[1px] h-[16px] ${
+                  isLightMode ? "bg-black/10" : "bg-white/10"
+                }`}
+              />
+
+              <button
+                type="button"
+                onClick={() => setPinned((p) => !p)}
+                className={`h-[28px] px-2.5 rounded-[8px] border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  pinned
+                    ? isLightMode
+                      ? "bg-[#3882F6]/15 border-[#3882F6]/40 text-[#2563eb]"
+                      : "bg-[#3882F6]/20 border-[#3882F6]/50 text-[#93c5fd]"
+                    : isLightMode
+                    ? "bg-black/[0.04] border-black/10 text-[#52525b] hover:bg-black/[0.08] hover:text-[#18181b]"
+                    : "bg-white/[0.04] border-white/10 text-[#a1a1aa] hover:bg-white/[0.08] hover:text-white"
+                }`}
+              >
+                <Pin size={12} className={pinned ? "fill-current" : ""} />
+                <span>{pinned ? t("note_pinned_btn") : t("note_pin_btn")}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={onCancel}
+                className={`text-[12px] font-medium transition-colors cursor-pointer px-2.5 py-1 rounded-[6px] ${
+                  isLightMode
+                    ? "text-[#71717a] hover:text-[#18181b] hover:bg-black/[0.05]"
+                    : "text-[#a1a1aa] hover:text-white hover:bg-white/[0.06]"
+                }`}
+              >
+                {t("note_cancel")}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSubmit}
+                className="h-[30px] pl-3 pr-2.5 rounded-[8px] bg-[#3882F6] hover:bg-[#2563eb] active:scale-95 text-white text-[12px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shadow-[#3882F6]/25"
+              >
+                <span>{t("note_save")}</span>
+                <kbd className="px-1.5 py-0.5 rounded-[4px] bg-black/25 border border-white/20 text-[9.5px] font-medium tracking-tight">
+                  Enter
+                </kbd>
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        /* ================================================================
+           SAVED CONFIRMATION & RECENT NOTES LIST (MIRRORING QUICK TODO)
+           ================================================================ */
+        <>
+          {/* Saved Header */}
+          <div className="flex items-center gap-3">
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{
+                background: "rgba(48, 209, 88, 0.18)",
+                color: "#30d158",
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            </div>
+
+            <div className="min-w-0 flex-grow">
+              <div
+                className={`text-[12px] font-medium ${
+                  isLightMode ? "text-[#71717a]" : "text-[#a1a1aa]"
+                }`}
+              >
+                {t("note_saved_confirmation")}
+              </div>
+              <div className="text-[15px] font-semibold tracking-[-0.01em] leading-snug truncate">
+                {savedNote?.title || text}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleUndo}
+              className={`h-[30px] px-3 border-0 rounded-[9px] bg-transparent text-[12px] font-medium cursor-pointer transition-colors ${
+                isLightMode
+                  ? "hover:bg-black/[0.06] text-[#52525b]"
+                  : "hover:bg-white/[0.08] text-[#c4c4cc]"
+              }`}
+            >
+              {t("note_undo")}
+            </button>
+          </div>
+
+          {/* Divider */}
           <div
-            className={`w-[1px] h-[16px] ${
-              isLightMode ? "bg-black/10" : "bg-white/10"
+            className={`h-[1px] my-3 ${
+              isLightMode ? "bg-black/10" : "bg-[#1f1f26]"
             }`}
           />
 
-          <button
-            type="button"
-            onClick={() => setPinned((p) => !p)}
-            className={`h-[28px] px-2.5 rounded-[8px] border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
-              pinned
-                ? isLightMode
-                  ? "bg-[#3882F6]/15 border-[#3882F6]/40 text-[#2563eb]"
-                  : "bg-[#3882F6]/20 border-[#3882F6]/50 text-[#93c5fd]"
-                : isLightMode
-                ? "bg-black/[0.04] border-black/10 text-[#52525b] hover:bg-black/[0.08] hover:text-[#18181b]"
-                : "bg-white/[0.04] border-white/10 text-[#a1a1aa] hover:bg-white/[0.08] hover:text-white"
+          {/* Section Header */}
+          <div
+            className={`text-[10.5px] font-semibold tracking-[0.08em] h-5 flex items-center ${
+              isLightMode ? "text-[#71717a]" : "text-[#8b8b95]"
             }`}
           >
-            <Pin size={12} className={pinned ? "fill-current" : ""} />
-            <span>{pinned ? t("note_pinned_btn") : t("note_pin_btn")}</span>
-          </button>
-        </div>
+            {t("note_recent_notes")}
+            <div className="flex-grow" />
+            <span className="font-medium tracking-normal text-[11px]">
+              {t("note_count", { count: allNotes.length })}
+            </span>
+          </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={onCancel}
-            className={`text-[12px] font-medium transition-colors cursor-pointer px-2.5 py-1 rounded-[6px] ${
-              isLightMode
-                ? "text-[#71717a] hover:text-[#18181b] hover:bg-black/[0.05]"
-                : "text-[#a1a1aa] hover:text-white hover:bg-white/[0.06]"
-            }`}
-          >
-            {t("note_cancel")}
-          </button>
+          {/* Recent Notes List */}
+          <div role="list" className="mt-1 flex flex-col gap-0.5">
+            {recentNotes.length === 0 ? (
+              <div
+                className={`text-[12px] italic py-2 ${
+                  isLightMode ? "text-[#71717a]" : "text-[#8b8b95]"
+                }`}
+              >
+                {t("note_no_other_notes")}
+              </div>
+            ) : (
+              recentNotes.map((note) => {
+                const isNewlySaved = savedNote?.id === note.id;
+                const colorHex =
+                  NOTE_COLOR_MAP[note.color] || NOTE_COLOR_MAP.blue;
 
-          <button
-            type="button"
-            onClick={handleSubmit}
-            className="h-[30px] pl-3 pr-2.5 rounded-[8px] bg-[#3882F6] hover:bg-[#2563eb] active:scale-95 text-white text-[12px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shadow-[#3882F6]/25"
-          >
-            <span>{t("note_save")}</span>
-            <kbd className="px-1.5 py-0.5 rounded-[4px] bg-black/25 border border-white/20 text-[9.5px] font-medium tracking-tight">
-              Enter
-            </kbd>
-          </button>
-        </div>
-      </div>
+                return (
+                  <div
+                    key={note.id}
+                    onClick={() => onOpenNotesList?.()}
+                    className={`flex items-center gap-3 h-[38px] px-2.5 -mx-2.5 rounded-[10px] text-[13.5px] font-medium cursor-pointer transition-colors ${
+                      isNewlySaved
+                        ? isLightMode
+                          ? "bg-[#3882f6]/12 text-[#18181b]"
+                          : "bg-[#3882f6]/15 text-white"
+                        : isLightMode
+                        ? "hover:bg-black/[0.04] text-[#27272a]"
+                        : "hover:bg-white/[0.04] text-[#e4e4e7]"
+                    }`}
+                  >
+                    {/* Color dot */}
+                    <span
+                      className="w-[10px] h-[10px] rounded-full shrink-0"
+                      style={{ backgroundColor: colorHex }}
+                    />
+
+                    {/* Title */}
+                    <span className="flex-grow truncate">
+                      {note.title || note.content}
+                      {isNewlySaved && (
+                        <span className="ml-2 text-[10px] font-bold tracking-[0.04em] text-white rounded-[5px] px-1.5 py-0.5 inline-block align-middle bg-[#3882f6]">
+                          {t("note_tag_new")}
+                        </span>
+                      )}
+                    </span>
+
+                    {/* Pin indicator */}
+                    {note.pinned && (
+                      <Pin
+                        size={12}
+                        className={
+                          isLightMode
+                            ? "text-[#71717a] shrink-0"
+                            : "text-[#a1a1aa] shrink-0 fill-current"
+                        }
+                      />
+                    )}
+
+                    {/* Timestamp */}
+                    <span
+                      className={`text-[11px] font-semibold rounded-[8px] px-2 py-0.5 whitespace-nowrap ${
+                        isLightMode
+                          ? "bg-black/[0.05] text-[#52525b]"
+                          : "bg-[#17171c] text-[#a1a1aa]"
+                      }`}
+                    >
+                      {formatCardTimestamp(note.updatedAt)}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Bottom Actions */}
+          <div className="flex items-center gap-2 mt-auto pt-2.5 h-8">
+            <span
+              className={`text-[11.5px] ${
+                isLightMode ? "text-[#71717a]" : "text-[#8b8b95]"
+              }`}
+            >
+              {t("note_keyboard_hint")}
+            </span>
+
+            <div className="flex-grow" />
+
+            <button
+              type="button"
+              onClick={onOpenNotesList}
+              className={`h-[30px] px-3 border-0 rounded-[9px] bg-transparent text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
+                isLightMode
+                  ? "hover:bg-black/[0.06] text-[#27272a]"
+                  : "hover:bg-white/[0.08] text-[#c4c4cc]"
+              }`}
+            >
+              {t("note_view_all")}
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        </>
+      )}
     </motion.div>
   );
 };
