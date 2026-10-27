@@ -34,6 +34,7 @@ export interface GeneralTabProps {
   onUpdateShortcut: (actionId: ShortcutActionId, shortcut: string | null) => Promise<{ success: boolean; error?: string }>;
   onResetShortcut: (actionId: ShortcutActionId) => Promise<void>;
   onToggleShortcutsEnabled: (enabled: boolean) => void;
+  isLightMode?: boolean;
 }
 
 export const GeneralTab: React.FC<GeneralTabProps> = ({
@@ -62,12 +63,17 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
   onUpdateShortcut,
   onResetShortcut,
   onToggleShortcutsEnabled,
+  isLightMode,
 }) => {
   const isId = optLanguage === "id";
 
   return (
     <div className="flex flex-col gap-3 w-full">
-      <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col gap-1 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+      <div className={`w-full rounded-[22px] p-2 flex flex-col gap-1 transition-colors ${
+        isLightMode
+          ? "bg-white/80 border border-black/10 shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+          : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
+      }`}>
       {/* 1. Bahasa */}
       <SettingRow
         icon={<Globe size={18} />}
@@ -254,6 +260,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
         onUpdateShortcut={onUpdateShortcut}
         onResetShortcut={onResetShortcut}
         onToggleShortcutsEnabled={onToggleShortcutsEnabled}
+        isLightMode={isLightMode}
       />
     </div>
   );

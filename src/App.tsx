@@ -4117,6 +4117,7 @@ export default function App() {
                 optAccent={optAccent}
                 optLanguage={optLanguage}
                 isIsland={isIsland}
+                isLightMode={isLightMode}
                 shortcutLabel={formatShortcutForBadge(shortcuts.quick_task)}
                 onSave={(text, dueAt, reminders) => {
                   const created = addTodoItem(text, dueAt, reminders);

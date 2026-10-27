@@ -30,6 +30,7 @@ interface KeyboardShortcutsCardProps {
   onUpdateShortcut: (actionId: ShortcutActionId, shortcut: string | null) => Promise<{ success: boolean; error?: string }>;
   onResetShortcut: (actionId: ShortcutActionId) => Promise<void>;
   onToggleShortcutsEnabled: (enabled: boolean) => void;
+  isLightMode?: boolean;
 }
 
 const ACTION_ICONS: Record<ShortcutActionId, React.ReactNode> = {
@@ -52,6 +53,16 @@ const ACTION_COLORS: Record<ShortcutActionId, { bg: string; text: string }> = {
   toggle_hide: { bg: "bg-[#1e1e24]", text: "text-[#9ca3af]" },
 };
 
+const ACTION_COLORS_LIGHT: Record<ShortcutActionId, { bg: string; text: string }> = {
+  toggle_notch: { bg: "bg-[#007aff]/15", text: "text-[#007aff]" },
+  quick_task: { bg: "bg-[#34c759]/15", text: "text-[#28a745]" },
+  quick_note: { bg: "bg-[#f59e0b]/15", text: "text-[#d97706]" },
+  open_media: { bg: "bg-[#d946ef]/15", text: "text-[#c026d3]" },
+  toggle_media_playback: { bg: "bg-[#ff9f0a]/15", text: "text-[#ea580c]" },
+  toggle_focus_mode: { bg: "bg-[#818cf8]/15", text: "text-[#6366f1]" },
+  toggle_hide: { bg: "bg-black/10", text: "text-neutral-600" },
+};
+
 export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
   shortcuts,
   shortcutsEnabled,
@@ -59,7 +70,11 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
   onUpdateShortcut,
   onResetShortcut,
   onToggleShortcutsEnabled,
+  isLightMode,
 }) => {
+  const isLight =
+    isLightMode ??
+    (typeof document !== "undefined" && document.documentElement.classList.contains("light"));
   const [recordingAction, setRecordingAction] = useState<ShortcutActionId | null>(null);
   const [recordingChips, setRecordingChips] = useState<string[]>([]);
   const [rowErrors, setRowErrors] = useState<Partial<Record<ShortcutActionId, string>>>({});
@@ -179,26 +194,40 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
   return (
     <div
       ref={recordingContainerRef}
-      className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-3 flex flex-col gap-2.5 shadow-[0_8px_30px_rgba(0,0,0,0.5)] mt-3 text-white"
+      className={`w-full rounded-[22px] p-3 flex flex-col gap-2.5 mt-3 transition-colors ${
+        isLight
+          ? "bg-white/80 border border-black/10 shadow-[0_4px_20px_rgba(0,0,0,0.06)] text-[#1d1d1f]"
+          : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)] text-white"
+      }`}
     >
       {/* Header with Master Switch */}
-      <div className="flex items-center justify-between pb-2 border-b border-white/[0.06] px-1">
+      <div className={`flex items-center justify-between pb-2 border-b px-1 ${
+        isLight ? "border-black/[0.06]" : "border-white/[0.06]"
+      }`}>
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-[#142333] flex items-center justify-center text-[#3882F6]">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+            isLight ? "bg-[#007aff]/15 text-[#007aff]" : "bg-[#142333] text-[#3882F6]"
+          }`}>
             <Keyboard size={18} strokeWidth={2} />
           </div>
           <div>
-            <div className="text-[13px] font-semibold tracking-tight text-white/95">
+            <div className={`text-[13px] font-semibold tracking-tight ${
+              isLight ? "text-[#1d1d1f]" : "text-white/95"
+            }`}>
               {t("settings_shortcuts")}
             </div>
-            <div className="text-[11px] text-white/45">
+            <div className={`text-[11px] ${
+              isLight ? "text-neutral-500" : "text-white/45"
+            }`}>
               {t("settings_shortcuts_desc")}
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-white/50 hidden sm:inline">
+          <span className={`text-[11px] hidden sm:inline ${
+            isLight ? "text-neutral-500" : "text-white/50"
+          }`}>
             {t("settings_shortcuts_enable")}
           </span>
           <IosSwitch
@@ -218,7 +247,9 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
           const status = shortcutStatuses[action.id] || "inactive";
           const rowError = rowErrors[action.id];
           const hasError = Boolean(rowError);
-          const colors = ACTION_COLORS[action.id] || { bg: "bg-[#1e1e24]", text: "text-white/80" };
+          const colors = isLight
+            ? ACTION_COLORS_LIGHT[action.id] || { bg: "bg-black/10", text: "text-neutral-600" }
+            : ACTION_COLORS[action.id] || { bg: "bg-[#1e1e24]", text: "text-white/80" };
 
           const displayChips = isRecording
             ? recordingChips.length > 0
@@ -231,9 +262,15 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
               key={action.id}
               className={`flex flex-col rounded-xl px-2.5 py-2 transition-all ${
                 isRecording
-                  ? "bg-[#181820] border border-[#3882F6]/60 shadow-[0_0_12px_rgba(56,130,246,0.25)]"
+                  ? isLight
+                    ? "bg-blue-50/90 border border-[#007aff]/50 shadow-[0_0_12px_rgba(0,122,255,0.18)]"
+                    : "bg-[#181820] border border-[#3882F6]/60 shadow-[0_0_12px_rgba(56,130,246,0.25)]"
                   : hasError
-                  ? "bg-[#181112] border border-red-500/40"
+                  ? isLight
+                    ? "bg-red-50/90 border border-red-500/30"
+                    : "bg-[#181112] border border-red-500/40"
+                  : isLight
+                  ? "bg-black/[0.02] hover:bg-black/[0.05] border border-black/[0.04]"
                   : "bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.04]"
               } ${!shortcutsEnabled ? "opacity-50 pointer-events-none" : ""}`}
             >
@@ -244,10 +281,14 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
                     {ACTION_ICONS[action.id]}
                   </div>
                   <div className="flex flex-col min-w-0">
-                    <span className="text-[12px] font-medium text-white/90 truncate">
+                    <span className={`text-[12px] font-medium truncate ${
+                      isLight ? "text-[#1d1d1f]" : "text-white/90"
+                    }`}>
                       {t(action.labelKey as any)}
                     </span>
-                    <span className="text-[10px] text-white/40 truncate">
+                    <span className={`text-[10px] truncate ${
+                      isLight ? "text-neutral-500" : "text-white/40"
+                    }`}>
                       {t(action.descKey as any)}
                     </span>
                   </div>
@@ -257,12 +298,20 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
                 <div className="flex items-center gap-1.5 shrink-0">
                   {/* Shortcut Chip */}
                   {isRecording ? (
-                    <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#3882F6]/15 border border-[#3882F6]/50 text-[#60a5fa] text-[11px] font-mono animate-pulse">
+                    <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-mono animate-pulse ${
+                      isLight
+                        ? "bg-[#007aff]/10 border border-[#007aff]/40 text-[#007aff]"
+                        : "bg-[#3882F6]/15 border border-[#3882F6]/50 text-[#60a5fa]"
+                    }`}>
                       {displayChips && displayChips.length > 0 ? (
                         displayChips.map((chip, idx) => (
                           <span
                             key={idx}
-                            className="px-1.5 py-0.5 rounded bg-black/40 border border-[#3882F6]/40 text-white font-medium"
+                            className={`px-1.5 py-0.5 rounded font-medium ${
+                              isLight
+                                ? "bg-white border border-[#007aff]/30 text-[#007aff] shadow-xs"
+                                : "bg-black/40 border border-[#3882F6]/40 text-white"
+                            }`}
                           >
                             {chip}
                           </span>
@@ -276,14 +325,20 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
                       {displayChips.map((chip, idx) => (
                         <span
                           key={idx}
-                          className="px-1.5 py-0.5 rounded-md bg-[#1a1a22] border border-white/10 text-[11px] font-mono font-medium text-white/85 shadow-sm"
+                          className={`px-1.5 py-0.5 rounded-md text-[11px] font-mono font-medium shadow-xs transition-colors ${
+                            isLight
+                              ? "bg-black/[0.06] border border-black/10 text-[#1d1d1f]"
+                              : "bg-[#1a1a22] border border-white/10 text-white/85 shadow-sm"
+                          }`}
                         >
                           {chip}
                         </span>
                       ))}
                     </div>
                   ) : (
-                    <span className="text-[11px] text-white/30 italic px-1">
+                    <span className={`text-[11px] italic px-1 ${
+                      isLight ? "text-neutral-400" : "text-white/30"
+                    }`}>
                       {t("settings_shortcuts_empty")}
                     </span>
                   )}
@@ -310,7 +365,11 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
                     }}
                     className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
                       isRecording
-                        ? "bg-white/15 text-white hover:bg-white/20"
+                        ? isLight
+                          ? "bg-black/10 text-[#1d1d1f] hover:bg-black/15"
+                          : "bg-white/15 text-white hover:bg-white/20"
+                        : isLight
+                        ? "bg-black/[0.06] text-[#1d1d1f] hover:bg-black/10"
                         : "bg-white/[0.07] text-white/80 hover:bg-white/[0.12] hover:text-white"
                     }`}
                   >
@@ -322,7 +381,11 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
                     <button
                       type="button"
                       onClick={() => onResetShortcut(action.id)}
-                      className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/[0.08] transition-colors"
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        isLight
+                          ? "text-neutral-500 hover:text-black hover:bg-black/[0.06]"
+                          : "text-white/40 hover:text-white hover:bg-white/[0.08]"
+                      }`}
                       title={t("settings_shortcuts_reset_default")}
                       aria-label={t("settings_shortcuts_reset_default")}
                     >
@@ -334,14 +397,18 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
               {/* Error message or recording tip */}
               {isRecording && (
-                <div className="text-[10px] text-white/45 mt-1.5 pl-9 flex items-center justify-between">
+                <div className={`text-[10px] mt-1.5 pl-9 flex items-center justify-between ${
+                  isLight ? "text-neutral-500" : "text-white/45"
+                }`}>
                   <span>{t("settings_shortcuts_clear_tip")}</span>
                 </div>
               )}
 
               {hasError && (
                 <div
-                  className="text-[10px] text-red-400 mt-1 pl-9 flex items-center gap-1 font-medium"
+                  className={`text-[10px] mt-1 pl-9 flex items-center gap-1 font-medium ${
+                    isLight ? "text-red-600" : "text-red-400"
+                  }`}
                   role="alert"
                   aria-live="polite"
                 >

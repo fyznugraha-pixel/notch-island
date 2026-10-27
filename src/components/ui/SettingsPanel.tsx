@@ -407,6 +407,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       onUpdateShortcut={onUpdateShortcut}
                       onResetShortcut={onResetShortcut}
                       onToggleShortcutsEnabled={onToggleShortcutsEnabled}
+                      isLightMode={isLightMode}
                     />
                   </motion.div>
                 )}

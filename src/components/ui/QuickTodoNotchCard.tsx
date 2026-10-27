@@ -12,6 +12,7 @@ export interface QuickTodoNotchCardProps {
   optLanguage?: Language;
   shortcutLabel?: string;
   isIsland?: boolean;
+  isLightMode?: boolean;
   onSave: (text: string, dueAt?: number | null, reminders?: number[]) => TodoItem | undefined;
   onToggleTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
@@ -28,6 +29,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
   optLanguage,
   shortcutLabel = "CTRL ALT T",
   isIsland = false,
+  isLightMode = false,
   onSave,
   onToggleTodo,
   onDeleteTodo,
@@ -289,7 +291,11 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
             <div className="text-[12px] text-[#a1a1aa] font-medium">{t("quick_todo_title")}</div>
             <div className="flex-grow" />
             {shortcutLabel ? (
-              <span className="text-[11px] text-[#a1a1aa] border border-[#34343c] rounded-[6px] px-1.5 py-0.5 tracking-wider uppercase font-mono">
+              <span className={`text-[11px] rounded-[6px] px-1.5 py-0.5 tracking-wider uppercase font-mono transition-colors ${
+                isLightMode
+                  ? "border border-black/10 bg-black/[0.04] text-[#71717a]"
+                  : "text-[#a1a1aa] border border-[#34343c] bg-transparent"
+              }`}>
                 {shortcutLabel}
               </span>
             ) : null}
