@@ -375,6 +375,7 @@ export default function App() {
   const isCursorInsideNotchRef = useRef(false);
   const isShortcutPinnedRef = useRef(false);
   const shortcutPinnedTimerRef = useRef<number | null>(null);
+  const isClosingRef = useRef(false);
 
   useEffect(() => {
     setLyricsData(null);
@@ -1154,6 +1155,7 @@ export default function App() {
 
   const handleCloseImmediate = useCallback(() => {
     if (isSwitchingTabRef.current) return;
+    isClosingRef.current = true;
     isCursorInsideNotchRef.current = false;
     isShortcutPinnedRef.current = false;
     if (shortcutPinnedTimerRef.current) {
@@ -1187,12 +1189,16 @@ export default function App() {
     if (!isPlayingRef.current && mediaRef.current && !isPausedMediaCollapsedRef.current) {
       startPausedMediaCollapseTimer(2000);
     }
+    window.setTimeout(() => {
+      isClosingRef.current = false;
+    }, 450);
   }, [startPausedMediaCollapseTimer]);
 
   const openLastOrPreferredTab = () => {
     cancelCollapseTimer();
     setSlideDirection(0);
-    if (currentTab !== null) return;
+    if (currentTab !== null || isClosingRef.current) return;
+    setTabSwitchGrace(600);
     const elapsed = lastPanelClosedAtRef.current > 0
       ? Date.now() - lastPanelClosedAtRef.current
       : Infinity;
@@ -1306,7 +1312,7 @@ export default function App() {
       if (configuredSec === -1) {
         return;
       }
-      const effectiveDelay = configuredSec > 0 ? configuredSec * 1000 : Math.max(_delayMs, 180);
+      const effectiveDelay = configuredSec > 0 ? configuredSec * 1000 : Math.max(_delayMs, 280);
 
       collapseTimerRef.current = window.setTimeout(async () => {
         if (isCursorInsideNotchRef.current || isSwitchingTabRef.current || isShortcutPinnedRef.current) return;
@@ -1339,26 +1345,7 @@ export default function App() {
           }
         } catch {}
 
-        setIsExpanded(false);
-        setIsQuickControl(false);
-        setIsTodo(false);
-        setIsPomodoro(false);
-        setIsDropShelf(false);
-        setIsSysMonitor(false);
-        setIsMiniNote(false);
-        setIsWaterReminder(false);
-        setIsQuickNoteOpen(false);
-        setIsQuickTodoOpen(false);
-        setIsQuickTodoSaved(false);
-        setIsClipboard(false);
-        setIsVolumeMixer(false);
-        setIsSettings(false);
-        setSlideDirection(0);
-        const now = Date.now();
-        lastPanelClosedAtRef.current = now;
-        try {
-          localStorage.setItem("island_last_panel_closed_at", String(now));
-        } catch {}
+        handleCloseImmediate();
       }, effectiveDelay);
     }
   };
@@ -1381,9 +1368,8 @@ export default function App() {
     cancelCollapseTimer();
     if (currentTab === targetTab) return;
     const wasAlreadyOpen = Boolean(currentTab);
-    if (wasAlreadyOpen) {
-      setTabSwitchGrace(500);
-    }
+    isClosingRef.current = false;
+    setTabSwitchGrace(600);
     const currentIndex = currentTabIndex;
     const targetIndex = availableTabs.indexOf(targetTab);
     const resolvedDirection = direction !== undefined 
@@ -1812,8 +1798,18 @@ export default function App() {
   }, []);
 
   const handleShortcutOpenMedia = useCallback(() => {
+    setIsHidden(false);
     goToTab("media_expanded", 0);
-  }, []);
+    invoke("focus_notch_window").catch(() => {});
+    isShortcutPinnedRef.current = true;
+    if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
+    shortcutPinnedTimerRef.current = window.setTimeout(() => {
+      if (!isCursorInsideNotchRef.current && isShortcutPinnedRef.current) {
+        isShortcutPinnedRef.current = false;
+        handleCloseImmediate();
+      }
+    }, 6000);
+  }, [handleCloseImmediate]);
 
   const handleShortcutToggleMediaPlayback = useCallback(() => {
     invoke("smtc_action", { action: "toggle" }).catch(console.error);
@@ -2130,7 +2126,7 @@ export default function App() {
     });
 
     const unlistenMouseEnter = listen("notch-mouse-enter", () => {
-      if (isShelfDraggingRef.current) return;
+      if (isShelfDraggingRef.current || isClosingRef.current) return;
       isCursorInsideNotchRef.current = true;
       isShortcutPinnedRef.current = false;
       if (shortcutPinnedTimerRef.current) {
@@ -2164,11 +2160,19 @@ export default function App() {
       const pillElement = document.getElementById("notch-pill");
       if (pillElement) {
         const rect = pillElement.getBoundingClientRect();
+        const currentSize = variants[variant as keyof typeof variants] || variants.idle;
+        const targetWidth = isAnyPanelOpen ? Math.max(currentSize.width, rect.width) : rect.width;
+        const targetHeight = isAnyPanelOpen ? Math.max(currentSize.height, rect.height) : rect.height;
+        const centerX = (rect.left + rect.right) / 2;
+        const minX = centerX - targetWidth / 2 - 14;
+        const maxX = centerX + targetWidth / 2 + 14;
+        const minY = isBot ? rect.bottom - targetHeight - 16 : rect.top - 8;
+        const maxY = isBot ? rect.bottom + 8 : rect.top + targetHeight + 16;
         const isInside =
-          e.clientX >= rect.left &&
-          e.clientX <= rect.right &&
-          e.clientY >= rect.top &&
-          e.clientY <= rect.bottom;
+          e.clientX >= minX &&
+          e.clientX <= maxX &&
+          e.clientY >= minY &&
+          e.clientY <= maxY;
         if (isInside) {
           isCursorInsideNotchRef.current = true;
           isShortcutPinnedRef.current = false;
@@ -2195,11 +2199,10 @@ export default function App() {
             startCompactHoverTimer(80);
           }
         } else if (isCursorInsideNotchRef.current) {
+          if (isSwitchingTabRef.current) return;
           cancelCompactHoverTimer();
           isCursorInsideNotchRef.current = false;
-          if (!isSwitchingTabRef.current) {
-            startCollapseTimer(350);
-          }
+          startCollapseTimer(350);
         }
       }
     };
@@ -3498,13 +3501,30 @@ export default function App() {
   useEffect(() => {
     const currentSize = variants[variant as keyof typeof variants] || variants.idle;
     const isCollapsed = !isAnyPanelOpen;
+    if (isCollapsed) {
+      // During collapse animation (~350ms spring), keep the expanded hit zone active
+      // in Rust to prevent premature WS_EX_TRANSPARENT toggling / stutter.
+      // onAnimationComplete will send the final idle size once shrinking completes.
+      const fallbackTimer = window.setTimeout(() => {
+        invoke("update_pill_size", {
+          width: currentSize.width,
+          height: currentSize.height,
+          isBottom: optPosition === "bottom",
+          topOffset: islandTopOffset,
+          isIsland: notchShape === "island",
+          dpr: window.devicePixelRatio || 1.0,
+        }).catch(console.error);
+      }, 420);
+      return () => clearTimeout(fallbackTimer);
+    }
+
     const pillEl = document.getElementById("notch-pill");
-    const rect = !isCollapsed && pillEl ? pillEl.getBoundingClientRect() : null;
+    const rect = pillEl ? pillEl.getBoundingClientRect() : null;
     const measuredWidth = rect && rect.width > 0 ? Math.round(rect.width) : currentSize.width;
     const measuredHeight = rect && rect.height > 0 ? Math.round(rect.height) : currentSize.height;
 
-    const targetWidth = isCollapsed ? currentSize.width : Math.max(currentSize.width, measuredWidth);
-    const targetHeight = isCollapsed ? currentSize.height : Math.max(currentSize.height, measuredHeight);
+    const targetWidth = Math.max(currentSize.width, measuredWidth);
+    const targetHeight = Math.max(currentSize.height, measuredHeight);
 
     invoke("update_pill_size", { 
       width: targetWidth, 
@@ -3708,6 +3728,7 @@ export default function App() {
         variants={variants}
         transition={smoothSpring}
         onAnimationComplete={() => {
+          isClosingRef.current = false;
           const pillEl = document.getElementById("notch-pill");
           if (pillEl) {
             const rect = pillEl.getBoundingClientRect();
@@ -3751,6 +3772,7 @@ export default function App() {
           }
         }}
         onMouseEnter={() => {
+          if (isClosingRef.current) return;
           isCursorInsideNotchRef.current = true;
           isShortcutPinnedRef.current = false;
           if (shortcutPinnedTimerRef.current) {
@@ -3795,6 +3817,7 @@ export default function App() {
           }
         }}
         onClick={() => {
+          if (isClosingRef.current) return;
           if (currentTab !== null || isExpandedPanel) return;
           if (
             notif ||
@@ -3820,9 +3843,9 @@ export default function App() {
         }}
         onMouseLeave={() => {
           cancelCompactHoverTimer();
-          isCursorInsideNotchRef.current = false;
           if (isSwitchingTabRef.current) return;
-          startCollapseTimer();
+          isCursorInsideNotchRef.current = false;
+          startCollapseTimer(350);
           if (!isPlayingRef.current && mediaRef.current && !isPausedMediaCollapsedRef.current) {
             startPausedMediaCollapseTimer(3000);
           }
