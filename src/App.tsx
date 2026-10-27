@@ -1324,9 +1324,12 @@ export default function App() {
       if (configuredSec === -1) {
         return;
       }
+      // When user configures "Instant" (0s), keep a minimal 90ms debounce buffer.
+      // A pure 0ms timeout executes on the next event loop tick and can mistakenly
+      // collapse the panel during sub-pixel DOM reflows, re-renders, or transient pointerleave events.
       const effectiveDelay =
         configuredSec === 0
-          ? 0
+          ? 90
           : configuredSec > 0
           ? configuredSec * 1000
           : Math.max(_delayMs, 280);
@@ -2187,7 +2190,14 @@ export default function App() {
       if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
       const notchElement = document.getElementById("notch-pill");
       if (notchElement) {
-        if (!notchElement.contains(e.target as Node)) {
+        const rect = notchElement.getBoundingClientRect();
+        // Guard against clicking elements that unmount on click (detached from DOM)
+        const isClickWithinBounds =
+          e.clientX >= rect.left - 4 &&
+          e.clientX <= rect.right + 4 &&
+          e.clientY >= rect.top - 4 &&
+          e.clientY <= rect.bottom + 4;
+        if (!notchElement.contains(e.target as Node) && !isClickWithinBounds) {
           const hasOpenPanel =
             isExpandedRef.current ||
             isQuickControlRef.current ||
@@ -2206,14 +2216,16 @@ export default function App() {
             handleCloseImmediate();
           } else {
             // When notch is closed, clicking anywhere in the floating margin area above/near the notch opens it
-            const rect = notchElement.getBoundingClientRect();
-            const topMargin = isIsland ? Math.max(26, islandTopOffset + 14) : 10;
-            const bottomMargin = isIsland && isBot ? Math.max(26, islandTopOffset + 14) : 10;
+            const island = isIslandRef.current;
+            const topOffset = islandTopOffsetRef.current;
+            const bot = isBotRef.current;
+            const topMargin = island ? Math.max(26, topOffset + 14) : 10;
+            const bottomMargin = island && bot ? Math.max(26, topOffset + 14) : 10;
             const isNearNotch =
               e.clientX >= rect.left - 16 &&
               e.clientX <= rect.right + 16 &&
-              e.clientY >= (isBot ? rect.bottom - 4 : rect.top - topMargin) &&
-              e.clientY <= (isBot ? rect.bottom + bottomMargin : rect.top + rect.height + 6);
+              e.clientY >= (bot ? rect.bottom - 4 : rect.top - topMargin) &&
+              e.clientY <= (bot ? rect.bottom + bottomMargin : rect.top + rect.height + 6);
             if (isNearNotch) {
               if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
                 goToTab("media_expanded", 0);
@@ -2231,16 +2243,22 @@ export default function App() {
       const pillElement = document.getElementById("notch-pill");
       if (pillElement) {
         const rect = pillElement.getBoundingClientRect();
-        const currentSize = variants[variant as keyof typeof variants] || variants.idle;
-        const targetWidth = isAnyPanelOpen ? Math.max(currentSize.width, rect.width) : rect.width;
-        const targetHeight = isAnyPanelOpen ? Math.max(currentSize.height, rect.height) : rect.height;
+        const currentVariant = variantRef.current;
+        const currentVariants = variantsRef.current;
+        const currentSize = currentVariants[currentVariant as keyof typeof currentVariants] || currentVariants.idle;
+        const anyOpen = isAnyPanelOpenRef.current;
+        const targetWidth = anyOpen ? Math.max(currentSize.width, rect.width) : rect.width;
+        const targetHeight = anyOpen ? Math.max(currentSize.height, rect.height) : rect.height;
         const centerX = (rect.left + rect.right) / 2;
-        const minX = centerX - targetWidth / 2 - 16;
-        const maxX = centerX + targetWidth / 2 + 16;
-        const topPadding = isIsland ? Math.max(26, islandTopOffset + 14) : 12;
-        const bottomPadding = isIsland && isBot ? Math.max(26, islandTopOffset + 14) : 12;
-        const minY = isBot ? rect.bottom - targetHeight - bottomPadding : rect.top - topPadding;
-        const maxY = isBot ? rect.bottom + bottomPadding : rect.top + targetHeight + 16;
+        const minX = centerX - targetWidth / 2 - 20;
+        const maxX = centerX + targetWidth / 2 + 20;
+        const island = isIslandRef.current;
+        const topOffset = islandTopOffsetRef.current;
+        const bot = isBotRef.current;
+        const topPadding = island ? Math.max(26, topOffset + 14) : 12;
+        const bottomPadding = island && bot ? Math.max(26, topOffset + 14) : 12;
+        const minY = bot ? rect.bottom - targetHeight - bottomPadding : rect.top - topPadding;
+        const maxY = bot ? rect.bottom + bottomPadding : rect.top + targetHeight + 24;
         const isInside =
           e.clientX >= minX &&
           e.clientX <= maxX &&
@@ -2255,25 +2273,13 @@ export default function App() {
           }
           cancelCollapseTimer();
           if (focusModeRef.current === "Gaming") return;
-          const hasOpenPanel =
-            isExpandedRef.current ||
-            isQuickControlRef.current ||
-            isTodoRef.current ||
-            isPomodoroRef.current ||
-            isDropShelfRef.current ||
-            isSysMonitorRef.current ||
-            isMiniNoteRef.current ||
-            isWaterReminderRef.current ||
-            isClipboardRef.current ||
-            isVolumeMixerRef.current ||
-            isNotificationsRef.current ||
-            isSettingsRef.current;
-          if (variantRef.current === "compact" && !compactHoverTimerRef.current && !hasOpenPanel) {
+          const hasOpenPanel = anyOpen;
+          if (currentVariant === "compact" && !compactHoverTimerRef.current && !hasOpenPanel) {
             startCompactHoverTimer(80);
           } else if (!hasOpenPanel && !isClosingRef.current) {
-            if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
+            if (currentVariant === "media" || currentVariant === "lyrics_idle") {
               goToTab("media_expanded", 0);
-            } else if (variantRef.current === "idle") {
+            } else if (currentVariant === "idle") {
               openLastOrPreferredTab();
             }
           }
@@ -3574,6 +3580,17 @@ export default function App() {
     };
   }
 
+  const isAnyPanelOpenRef = useRef(isAnyPanelOpen);
+  isAnyPanelOpenRef.current = isAnyPanelOpen;
+  const variantsRef = useRef(variants);
+  variantsRef.current = variants;
+  const isIslandRef = useRef(isIsland);
+  isIslandRef.current = isIsland;
+  const islandTopOffsetRef = useRef(islandTopOffset);
+  islandTopOffsetRef.current = islandTopOffset;
+  const isBotRef = useRef(isBot);
+  isBotRef.current = isBot;
+
   useEffect(() => {
     const currentSize = variants[variant as keyof typeof variants] || variants.idle;
     // Only delay size reduction during active collapse animation (~350ms spring)
@@ -3808,10 +3825,10 @@ export default function App() {
             const isCollapsed = !isAnyPanelOpen;
             const finalWidth = isCollapsed
               ? currentSize.width
-              : (rect.width > 0 ? Math.round(rect.width) : currentSize.width);
+              : Math.max(currentSize.width, rect.width > 0 ? Math.round(rect.width) : currentSize.width);
             const finalHeight = isCollapsed
               ? currentSize.height
-              : (rect.height > 0 ? Math.round(rect.height) : currentSize.height);
+              : Math.max(currentSize.height, rect.height > 0 ? Math.round(rect.height) : currentSize.height);
 
             invoke("update_pill_size", {
               width: finalWidth,
