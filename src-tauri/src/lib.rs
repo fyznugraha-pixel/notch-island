@@ -816,35 +816,37 @@ fn calculate_notch_hit(
         win_pos.y
     };
 
-    let is_closed = pill.height <= 50.0;
+    // All idle, media, lyrics, alert, and toast pills are <= 95px height
+    let is_closed = pill.height <= 95.0;
 
-    if pill.is_island && !pill.is_bottom {
-        let phys_offset = (pill.top_offset as f64 * effective_sf).round() as i32;
-        let side_tolerance = if is_closed { (8.0 * effective_sf) as i32 } else { (6.0 * effective_sf) as i32 };
-        let min_x = pill_x - margin - side_tolerance;
-        let max_x = pill_x + hit_w + margin + side_tolerance;
-        let min_y = pill_y - phys_offset;
-        let bottom_extra = if pill.height > 50.0 { (8.0 * effective_sf) as i32 } else { 0 };
-        let max_y = pill_y + hit_h + margin + bottom_extra;
-
-        pt.x >= min_x && pt.x <= max_x && pt.y >= min_y && pt.y <= max_y
-    } else if pill.is_island && pill.is_bottom {
-        let phys_offset = (pill.top_offset as f64 * effective_sf).round() as i32;
-        let side_tolerance = if is_closed { (8.0 * effective_sf) as i32 } else { (6.0 * effective_sf) as i32 };
-        let min_x = pill_x - margin - side_tolerance;
-        let max_x = pill_x + hit_w + margin + side_tolerance;
-        let min_y = pill_y - margin;
-        let max_y = pill_y + hit_h + phys_offset;
-
-        pt.x >= min_x && pt.x <= max_x && pt.y >= min_y && pt.y <= max_y
+    let phys_offset = if pill.is_island {
+        (pill.top_offset as f64 * effective_sf).round() as i32
     } else {
-        let side_tolerance = if is_closed { (8.0 * effective_sf) as i32 } else { (6.0 * effective_sf) as i32 };
-        let bottom_extra = if pill.height > 50.0 { (8.0 * effective_sf) as i32 } else { 0 };
-        pt.x >= (pill_x - margin - side_tolerance)
-            && pt.x <= (pill_x + hit_w + margin + side_tolerance)
-            && pt.y >= (pill_y - margin)
-            && pt.y <= (pill_y + hit_h + margin + bottom_extra)
-    }
+        0
+    };
+
+    let side_tolerance = if is_closed {
+        (12.0 * effective_sf) as i32
+    } else {
+        (18.0 * effective_sf) as i32
+    };
+
+    let min_x = pill_x - margin - side_tolerance;
+    let max_x = pill_x + hit_w + margin + side_tolerance;
+
+    let (min_y, max_y) = if pill.is_bottom {
+        let bottom_extra = (phys_offset + (18.0 * effective_sf) as i32).max((22.0 * effective_sf) as i32);
+        let top_extra = if is_closed { (4.0 * effective_sf) as i32 } else { (18.0 * effective_sf) as i32 };
+        (pill_y - margin - top_extra, pill_y + hit_h + margin + bottom_extra)
+    } else {
+        // When docked or floating at top, extend upwards all the way to screen edge and beyond (+18px buffer)
+        // so hovering/touching anywhere in the 10+ px gap above the floating notch triggers reliably
+        let top_extra = (phys_offset + (18.0 * effective_sf) as i32).max((22.0 * effective_sf) as i32);
+        let bottom_extra = if is_closed { (6.0 * effective_sf) as i32 } else { (24.0 * effective_sf) as i32 };
+        (pill_y - top_extra, pill_y + hit_h + margin + bottom_extra)
+    };
+
+    pt.x >= min_x && pt.x <= max_x && pt.y >= min_y && pt.y <= max_y
 }
 
 #[cfg(windows)]
@@ -3506,5 +3508,40 @@ mod hit_test {
 
         let above_bottom_notch = POINT { x: 960, y: 900 };
         assert!(!calculate_notch_hit(above_bottom_notch, win_pos, win_size, 1.0, &pill));
+    }
+
+    #[test]
+    fn test_calculate_notch_hit_island_gap_above_notch() {
+        // Floating island with top_offset = 12px, lyrics idle height = 54px, width = 420px
+        let win_pos = tauri::PhysicalPosition::new(360, 12);
+        let win_size = tauri::PhysicalSize::new(1200, 760);
+        let pill = PillState {
+            width: 420.0,
+            height: 54.0,
+            is_bottom: false,
+            top_offset: 12.0,
+            is_island: true,
+            dpr: 1.0,
+        };
+
+        // Point inside the 12px floating gap above the notch (y = 6)
+        let inside_floating_gap = POINT { x: 960, y: 6 };
+        assert!(calculate_notch_hit(inside_floating_gap, win_pos, win_size, 1.0, &pill));
+
+        // Point at the top edge of the screen (y = 0)
+        let top_screen_edge = POINT { x: 960, y: 0 };
+        assert!(calculate_notch_hit(top_screen_edge, win_pos, win_size, 1.0, &pill));
+
+        // Point slightly beyond screen edge within buffer (y = -8)
+        let edge_buffer = POINT { x: 960, y: -8 };
+        assert!(calculate_notch_hit(edge_buffer, win_pos, win_size, 1.0, &pill));
+
+        // Point inside the pill body (y = 35)
+        let inside_pill = POINT { x: 960, y: 35 };
+        assert!(calculate_notch_hit(inside_pill, win_pos, win_size, 1.0, &pill));
+
+        // Point too far above (y = -40)
+        let too_far_above = POINT { x: 960, y: -40 };
+        assert!(!calculate_notch_hit(too_far_above, win_pos, win_size, 1.0, &pill));
     }
 }
