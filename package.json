@@ -1,7 +1,7 @@
 {
   "name": "gili",
   "private": true,
-  "version": "4.1.4",
+  "version": "4.1.5",
   "description": "Dynamic Island Gili for Windows, Edition 2026",
   "author": "faiz",
   "type": "module",
