@@ -52,6 +52,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const autoCloseTimerRef = useRef<number | null>(null);
   const datePickerInputRef = useRef<HTMLInputElement>(null);
+  const savedAtRef = useRef<number>(0);
 
   // Focus input on mount, window focus, and animation completion
   useEffect(() => {
@@ -103,18 +104,32 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
     return formatNlpDateBadge(effectiveDueAt, new Date(), effectiveLang, effectiveHasTime);
   }, [effectiveDueAt, effectiveLang, effectiveHasTime]);
 
-  // Auto-close in saved state after 5 seconds of inactivity
+  // Auto-close in saved state after 5 seconds of inactivity & Enter/Escape dismiss
   useEffect(() => {
     if (isSaved) {
       autoCloseTimerRef.current = window.setTimeout(() => {
         onCancel();
       }, 5000);
+
+      const handleGlobalSavedKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        } else if (e.key === "Enter") {
+          if (e.repeat) return;
+          if (Date.now() - savedAtRef.current < 250) return;
+          e.preventDefault();
+          onCancel();
+        }
+      };
+      window.addEventListener("keydown", handleGlobalSavedKeyDown, true);
+      return () => {
+        if (autoCloseTimerRef.current) {
+          clearTimeout(autoCloseTimerRef.current);
+        }
+        window.removeEventListener("keydown", handleGlobalSavedKeyDown, true);
+      };
     }
-    return () => {
-      if (autoCloseTimerRef.current) {
-        clearTimeout(autoCloseTimerRef.current);
-      }
-    };
   }, [isSaved, onCancel]);
 
   // Upcoming items for State 3: list of up to 3 non-completed tasks
@@ -181,6 +196,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
         reminders,
       });
     }
+    savedAtRef.current = Date.now();
     setIsSaved(true);
   }, [inputText, nlpResult, effectiveDueAt, reminderEnabled, onSave]);
 
@@ -226,8 +242,10 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
           onToggleTodo(target.id);
         }
       } else if (e.key === "Enter") {
+        if (e.repeat) return;
+        if (Date.now() - savedAtRef.current < 250) return;
         e.preventDefault();
-        onOpenTodoList();
+        onCancel();
       }
     }
   };

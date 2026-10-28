@@ -916,6 +916,7 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
   const [allNotes, setAllNotes] = useState<MiniNoteItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const autoCloseTimerRef = useRef<number | null>(null);
+  const savedAtRef = useRef<number>(0);
 
   useEffect(() => {
     const focusInput = () => {
@@ -965,9 +966,11 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
       }
       if (isSaved) {
         if (e.key === "Enter") {
+          if (e.repeat) return;
+          if (Date.now() - savedAtRef.current < 250) return;
           e.preventDefault();
           e.stopPropagation();
-          onOpenNotesList?.();
+          onCancel();
         }
       }
     };
@@ -975,7 +978,7 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown, true);
     };
-  }, [isSaved, onCancel, onOpenNotesList]);
+  }, [isSaved, onCancel]);
 
   const handleSubmit = () => {
     const trimmed = text.trim();
@@ -996,6 +999,7 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
         updatedAt: Date.now(),
       });
     }
+    savedAtRef.current = Date.now();
     setIsSaved(true);
   };
 

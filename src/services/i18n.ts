@@ -375,7 +375,7 @@ export const translations = {
   quick_todo_active_count: { en: "{count} active", id: "{count} aktif" },
   quick_todo_empty_upcoming: { en: "No other active tasks", id: "Tidak ada tugas aktif lainnya" },
   quick_todo_tag_new: { en: "NEW", id: "BARU" },
-  quick_todo_keyboard_hint: { en: "Space to check · ↑ ↓ to select", id: "Spasi untuk centang · ↑ ↓ untuk memilih" },
+  quick_todo_keyboard_hint: { en: "Enter to close · Space to check", id: "Enter untuk tutup · Spasi untuk centang" },
   quick_todo_open_full: { en: "Open To-do", id: "Buka To-do" },
   quick_todo_remove_date_tip: { en: "Click to remove date", id: "Klik untuk menghapus tanggal" },
 
@@ -579,7 +579,7 @@ export const translations = {
   note_undo: { en: "Undo", id: "Urungkan" },
   note_recent_notes: { en: "RECENT NOTES", id: "CATATAN TERBARU" },
   note_no_other_notes: { en: "No other notes", id: "Tidak ada catatan lainnya" },
-  note_keyboard_hint: { en: "Enter to open notes", id: "Enter untuk buka catatan" },
+  note_keyboard_hint: { en: "Enter to close", id: "Enter untuk tutup" },
   note_view_all: { en: "Open Notes", id: "Buka Catatan" },
   note_tag_new: { en: "NEW", id: "BARU" },
   note_title_placeholder: { en: "Note title...", id: "Judul catatan..." },
