@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import {
   RefreshCw,
   Trash2,
-  RotateCcw,
   Send,
   AlertTriangle,
 } from "lucide-react";
@@ -39,14 +38,8 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
   clearedResult,
   onClearTempFiles,
   onTestNotification,
-  onClose,
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-
-  const handleRestartOnboarding = () => {
-    window.dispatchEvent(new CustomEvent("island_trigger_onboarding"));
-    onClose();
-  };
 
   const handleResetAllSettings = () => {
     if (!showResetConfirm) {
@@ -138,24 +131,6 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
                 ? t("settings_clearing_temp")
                 : t("settings_clear_temp_btn")}
             </span>
-          </button>
-        }
-      />
-
-      {/* 3. Mulai ulang penyiapan awal */}
-      <SettingRow
-        icon={<RotateCcw size={18} />}
-        iconBgClass="bg-[#142d2a]"
-        iconColorClass="text-[#40c8ae]"
-        title={t("settings_adv_restart_setup")}
-        subtitle={t("settings_adv_restart_setup_desc")}
-        control={
-          <button
-            type="button"
-            onClick={handleRestartOnboarding}
-            className="px-3.5 py-1.5 rounded-full bg-[#1e1e24] hover:bg-[#282830] text-white text-[12px] font-medium transition-colors cursor-pointer"
-          >
-            {t("settings_adv_restart_setup_btn")}
           </button>
         }
       />

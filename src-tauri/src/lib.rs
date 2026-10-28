@@ -737,6 +737,9 @@ fn set_window_position(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PillSize>,
 ) {
+    if window.label() != "main" {
+        return;
+    }
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
     let dpr = if let Ok(mut size) = state.0.lock() {
@@ -764,6 +767,9 @@ fn update_pill_size(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PillSize>,
 ) {
+    if window.label() != "main" {
+        return;
+    }
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
     let dpr = dpr.unwrap_or(0.0);
@@ -2140,6 +2146,111 @@ fn detect_browser_web_source(current_title: &str, current_artist: &str) -> Optio
     search.found
 }
 
+static PENDING_SETTINGS_SECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[tauri::command]
+fn take_pending_settings_section() -> Option<String> {
+    if let Ok(mut guard) = PENDING_SETTINGS_SECTION.lock() {
+        guard.take()
+    } else {
+        None
+    }
+}
+
+fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String>) {
+    if let Ok(mut guard) = PENDING_SETTINGS_SECTION.lock() {
+        *guard = section.clone();
+    }
+    let app_handle = app.clone();
+    // Must spawn on a background thread on Windows to avoid WebView2 CreateCoreWebView2Controller UI-thread deadlock
+    std::thread::spawn(move || {
+        use tauri::Emitter;
+        if let Some(w) = app_handle.get_webview_window("settings") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+            #[cfg(windows)]
+            if let Ok(hwnd) = w.hwnd() {
+                use windows::Win32::Foundation::HWND;
+                use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, ShowWindow, SW_RESTORE};
+                unsafe {
+                    let h = HWND(hwnd.0);
+                    let _ = ShowWindow(h, SW_RESTORE);
+                    let _ = SetForegroundWindow(h);
+                }
+            }
+            if let Some(sec) = section {
+                let _ = w.emit("settings-navigate", sec);
+            }
+            return;
+        }
+
+        match tauri::WebviewWindowBuilder::new(
+            &app_handle,
+            "settings",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("Gili Settings")
+        .inner_size(880.0, 620.0)
+        .min_inner_size(760.0, 520.0)
+        .maximizable(false)
+        .resizable(false)
+        .decorations(false)
+        .transparent(false)
+        .shadow(true)
+        .center()
+        .visible(true)
+        .focused(true)
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion")
+        .build()
+        {
+            Ok(win) => {
+                let sw = win.clone();
+                win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = sw.hide();
+                    }
+                });
+                let _ = win.show();
+                let _ = win.set_focus();
+                #[cfg(windows)]
+                if let Ok(hwnd) = win.hwnd() {
+                    use windows::Win32::Foundation::HWND;
+                    use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, ShowWindow, SW_SHOW};
+                    unsafe {
+                        let h = HWND(hwnd.0);
+                        let _ = ShowWindow(h, SW_SHOW);
+                        let _ = SetForegroundWindow(h);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to create settings window: {:?}", e);
+            }
+        }
+    });
+}
+
+#[tauri::command]
+async fn open_settings_window(app: tauri::AppHandle, section: Option<String>) {
+    show_or_create_settings_window(&app, section);
+}
+
+#[tauri::command]
+fn broadcast_settings_sync(app: tauri::AppHandle, payload: serde_json::Value) {
+    use tauri::Emitter;
+    let _ = app.emit("gili-settings-sync", payload);
+}
+
+#[tauri::command]
+fn trigger_notch_action(app: tauri::AppHandle, action: String) {
+    use tauri::Emitter;
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.emit("settings-trigger-action", action);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(windows)]
@@ -2238,7 +2349,11 @@ pub fn run() {
             system_monitor::get_system_metrics,
             system_monitor::clear_temp_files,
             windows_dnd::set_windows_dnd,
-            windows_dnd::get_windows_dnd
+            windows_dnd::get_windows_dnd,
+            open_settings_window,
+            take_pending_settings_section,
+            broadcast_settings_sync,
+            trigger_notch_action
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -2273,11 +2388,7 @@ pub fn run() {
                             }
                         }
                         "open_settings" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.unminimize();
-                                let _ = w.show();
-                                let _ = w.emit("tray-open-settings", ());
-                            }
+                            show_or_create_settings_window(app, None);
                         }
                         "quit" => {
                             app.exit(0);
@@ -2537,6 +2648,7 @@ pub fn run() {
                 let mut cached_browser_web_source: Option<(String, String)> = None;
                 let mut last_thumbnail: Option<String> = None;
                 let mut last_emitted_thumbnail: Option<String> = None;
+                let mut prev_track_thumbnail: Option<String> = None;
                 let mut track_change_ticks: u32 = 0;
                 let mut thumbnail_cache = std::collections::HashMap::<String, String>::new();
                 let mut last_is_charging = false;
@@ -3176,6 +3288,9 @@ pub fn run() {
                                 let cache_key = format!("{} - {}", artist.trim().to_lowercase(), title.trim().to_lowercase());
                                 
                                 if title != last_title || artist != last_artist {
+                                    if last_emitted_thumbnail.is_some() {
+                                        prev_track_thumbnail = last_emitted_thumbnail.clone();
+                                    }
                                     track_change_ticks = 0;
                                     thumbnail_retries = 0;
                                     last_thumbnail = thumbnail_cache.get(&cache_key).cloned();
@@ -3183,8 +3298,9 @@ pub fn run() {
                                     track_change_ticks = track_change_ticks.saturating_add(1);
                                 }
                                 
-                                let needs_thumbnail = last_thumbnail.is_none() && (thumbnail_retries < 40 || thumbnail_retries.is_multiple_of(10));
-                                if (title != last_title || artist != last_artist || needs_thumbnail) && !title.is_empty() {
+                                let needs_thumbnail = last_thumbnail.is_none() && (thumbnail_retries < 50 || thumbnail_retries.is_multiple_of(10));
+                                let in_transition_window = track_change_ticks <= 30 && (track_change_ticks <= 10 || track_change_ticks.is_multiple_of(3));
+                                if (title != last_title || artist != last_artist || needs_thumbnail || in_transition_window) && !title.is_empty() {
                                     if let Ok(thumb_ref) = info.Thumbnail() {
                                         if let Ok(stream) = thumb_ref.OpenReadAsync().and_then(|r| r.get()) {
                                             if let Ok(size) = stream.Size() {
@@ -3212,13 +3328,19 @@ pub fn run() {
                                                                     };
                                                                     let b64 = STANDARD.encode(&bytes);
                                                                     let uri = format!("data:{};base64,{}", detected_mime, b64);
-                                                                    if thumbnail_cache.len() >= 40 && !thumbnail_cache.contains_key(&cache_key) {
-                                                                        if let Some(first_key) = thumbnail_cache.keys().next().cloned() {
-                                                                            thumbnail_cache.remove(&first_key);
+                                                                    let is_same_as_prev = prev_track_thumbnail.as_deref() == Some(uri.as_str());
+                                                                    // Ignore stale cover carried over from the previous track during the first ~800ms of transition
+                                                                    if !is_same_as_prev || track_change_ticks >= 8 {
+                                                                        if !is_same_as_prev || track_change_ticks >= 15 {
+                                                                            if thumbnail_cache.len() >= 40 && !thumbnail_cache.contains_key(&cache_key) {
+                                                                                if let Some(first_key) = thumbnail_cache.keys().next().cloned() {
+                                                                                    thumbnail_cache.remove(&first_key);
+                                                                                }
+                                                                            }
+                                                                            thumbnail_cache.insert(cache_key.clone(), uri.clone());
                                                                         }
+                                                                        thumbnail_b64 = Some(uri);
                                                                     }
-                                                                    thumbnail_cache.insert(cache_key.clone(), uri.clone());
-                                                                    thumbnail_b64 = Some(uri);
                                                                 }
                                                             }
                                                         }

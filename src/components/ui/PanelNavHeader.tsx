@@ -14,9 +14,9 @@ import {
   FileText,
   ClipboardList,
   Volume2,
-  Sparkles,
   Bell,
   Droplet,
+  Moon,
 } from "lucide-react";
 import { motion, AnimatePresence, type Transition } from "framer-motion";
 import { getWeatherIcon } from "./NotifIcon";
@@ -427,6 +427,11 @@ const getTabMetadata = (key: string): { label: string; icon: React.ReactNode } =
         label: t("tab_water_reminder") || "Air",
         icon: <Droplet size={13} strokeWidth={2.2} />,
       };
+    case "prayer_reminder":
+      return {
+        label: t("tab_prayer_reminder") || "Sholat",
+        icon: <Moon size={13} strokeWidth={2.2} />,
+      };
     case "settings":
       return {
         label: t("tab_settings"),
@@ -450,7 +455,7 @@ const getTabMetadata = (key: string): { label: string; icon: React.ReactNode } =
     default:
       return {
         label: key,
-        icon: <Sparkles size={13} strokeWidth={2.2} />,
+        icon: <Sliders size={13} strokeWidth={2.2} />,
       };
   }
 };
@@ -549,7 +554,7 @@ export const PanelPageDots = React.memo<PanelPageDotsProps>(
             paddingRight: isHovered ? 8 : 10,
           }}
           transition={springTransition}
-          className={`notch-nav-container relative flex items-center justify-center rounded-full pointer-events-auto select-none overflow-hidden transition-[background-color,border-color,box-shadow] duration-250 ease-out cursor-pointer ${
+          className={`notch-nav-container relative max-w-[calc(100%-24px)] flex items-center justify-center rounded-full pointer-events-auto select-none overflow-x-auto no-scrollbar transition-[background-color,border-color,box-shadow] duration-250 ease-out cursor-pointer ${
             isHovered
               ? `notch-nav-pill ${
                   useDarkNavbar

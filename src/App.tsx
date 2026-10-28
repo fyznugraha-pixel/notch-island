@@ -45,6 +45,12 @@ import { TodoListPanel, TodoItem } from "./components/ui/TodoListPanel";
 import { DropShelfPanel, StashedFile } from "./components/ui/DropShelfPanel";
 import { ControlCenterPanel } from "./components/ui/ControlCenterPanel";
 import { SettingsPanel } from "./components/ui/SettingsPanel";
+import {
+  NotchTabsPreferences,
+  loadTabsPreferences,
+  normalizeTabsPreferences,
+  getOrderedEnabledTabs,
+} from "./services/tabConfigService";
 import { PomodoroPanel } from "./components/ui/PomodoroPanel";
 import { SystemMonitorPanel } from "./components/ui/SystemMonitorPanel";
 import { MiniNotePanel, QuickNoteNotchCard, createQuickNoteItem, deleteQuickNoteItem } from "./components/ui/MiniNotePanel";
@@ -59,6 +65,10 @@ import {
   WaterData,
 } from "./services/waterService";
 import { useWaterReminder } from "./hooks/useWaterReminder";
+import { PrayerReminderPanel } from "./components/ui/prayer/PrayerReminderPanel";
+import { PrayerNotchToast } from "./components/ui/prayer/PrayerNotchToast";
+import { PrayerToastPayload, togglePrayerCompleted, getPrayerDisplayName } from "./services/prayerService";
+import { usePrayerReminder } from "./hooks/usePrayerReminder";
 import { fetchHotspotStatus, toggleHotspotState } from "./services/connectivityService";
 import { usePomodoro } from "./hooks/usePomodoro";
 import { useTodoReminders } from "./hooks/useTodoReminders";
@@ -88,7 +98,6 @@ import {
   parseIdleLayout,
   measureIdleLayoutWidth,
 } from "./components/ui/IdleLayoutSetting";
-import { OnboardingCard } from "./components/ui/OnboardingCard";
 import { VolumeMixerPanel } from "./components/ui/VolumeMixerPanel";
 import { MediaExpandedPanel } from "./components/ui/MediaExpandedPanel";
 import { QueueTrackItem } from "./components/ui/MediaQueueView";
@@ -114,6 +123,9 @@ export default function App() {
   const [notificationsHistory, setNotificationsHistory] = useState<NotificationHistoryItem[]>(() =>
     loadNotificationHistory()
   );
+  useEffect(() => {
+    setNotificationsHistory(loadNotificationHistory());
+  }, []);
   const unreadNotifCount = useMemo(
     () => notificationsHistory.filter((item) => !item.read).length,
     [notificationsHistory]
@@ -174,12 +186,30 @@ export default function App() {
   };
 
   const showNotif = (newNotif: NotifPayload) => {
-    // Record real notifications to history (ignore transient hardware slider volume/brightness HUDs, boot greetings, and clipboard copy toasts)
+    // Record only real app/reminder notifications to history (ignore transient hardware/system status HUDs like CapsLock, battery, volume, brightness, Wi-Fi/Hotspot, Bluetooth/USB/Audio connect, greetings, and clipboard copy toasts)
     const isGreeting = newNotif.type === "greeting" || newNotif.icon === "sun" || newNotif.icon === "moon";
     const isHardwareHud = newNotif.icon === "volume" || newNotif.icon === "brightness";
     const isClipboardNotif = newNotif.icon === "clipboard";
+    const transientSystemIcons = [
+      "volume",
+      "brightness",
+      "capslock",
+      "battery",
+      "wifi",
+      "bluetooth",
+      "usb",
+      "headphones",
+      "sun",
+      "moon",
+      "clipboard",
+    ];
+    const isTransientSystemNotif =
+      isGreeting ||
+      isHardwareHud ||
+      isClipboardNotif ||
+      transientSystemIcons.includes(newNotif.icon || "");
 
-    if (!isHardwareHud && !isGreeting && !isClipboardNotif) {
+    if (!isTransientSystemNotif) {
       const { appName } = categorizeNotification(newNotif);
       if (!isAppMuted(appName)) {
         const saved = addNotificationHistoryItem(newNotif);
@@ -193,6 +223,12 @@ export default function App() {
     if (isDndActive && newNotif.icon !== "battery" && !(newNotif as any).forceShow) return;
     if (newNotif.icon === "volume" && !(newNotif as any).forceShow && (!optVolumeRef.current || isVolumeMixerRef.current || isQuickControlRef.current)) return;
     if (newNotif.icon === "clipboard" && !optClipboardRef.current) return;
+
+    if (!isPlayingRef.current) {
+      clearPausedMediaTimer();
+      isPausedMediaCollapsedRef.current = true;
+      setIsPausedMediaCollapsed(true);
+    }
 
     const active = currentNotifRef.current;
 
@@ -323,9 +359,7 @@ export default function App() {
   const startPausedMediaCollapseTimer = useCallback((delayMs: number = 5000) => {
     clearPausedMediaTimer();
     pausedMediaCollapseTimerRef.current = setTimeout(() => {
-      if (isCursorInsideNotchRef.current || currentTabRef.current !== null) {
-        return;
-      }
+      isPausedMediaCollapsedRef.current = true;
       setIsPausedMediaCollapsed(true);
     }, delayMs);
   }, [clearPausedMediaTimer]);
@@ -486,31 +520,29 @@ export default function App() {
   const [isSettings, setIsSettings] = useState(false);
   const isSettingsRef = useRef(false);
   useEffect(() => { isSettingsRef.current = isSettings; }, [isSettings]);
-  const [isOnboarding, setIsOnboarding] = useState(false);
-
   useEffect(() => {
-    const handleTrigger = () => {
-      setIsSettings(false);
-      setIsQuickControl(false);
-      setIsExpanded(false);
-      setIsOnboarding(true);
+    const handleOpenInitialSettings = () => {
+      try {
+        localStorage.setItem("island_onboarding_completed", "true");
+      } catch {}
+      invoke("open_settings_window", { section: "tabs" }).catch(() => {});
     };
-    window.addEventListener("island_trigger_onboarding", handleTrigger);
+    window.addEventListener("island_trigger_onboarding", handleOpenInitialSettings);
 
     try {
       const completed = localStorage.getItem("island_onboarding_completed");
       if (!completed) {
         const timer = setTimeout(() => {
-          setIsOnboarding(true);
-        }, 1200);
+          handleOpenInitialSettings();
+        }, 900);
         return () => {
           clearTimeout(timer);
-          window.removeEventListener("island_trigger_onboarding", handleTrigger);
+          window.removeEventListener("island_trigger_onboarding", handleOpenInitialSettings);
         };
       }
     } catch {}
 
-    return () => window.removeEventListener("island_trigger_onboarding", handleTrigger);
+    return () => window.removeEventListener("island_trigger_onboarding", handleOpenInitialSettings);
   }, []);
   const [wifiName, setWifiName] = useState("Loading...");
   const [btName, setBtName] = useState("Loading...");
@@ -994,10 +1026,16 @@ export default function App() {
     | "sys_monitor"
     | "mini_note"
     | "water_reminder"
+    | "prayer_reminder"
     | "clipboard"
     | "volume_mixer"
     | "notif_center"
     | "settings";
+
+  const [isPrayerReminder, setIsPrayerReminder] = useState(false);
+  const isPrayerReminderRef = useRef(false);
+  useEffect(() => { isPrayerReminderRef.current = isPrayerReminder; }, [isPrayerReminder]);
+  const [prayerToast, setPrayerToast] = useState<PrayerToastPayload | null>(null);
 
   const [isWaterReminder, setIsWaterReminder] = useState(false);
   const isWaterReminderRef = useRef(false);
@@ -1022,6 +1060,11 @@ export default function App() {
     const handleTriggerToast = (e: Event) => {
       const custom = e as CustomEvent<{ type: WaterToastType; amount?: number }>;
       if (custom.detail) {
+        if (!isPlayingRef.current) {
+          clearPausedMediaTimer();
+          isPausedMediaCollapsedRef.current = true;
+          setIsPausedMediaCollapsed(true);
+        }
         setWaterToast(custom.detail);
         setIsHidden(false);
         playReminderSound();
@@ -1033,15 +1076,20 @@ export default function App() {
       window.removeEventListener("gili_water_changed", handleWaterChanged);
       window.removeEventListener("gili_trigger_water_toast", handleTriggerToast);
     };
-  }, []);
+  }, [clearPausedMediaTimer]);
 
   const { snooze: snoozeWaterReminder } = useWaterReminder({
     isFocusMode: focusMode === "DND" || pomodoro.isRunning,
     onTriggerToast: useCallback((toast: { type: WaterToastType; amount?: number }) => {
+      if (!isPlayingRef.current) {
+        clearPausedMediaTimer();
+        isPausedMediaCollapsedRef.current = true;
+        setIsPausedMediaCollapsed(true);
+      }
       setWaterToast(toast);
       setIsHidden(false);
       playReminderSound();
-    }, []),
+    }, [clearPausedMediaTimer]),
   });
 
   useEffect(() => {
@@ -1052,6 +1100,47 @@ export default function App() {
     }, timeoutMs);
     return () => clearTimeout(timer);
   }, [waterToast]);
+
+  const { schedule: prayerSchedule, refreshSchedule: refreshPrayerSchedule } = usePrayerReminder({
+    isFocusMode: focusMode === "DND" || pomodoro.isRunning,
+    onTriggerToast: useCallback((toast: PrayerToastPayload) => {
+      if (!isPlayingRef.current) {
+        clearPausedMediaTimer();
+        isPausedMediaCollapsedRef.current = true;
+        setIsPausedMediaCollapsed(true);
+      }
+      setPrayerToast(toast);
+      setIsHidden(false);
+      playReminderSound();
+      if (toast.type === "prayer_time" || toast.type === "pre_reminder") {
+        const isId = getLanguage() === "id";
+        const pName = getPrayerDisplayName(toast.prayerId, isId ? "id" : "en");
+        const saved = addNotificationHistoryItem({
+          title:
+            toast.type === "pre_reminder"
+              ? isId
+                ? `${toast.minutesLeft || 10} Menit Menuju Sholat ${pName}`
+                : `${toast.minutesLeft || 10}m Until ${pName} Prayer`
+              : isId
+              ? `Waktunya Sholat ${pName}`
+              : `Time for ${pName} Prayer`,
+          body: `${toast.prayerTime} · ${toast.locationName}`,
+          appName: isId ? "Pengingat" : "Reminders",
+          icon: "bell",
+        });
+        setNotificationsHistory((prev) => [saved, ...prev.filter((i) => i.id !== saved.id)].slice(0, 50));
+      }
+    }, []),
+  });
+
+  useEffect(() => {
+    if (!prayerToast) return;
+    const timeoutMs = prayerToast.type === "completed" ? 4500 : 15000;
+    const timer = setTimeout(() => {
+      setPrayerToast(null);
+    }, timeoutMs);
+    return () => clearTimeout(timer);
+  }, [prayerToast]);
 
   const [isPomodoro, setIsPomodoro] = useState(false);
   const isPomodoroRef = useRef(false);
@@ -1086,25 +1175,22 @@ export default function App() {
   const [slideDirection, setSlideDirection] = useState<number>(0);
   const [controlCenterSubmenu, setControlCenterSubmenu] = useState<null | "wifi" | "bluetooth">(null);
 
+  const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
+  const tabsPrefsRef = useRef(tabsPrefs);
+  useEffect(() => {
+    tabsPrefsRef.current = tabsPrefs;
+  }, [tabsPrefs]);
+
   const availableTabs: ExpandedTab[] = React.useMemo(() => {
-    return [
-      "media_expanded",
-      "quick_control",
-      "todo",
-      "mini_note",
-      "drop_shelf",
-      "pomodoro",
-      "water_reminder",
-      "sys_monitor",
-      "settings",
-    ];
-  }, []);
+    return getOrderedEnabledTabs(tabsPrefs) as ExpandedTab[];
+  }, [tabsPrefs]);
 
   const currentTab: ExpandedTab | null = React.useMemo(() => {
     if (isSettings) return "settings";
     if (isNotifications) return "notif_center";
     if (isVolumeMixer) return "volume_mixer";
     if (isClipboard) return "clipboard";
+    if (isPrayerReminder) return "prayer_reminder";
     if (isWaterReminder) return "water_reminder";
     if (isMiniNote) return "mini_note";
     if (isSysMonitor) return "sys_monitor";
@@ -1114,9 +1200,13 @@ export default function App() {
     if (isQuickControl) return "quick_control";
     if (isExpanded) return "media_expanded";
     return null;
-  }, [isSettings, isNotifications, isVolumeMixer, isClipboard, isWaterReminder, isMiniNote, isSysMonitor, isDropShelf, isPomodoro, isTodo, isQuickControl, isExpanded]);
+  }, [isSettings, isNotifications, isVolumeMixer, isClipboard, isPrayerReminder, isWaterReminder, isMiniNote, isSysMonitor, isDropShelf, isPomodoro, isTodo, isQuickControl, isExpanded]);
 
-  const isSubPage = currentTab === "clipboard" || currentTab === "volume_mixer" || currentTab === "notif_center";
+  const isSubPage = Boolean(
+    currentTab &&
+      (currentTab === "clipboard" || currentTab === "volume_mixer" || currentTab === "notif_center") &&
+      !availableTabs.includes(currentTab)
+  );
 
   const currentTabIndex = React.useMemo(() => {
     if (!currentTab) return -1;
@@ -1185,6 +1275,7 @@ export default function App() {
     setIsNotifications(false);
     setIsVolumeMixer(false);
     setIsClipboard(false);
+    setIsPrayerReminder(false);
     setIsWaterReminder(false);
     setIsMiniNote(false);
     setIsSysMonitor(false);
@@ -1202,11 +1293,13 @@ export default function App() {
     try {
       localStorage.setItem("island_last_panel_closed_at", String(now));
     } catch {}
-    if (!isPlayingRef.current && mediaRef.current && !isPausedMediaCollapsedRef.current) {
-      startPausedMediaCollapseTimer(2000);
+    if (!isPlayingRef.current) {
+      clearPausedMediaTimer();
+      isPausedMediaCollapsedRef.current = true;
+      setIsPausedMediaCollapsed(true);
     }
     window.setTimeout(finishClosing, 450);
-  }, [startPausedMediaCollapseTimer]);
+  }, [clearPausedMediaTimer]);
 
   const openLastOrPreferredTab = () => {
     cancelCollapseTimer();
@@ -1223,12 +1316,17 @@ export default function App() {
     const isMusicActive = Boolean(
       hasMediaTrack && (isPlayingRef.current || ((variantRef.current === "media" || variantRef.current === "lyrics_idle") && !isPausedMediaCollapsedRef.current))
     );
+    const openBehavior = tabsPrefsRef.current.defaultOpenBehavior;
     if (isMusicActive) {
       target = "media_expanded";
+    } else if (openBehavior === "first_tab") {
+      target = (availableTabs[0] as ExpandedTab) || "quick_control";
+    } else if (openBehavior === "quick_control") {
+      target = "quick_control";
     } else if (!tabExpired && lastActiveTabRef.current) {
       target = lastActiveTabRef.current;
     } else {
-      target = "quick_control";
+      target = (availableTabs[0] as ExpandedTab) || "quick_control";
     }
 
     if (target === "media_expanded" && !hasMediaTrack) {
@@ -1313,6 +1411,7 @@ export default function App() {
       isDropShelfRef.current ||
       isSysMonitorRef.current ||
       isMiniNoteRef.current ||
+      isPrayerReminderRef.current ||
       isWaterReminderRef.current ||
       isQuickNoteOpenRef.current ||
       isQuickTodoOpenRef.current ||
@@ -1425,6 +1524,9 @@ export default function App() {
 
     isWaterReminderRef.current = targetTab === "water_reminder";
     setIsWaterReminder(targetTab === "water_reminder");
+
+    isPrayerReminderRef.current = targetTab === "prayer_reminder";
+    setIsPrayerReminder(targetTab === "prayer_reminder");
 
     isClipboardRef.current = targetTab === "clipboard";
     setIsClipboard(targetTab === "clipboard");
@@ -1817,6 +1919,7 @@ export default function App() {
     setIsDropShelf(false);
     setIsSysMonitor(false);
     setIsMiniNote(false);
+    setIsPrayerReminder(false);
     setIsWaterReminder(false);
     setIsClipboard(false);
     setIsSettings(false);
@@ -1840,6 +1943,7 @@ export default function App() {
     setIsDropShelf(false);
     setIsSysMonitor(false);
     setIsMiniNote(false);
+    setIsPrayerReminder(false);
     setIsWaterReminder(false);
     setIsClipboard(false);
     setIsSettings(false);
@@ -1997,6 +2101,12 @@ export default function App() {
       try {
         const s = await load('settings.json', { autoSave: true });
         setStore(s);
+        const savedTabsPrefs = await s.get('opt_tabs_preferences');
+        if (savedTabsPrefs) {
+          const normTabs = normalizeTabsPreferences(savedTabsPrefs);
+          setTabsPrefs(normTabs);
+          try { localStorage.setItem("island_tabs_preferences_v1", JSON.stringify(normTabs)); } catch {}
+        }
         
         const greet = await s.get('show_greeting');
         if (greet !== null) {
@@ -2211,6 +2321,7 @@ export default function App() {
             isDropShelfRef.current ||
             isSysMonitorRef.current ||
             isMiniNoteRef.current ||
+            isPrayerReminderRef.current ||
             isWaterReminderRef.current ||
             isClipboardRef.current ||
             isVolumeMixerRef.current ||
@@ -2451,16 +2562,19 @@ export default function App() {
       if (event.payload.title || event.payload.artist) {
         prefetchArtwork(event.payload);
         const isNowPlaying = Boolean(event.payload.is_playing);
+        isPlayingRef.current = isNowPlaying;
         setIsPlaying(isNowPlaying);
 
         if (isNowPlaying) {
           hasEverPlayedRef.current = true;
+          isPausedMediaCollapsedRef.current = false;
           setIsPausedMediaCollapsed(false);
           clearPausedMediaTimer();
         } else {
-          if (!hasEverPlayedRef.current) {
+          if (!hasEverPlayedRef.current || isPausedMediaCollapsedRef.current) {
+            isPausedMediaCollapsedRef.current = true;
             setIsPausedMediaCollapsed(true);
-          } else {
+          } else if (!pausedMediaCollapseTimerRef.current) {
             startPausedMediaCollapseTimer(5000);
           }
         }
@@ -2530,18 +2644,18 @@ export default function App() {
               thumbnail: resolvedCurrentThumb,
               timestamp: Date.now(),
             };
-          } else if (resolvedCurrentThumb && !prevActive.thumbnail) {
+          } else if (resolvedCurrentThumb && prevActive.thumbnail !== resolvedCurrentThumb) {
             prevActive.thumbnail = resolvedCurrentThumb;
           }
 
-          // Backfill thumbnail if arrived for index 0 in queueHistory
+          // Backfill or refresh thumbnail if arrived/updated for index 0 in queueHistory
           const thumbToBackfill = resolvedCurrentThumb || currentThumbnail;
           if (thumbToBackfill) {
             setQueueHistory((prev) => {
               if (
                 prev.length > 0 &&
                 prev[0].title.toLowerCase() === currentTitle.toLowerCase() &&
-                !prev[0].thumbnail
+                prev[0].thumbnail !== thumbToBackfill
               ) {
                 const updated = [...prev];
                 updated[0] = { ...updated[0], thumbnail: thumbToBackfill };
@@ -2868,9 +2982,133 @@ export default function App() {
     });
 
     const unlistenTraySettings = listen("tray-open-settings", () => {
-      setIsHidden(false);
-      setTabSwitchGrace(1200);
-      goToTab("settings", 0);
+      invoke("open_settings_window", { section: null }).catch(() => {});
+    });
+
+    const unlistenSettingsSync = listen<any>("gili-settings-sync", (event) => {
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object") return;
+      if (payload.type === "tabs_preferences" && payload.data) {
+        const norm = normalizeTabsPreferences(payload.data);
+        setTabsPrefs(norm);
+        try { localStorage.setItem("island_tabs_preferences_v1", JSON.stringify(norm)); } catch {}
+        return;
+      }
+      if (payload.type === "shortcuts_update" && payload.shortcuts) {
+        setShortcuts(payload.shortcuts);
+        return;
+      }
+      if (payload.type === "shortcuts_enabled" && typeof payload.enabled === "boolean") {
+        setShortcutsEnabled(payload.enabled);
+        return;
+      }
+      if (payload.type === "setting_key") {
+        const { key, value } = payload;
+        switch (key) {
+          case "opt_language":
+            setLanguage(value as Language, false);
+            setOptLanguage(value as Language);
+            break;
+          case "show_greeting":
+            setShowGreeting(Boolean(value));
+            break;
+          case "greeting_name_mode":
+            setGreetingNameMode(value === "custom" ? "custom" : "auto");
+            break;
+          case "custom_greeting_name":
+            setCustomGreetingName(typeof value === "string" ? value : "");
+            break;
+          case "opt_auto_compact":
+            setOptAutoCompact(Boolean(value));
+            break;
+          case "opt_close_delay":
+            optCloseDelayRef.current = Number(value);
+            setOptCloseDelay(Number(value));
+            break;
+          case "opt_notif_time":
+            setOptNotifTime(Number(value));
+            break;
+          case "opt_notif_sound":
+            if (typeof value === "string") {
+              setOptNotifSound(value);
+              setSavedNotifSound(value);
+            }
+            break;
+          case "opt_theme":
+            setOptTheme(value);
+            break;
+          case "notch_shape":
+            handleChangeNotchShape(value);
+            break;
+          case "island_top_offset":
+            handleChangeIslandTopOffset(Number(value));
+            break;
+          case "opt_position":
+            setOptPosition(value);
+            invoke("set_window_position", {
+              isBottom: value === "bottom",
+              topOffset: islandTopOffsetRef.current,
+              isIsland: isIslandRef.current,
+            }).catch(console.error);
+            break;
+          case "opt_ears":
+            setOptEars(Boolean(value));
+            break;
+          case "opt_opacity":
+            setOptOpacity(Number(value));
+            break;
+          case "opt_anim_speed":
+            setOptAnimSpeed(value);
+            break;
+          case "opt_idle_size":
+            setOptIdleSize(value);
+            break;
+          case "opt_tab_size":
+            setOptTabSize(value);
+            break;
+          case "opt_font_size":
+            setOptFontSize(value);
+            break;
+          case "opt_idle_layout":
+            setIdleLayout(parseIdleLayout(value));
+            break;
+          case "opt_volume":
+            setOptVolume(Boolean(value));
+            break;
+          case "opt_clipboard":
+            setOptClipboard(Boolean(value));
+            break;
+          case "opt_media":
+            setOptMedia(Boolean(value));
+            break;
+          case "opt_sound_fx":
+            setOptSoundFx(Boolean(value));
+            setSoundEffectsEnabled(Boolean(value));
+            break;
+          default:
+            break;
+        }
+      }
+    });
+
+    const unlistenTriggerAction = listen<string>("settings-trigger-action", (event) => {
+      const act = event.payload;
+      if (act === "test_greeting") {
+        triggerGreeting();
+      } else if (act === "test_notification") {
+        const isId = getLanguage() === "id";
+        showNotif({
+          title: isId ? "Dukung Pengembang · Gili" : "Support Developer · Gili",
+          body: isId
+            ? "Notifikasi percobaan dari Jendela Pengaturan Gili berjalan lancar! ✨"
+            : "Test notification from Gili Settings Window is working smoothly! ✨",
+          subtitle: "Gili Island",
+          headline: isId ? "Uji Notifikasi Berhasil" : "Notification Test Passed",
+          icon: "coffee",
+        });
+      } else if (act === "restart_onboarding") {
+        window.dispatchEvent(new CustomEvent("island_trigger_onboarding"));
+      }
     });
 
     return () => {
@@ -2889,6 +3127,8 @@ export default function App() {
       unlistenTrayToggle.then((f) => f());
       unlistenTrayCC.then((f) => f());
       unlistenTraySettings.then((f) => f());
+      unlistenSettingsSync.then((f) => f());
+      unlistenTriggerAction.then((f) => f());
     };
   }, []);
 
@@ -3006,8 +3246,10 @@ export default function App() {
       if (action === "toggle") {
         setIsPlaying((prev) => {
           const next = !prev;
+          isPlayingRef.current = next;
           if (next) {
             hasEverPlayedRef.current = true;
+            isPausedMediaCollapsedRef.current = false;
             setIsPausedMediaCollapsed(false);
             clearPausedMediaTimer();
           } else {
@@ -3317,6 +3559,7 @@ export default function App() {
         setIsDropShelf(false);
         setIsSysMonitor(false);
         setIsMiniNote(false);
+        setIsPrayerReminder(false);
         setIsWaterReminder(false);
         setIsQuickNoteOpen(false);
         setIsQuickNoteSaved(false);
@@ -3339,8 +3582,6 @@ export default function App() {
   let variant = "idle";
   if (isBooting) {
     variant = "hidden";
-  } else if (isOnboarding) {
-    variant = "onboarding";
   } else if (isSettings) {
     variant = "settings";
   } else if (isNotifications) {
@@ -3349,8 +3590,12 @@ export default function App() {
     variant = "volume_mixer";
   } else if (isClipboard) {
     variant = "clipboard";
+  } else if (prayerToast) {
+    variant = "prayer_toast";
   } else if (waterToast) {
     variant = "water_toast";
+  } else if (isPrayerReminder) {
+    variant = "prayer_reminder";
   } else if (isWaterReminder) {
     variant = "water_reminder";
   } else if (isMiniNote) {
@@ -3417,6 +3662,7 @@ export default function App() {
         variant === "sys_monitor" ||
         variant === "mini_note" ||
         variant === "water_reminder" ||
+        variant === "prayer_reminder" ||
         variant === "clipboard" ||
         variant === "settings" ||
         variant === "volume_mixer" ||
@@ -3429,6 +3675,8 @@ export default function App() {
     isExpandedPanel ||
       variant === "water_reminder" ||
       variant === "water_toast" ||
+      variant === "prayer_reminder" ||
+      variant === "prayer_toast" ||
       variant === "quick_control" ||
       variant === "todo" ||
       variant === "pomodoro" ||
@@ -3443,8 +3691,7 @@ export default function App() {
       variant === "media_expanded_lyrics" ||
       variant === "quick_todo" ||
       variant === "quick_note" ||
-      variant === "drag_over" ||
-      variant === "onboarding"
+      variant === "drag_over"
   );
 
   const panelTitle = 
@@ -3456,6 +3703,7 @@ export default function App() {
     currentTab === "sys_monitor" ? t("tab_sys_monitor") :
     currentTab === "mini_note" ? t("tab_mini_note") :
     currentTab === "water_reminder" ? (t("tab_water_reminder") || "Air") :
+    currentTab === "prayer_reminder" ? (t("tab_prayer_reminder") || "Sholat") :
     currentTab === "clipboard" ? t("tab_clipboard") :
     currentTab === "volume_mixer" ? t("tab_volume_mixer") :
     currentTab === "notif_center" ? (t("tab_notifications") || "Notifikasi") :
@@ -3536,6 +3784,15 @@ export default function App() {
     sys_monitor: { width: tabWidth, height: Math.round((isBot ? 356 : 318) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     mini_note: { width: tabWidth, height: Math.round((isNoteEditing ? 370 : 352) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     water_reminder: { width: tabWidth, height: Math.round(waterDynamicHeight * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    prayer_reminder: { width: tabWidth, height: Math.round((isBot ? 368 : 352) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    prayer_toast: {
+      width: 448,
+      height: 68,
+      x: 0,
+      y: currentY,
+      opacity: 1,
+      borderRadius: radius("20px", "24px"),
+    },
     water_toast: {
       width: waterToast?.type === "time_to_drink" ? 440 : waterToast?.type === "streak_threatened" ? 430 : 380,
       height: waterToast?.type === "time_to_drink" ? 70 : waterToast?.type === "streak_threatened" ? 66 : 58,
@@ -3854,7 +4111,6 @@ export default function App() {
           cancelCollapseTimer();
           if (
             notif ||
-            isOnboarding ||
             isDragOver ||
             variant === "pomo_complete_alert" ||
             variant === "todo_deadline_alert"
@@ -3883,7 +4139,6 @@ export default function App() {
           setSlideDirection(0);
           if (
             notif ||
-            isOnboarding ||
             isDragOver ||
             variant === "pomo_complete_alert" ||
             variant === "todo_deadline_alert"
@@ -3921,7 +4176,6 @@ export default function App() {
           if (currentTab !== null || isExpandedPanel) return;
           if (
             notif ||
-            isOnboarding ||
             isDragOver ||
             variant === "pomo_complete_alert" ||
             variant === "todo_deadline_alert"
@@ -4030,7 +4284,6 @@ export default function App() {
             isVolumeMixer ||
             variant === "quick_todo" ||
             variant === "quick_note" ||
-            variant === "onboarding" ||
             variant === "drag_over" ||
             variant === "pomo_complete_alert" ||
             (notif && !isSmallNotif && !isMediumNotif)
@@ -4170,6 +4423,29 @@ export default function App() {
                   setIsQuickNoteSaved(false);
                   invoke("restore_previous_foreground_window").catch(() => {});
                 }}
+              />
+            )}
+
+            {variant === "prayer_toast" && prayerToast && (
+              <PrayerNotchToast
+                toast={prayerToast}
+                isLightMode={isLightMode}
+                onMarkCompleted={() => {
+                  const res = togglePrayerCompleted(prayerToast.prayerId);
+                  if (res.isNowCompleted) {
+                    setPrayerToast({
+                      ...prayerToast,
+                      type: "completed",
+                    });
+                  } else {
+                    setPrayerToast(null);
+                  }
+                }}
+                onOpenPrayerTab={() => {
+                  setPrayerToast(null);
+                  goToTab("prayer_reminder", 0);
+                }}
+                onDismiss={() => setPrayerToast(null)}
               />
             )}
 
@@ -4358,22 +4634,6 @@ export default function App() {
               </motion.div>
             )}
 
-            {variant === "onboarding" && (
-              <motion.div
-                key="onboarding"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{
-                  opacity: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
-                  scale: smoothSpring,
-                }}
-                className="absolute inset-0 flex flex-col overflow-hidden"
-              >
-                <OnboardingCard isLightMode={isLightMode} onComplete={() => setIsOnboarding(false)} />
-              </motion.div>
-            )}
-
             {isExpandedPanel && (
               <motion.div
                 key="expanded_panel"
@@ -4425,7 +4685,7 @@ export default function App() {
                     isNotificationsActive={currentTab === "notif_center"}
                     unreadNotificationsCount={unreadNotifCount}
                     hideTitleBar={currentTab === "mini_note" && isNoteEditing}
-                    totalPages={isSubPage || (currentTab === "mini_note" && isNoteEditing) ? 0 : availableTabs.length}
+                    totalPages={!tabsPrefs.showPageDots || isSubPage || (currentTab === "mini_note" && isNoteEditing) ? 0 : availableTabs.length}
                     currentPageIndex={isSubPage ? -1 : currentTabIndex}
                     onSelectPage={handleSelectTab}
                     hideDotsBg={false}
@@ -4645,6 +4905,29 @@ export default function App() {
                               onTriggerToast={(type, amount) => {
                                 setWaterToast({ type, amount });
                               }}
+                            />
+                          </motion.div>
+                        )}
+
+                        {currentTab === "prayer_reminder" && (
+                          <motion.div
+                            key="prayer_reminder"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <PrayerReminderPanel
+                              schedule={prayerSchedule}
+                              onRefreshSchedule={refreshPrayerSchedule}
+                              onTriggerToast={(toast) => {
+                                setPrayerToast(toast);
+                                playReminderSound();
+                              }}
+                              optLanguage={optLanguage}
+                              isLightMode={isLightMode}
                             />
                           </motion.div>
                         )}

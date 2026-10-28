@@ -1,13 +1,16 @@
 import { MediaPayload } from "../types";
 import { cleanTitle, cleanArtist } from "./lyricsService";
+import { fetchJson } from "./lyrics/utils";
 
-// In-memory LRU cache for high-res album artworks (songKey -> highResUrl | null)
+// In-memory LRU cache for high-res album artworks (songKey -> highResUrl)
 const artworkCache = new Map<string, string | null>();
 const pendingFetches = new Map<string, Promise<string | null>>();
 const failedArtworkUrls = new Set<string>();
+const failedLookupTimestamps = new Map<string, number>();
 const artworkListeners = new Set<() => void>();
 
 const MAX_CACHE_SIZE = 60;
+const FAILED_LOOKUP_COOLDOWN_MS = 15_000;
 
 function setCachedArtwork(key: string, url: string | null) {
   if (artworkCache.size >= MAX_CACHE_SIZE && !artworkCache.has(key)) {
@@ -31,6 +34,7 @@ export function clearArtworkCache(): void {
   artworkCache.clear();
   pendingFetches.clear();
   failedArtworkUrls.clear();
+  failedLookupTimestamps.clear();
   artworkListeners.forEach((listener) => listener());
 }
 
@@ -50,6 +54,7 @@ export function isArtworkUrlFailed(url: string | null | undefined): boolean {
 export function invalidateCachedArtwork(key: string): void {
   if (!key) return;
   artworkCache.delete(key);
+  failedLookupTimestamps.delete(key);
   artworkListeners.forEach((listener) => listener());
 }
 
@@ -179,6 +184,37 @@ export function isThirdPartyMusicClient(media: MediaPayload | null | undefined):
   return false;
 }
 
+async function searchStudioArtworkByQuery(query: string): Promise<string | null> {
+  // 1. Try iTunes Search API (via Rust backend / fetchJson for reliability)
+  const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=3`;
+  const itunesData = await fetchJson<{ results?: Array<{ artworkUrl100?: string }> }>(itunesUrl, {
+    timeoutMs: 5000,
+  });
+  const itunesItem = itunesData?.results?.find((r) => Boolean(r?.artworkUrl100));
+  if (itunesItem?.artworkUrl100) {
+    const highRes = itunesItem.artworkUrl100.replace("100x100bb", "600x600bb");
+    if (!isArtworkUrlFailed(highRes)) {
+      return highRes;
+    }
+  }
+
+  // 2. Secondary fallback: Deezer API (via Rust backend to bypass browser CORS restrictions)
+  const deezerUrl = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=3`;
+  const deezerData = await fetchJson<{
+    data?: Array<{ album?: { cover_xl?: string; cover_big?: string; cover_medium?: string } }>;
+  }>(deezerUrl, {
+    timeoutMs: 5000,
+  });
+  for (const dItem of deezerData?.data || []) {
+    const deezerCover = dItem?.album?.cover_xl || dItem?.album?.cover_big || dItem?.album?.cover_medium;
+    if (deezerCover && !isArtworkUrlFailed(deezerCover)) {
+      return deezerCover;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Fetches high-resolution cover art from iTunes Search API,
  * with secondary fallback to Deezer API.
@@ -189,8 +225,14 @@ export async function fetchHighResArtwork(media: MediaPayload): Promise<string |
     return null;
   }
 
-  if (artworkCache.has(cacheKey)) {
-    return artworkCache.get(cacheKey) ?? null;
+  const existing = artworkCache.get(cacheKey);
+  if (existing && !isArtworkUrlFailed(existing)) {
+    return existing;
+  }
+
+  const lastFailedAt = failedLookupTimestamps.get(cacheKey);
+  if (lastFailedAt && Date.now() - lastFailedAt < FAILED_LOOKUP_COOLDOWN_MS) {
+    return null;
   }
 
   if (pendingFetches.has(cacheKey)) {
@@ -204,44 +246,31 @@ export async function fetchHighResArtwork(media: MediaPayload): Promise<string |
 
   const cleanedArtist = cleanArtist(media.artist || "");
   const cleanedTitle = cleanTitle(media.title);
-  const query = `${cleanedArtist ? cleanedArtist + " " : ""}${cleanedTitle}`.trim();
+  const primaryQuery = `${cleanedArtist ? cleanedArtist + " " : ""}${cleanedTitle}`.trim();
 
-  if (!query) {
+  if (!primaryQuery) {
     return null;
   }
 
   const fetchPromise = (async () => {
     try {
-      // 1. Try iTunes Search API
-      const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1`;
-      const res = await fetch(itunesUrl);
-      if (res.ok) {
-        const data = await res.json();
-        const item = data?.results?.[0];
-        if (item?.artworkUrl100) {
-          const highRes = item.artworkUrl100.replace("100x100bb", "600x600bb");
-          setCachedArtwork(cacheKey, highRes);
-          return highRes;
-        }
+      let resolved = await searchStudioArtworkByQuery(primaryQuery);
+
+      // Fallback: if artist was a channel/uploader name that polluted the query, try title-only search
+      if (!resolved && cleanedArtist && cleanedTitle.length >= 2 && cleanedTitle.toLowerCase() !== primaryQuery.toLowerCase()) {
+        resolved = await searchStudioArtworkByQuery(cleanedTitle);
       }
 
-      // 2. Secondary fallback: Deezer API
-      const deezerUrl = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`;
-      const dRes = await fetch(deezerUrl);
-      if (dRes.ok) {
-        const dData = await dRes.json();
-        const dItem = dData?.data?.[0];
-        const deezerCover = dItem?.album?.cover_xl || dItem?.album?.cover_big;
-        if (deezerCover) {
-          setCachedArtwork(cacheKey, deezerCover);
-          return deezerCover;
-        }
+      if (resolved) {
+        failedLookupTimestamps.delete(cacheKey);
+        setCachedArtwork(cacheKey, resolved);
+        return resolved;
       }
 
-      setCachedArtwork(cacheKey, null);
+      failedLookupTimestamps.set(cacheKey, Date.now());
       return null;
     } catch {
-      setCachedArtwork(cacheKey, null);
+      failedLookupTimestamps.set(cacheKey, Date.now());
       return null;
     } finally {
       pendingFetches.delete(cacheKey);

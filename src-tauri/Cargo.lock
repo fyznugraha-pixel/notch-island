@@ -1651,7 +1651,7 @@ dependencies = [
 
 [[package]]
 name = "gili"
-version = "4.1.6"
+version = "4.2.0"
 dependencies = [
  "base64 0.22.1",
  "image",

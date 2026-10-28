@@ -87,7 +87,7 @@ export const MediaThumbnail = ({
   useEffect(() => {
     if (!media.title || media.title.trim() === "") return;
     fetchHighResArtwork(media);
-  }, [media.title, media.artist, media.app_id]);
+  }, [media.title, media.artist, media.app_id, thumbError]);
 
   const brandedType = getBrandedMediaType(media);
 

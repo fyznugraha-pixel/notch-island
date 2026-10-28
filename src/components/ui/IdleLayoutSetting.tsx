@@ -21,10 +21,16 @@ import {
   MemoryStick,
   ArrowDown,
   ArrowDownUp,
+  Moon,
 } from "lucide-react";
 import { t, Language } from "../../services/i18n";
 import { getWeatherIcon } from "./NotifIcon";
 import { getTextWidth } from "../../utils/text";
+import {
+  getImmediatePrayerSchedule,
+  getNextPrayerStatus,
+  getPrayerShortName,
+} from "../../services/prayerService";
 
 export type IdleSlotItem =
   | "battery"
@@ -37,6 +43,7 @@ export type IdleSlotItem =
   | "ping"
   | "weather"
   | "todo"
+  | "prayer"
   | "fps"
   | "none";
 
@@ -65,6 +72,7 @@ const VALID_ITEMS: Set<string> = new Set([
   "ping",
   "weather",
   "todo",
+  "prayer",
   "fps",
   "none",
 ]);
@@ -120,7 +128,7 @@ export interface IdleRuntimeData {
   focusMode: "Normal" | "DND" | "Gaming" | "Sleep";
   optLanguage: Language;
   isLightMode?: boolean;
-  onOpenTab?: (tab: "quick_control" | "todo" | "drop_shelf" | "sys_monitor") => void;
+  onOpenTab?: (tab: "quick_control" | "todo" | "drop_shelf" | "sys_monitor" | "prayer_reminder") => void;
 }
 
 export function formatNetSpeed(mbps?: number): string {
@@ -162,6 +170,8 @@ export function getItemLabel(item: IdleSlotItem): string {
       return t("settings_slot_weather");
     case "todo":
       return t("settings_slot_todo");
+    case "prayer":
+      return t("settings_slot_prayer") || "Sholat";
     case "fps":
       return t("settings_slot_fps");
     case "none":
@@ -225,6 +235,12 @@ export function measureIdleSlotItemWidth(
     }
     case "todo": {
       return Math.ceil(getTextWidth(`${data.pendingTodosCount}`, statFont) + 16);
+    }
+    case "prayer": {
+      const sched = getImmediatePrayerSchedule();
+      const next = getNextPrayerStatus(sched, data.time);
+      const label = `${getPrayerShortName(next.nextPrayer, data.optLanguage)} ${next.nextPrayerTime}`;
+      return Math.ceil(getTextWidth(label, statFont) + 16);
     }
     case "fps": {
       const fpsText = `${data.fps || 60} FPS`;
@@ -458,6 +474,29 @@ export const IdleSlotView: React.FC<{
         </div>
       );
 
+    case "prayer": {
+      const sched = getImmediatePrayerSchedule();
+      const next = getNextPrayerStatus(sched, data.time);
+      const shortName = getPrayerShortName(next.nextPrayer, data.optLanguage);
+      return (
+        <div
+          onClick={(e) => {
+            if (!isPreview && data.onOpenTab) {
+              e.stopPropagation();
+              data.onOpenTab("prayer_reminder");
+            }
+          }}
+          className="flex items-center gap-1 shrink-0 cursor-pointer"
+          title={`${shortName} ${next.nextPrayerTime} (-${next.countdownText})`}
+        >
+          <Moon size={10} className="text-emerald-400 shrink-0" />
+          <span className={`${baseTextClass} tabular-nums`}>
+            {shortName} {next.nextPrayerTime}
+          </span>
+        </div>
+      );
+    }
+
     case "fps": {
       const currentFps = data.fps || 60;
       return (
@@ -572,6 +611,7 @@ const ITEM_OPTIONS: { id: IdleSlotItem; icon: React.ReactNode }[] = [
   { id: "ping", icon: <Activity size={12} className="text-green-400" /> },
   { id: "weather", icon: <CloudSun size={12} className="text-amber-400" /> },
   { id: "todo", icon: <ListTodo size={12} className="text-orange-400" /> },
+  { id: "prayer", icon: <Moon size={12} className="text-emerald-400" /> },
   { id: "fps", icon: <Gauge size={12} className="text-cyan-400" /> },
   { id: "none", icon: <EyeOff size={12} className="text-white/40" /> },
 ];

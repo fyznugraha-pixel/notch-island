@@ -168,34 +168,54 @@ export function categorizeNotification(notif: NotifPayload): {
   return { category: "system", appName: "Sistem" };
 }
 
+const TRANSIENT_NOTIF_ICONS = new Set([
+  "sun",
+  "moon",
+  "clipboard",
+  "capslock",
+  "battery",
+  "volume",
+  "brightness",
+  "wifi",
+  "bluetooth",
+  "usb",
+  "headphones",
+]);
+
+function isTransientSystemHistoryItem(item: Partial<NotificationHistoryItem>): boolean {
+  const icon = (item.icon || "").toLowerCase();
+  if (TRANSIENT_NOTIF_ICONS.has(icon)) return true;
+
+  const title = (item.title || "").toLowerCase();
+  if (
+    title.startsWith("hi, ") ||
+    title.includes("caps lock") ||
+    title.includes("mengisi daya") ||
+    title.includes("menggunakan baterai") ||
+    title === "charging" ||
+    title === "on battery" ||
+    title === "baterai penuh" ||
+    title === "battery full" ||
+    title === "usb connected" ||
+    title === "audio device connected" ||
+    title.includes("hotspot")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function loadNotificationHistory(): NotificationHistoryItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null) {
-      const initial = getInitialSeedNotifications();
+      const initial = getInitialSeedNotifications().filter((i) => !isTransientSystemHistoryItem(i));
       saveNotificationHistory(initial);
       return initial;
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      // Filter out greeting notifications, clipboard copy toasts, and update any previously truncated seed texts
-      const sanitized = parsed
-        .filter(
-          (item) =>
-            item.icon !== "sun" &&
-            item.icon !== "moon" &&
-            item.icon !== "clipboard" &&
-            !item.title?.startsWith("Hi, ")
-        )
-        .map((item) => {
-          if (item.id === "notif-seed-3" && item.body && item.body.includes("memory us...")) {
-            return {
-              ...item,
-              body: "tambah tab baru untuk cpu, gpu, wifi, dan memory usage di island system monitor widget agar performa perangkat bisa dipantau secara langsung",
-            };
-          }
-          return item;
-        });
+      const sanitized = parsed.filter((item) => !isTransientSystemHistoryItem(item));
 
       if (sanitized.length !== parsed.length || JSON.stringify(sanitized) !== raw) {
         saveNotificationHistory(sanitized);

@@ -1,29 +1,19 @@
-import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React from "react";
+import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
-import { getVersion } from "@tauri-apps/api/app";
-import { Language } from "../../services/i18n";
 import {
-  checkForAppUpdate,
-  downloadAndInstallAppUpdate,
-  UpdateInfo,
-  UpdateStatus,
-} from "../../services/updateService";
-import {
-  IdleLayoutConfig,
-  IdleRuntimeData,
-} from "./IdleLayoutSetting";
-import { SettingsSubnav, SettingsSubtab } from "./settings/SettingsSubnav";
-import { GeneralTab } from "./settings/GeneralTab";
+  ExternalLink,
+  LayoutGrid,
+  Timer,
+  AppWindow,
+  Volume2,
+} from "lucide-react";
+import { Language, t } from "../../services/i18n";
+import { IdleLayoutConfig, IdleRuntimeData } from "./IdleLayoutSetting";
 import { AppearanceTab } from "./settings/AppearanceTab";
-import { IdleTab } from "./settings/IdleTab";
-import { ModulesTab } from "./settings/ModulesTab";
-import { AdvancedTab } from "./settings/AdvancedTab";
-import { SearchResults } from "./settings/SearchResults";
-import { clearAllLyricsCache } from "../../services/lyricsService";
-import { clearArtworkCache } from "../../services/artworkService";
-import { clearShelfPreviewCache } from "../../services/shelfService";
-import { clearWeatherCache } from "../../services/weatherService";
+import { SettingRow } from "./settings/SettingRow";
+import { IosSwitch } from "../ios/IosSwitch";
+import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { ShortcutActionId, ShortcutStatus } from "../../services/shortcuts";
 
 export interface SettingsPanelProps {
@@ -113,49 +103,19 @@ const tabVariants = {
   }),
 };
 
-const contentVariants = {
-  initial: { opacity: 0, y: 6 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.16, ease: "easeOut" as const } },
-  exit: { opacity: 0, y: -6, transition: { duration: 0.1, ease: "easeIn" as const } },
-};
-
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   slideDirection,
   optLanguage,
-  onChangeLanguage,
   optAutoCompact,
   onToggleAutoCompact,
-  isAutostart,
-  onToggleAutostart,
-  showGreeting,
-  onToggleGreeting,
-  greetingNameMode,
-  onChangeGreetingNameMode,
-  customGreetingName,
-  onChangeCustomGreetingName,
-  onTestGreeting,
-  onTestNotification,
-  optNotifTime,
-  onChangeNotifTime,
-  optNotifSound,
-  onChangeNotifSound,
   optCloseDelay,
   onChangeCloseDelay,
-  shortcuts,
-  shortcutsEnabled,
-  shortcutStatuses,
-  onUpdateShortcut,
-  onResetShortcut,
-  onToggleShortcutsEnabled,
   optTheme,
   onChangeTheme,
   notchShape,
   onChangeNotchShape,
   islandTopOffset,
   onChangeIslandTopOffset,
-  idleLayout,
-  onChangeIdleLayout,
-  idleRuntimeData,
   optIdleSize,
   onChangeIdleSize,
   optTabSize,
@@ -170,93 +130,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangeOpacity,
   optAnimSpeed,
   onChangeAnimSpeed,
-  optVolume,
-  onToggleVolume,
-  optClipboard,
-  onToggleClipboard,
-  optMedia,
-  onToggleMedia,
   optSoundFx = true,
   onToggleSoundFx,
   isLightMode = false,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<SettingsSubtab>("general");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const isId = optLanguage === "id";
 
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<number>(0);
-  const [currentAppVersion, setCurrentAppVersion] = useState<string>("4.1.6");
-
-  const [clearTempStatus, setClearTempStatus] = useState<"idle" | "cleaning" | "done" | "error">("idle");
-  const [clearedResult, setClearedResult] = useState<{
-    freed_bytes: number;
-    deleted_count: number;
-    freed_formatted: string;
-  } | null>(null);
-
-  useEffect(() => {
-    getVersion().then(setCurrentAppVersion).catch(() => {});
-  }, []);
-
-  const handleClearTempFiles = async () => {
-    if (clearTempStatus === "cleaning") return;
-    setClearTempStatus("cleaning");
-    try {
-      clearAllLyricsCache();
-      clearArtworkCache();
-      clearShelfPreviewCache();
-      clearWeatherCache();
-
-      const res = await invoke<{ freed_bytes: number; deleted_count: number; freed_formatted: string }>(
-        "clear_temp_files"
-      );
-      setClearedResult(res);
-      setClearTempStatus("done");
-      window.setTimeout(() => {
-        setClearTempStatus("idle");
-      }, 4500);
-    } catch (err) {
-      console.error("Failed to clear temp files:", err);
-      setClearTempStatus("error");
-      window.setTimeout(() => {
-        setClearTempStatus("idle");
-      }, 3500);
-    }
-  };
-
-  const handleCheckUpdate = async () => {
-    if (updateStatus === "checking" || updateStatus === "downloading" || updateStatus === "installing") return;
-    setUpdateStatus("checking");
-    try {
-      const info = await checkForAppUpdate();
-      setUpdateInfo(info);
-      if (info.available) {
-        setUpdateStatus("available");
-      } else {
-        setUpdateStatus("up_to_date");
-      }
-    } catch {
-      setUpdateStatus("error");
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    if (!updateInfo?.update) return;
-    setUpdateStatus("downloading");
-    setDownloadProgress(0);
-    try {
-      await downloadAndInstallAppUpdate(updateInfo.update, (percent) => {
-        setDownloadProgress(percent);
-        if (percent >= 100) {
-          setUpdateStatus("installing");
-        }
-      });
-    } catch {
-      setUpdateStatus("error");
-    }
+  const handleOpenSettingsWindow = (section: string = "tabs") => {
+    invoke("open_settings_window", { section }).catch(console.error);
+    onClose();
   };
 
   return (
@@ -267,252 +150,150 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       initial="enter"
       animate="center"
       exit="exit"
-      className="absolute inset-0 w-full h-full flex flex-col px-4 pt-0 pb-0 overflow-hidden select-none min-w-0 cursor-default gpu-accelerated"
+      className="absolute inset-0 w-full h-full flex flex-col px-4 pt-1 pb-1 overflow-hidden select-none min-w-0 cursor-default gpu-accelerated"
       onClick={onClose}
     >
       <div
-        className="flex-1 flex flex-col min-w-0 h-full"
+        className="flex-1 flex flex-col min-w-0 h-full gap-2.5"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Subnav Pill Bar */}
-        <SettingsSubnav
-          activeTab={activeTab}
-          onChangeTab={(tab) => {
-            setActiveTab(tab);
-            setSearchQuery("");
-            setIsSearchOpen(false);
-          }}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          isSearchOpen={isSearchOpen}
-          onToggleSearch={() => {
-            setIsSearchOpen((prev) => !prev);
-            if (isSearchOpen) setSearchQuery("");
-          }}
-        />
-
-        {/* Tab Content Body */}
-        <div className="flex-1 w-full pt-0.5 pb-2 flex flex-col justify-start overflow-y-auto settings-scroll min-h-0 pr-0.5 rounded-[22px]" data-scrollable="true">
-          <AnimatePresence mode="wait">
-            {isSearchOpen && searchQuery.trim().length > 0 ? (
-              <motion.div
-                key="search-results"
-                variants={contentVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="w-full"
+        {/* Top Action Banner: Open Full Apple-style Settings Window */}
+        <div
+          onClick={() => handleOpenSettingsWindow("tabs")}
+          className={`group w-full rounded-[18px] px-3.5 py-2.5 flex items-center justify-between gap-3 border cursor-pointer transition-all shrink-0 ${
+            isLightMode
+              ? "bg-[#0a84ff]/[0.08] border-[#0a84ff]/25 hover:border-[#0a84ff]/45 shadow-sm"
+              : "bg-[#151822] border-[#3882F6]/30 hover:border-[#3882F6]/55 shadow-[0_6px_20px_rgba(0,0,0,0.35)]"
+          }`}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-[11px] bg-[#0a84ff] flex items-center justify-center text-white shadow-[0_4px_12px_rgba(10,132,255,0.35)] shrink-0">
+              <LayoutGrid size={17} strokeWidth={2.2} />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span
+                className={`text-[13px] font-semibold leading-tight truncate ${
+                  isLightMode ? "text-neutral-900" : "text-white"
+                }`}
               >
-                <SearchResults
-                  searchQuery={searchQuery}
-                  onNavigateTab={(tab) => {
-                    setActiveTab(tab);
-                    setIsSearchOpen(false);
-                    setSearchQuery("");
-                  }}
-                  optLanguage={optLanguage}
-                  onChangeLanguage={onChangeLanguage}
-                  isAutostart={isAutostart}
-                  onToggleAutostart={onToggleAutostart}
-                  showGreeting={showGreeting}
-                  onToggleGreeting={onToggleGreeting}
-                  greetingNameMode={greetingNameMode}
-                  onChangeGreetingNameMode={onChangeGreetingNameMode}
-                  customGreetingName={customGreetingName}
-                  onChangeCustomGreetingName={onChangeCustomGreetingName}
-                  optAutoCompact={optAutoCompact}
-                  onToggleAutoCompact={onToggleAutoCompact}
-                  optNotifTime={optNotifTime}
-                  onChangeNotifTime={onChangeNotifTime}
-                  optNotifSound={optNotifSound}
-                  onChangeNotifSound={onChangeNotifSound}
-                  optCloseDelay={optCloseDelay}
-                  onChangeCloseDelay={onChangeCloseDelay}
-                  optTheme={optTheme}
-                  onChangeTheme={onChangeTheme}
-                  notchShape={notchShape}
-                  onChangeNotchShape={onChangeNotchShape}
-                  islandTopOffset={islandTopOffset}
-                  onChangeIslandTopOffset={onChangeIslandTopOffset}
-                  optPosition={optPosition}
-                  onChangePosition={onChangePosition}
-                  isLightMode={isLightMode}
-                  optFontSize={optFontSize}
-                  onChangeFontSize={onChangeFontSize}
-                  optIdleSize={optIdleSize}
-                  onChangeIdleSize={onChangeIdleSize}
-                  optTabSize={optTabSize}
-                  onChangeTabSize={onChangeTabSize}
-                  optEars={optEars}
-                  onToggleEars={onToggleEars}
-                  optOpacity={optOpacity}
-                  onChangeOpacity={onChangeOpacity}
-                  optAnimSpeed={optAnimSpeed}
-                  onChangeAnimSpeed={onChangeAnimSpeed}
-                  optVolume={optVolume}
-                  onToggleVolume={onToggleVolume}
-                  optClipboard={optClipboard}
-                  onToggleClipboard={onToggleClipboard}
-                  optMedia={optMedia}
-                  onToggleMedia={onToggleMedia}
-                  optSoundFx={optSoundFx}
-                  onToggleSoundFx={onToggleSoundFx}
-                  currentAppVersion={currentAppVersion}
-                  updateStatus={updateStatus}
-                  updateInfo={updateInfo}
-                  downloadProgress={downloadProgress}
-                  onCheckUpdate={handleCheckUpdate}
-                  onInstallUpdate={handleInstallUpdate}
-                  clearTempStatus={clearTempStatus}
-                  clearedResult={clearedResult}
-                  onClearTempFiles={handleClearTempFiles}
-                  onTestNotification={onTestNotification}
-                  onClose={onClose}
+                {isId ? "Pengaturan Lengkap & Kelola Tab" : "Full Settings & Manage Tabs"}
+              </span>
+              <span
+                className={`text-[10.5px] leading-tight truncate mt-0.5 ${
+                  isLightMode ? "text-neutral-600" : "text-zinc-400"
+                }`}
+              >
+                {isId
+                  ? "Atur urutan & on/off tab, layar diam, pintasan keyboard, notifikasi & sistem"
+                  : "Reorder & toggle tabs, idle layout, shortcuts, notifications & system"}
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenSettingsWindow("tabs");
+            }}
+            className="px-3 py-1.5 rounded-full bg-[#0a84ff] group-hover:bg-[#0070e0] text-white text-[11.5px] font-semibold flex items-center gap-1.5 shadow-[0_2px_10px_rgba(10,132,255,0.35)] transition-colors shrink-0 cursor-pointer"
+          >
+            <span>{isId ? "Buka Jendela" : "Open Window"}</span>
+            <ExternalLink size={12.5} strokeWidth={2.3} />
+          </button>
+        </div>
+
+        {/* Scrollable Core Settings Body (Live Notch Preview) */}
+        <div
+          className="flex-1 w-full pb-2 flex flex-col gap-2.5 overflow-y-auto settings-scroll min-h-0 pr-0.5 rounded-[22px]"
+          data-scrollable="true"
+        >
+          {/* 1. Core Appearance & Sizing (Live Morphing on Notch) */}
+          <AppearanceTab
+            optTheme={optTheme}
+            onChangeTheme={onChangeTheme}
+            notchShape={notchShape}
+            onChangeNotchShape={onChangeNotchShape}
+            islandTopOffset={islandTopOffset}
+            onChangeIslandTopOffset={onChangeIslandTopOffset}
+            optPosition={optPosition}
+            onChangePosition={onChangePosition}
+            isLightMode={isLightMode}
+            optFontSize={optFontSize}
+            onChangeFontSize={onChangeFontSize}
+            optIdleSize={optIdleSize}
+            onChangeIdleSize={onChangeIdleSize}
+            optTabSize={optTabSize}
+            onChangeTabSize={onChangeTabSize}
+            optEars={optEars}
+            onToggleEars={onToggleEars}
+            optOpacity={optOpacity}
+            onChangeOpacity={onChangeOpacity}
+            optAnimSpeed={optAnimSpeed}
+            onChangeAnimSpeed={onChangeAnimSpeed}
+          />
+
+          {/* 2. Quick Core Behavior Card */}
+          <div
+            className={`w-full rounded-[22px] p-2 flex flex-col gap-1 transition-colors ${
+              isLightMode
+                ? "bg-white/80 border border-black/10 shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
+            }`}
+          >
+            {/* Close Delay */}
+            <SettingRow
+              icon={<Timer size={18} />}
+              iconBgClass="bg-[#1e1c33]"
+              iconColorClass="text-[#7c7cff]"
+              title={t("settings_close_delay")}
+              subtitle={t("settings_close_delay_desc")}
+              control={
+                <IosSegmentedControl
+                  value={optCloseDelay}
+                  onChange={(val) => onChangeCloseDelay(val as number)}
+                  options={[
+                    { value: 0, label: isId ? "Instan" : "Instant", tooltip: t("settings_close_delay_tip_0") },
+                    { value: 1, label: isId ? "1 dtk" : "1s", tooltip: t("settings_close_delay_tip_1") },
+                    { value: 3, label: isId ? "3 dtk" : "3s", tooltip: t("settings_close_delay_tip_3") },
+                    { value: -1, label: isId ? "Manual" : "Manual", tooltip: t("settings_close_delay_tip_never") },
+                  ]}
                 />
-              </motion.div>
-            ) : (
-              <>
-                {activeTab === "general" && (
-                  <motion.div
-                    key="general"
-                    variants={contentVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    className="w-full"
-                  >
-                    <GeneralTab
-                      optLanguage={optLanguage}
-                      onChangeLanguage={onChangeLanguage}
-                      isAutostart={isAutostart}
-                      onToggleAutostart={onToggleAutostart}
-                      showGreeting={showGreeting}
-                      onToggleGreeting={onToggleGreeting}
-                      greetingNameMode={greetingNameMode}
-                      onChangeGreetingNameMode={onChangeGreetingNameMode}
-                      customGreetingName={customGreetingName}
-                      onChangeCustomGreetingName={onChangeCustomGreetingName}
-                      onTestGreeting={onTestGreeting}
-                      optAutoCompact={optAutoCompact}
-                      onToggleAutoCompact={onToggleAutoCompact}
-                      optNotifTime={optNotifTime}
-                      onChangeNotifTime={onChangeNotifTime}
-                      optNotifSound={optNotifSound}
-                      onChangeNotifSound={onChangeNotifSound}
-                      optCloseDelay={optCloseDelay}
-                      onChangeCloseDelay={onChangeCloseDelay}
-                      shortcuts={shortcuts}
-                      shortcutsEnabled={shortcutsEnabled}
-                      shortcutStatuses={shortcutStatuses}
-                      onUpdateShortcut={onUpdateShortcut}
-                      onResetShortcut={onResetShortcut}
-                      onToggleShortcutsEnabled={onToggleShortcutsEnabled}
-                      isLightMode={isLightMode}
-                    />
-                  </motion.div>
-                )}
+              }
+            />
 
-                {activeTab === "appearance" && (
-                  <motion.div
-                    key="appearance"
-                    variants={contentVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    className="w-full"
-                  >
-                    <AppearanceTab
-                      optTheme={optTheme}
-                      onChangeTheme={onChangeTheme}
-                      notchShape={notchShape}
-                      onChangeNotchShape={onChangeNotchShape}
-                      islandTopOffset={islandTopOffset}
-                      onChangeIslandTopOffset={onChangeIslandTopOffset}
-                      optPosition={optPosition}
-                      onChangePosition={onChangePosition}
-                      isLightMode={isLightMode}
-                      optFontSize={optFontSize}
-                      onChangeFontSize={onChangeFontSize}
-                      optIdleSize={optIdleSize}
-                      onChangeIdleSize={onChangeIdleSize}
-                      optTabSize={optTabSize}
-                      onChangeTabSize={onChangeTabSize}
-                      optEars={optEars}
-                      onToggleEars={onToggleEars}
-                      optOpacity={optOpacity}
-                      onChangeOpacity={onChangeOpacity}
-                      optAnimSpeed={optAnimSpeed}
-                      onChangeAnimSpeed={onChangeAnimSpeed}
-                    />
-                  </motion.div>
-                )}
+            {/* Auto-Compact */}
+            <SettingRow
+              icon={<AppWindow size={18} />}
+              iconBgClass="bg-[#142333]"
+              iconColorClass="text-[#0a84ff]"
+              title={t("settings_auto_compact")}
+              subtitle={t("settings_auto_compact_desc")}
+              control={
+                <IosSwitch
+                  checked={optAutoCompact}
+                  onChange={onToggleAutoCompact}
+                  activeColor="blue"
+                />
+              }
+            />
 
-                {activeTab === "idle" && (
-                  <motion.div
-                    key="idle"
-                    variants={contentVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    className="w-full"
-                  >
-                    <IdleTab
-                      layout={idleLayout}
-                      onChangeLayout={onChangeIdleLayout}
-                      runtimeData={idleRuntimeData}
-                    />
-                  </motion.div>
-                )}
-
-                {activeTab === "modules" && (
-                  <motion.div
-                    key="modules"
-                    variants={contentVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    className="w-full"
-                  >
-                    <ModulesTab
-                      optVolume={optVolume}
-                      onToggleVolume={onToggleVolume}
-                      optClipboard={optClipboard}
-                      onToggleClipboard={onToggleClipboard}
-                      optMedia={optMedia}
-                      onToggleMedia={onToggleMedia}
-                      optSoundFx={optSoundFx}
-                      onToggleSoundFx={onToggleSoundFx}
-                    />
-                  </motion.div>
-                )}
-
-                {activeTab === "advanced" && (
-                  <motion.div
-                    key="advanced"
-                    variants={contentVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    className="w-full"
-                  >
-                    <AdvancedTab
-                      currentAppVersion={currentAppVersion}
-                      updateStatus={updateStatus}
-                      updateInfo={updateInfo}
-                      downloadProgress={downloadProgress}
-                      onCheckUpdate={handleCheckUpdate}
-                      onInstallUpdate={handleInstallUpdate}
-                      clearTempStatus={clearTempStatus}
-                      clearedResult={clearedResult}
-                      onClearTempFiles={handleClearTempFiles}
-                      onTestNotification={onTestNotification}
-                      onClose={onClose}
-                    />
-                  </motion.div>
-                )}
-              </>
-            )}
-          </AnimatePresence>
+            {/* Sound FX */}
+            <SettingRow
+              icon={<Volume2 size={18} />}
+              iconBgClass="bg-[#241c30]"
+              iconColorClass="text-[#bf5af2]"
+              title={t("settings_sound_effects")}
+              subtitle={t("settings_sound_effects_desc")}
+              control={
+                <IosSwitch
+                  checked={optSoundFx}
+                  onChange={onToggleSoundFx || (() => {})}
+                  activeColor="blue"
+                />
+              }
+            />
+          </div>
         </div>
       </div>
     </motion.div>
