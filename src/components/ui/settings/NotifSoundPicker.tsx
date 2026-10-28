@@ -165,12 +165,12 @@ export const NotifSoundPicker: React.FC<NotifSoundPickerProps> = ({
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 6 }}
+            initial={{ opacity: 0, scale: 0.95, y: -6 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 6 }}
+            exit={{ opacity: 0, scale: 0.95, y: -6 }}
             transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
             data-scrollable="true"
-            className="absolute bottom-full mb-1.5 right-0 z-50 w-[215px] max-h-[280px] overflow-y-auto settings-scroll bg-[#18181c]/95 backdrop-blur-xl border border-white/15 rounded-[14px] p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.7)] flex flex-col gap-0.5"
+            className="absolute top-full mt-1.5 right-0 z-50 w-[215px] max-h-[280px] overflow-y-auto settings-scroll bg-[#18181c]/95 backdrop-blur-xl border border-white/15 rounded-[14px] p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.7)] flex flex-col gap-0.5"
           >
             {errorMessage && (
               <div className="px-2 py-1 text-[10px] text-red-300 bg-red-500/15 border border-red-500/20 rounded-lg text-center font-medium animate-in fade-in">

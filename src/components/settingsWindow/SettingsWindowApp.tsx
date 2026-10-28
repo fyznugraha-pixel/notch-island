@@ -87,7 +87,7 @@ export const SettingsWindowApp: React.FC = () => {
   const [activeSection, setActiveSection] = useState<SettingsWindowSection>(initialSection);
   const [searchQuery, setSearchQuery] = useState("");
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("4.2.0");
+  const [currentAppVersion, setCurrentAppVersion] = useState("4.2.1");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
@@ -771,10 +771,6 @@ export const SettingsWindowApp: React.FC = () => {
       <header
         data-tauri-drag-region
         onDoubleClick={(e) => e.preventDefault()}
-        onMouseDown={(e) => {
-          if ((e.target as HTMLElement).closest("button, input")) return;
-          getCurrentWindow().startDragging().catch(() => {});
-        }}
         className={`h-[44px] shrink-0 w-full flex items-center justify-between pl-4 pr-2.5 border-b ${
           isLightMode
             ? "bg-[#ebebef]/95 border-black/[0.08]"
