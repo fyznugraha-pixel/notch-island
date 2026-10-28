@@ -80,6 +80,8 @@ export const translations = {
   settings_notif_duration_desc: { en: "How long pop-up stays on screen", id: "Lama pop-up bertahan di layar" },
   settings_notif_sound: { en: "Notification Sound", id: "Suara Notifikasi" },
   settings_notif_sound_desc: { en: "Tone played when notifications arrive", id: "Suara saat ada notifikasi masuk" },
+  settings_hide_windows_banner: { en: "Move Windows notifications to Gili", id: "Pindahkan notifikasi Windows ke Gili" },
+  settings_hide_windows_banner_desc: { en: "Hides Windows pop-up banners for all apps. They still appear in Gili, not muted", id: "Sembunyikan banner pop-up Windows di semua aplikasi. Tetap muncul di Gili, bukan di-mute" },
   sound_upload_mp3: { en: "Upload Audio (MP3)...", id: "Unggah Audio (MP3)..." },
   sound_custom_section: { en: "Custom Sounds", id: "Suara Kustom" },
   sound_preset_section: { en: "Preset Sounds", id: "Suara Bawaan" },

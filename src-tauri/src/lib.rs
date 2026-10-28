@@ -6,6 +6,7 @@ mod system_monitor;
 mod audio_endpoints;
 mod migration;
 mod windows_dnd;
+mod toast_banners;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -2350,6 +2351,8 @@ pub fn run() {
             system_monitor::clear_temp_files,
             windows_dnd::set_windows_dnd,
             windows_dnd::get_windows_dnd,
+            toast_banners::set_windows_banners_hidden,
+            toast_banners::get_windows_banners_hidden,
             open_settings_window,
             take_pending_settings_section,
             broadcast_settings_sync,

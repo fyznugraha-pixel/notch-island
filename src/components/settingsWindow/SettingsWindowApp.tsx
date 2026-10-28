@@ -61,6 +61,7 @@ import { SearchResults } from "../ui/settings/SearchResults";
 import { SettingRow } from "../ui/settings/SettingRow";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { NotifSoundPicker } from "../ui/settings/NotifSoundPicker";
+import { WindowsBannerRow } from "../ui/settings/WindowsBannerRow";
 
 const sectionVariants = {
   initial: { opacity: 0 },
@@ -1080,6 +1081,8 @@ export const SettingsWindowApp: React.FC = () => {
                             />
                           }
                         />
+
+                        <WindowsBannerRow />
 
                         <SettingRow
                           icon={<Send size={18} />}
