@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { LyricLine } from "./types";
+import type { LyricLine } from "./types";
 
 export function cleanTitle(title: string): string {
   if (!title) return "";
   return title
-    .replace(/\s*[\(\[][^)\]]*(feat\.|ft\.|official|audio|video|lyric|lyrics|visualizer|mv|music video|performance|special clip|color coded|remix|version|remastered|deluxe|live|explicit|4k|hd)[\s\S]*?[\)\]]/gi, "")
-    .replace(/\s*-\s*(official|audio|video|lyric|lyrics|visualizer|mv|music video|remix|version|remastered|deluxe|live)[\s\S]*$/gi, "")
+    .replace(/\s*[\(\[][^)\]]*\b(feat\.?|ft\.?|official|audio|video|lyric|lyrics|visualizer|mv|music video|performance|special clip|color coded|remix|version|remastered|deluxe|live|explicit|4k|hd)\b[\s\S]*?[\)\]]/gi, "")
+    .replace(/\s+-\s+(official\s+(audio|video|music\s+video|lyric\s+video|visualizer)|lyric\s+video|music\s+video|visualizer|remastered(\s+\d{4})?|deluxe(\s+edition|\s+version)?|live(?:\s+(?:at|in|from|version|performance)\b|$)|\d{4}\s+remaster(ed)?)\b[\s\S]*$/gi, "")
     .replace(/\s*\|\s*[\s\S]*$/g, "")
     .trim();
 }

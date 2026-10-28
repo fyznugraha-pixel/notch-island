@@ -158,7 +158,7 @@ export function parseDateNlp(
   // Try matching combined: [Day] [Time] or [Time] [Day] or just [Day] or just [Time]
   // Pattern 1: Day phrase followed optionally by "jam / pukul / at" + time
   const combinedPattern = new RegExp(
-    `(${relativeDayPattern.source})(?:\\s+(?:(?:jam|pukul|at)\\s+)?(\\d{1,2}(?:[:.]\\d{2})?\\s*(?:pagi|siang|sore|malam|am|pm|morning|afternoon|evening|night)?))?`,
+    `(${relativeDayPattern.source})(?:\\s+((?:(?:jam|pukul|at)\\s+)?\\d{1,2}(?:[:.]\\d{2})?\\s*(?:pagi|siang|sore|malam|am|pm|morning|afternoon|evening|night)?))?`,
     "i"
   );
 
@@ -237,7 +237,9 @@ export function parseDateNlp(
 
     // Resolve explicit time part if present (e.g. "jam 4 sore", "16:00", "4pm")
     if (timePart) {
-      const parsedTime = parseTimeSnippet(timePart);
+      const dayPeriodMatch = dayPart.match(/\b(pagi|siang|sore|malam|morning|afternoon|evening|night)\b/i);
+      const fallbackPeriod = dayPeriodMatch ? dayPeriodMatch[1] : "";
+      const parsedTime = parseTimeSnippet(timePart, fallbackPeriod);
       if (parsedTime) {
         resolvedHour = parsedTime.hour;
         resolvedMinute = parsedTime.minute;
@@ -308,13 +310,13 @@ export function parseDateNlp(
   return emptyResult;
 }
 
-function parseTimeSnippet(snippet: string): { hour: number; minute: number } | null {
+function parseTimeSnippet(snippet: string, fallbackModifier: string = ""): { hour: number; minute: number } | null {
   const match = snippet.match(/(?:(?:jam|pukul|at)\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(pagi|siang|sore|malam|am|pm|morning|afternoon|evening|night)?/i);
   if (!match) return null;
 
   let h = parseInt(match[1], 10);
   const m = match[2] ? parseInt(match[2], 10) : 0;
-  const modifier = match[3] ? match[3].toLowerCase() : "";
+  const modifier = (match[3] || fallbackModifier).toLowerCase();
 
   if (isNaN(h) || h < 0 || h > 24 || isNaN(m) || m < 0 || m > 59) {
     return null;

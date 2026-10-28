@@ -1,4 +1,4 @@
-import { NotifPayload } from "../types";
+import type { NotifPayload } from "../types";
 import { getLanguage } from "./i18n";
 
 export type NotificationCategory = "all" | "unread" | "reminder" | "message" | "system";

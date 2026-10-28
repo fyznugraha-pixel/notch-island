@@ -68,7 +68,7 @@ export function useTodoReminders(
           continue;
         }
 
-        const offsets = item.reminders && item.reminders.length > 0 ? item.reminders : [0, 10];
+        const offsets = Array.isArray(item.reminders) ? item.reminders : [0, 10];
         const diffMs = item.dueAt - now;
         const diffMinutes = Math.ceil(diffMs / 60000);
 

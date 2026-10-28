@@ -3,6 +3,7 @@ import {
   loadWaterData,
   saveWaterData,
   getDailyIntake,
+  getStreakInfo,
   getLogicalDateKey,
 } from "../services/waterService";
 import type { WaterToastType } from "../components/ui/water/WaterNotchToast";
@@ -48,8 +49,9 @@ export function useWaterReminder({ isFocusMode, onTriggerToast }: UseWaterRemind
 
       if (isNearEndOfDay && warnedStreakDateRef.current !== todayKey) {
         const daily = getDailyIntake(now, data);
+        const streakInfo = getStreakInfo(data);
         const streakGoal = (data.settings.dailyTargetMl * data.settings.streakThresholdPercent) / 100;
-        if (daily.totalMl < streakGoal) {
+        if (streakInfo.currentStreak > 0 && daily.totalMl < streakGoal) {
           warnedStreakDateRef.current = todayKey;
           onTriggerToast({
             type: "streak_threatened",

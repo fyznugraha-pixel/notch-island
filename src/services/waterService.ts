@@ -500,7 +500,9 @@ export function getStreakInfo(dataOverride?: WaterData) {
  * 08, 10, 12, 14, 16, 18, 20
  */
 export function getTwoHourDistribution(targetDate = new Date(), dataOverride?: WaterData) {
-  const daily = getDailyIntake(targetDate, dataOverride);
+  const data = dataOverride || loadWaterData();
+  const dayStartHour = data.settings.dayStartHour;
+  const daily = getDailyIntake(targetDate, data);
   const slots = [8, 10, 12, 14, 16, 18, 20];
   const maxSlotMl = 500; // Reference max for bar height calculation (40px)
 
@@ -509,8 +511,8 @@ export function getTwoHourDistribution(targetDate = new Date(), dataOverride?: W
     const slotRecords = daily.records.filter((r) => {
       const d = new Date(r.timestamp);
       const h = d.getHours();
-      if (idx === 0) return h < 10;
-      if (idx === slots.length - 1) return h >= 20;
+      if (idx === 0) return h >= dayStartHour && h < 10;
+      if (idx === slots.length - 1) return h >= 20 || h < dayStartHour;
       return h >= hour && h < hour + 2;
     });
 
