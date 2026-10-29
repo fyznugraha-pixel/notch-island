@@ -111,6 +111,8 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   const isEn = getLanguage() === "en";
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const [isPowerMenuOpen, setIsPowerMenuOpen] = useState(false);
+  // Two-step confirmation for destructive power actions ("restart" | "shutdown")
+  const [pendingPowerAction, setPendingPowerAction] = useState<null | "restart" | "shutdown">(null);
   const [activeSubmenu, setActiveSubmenu] = useState<null | "wifi" | "bluetooth">(null);
   const [localWifiOn, setLocalWifiOn] = useState<boolean | null>(null);
   const [localBtOn, setLocalBtOn] = useState<boolean | null>(null);
@@ -341,6 +343,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 e.stopPropagation();
                 setIsModeDropdownOpen(false);
                 setIsPowerMenuOpen(false);
+                setPendingPowerAction(null);
               }}
             />
           )}
@@ -752,32 +755,96 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       onClick={(e) => e.stopPropagation()}
                       className="absolute right-0 top-[calc(100%+6px)] z-50 w-[168px] p-1.5 rounded-[16px] bg-[#17171d] border border-[#2a2a31] shadow-[0_8px_20px_rgba(0,0,0,0.5)] flex flex-col gap-1"
                     >
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsPowerMenuOpen(false);
-                          invoke("system_power_action", { action: "restart" }).catch(console.error);
-                          onClose();
-                        }}
-                        className="h-[36px] px-2.5 rounded-[11px] hover:bg-white/[0.06] text-[#e4e4e7] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <RotateCcw size={14} className="text-sky-400" />
-                        <span>{t("cc_restart_pc")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsPowerMenuOpen(false);
-                          invoke("system_power_action", { action: "shutdown" }).catch(console.error);
-                          onClose();
-                        }}
-                        className="h-[36px] px-2.5 rounded-[11px] hover:bg-[rgba(255,107,90,0.16)] text-[#ff9b8f] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <Power size={14} />
-                        <span>{t("cc_shutdown_pc")}</span>
-                      </button>
+                      {pendingPowerAction === "restart" ? (
+                        <div className="p-2 rounded-[11px] bg-[rgba(255,107,90,0.10)] border border-[rgba(255,107,90,0.25)] flex flex-col gap-2">
+                          <span className="text-[11px] text-[#ff9b8f] font-medium leading-snug">
+                            {isEn ? "Restart this PC now?" : "Restart PC sekarang?"}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingPowerAction(null);
+                              }}
+                              className="flex-1 h-[28px] rounded-[9px] bg-transparent border-0 text-[#a1a1aa] text-[11px] font-medium cursor-pointer hover:bg-white/[0.06]"
+                            >
+                              {t("action_cancel")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIsPowerMenuOpen(false);
+                                setPendingPowerAction(null);
+                                invoke("system_power_action", { action: "restart" }).catch(console.error);
+                                onClose();
+                              }}
+                              className="flex-1 h-[28px] rounded-[9px] bg-red-600 border-0 text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              {isEn ? "Restart" : "Restart"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingPowerAction("restart");
+                          }}
+                          className="h-[36px] px-2.5 rounded-[11px] hover:bg-white/[0.06] text-[#e4e4e7] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
+                        >
+                          <RotateCcw size={14} className="text-sky-400" />
+                          <span>{t("cc_restart_pc")}</span>
+                        </button>
+                      )}
+                      {pendingPowerAction === "shutdown" ? (
+                        <div className="p-2 rounded-[11px] bg-[rgba(255,107,90,0.10)] border border-[rgba(255,107,90,0.25)] flex flex-col gap-2">
+                          <span className="text-[11px] text-[#ff9b8f] font-medium leading-snug">
+                            {isEn
+                              ? "Shut down this PC now? Unsaved work will be lost."
+                              : "Matikan PC sekarang? Pekerjaan yang belum disimpan akan hilang."}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingPowerAction(null);
+                              }}
+                              className="flex-1 h-[28px] rounded-[9px] bg-transparent border-0 text-[#a1a1aa] text-[11px] font-medium cursor-pointer hover:bg-white/[0.06]"
+                            >
+                              {t("action_cancel")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIsPowerMenuOpen(false);
+                                setPendingPowerAction(null);
+                                invoke("system_power_action", { action: "shutdown" }).catch(console.error);
+                                onClose();
+                              }}
+                              className="flex-1 h-[28px] rounded-[9px] bg-red-600 border-0 text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              {isEn ? "Shut Down" : "Matikan"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingPowerAction("shutdown");
+                          }}
+                          className="h-[36px] px-2.5 rounded-[11px] hover:bg-[rgba(255,107,90,0.16)] text-[#ff9b8f] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
+                        >
+                          <Power size={14} />
+                          <span>{t("cc_shutdown_pc")}</span>
+                        </button>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>

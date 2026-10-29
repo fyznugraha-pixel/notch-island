@@ -234,6 +234,8 @@ export function logDrink(amountMl: number, isManual = false, timestamp?: number)
   const finalData: WaterData = {
     ...intermediateData,
     celebratedMilestones: celebrated,
+    // Persist best-streak here (the write point), not inside the pure getter.
+    bestStreakDays: Math.max(data.bestStreakDays, getStreakInfo(intermediateData).bestStreak),
   };
 
   saveWaterData(finalData);
@@ -414,11 +416,9 @@ export function getStreakInfo(dataOverride?: WaterData) {
     cursor.setDate(cursor.getDate() - 1);
   }
 
+  // Pure read: never mutate the caller's object or persist here. Best-streak is
+  // persisted at write points (logDrink) instead.
   const bestStreak = Math.max(data.bestStreakDays, currentStreak);
-  if (bestStreak > data.bestStreakDays) {
-    data.bestStreakDays = bestStreak;
-    saveWaterData(data);
-  }
 
   // Generate 7-day display list:
   // - If streak is active (currentStreak > 0): follow the day the streak started ("ikutin hari dimana iya mulai")

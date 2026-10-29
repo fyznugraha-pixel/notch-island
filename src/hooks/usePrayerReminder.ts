@@ -16,6 +16,34 @@ interface UsePrayerReminderOptions {
   onTriggerToast: (toast: PrayerToastPayload) => void;
 }
 
+const TRIGGERED_STORAGE_KEY_PREFIX = "island_prayer_triggered_";
+
+function loadTriggeredKeys(todayKey: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(`${TRIGGERED_STORAGE_KEY_PREFIX}${todayKey}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return new Set(parsed);
+    }
+  } catch {}
+  return new Set();
+}
+
+function persistTriggeredKeys(todayKey: string, keys: Set<string>) {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(TRIGGERED_STORAGE_KEY_PREFIX) && k !== `${TRIGGERED_STORAGE_KEY_PREFIX}${todayKey}`) {
+        localStorage.removeItem(k);
+      }
+    }
+    localStorage.setItem(
+      `${TRIGGERED_STORAGE_KEY_PREFIX}${todayKey}`,
+      JSON.stringify(Array.from(keys))
+    );
+  } catch {}
+}
+
 export function usePrayerReminder({
   isFocusMode,
   onTriggerToast,
@@ -23,7 +51,8 @@ export function usePrayerReminder({
   const [schedule, setSchedule] = useState<PrayerScheduleData>(() =>
     getImmediatePrayerSchedule()
   );
-  const triggeredSetRef = useRef<Set<string>>(new Set());
+  const currentTodayKeyRef = useRef<string>(getTodayDateKey());
+  const triggeredSetRef = useRef<Set<string>>(loadTriggeredKeys(currentTodayKeyRef.current));
 
   const refreshSchedule = useCallback(async (force = false) => {
     try {
@@ -56,6 +85,11 @@ export function usePrayerReminder({
       const now = new Date();
       const todayKey = getTodayDateKey(now);
 
+      if (currentTodayKeyRef.current !== todayKey) {
+        currentTodayKeyRef.current = todayKey;
+        triggeredSetRef.current = loadTriggeredKeys(todayKey);
+      }
+
       if (schedule.dateKey !== todayKey) {
         refreshSchedule(true);
       }
@@ -71,14 +105,17 @@ export function usePrayerReminder({
         const targetMinutes = timeStringToMinutes(timeStr);
         const diff = targetMinutes - currentMinutes;
 
-        // 1. Pre-reminder (e.g., 10 minutes before prayer time)
+        // 1. Pre-reminder (e.g., 10 minutes before prayer time).
+        // 1-minute window to handle polling interval jitter.
         if (
           settings.preReminderEnabled &&
-          diff === settings.preReminderMinutes
+          diff <= settings.preReminderMinutes &&
+          diff >= settings.preReminderMinutes - 1
         ) {
           const preKey = `${todayKey}_${prayerId}_pre_${settings.preReminderMinutes}`;
           if (!triggeredSetRef.current.has(preKey)) {
             triggeredSetRef.current.add(preKey);
+            persistTriggeredKeys(todayKey, triggeredSetRef.current);
             onTriggerToast({
               type: "pre_reminder",
               prayerId,
@@ -90,11 +127,13 @@ export function usePrayerReminder({
           }
         }
 
-        // 2. Exact Prayer Time (Adzan time)
-        if (diff === 0) {
+        // 2. Exact Prayer Time (Adzan time).
+        // Tight 1-minute window so waking up or booting after adzan time never fires late.
+        if (diff <= 0 && diff >= -1) {
           const exactKey = `${todayKey}_${prayerId}_exact`;
           if (!triggeredSetRef.current.has(exactKey)) {
             triggeredSetRef.current.add(exactKey);
+            persistTriggeredKeys(todayKey, triggeredSetRef.current);
             onTriggerToast({
               type: "prayer_time",
               prayerId,

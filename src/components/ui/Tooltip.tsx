@@ -157,6 +157,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
       className={`relative inline-flex items-center justify-center ${wrapperClassName}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onFocus={handleMouseEnter}
+      onBlur={handleMouseLeave}
     >
       {children}
       {typeof document !== "undefined" &&

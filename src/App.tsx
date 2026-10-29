@@ -814,12 +814,19 @@ export default function App() {
     return newItem;
   };
 
+  const todoItemsRef = useRef<TodoItem[]>([]);
+  useEffect(() => {
+    todoItemsRef.current = todoItems;
+  }, [todoItems]);
+
   const toggleTodoItem = useCallback((id: string) => {
+    // Decide the sound OUTSIDE the updater: React may run updaters twice in dev
+    // StrictMode, which would play the completion sound (and any side effect) twice.
+    const target = todoItemsRef.current.find((item) => item.id === id);
+    if (target && !target.completed) {
+      playTaskCompleteSound();
+    }
     setTodoItems((prev) => {
-      const target = prev.find((item) => item.id === id);
-      if (target && !target.completed) {
-        playTaskCompleteSound();
-      }
       const updated = prev.map((item) =>
         item.id === id ? { ...item, completed: !item.completed } : item
       );
@@ -1501,6 +1508,13 @@ export default function App() {
     setControlCenterSubmenu(null);
     setIsNoteEditing(false);
 
+    if (targetTab === "settings" && currentTab && currentTab !== "settings") {
+      tabBeforeSettingsRef.current = currentTab;
+    }
+    if (targetTab === "notif_center" && currentTab && currentTab !== "notif_center") {
+      tabBeforeNotifRef.current = currentTab;
+    }
+
     isExpandedRef.current = targetTab === "media_expanded";
     setIsExpanded(targetTab === "media_expanded");
 
@@ -1594,10 +1608,14 @@ export default function App() {
 
   const handleToggleSettings = () => {
     if (currentTab === "settings") {
-      const fallbackTab: ExpandedTab = media ? "media_expanded" : "quick_control";
-      const target = (tabBeforeSettingsRef.current && (tabBeforeSettingsRef.current as string) !== "settings")
-        ? tabBeforeSettingsRef.current
-        : fallbackTab;
+      const fallbackTab: ExpandedTab =
+        lastActiveTabRef.current && (lastActiveTabRef.current as string) !== "settings"
+          ? lastActiveTabRef.current
+          : (availableTabs[0] as ExpandedTab) || "quick_control";
+      const target =
+        tabBeforeSettingsRef.current && (tabBeforeSettingsRef.current as string) !== "settings"
+          ? tabBeforeSettingsRef.current
+          : fallbackTab;
       tabBeforeSettingsRef.current = null;
       goToTab(target, -1);
       return;
@@ -1608,10 +1626,14 @@ export default function App() {
 
   const handleToggleNotifications = () => {
     if (currentTab === "notif_center") {
-      const fallbackTab: ExpandedTab = media ? "media_expanded" : "quick_control";
-      const target = (tabBeforeNotifRef.current && (tabBeforeNotifRef.current as string) !== "notif_center")
-        ? tabBeforeNotifRef.current
-        : fallbackTab;
+      const fallbackTab: ExpandedTab =
+        lastActiveTabRef.current && (lastActiveTabRef.current as string) !== "notif_center"
+          ? lastActiveTabRef.current
+          : (availableTabs[0] as ExpandedTab) || "quick_control";
+      const target =
+        tabBeforeNotifRef.current && (tabBeforeNotifRef.current as string) !== "notif_center"
+          ? tabBeforeNotifRef.current
+          : fallbackTab;
       tabBeforeNotifRef.current = null;
       goToTab(target, -1);
       return;
@@ -2240,7 +2262,18 @@ export default function App() {
     };
     initSettings();
     loadPersistedShelfFiles().then((saved) => {
-      if (saved.length > 0) setStashedFiles(saved);
+      // Never clobber files the user dropped during the async load window:
+      // merge persisted + current, dedup by path, keep newest.
+      setStashedFiles((current) => {
+        if (saved.length === 0) return current;
+        if (current.length === 0) return saved;
+        const byPath = new Map<string, StashedFile>();
+        for (const f of [...saved, ...current]) {
+          const prev = byPath.get(f.path);
+          if (!prev || f.addedAt >= prev.addedAt) byPath.set(f.path, f);
+        }
+        return Array.from(byPath.values()).sort((a, b) => b.addedAt - a.addedAt);
+      });
     });
 
     const bootGreeting = async () => {
@@ -2503,12 +2536,40 @@ export default function App() {
     invoke<boolean>("get_windows_dnd")
       .then((isWinDnd) => {
         if (isWinDnd) {
+          // Windows DND wins on boot: sync Gili into DND.
           setFocusMode("DND");
           focusModeRef.current = "DND";
           setDndStatus(true);
+        } else if (getDndStatus()) {
+          // Reverse path (was missing): local flag says DND but the user turned
+          // Windows DND off externally — reconcile instead of muting forever.
+          setFocusMode("Normal");
+          focusModeRef.current = "Normal";
+          setDndStatus(false);
         }
       })
       .catch(() => {});
+
+    // Keep Gili's DND in sync when Windows Focus Assist is toggled outside Gili.
+    let dndPollTimer: number | undefined;
+    const pollWindowsDnd = async () => {
+      try {
+        const isWinDnd = await invoke<boolean>("get_windows_dnd");
+        const giliDnd = focusModeRef.current === "DND";
+        if (isWinDnd && !giliDnd) {
+          setFocusMode("DND");
+          focusModeRef.current = "DND";
+          setDndStatus(true);
+        } else if (!isWinDnd && giliDnd) {
+          setFocusMode("Normal");
+          focusModeRef.current = "Normal";
+          setDndStatus(false);
+        }
+      } catch {
+        /* ignore transient query failures */
+      }
+    };
+    dndPollTimer = window.setInterval(pollWindowsDnd, 15_000);
 
     const unlistenPrivacy = listen<{cam: boolean, mic: boolean}>("privacy-update", (event) => {
       setCamActive(event.payload.cam);
@@ -2543,6 +2604,7 @@ export default function App() {
 
     return () => {
       clearInterval(timer);
+      if (dndPollTimer !== undefined) window.clearInterval(dndPollTimer);
       unlistenPrivacy.then(f => f());
       unlistenUsb.then(f => f());
       unlistenAudio.then(f => f());
@@ -2785,11 +2847,19 @@ export default function App() {
                           .then(() => {
                             addClipboardItem(cleanOcr);
                             showNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
+                          })
+                          .catch((err) => {
+                            console.error(err);
+                            // Surface the failure instead of silently keeping the guard on
+                            showNotif({ title: t("notif_ocr_copy_failed"), body: "", icon: "clipboard" });
+                          })
+                          .finally(() => {
+                            // ALWAYS release the guard (success or failure), otherwise the
+                            // clipboard-history pipeline stays blocked permanently.
                             setTimeout(() => {
                               isOcrWritingRef.current = false;
                             }, 2000);
-                          })
-                          .catch(console.error);
+                          });
                       },
                     });
                   }
@@ -4667,17 +4737,19 @@ export default function App() {
                 >
                   <PanelFrame
                     title={panelTitle}
-                    hasPrev={isSubPage ? true : currentTabIndex > 0}
-                    hasNext={isSubPage ? false : currentTabIndex < availableTabs.length - 1}
+                    hasPrev={currentTab === "settings" || isSubPage ? true : currentTabIndex > 0}
+                    hasNext={currentTab === "settings" || isSubPage ? false : currentTabIndex < availableTabs.length - 1}
                     onPrev={
-                      currentTab === "notif_center"
-                        ? () => goToTab(tabBeforeNotifRef.current ?? (media ? "media_expanded" : "quick_control"), -1)
+                      currentTab === "settings"
+                        ? handleToggleSettings
+                        : currentTab === "notif_center"
+                        ? handleToggleNotifications
                         : isSubPage
                         ? () => goToTab("quick_control", -1)
                         : handlePrevTab
                     }
                     onNext={handleNextTab}
-                    prevTooltip={isSubPage ? t("nav_back") : t("nav_prev")}
+                    prevTooltip={currentTab === "settings" || isSubPage ? t("nav_back") : t("nav_prev")}
                     nextTooltip={t("nav_next")}
                     onToggleSettings={isSubPage ? undefined : handleToggleSettings}
                     isSettingsActive={currentTab === "settings"}
@@ -4779,6 +4851,7 @@ export default function App() {
                             <TodoListPanel
                               items={todoItems}
                               optLanguage={optLanguage}
+                              isLightMode={isLightMode}
                               onAddItem={addTodoItem}
                               onToggleItem={toggleTodoItem}
                               onDeleteItem={deleteTodoItem}

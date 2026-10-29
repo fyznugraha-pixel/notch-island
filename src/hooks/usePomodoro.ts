@@ -52,6 +52,13 @@ export function usePomodoro() {
     focusedTaskRef.current = focusedTaskId;
   }, [focusedTaskId]);
 
+  // Deadline-anchored countdown: immune to WebView2 timer throttling when the
+  // window is hidden/background. remainingSec is always derived from wall clock,
+  // never from "ticks so far".
+  const deadlineRef = useRef<number | null>(null); // epoch ms when the current phase ends
+  const sessionStartRef = useRef<number | null>(null); // epoch ms when this phase started
+  const completionFiredRef = useRef(false);
+
   const totalSec = getModeDurationSeconds(mode, settings);
   const hasStartedSession = remainingSec < totalSec || isRunning;
 
@@ -78,70 +85,109 @@ export function usePomodoro() {
 
       setCycleSession(nextCycle);
       setMode(nextMode);
-      setRemainingSec(getModeDurationSeconds(nextMode, cfg));
+      const nextTotal = getModeDurationSeconds(nextMode, cfg);
+      setRemainingSec(nextTotal);
+      if (autoStart) {
+        sessionStartRef.current = Date.now();
+        deadlineRef.current = Date.now() + nextTotal * 1000;
+        completionFiredRef.current = false;
+      } else {
+        sessionStartRef.current = null;
+        deadlineRef.current = null;
+      }
       setIsRunning(autoStart);
     },
     []
   );
 
+  // Handle phase completion OUTSIDE the state updater (updaters may run twice in
+  // StrictMode; persistence writes and sounds must fire exactly once).
+  const handlePhaseComplete = useCallback(() => {
+    if (completionFiredRef.current) return;
+    completionFiredRef.current = true;
+
+    const currentCfg = settingsRef.current;
+    const finished = modeRef.current;
+
+    if (currentCfg.soundOnComplete) {
+      playPomodoroAlertSound();
+    }
+
+    if (finished === "focus") {
+      const updatedStats = recordPomodoroSession(currentCfg.focusMinutes);
+      setDailyStats(updatedStats);
+    }
+
+    const nextMode: PomodoroMode =
+      finished === "focus"
+        ? cycleRef.current >= currentCfg.sessionsPerCycle
+          ? "long_break"
+          : "short_break"
+        : "focus";
+
+    const nextDurationMin =
+      nextMode === "focus"
+        ? currentCfg.focusMinutes
+        : nextMode === "short_break"
+        ? currentCfg.shortBreakMinutes
+        : currentCfg.longBreakMinutes;
+
+    setCompleteAlert({
+      finishedMode: finished,
+      nextMode,
+      nextDurationMin,
+      cycleSession: cycleRef.current,
+      sessionsPerCycle: currentCfg.sessionsPerCycle,
+      focusedTaskId: focusedTaskRef.current,
+    });
+
+    if (currentCfg.autoStartNext) {
+      advanceToNextMode(finished, true);
+    } else {
+      setIsRunning(false);
+      deadlineRef.current = null;
+      sessionStartRef.current = null;
+    }
+  }, [advanceToNextMode]);
+
   useEffect(() => {
     if (!isRunning) return;
 
-    const interval = window.setInterval(() => {
+    // Establish a wall-clock deadline when one is missing (e.g. toggled on via
+    // handlers that only flip isRunning).
+    if (deadlineRef.current == null) {
       setRemainingSec((prev) => {
-        if (prev > 1) {
-          return prev - 1;
-        }
-
-        const currentCfg = settingsRef.current;
-        const finished = modeRef.current;
-
-        if (currentCfg.soundOnComplete) {
-          playPomodoroAlertSound();
-        }
-
-        if (finished === "focus") {
-          const updatedStats = recordPomodoroSession(currentCfg.focusMinutes);
-          setDailyStats(updatedStats);
-        }
-
-        const nextMode: PomodoroMode =
-          finished === "focus"
-            ? cycleRef.current >= currentCfg.sessionsPerCycle
-              ? "long_break"
-              : "short_break"
-            : "focus";
-
-        const nextDurationMin =
-          nextMode === "focus"
-            ? currentCfg.focusMinutes
-            : nextMode === "short_break"
-            ? currentCfg.shortBreakMinutes
-            : currentCfg.longBreakMinutes;
-
-        setCompleteAlert({
-          finishedMode: finished,
-          nextMode,
-          nextDurationMin,
-          cycleSession: cycleRef.current,
-          sessionsPerCycle: currentCfg.sessionsPerCycle,
-          focusedTaskId: focusedTaskRef.current,
-        });
-
-        if (currentCfg.autoStartNext) {
-          window.setTimeout(() => {
-            advanceToNextMode(finished, true);
-          }, 50);
-        } else {
-          setIsRunning(false);
-        }
-
-        return 0;
+        const base = prev > 0 ? prev : getModeDurationSeconds(modeRef.current, settingsRef.current);
+        deadlineRef.current = Date.now() + base * 1000;
+        if (sessionStartRef.current == null) sessionStartRef.current = Date.now();
+        completionFiredRef.current = false;
+        return base;
       });
-    }, 1000);
+    }
 
-    return () => clearInterval(interval);
-  }, [isRunning, advanceToNextMode]);
+    const tick = () => {
+      const deadline = deadlineRef.current;
+      if (deadline == null) return;
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setRemainingSec(remaining);
+      if (remaining <= 0) {
+        handlePhaseComplete();
+      }
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 500);
+    // Fire immediately when the window becomes visible again after throttling.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [isRunning, handlePhaseComplete]);
 
   const handleSelectMode = useCallback(
     (nextMode: PomodoroMode) => {
@@ -149,25 +195,37 @@ export function usePomodoro() {
       setCompleteAlert(null);
       setMode(nextMode);
       setRemainingSec(getModeDurationSeconds(nextMode, settingsRef.current));
+      sessionStartRef.current = null;
+      deadlineRef.current = null;
     },
     []
   );
 
   const handleToggleRunning = useCallback(() => {
     setCompleteAlert(null);
+    if (isRunning) {
+      // pausing: keep remaining as-is; clear the deadline so resuming re-anchors it
+      deadlineRef.current = null;
+      sessionStartRef.current = null;
+      setIsRunning(false);
+      return;
+    }
     setRemainingSec((prev) => {
-      if (prev <= 0) {
-        return getModeDurationSeconds(modeRef.current, settingsRef.current);
-      }
-      return prev;
+      const base = prev > 0 ? prev : getModeDurationSeconds(modeRef.current, settingsRef.current);
+      sessionStartRef.current = Date.now();
+      deadlineRef.current = Date.now() + base * 1000;
+      completionFiredRef.current = false;
+      return base;
     });
-    setIsRunning((prev) => !prev);
-  }, []);
+    setIsRunning(true);
+  }, [isRunning]);
 
   const handleReset = useCallback(() => {
     setIsRunning(false);
     setCompleteAlert(null);
     setRemainingSec(getModeDurationSeconds(modeRef.current, settingsRef.current));
+    sessionStartRef.current = null;
+    deadlineRef.current = null;
   }, []);
 
   const handleSkip = useCallback(() => {
@@ -190,7 +248,11 @@ export function usePomodoro() {
     setFocusedTaskId(taskId);
     setCompleteAlert(null);
     setMode("focus");
-    setRemainingSec(getModeDurationSeconds("focus", settingsRef.current));
+    const total = getModeDurationSeconds("focus", settingsRef.current);
+    setRemainingSec(total);
+    sessionStartRef.current = Date.now();
+    deadlineRef.current = Date.now() + total * 1000;
+    completionFiredRef.current = false;
     setIsRunning(true);
   }, []);
 
@@ -213,6 +275,8 @@ export function usePomodoro() {
       setMode("focus");
       setRemainingSec(getModeDurationSeconds("focus", cfg));
       setIsRunning(false);
+      sessionStartRef.current = null;
+      deadlineRef.current = null;
     } else {
       advanceToNextMode(finished, false);
     }

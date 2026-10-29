@@ -101,11 +101,21 @@ fn migrate_shortcuts() {
     // Ensure Desktop shortcut for Gili exists
     if !desktop_gili.exists() {
         let lnk_str = desktop_gili.to_string_lossy().replace('\'', "''");
-        let script = format!(
-            "$w = New-Object -ComObject WScript.Shell; $s = $w.CreateShortcut('{lnk_str}'); $s.TargetPath = '{target_path_str}'; $s.IconLocation = '{target_path_str},0'; $s.Save()"
-        );
+        // Pass paths as literal arguments ($args), NOT interpolated into the script text:
+        // single-quote escaping alone does not stop PowerShell expansion of $(...) or
+        // backticks inside a double-quoted '-Command' string. $args[...] is bound to the
+        // argument value verbatim, so no code can ever execute from a crafted path.
+        let script = "$w = New-Object -ComObject WScript.Shell; $s = $w.CreateShortcut($args[0]); $s.TargetPath = $args[1]; $s.IconLocation = $args[1] + ',0'; $s.Save()";
         let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+            .args([
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                script,
+                &lnk_str,
+                &target_path_str,
+            ])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
     }
@@ -113,11 +123,17 @@ fn migrate_shortcuts() {
     // Ensure Start Menu shortcut for Gili exists
     if !start_gili.exists() {
         let lnk_str = start_gili.to_string_lossy().replace('\'', "''");
-        let script = format!(
-            "$w = New-Object -ComObject WScript.Shell; $s = $w.CreateShortcut('{lnk_str}'); $s.TargetPath = '{target_path_str}'; $s.IconLocation = '{target_path_str},0'; $s.Save()"
-        );
+        let script = "$w = New-Object -ComObject WScript.Shell; $s = $w.CreateShortcut($args[0]); $s.TargetPath = $args[1]; $s.IconLocation = $args[1] + ',0'; $s.Save()";
         let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+            .args([
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                script,
+                &lnk_str,
+                &target_path_str,
+            ])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
     }

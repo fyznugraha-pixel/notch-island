@@ -339,8 +339,20 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
     });
   };
 
+  // Two-step delete: first click arms the button for 3s; second click deletes.
+  const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
+  const armedDeleteTimerRef = useRef<number | null>(null);
+
   const handleDeleteNote = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    if (armedDeleteId !== id) {
+      setArmedDeleteId(id);
+      if (armedDeleteTimerRef.current) window.clearTimeout(armedDeleteTimerRef.current);
+      armedDeleteTimerRef.current = window.setTimeout(() => setArmedDeleteId(null), 3000);
+      return;
+    }
+    setArmedDeleteId(null);
+    if (armedDeleteTimerRef.current) window.clearTimeout(armedDeleteTimerRef.current);
     setNotes((prev) => {
       const updated = prev.filter((n) => n.id !== id);
       saveMiniNotes(updated);
@@ -453,8 +465,13 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
             <button
               type="button"
               onClick={() => handleDeleteNote(activeNote.id)}
-              title={t("action_delete") || (isEn ? "Delete" : "Hapus")}
-              className="w-8 h-8 rounded-full bg-[#17171c] hover:bg-rose-500/20 text-[#ff7b72] flex items-center justify-center transition-colors cursor-pointer"
+              title={armedDeleteId === activeNote.id ? (isEn ? "Click again to confirm delete" : "Klik lagi untuk konfirmasi hapus") : t("action_delete") || (isEn ? "Delete" : "Hapus")}
+              aria-label={t("action_delete") || "Delete"}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                armedDeleteId === activeNote.id
+                  ? "bg-rose-600 text-white ring-2 ring-rose-400/50"
+                  : "bg-[#17171c] hover:bg-rose-500/20 text-[#ff7b72]"
+              }`}
             >
               <Trash2 size={14} />
             </button>
@@ -837,7 +854,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                       {formatCardTimestamp(note.updatedAt, optLanguage)}
                     </span>
 
-                    <div className="hidden group-hover:flex items-center gap-1">
+                    <div className="hidden group-hover:flex group-focus-within:flex items-center gap-1">
                       <button
                         type="button"
                         onClick={(e) => handleTogglePin(note.id, e)}
@@ -852,7 +869,13 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                       <button
                         type="button"
                         onClick={(e) => handleDeleteNote(note.id, e)}
-                        className="w-[24px] h-[24px] rounded-[7px] bg-[#1d1d25] hover:bg-rose-500/20 text-[#ff7b72] flex items-center justify-center transition-colors cursor-pointer"
+                        title={armedDeleteId === note.id ? (isEn ? "Click again to confirm delete" : "Klik lagi untuk konfirmasi hapus") : t("action_delete") || "Hapus"}
+                        aria-label={t("action_delete") || "Delete"}
+                        className={`w-[24px] h-[24px] rounded-[7px] flex items-center justify-center transition-colors cursor-pointer ${
+                          armedDeleteId === note.id
+                            ? "bg-rose-600 text-white ring-2 ring-rose-400/50"
+                            : "bg-[#1d1d25] hover:bg-rose-500/20 text-[#ff7b72]"
+                        }`}
                       >
                         <Trash2 size={12} />
                       </button>

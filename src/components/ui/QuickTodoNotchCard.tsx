@@ -37,6 +37,17 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
   onOpenTodoList,
   onSavedStateChange,
 }) => {
+  // Theme tokens — the card was dark-only (white text invisible on light island).
+  const textMain = isLightMode ? "text-[#101828]" : "text-white";
+  const textSub = isLightMode ? "text-[#667085]" : "text-[#8b8b95]";
+  const chipSurface = isLightMode
+    ? "bg-black/[0.05] hover:bg-black/[0.09] text-[#475467]"
+    : "bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc]";
+  const dividerColor = isLightMode ? "bg-black/10" : "bg-[#1f1f26]";
+  const ghostBtn = isLightMode
+    ? "text-[#475467] hover:bg-black/[0.06]"
+    : "text-[#c4c4cc] hover:bg-white/[0.08]";
+
   const effectiveLang: Language = optLanguage || getLanguage();
   const [inputText, setInputText] = useState("");
   const [manualPreset, setManualPreset] = useState<PresetDateType>(null);
@@ -260,7 +271,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
 
   return (
     <div
-      className="w-full h-full flex flex-col justify-between text-white font-sans select-none"
+      className={`w-full h-full flex flex-col justify-between font-sans select-none ${textMain}`}
       style={{ padding: isIsland ? "18px 24px 22px" : "18px 24px 18px", boxSizing: "border-box" }}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -360,7 +371,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                 }
               }}
               placeholder={t("quick_todo_placeholder")}
-              className="relative w-full bg-transparent border-0 outline-none text-white text-[17px] font-semibold tracking-[-0.01em] placeholder:text-[#8b8b95] leading-[1.45]"
+              className={`relative w-full bg-transparent border-0 outline-none text-[17px] font-semibold tracking-[-0.01em] leading-[1.45] ${textMain} ${isLightMode ? "placeholder:text-[#98a2b3]" : "placeholder:text-[#8b8b95]"}`}
               style={{ caretColor: optAccent }}
               autoComplete="off"
               spellCheck={false}
@@ -410,7 +421,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                 <button
                   type="button"
                   onClick={() => datePickerInputRef.current?.showPicker?.() || datePickerInputRef.current?.click()}
-                  className="h-[30px] px-3 border-0 rounded-[15px] bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                  className={`h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${chipSurface}`}
                 >
                   <svg
                     width="13"
@@ -466,7 +477,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                   className={`h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
                     manualPreset === "today"
                       ? "bg-[#3882f6]/20 text-[#8db8ff] ring-1 ring-[#3882f6]/50"
-                      : "bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc]"
+                      : isLightMode ? "bg-black/[0.05] hover:bg-black/[0.09] text-[#475467]" : "bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc]"
                   }`}
                 >
                   {t("quick_todo_preset_today")}
@@ -478,7 +489,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                   className={`h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
                     manualPreset === "tomorrow"
                       ? "bg-[#3882f6]/20 text-[#8db8ff] ring-1 ring-[#3882f6]/50"
-                      : "bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc]"
+                      : isLightMode ? "bg-black/[0.05] hover:bg-black/[0.09] text-[#475467]" : "bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc]"
                   }`}
                 >
                   {t("quick_todo_preset_tomorrow")}
@@ -490,7 +501,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                   className={`h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
                     manualPreset === "weekend"
                       ? "bg-[#3882f6]/20 text-[#8db8ff] ring-1 ring-[#3882f6]/50"
-                      : "bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc]"
+                      : isLightMode ? "bg-black/[0.05] hover:bg-black/[0.09] text-[#475467]" : "bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc]"
                   }`}
                 >
                   {t("quick_todo_preset_weekend")}
@@ -499,7 +510,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                 <button
                   type="button"
                   onClick={() => datePickerInputRef.current?.showPicker?.() || datePickerInputRef.current?.click()}
-                  className="h-[30px] px-3 border-0 rounded-[15px] bg-[#17171c] hover:bg-[#22222a] text-[#c4c4cc] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                  className={`h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${chipSurface}`}
                 >
                   <svg
                     width="13"
@@ -523,7 +534,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
 
           {/* Bottom Row / Actions */}
           <div className="flex items-center gap-2 mt-auto pt-2.5 h-8">
-            <span className="text-[11.5px] text-[#8b8b95] truncate">
+            <span className={`text-[11.5px] ${textSub} truncate`}>
               {nlpResult.hasDate
                 ? t("quick_todo_hint_nlp")
                 : t("quick_todo_hint_example")}
@@ -534,7 +545,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
             <button
               type="button"
               onClick={onCancel}
-              className="h-[30px] px-3 border-0 rounded-[9px] bg-transparent hover:bg-white/[0.06] text-[#c4c4cc] text-[12px] font-medium cursor-pointer transition-colors"
+              className={`h-[30px] px-3 border-0 rounded-[9px] bg-transparent text-[12px] font-medium cursor-pointer transition-colors ${ghostBtn}`}
             >
               {t("quick_todo_cancel")}
             </button>
@@ -546,7 +557,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
               className={`h-[30px] pl-3 pr-2 border-0 rounded-[9px] text-[12px] font-semibold flex items-center gap-2 transition-all ${
                 inputText.trim()
                   ? "text-black cursor-pointer opacity-100 hover:brightness-110 active:scale-95"
-                  : "bg-[#26262d] text-[#8b8b95] cursor-not-allowed opacity-75"
+                  : isLightMode ? `bg-black/[0.08] ${textSub} cursor-not-allowed opacity-75` : `bg-[#26262d] ${textSub} cursor-not-allowed opacity-75`
               }`}
               style={{
                 backgroundColor: inputText.trim() ? optAccent : "#26262d",
@@ -598,17 +609,17 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
             <button
               type="button"
               onClick={handleUndo}
-              className="h-[30px] px-3 border-0 rounded-[9px] bg-transparent hover:bg-white/[0.08] text-[#c4c4cc] text-[12px] font-medium cursor-pointer transition-colors"
+              className={`h-[30px] px-3 border-0 rounded-[9px] bg-transparent text-[12px] font-medium cursor-pointer transition-colors ${ghostBtn}`}
             >
               {t("quick_todo_undo")}
             </button>
           </div>
 
           {/* Divider */}
-          <div className="h-[1px] bg-[#1f1f26] my-3" />
+          <div className={`h-[1px] ${dividerColor} my-3`} />
 
           {/* Section: BERIKUTNYA */}
-          <div className="text-[10.5px] font-semibold tracking-[0.08em] text-[#8b8b95] h-5 flex items-center">
+          <div className={`text-[10.5px] font-semibold tracking-[0.08em] ${textSub} h-5 flex items-center`}>
             {t("quick_todo_upcoming")}
             <div className="flex-grow" />
             <span className="font-medium tracking-normal text-[11px]">
@@ -619,7 +630,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
           {/* Tasks List */}
           <div role="list" className="mt-1 flex flex-col gap-0.5">
             {upcomingTodos.length === 0 ? (
-              <div className="text-[12px] text-[#8b8b95] italic py-2">
+              <div className={`text-[12px] ${textSub} italic py-2`}>
                 {t("quick_todo_empty_upcoming")}
               </div>
             ) : (
@@ -699,7 +710,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
 
           {/* Bottom Actions */}
           <div className="flex items-center gap-2 mt-auto pt-2.5 h-8">
-            <span className="text-[11.5px] text-[#8b8b95]">
+            <span className={`text-[11.5px] ${textSub}`}>
               {t("quick_todo_keyboard_hint")}
             </span>
 
@@ -708,7 +719,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
             <button
               type="button"
               onClick={onOpenTodoList}
-              className="h-[30px] px-3 border-0 rounded-[9px] bg-transparent hover:bg-white/[0.08] text-[#c4c4cc] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+              className={`h-[30px] px-3 border-0 rounded-[9px] bg-transparent text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${ghostBtn}`}
             >
               {t("quick_todo_open_full")}
               <svg

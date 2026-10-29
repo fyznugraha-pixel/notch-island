@@ -594,6 +594,54 @@ async fn fetch_external_lyrics_api(
     body: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // --- SSRF guard: only lyrics providers, no private/loopback/link-local hosts ---
+        const ALLOWED_LYRICS_HOSTS: &[&str] = &[
+            "lrclib.net",
+            "genius.com",
+            "krcs.kugou.com",
+            "lyrics.kugou.com",
+            "mobilecdn.kugou.com",
+            "c.y.qq.com",
+            "y.qq.com",
+            "music.163.com",
+        ];
+
+        fn validate_lyrics_url(raw: &str) -> Result<(), String> {
+            // Minimal http(s)://host/... parser (no new deps): only bare allowlisted
+            // provider hosts are accepted — rejects IP literals, credentials, ports,
+            // localhost and any host not in the list.
+            let rest = raw
+                .strip_prefix("https://")
+                .or_else(|| raw.strip_prefix("http://"))
+                .ok_or_else(|| "Only http(s) URLs are allowed".to_string())?;
+            if rest.contains('@') || rest.contains('\\') {
+                return Err("URL contains credentials or backslash".to_string());
+            }
+            // host ends at first '/', '?' or '#'
+            let host_part = rest
+                .split(['/', '?', '#'])
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            // reject ports, IP literals and empty hosts
+            if host_part.is_empty()
+                || host_part.contains(':')
+                || host_part.starts_with('[')
+                || !host_part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+            {
+                return Err(format!("Invalid host in URL: {}", host_part));
+            }
+            let bare = host_part.strip_prefix("www.").unwrap_or(&host_part);
+            if !ALLOWED_LYRICS_HOSTS.contains(&bare) {
+                return Err(format!("Host not in lyrics allowlist: {}", host_part));
+            }
+            Ok(())
+        }
+
+        validate_lyrics_url(&url)?;
+
         let agent = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(6))
             .build();

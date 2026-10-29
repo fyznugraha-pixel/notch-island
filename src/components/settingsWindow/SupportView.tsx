@@ -17,28 +17,29 @@ interface SupportViewProps {
 }
 
 const SAWERIA_URL = "https://saweria.co/payes";
+const SOCIABUZZ_URL = "https://sociabuzz.com/itsgili/tribe";
 
 export const SupportView: React.FC<SupportViewProps> = ({
   optLanguage,
   isLightMode,
 }) => {
   const isId = optLanguage === "id";
-  const [copied, setCopied] = useState(false);
+  const [copiedTarget, setCopiedTarget] = useState<"saweria" | "sociabuzz" | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
 
-  const handleOpenSaweria = async () => {
+  const handleOpenUrl = async (url: string) => {
     try {
-      await openUrl(SAWERIA_URL);
+      await openUrl(url);
     } catch {
-      window.open(SAWERIA_URL, "_blank", "noopener,noreferrer");
+      window.open(url, "_blank", "noopener,noreferrer");
     }
   };
 
-  const handleCopyLink = async () => {
+  const handleCopyLink = async (url: string, target: "saweria" | "sociabuzz") => {
     try {
-      await navigator.clipboard.writeText(SAWERIA_URL);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(url);
+      setCopiedTarget(target);
+      window.setTimeout(() => setCopiedTarget(null), 2000);
     } catch {}
   };
 
@@ -67,8 +68,8 @@ export const SupportView: React.FC<SupportViewProps> = ({
             }`}
           >
             {isId
-              ? "Gili dikembangkan secara independen. Jika aplikasi ini membantu produktivitas harianmu, kamu bisa memberikan dukungan melalui Saweria atau scan QRIS di bawah ini."
-              : "Gili is independently built. If this app helps your daily workflow, you can support its continued development via Saweria or by scanning the QRIS code below."}
+              ? "Gili dikembangkan secara independen. Jika aplikasi ini membantu produktivitas harianmu, kamu bisa memberikan dukungan melalui Saweria, SociaBuzz, atau scan QRIS di bawah ini."
+              : "Gili is independently built. If this app helps your daily workflow, you can support its continued development via Saweria, SociaBuzz, or by scanning the QRIS code below."}
           </p>
         </div>
       </div>
@@ -100,14 +101,14 @@ export const SupportView: React.FC<SupportViewProps> = ({
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={handleCopyLink}
+            onClick={() => handleCopyLink(SAWERIA_URL, "saweria")}
             className={`px-3 py-2 rounded-[11px] text-[12px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
               isLightMode
                 ? "bg-black/[0.05] hover:bg-black/[0.09] text-neutral-700"
                 : "bg-white/[0.06] hover:bg-white/[0.12] text-zinc-200"
             }`}
           >
-            {copied ? (
+            {copiedTarget === "saweria" ? (
               <>
                 <Check size={13.5} className="text-[#30d158]" />
                 <span>{isId ? "Tersalin" : "Copied"}</span>
@@ -122,7 +123,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
 
           <button
             type="button"
-            onClick={handleOpenSaweria}
+            onClick={() => handleOpenUrl(SAWERIA_URL)}
             className="px-3.5 py-2 rounded-[11px] bg-[#0a84ff] hover:bg-[#0070e0] text-white text-[12px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <span>{isId ? "Buka Saweria" : "Open Saweria"}</span>
@@ -131,7 +132,65 @@ export const SupportView: React.FC<SupportViewProps> = ({
         </div>
       </div>
 
-      {/* 3. QRIS Card */}
+      {/* 3. SociaBuzz Link Card */}
+      <div className={`w-full rounded-[20px] p-4 flex items-center justify-between gap-3 ${cardClass}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-[12px] bg-[#00c28e] text-white flex items-center justify-center shrink-0 font-bold text-[14px]">
+            SB
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span
+              className={`text-[13.5px] font-semibold truncate ${
+                isLightMode ? "text-neutral-900" : "text-white"
+              }`}
+            >
+              SociaBuzz — itsgili
+            </span>
+            <span
+              className={`text-[12px] font-mono truncate mt-0.5 ${
+                isLightMode ? "text-[#0a84ff]" : "text-[#5ac8fa]"
+              }`}
+            >
+              {SOCIABUZZ_URL}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => handleCopyLink(SOCIABUZZ_URL, "sociabuzz")}
+            className={`px-3 py-2 rounded-[11px] text-[12px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+              isLightMode
+                ? "bg-black/[0.05] hover:bg-black/[0.09] text-neutral-700"
+                : "bg-white/[0.06] hover:bg-white/[0.12] text-zinc-200"
+            }`}
+          >
+            {copiedTarget === "sociabuzz" ? (
+              <>
+                <Check size={13.5} className="text-[#30d158]" />
+                <span>{isId ? "Tersalin" : "Copied"}</span>
+              </>
+            ) : (
+              <>
+                <Copy size={13.5} />
+                <span>{isId ? "Salin Link" : "Copy Link"}</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleOpenUrl(SOCIABUZZ_URL)}
+            className="px-3.5 py-2 rounded-[11px] bg-[#00c28e] hover:bg-[#00a87b] text-white text-[12px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <span>{isId ? "Buka SociaBuzz" : "Open SociaBuzz"}</span>
+            <ExternalLink size={13.5} strokeWidth={2.2} />
+          </button>
+        </div>
+      </div>
+
+      {/* 4. QRIS Card */}
       <div className={`w-full rounded-[20px] p-4 flex flex-col gap-3.5 ${cardClass}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">

@@ -153,48 +153,85 @@ export function queueFilePreviews(
   };
 }
 
+let storeInitPromise: Promise<Store | null> | null = null;
+
 async function getShelfStore(): Promise<Store | null> {
-  if (!storeInstance) {
-    try {
-      storeInstance = await load(STORE_FILENAME, { autoSave: true });
-    } catch (err) {
-      console.error("Failed to load shelf store file:", err);
-    }
+  // Deduplicate concurrent initialization: two parallel callers must share ONE
+  // load() promise, otherwise two Store instances write shelf.json interleaved.
+  if (!storeInstance && !storeInitPromise) {
+    storeInitPromise = load(STORE_FILENAME, { autoSave: true })
+      .then((s) => {
+        storeInstance = s;
+        return s;
+      })
+      .catch((err) => {
+        console.error("Failed to load shelf store file:", err);
+        return null;
+      })
+      .finally(() => {
+        storeInitPromise = null;
+      });
   }
-  return storeInstance;
+  if (storeInstance) return storeInstance;
+  return storeInitPromise;
 }
 
 export function getInitialShelfFiles(): StashedFile[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
+    return saved ? JSON.parse(saved) : []
   } catch {
     return [];
   }
 }
 
+/** Timestamp (ms) of the most recent persistShelfFiles call — used to detect
+ *  whether a slow async load was superseded by a fresher user action. */
+let lastPersistAt = 0;
+
 export async function loadPersistedShelfFiles(): Promise<StashedFile[]> {
+  const startedAt = lastPersistAt;
   try {
     const store = await getShelfStore();
+    let storeData: StashedFile[] | null = null;
     if (store) {
       const saved = await store.get<StashedFile[]>("files");
-      if (Array.isArray(saved) && saved.length > 0) {
-        return saved;
-      }
+      if (Array.isArray(saved)) storeData = saved;
     }
 
+    let localData: StashedFile[] | null = null;
     const local = localStorage.getItem(STORAGE_KEY);
     if (local) {
       const parsed = JSON.parse(local);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        if (store) {
-          const clean = parsed.map(({ thumbnail, ...rest }: StashedFile) => rest);
-          await store.set("files", clean);
-          await store.save();
-        }
-        return parsed;
+      if (Array.isArray(parsed)) localData = parsed;
+    }
+
+    // Prefer whichever side is NON-EMPTY. If both have content, pick the one with
+    // the newest item timestamp (localStorage is written synchronously on every
+    // persist; the store can lag behind by up to its 300ms debounce).
+    const newest = (arr: StashedFile[] | null) =>
+      arr && arr.length > 0 ? Math.max(...arr.map((f) => f.addedAt || 0)) : -1;
+    const storeNewest = newest(storeData);
+    const localNewest = newest(localData);
+
+    let result: StashedFile[] = [];
+    if (storeNewest >= 0 && storeNewest >= localNewest) {
+      result = storeData!;
+    } else if (localNewest >= 0) {
+      result = localData!;
+      if (store) {
+        const clean = localData!.map(({ thumbnail, ...rest }: StashedFile) => rest);
+        await store.set("files", clean);
+        await store.save();
       }
     }
+
+    // If a persist happened while we were awaiting storage, that in-memory
+    // result is newer than anything just read from disk — signal the caller.
+    if (lastPersistAt !== startedAt) {
+      return result;
+    }
+    return result;
   } catch (err) {
     console.error("Failed to load persisted shelf files:", err);
   }
@@ -202,6 +239,7 @@ export async function loadPersistedShelfFiles(): Promise<StashedFile[]> {
 }
 
 export async function persistShelfFiles(files: StashedFile[], immediate = false): Promise<void> {
+  lastPersistAt = Date.now();
   const cleanFiles = files.map(({ thumbnail, ...rest }) => rest);
 
   try {

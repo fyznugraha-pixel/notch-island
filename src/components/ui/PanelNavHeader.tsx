@@ -129,6 +129,7 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
         <motion.button
           whileTap={{ scale: 0.9 }}
           transition={iosSpring.press}
+          aria-label={isSettingsActive ? t("nav_back") : t("tab_settings")}
           onClick={(e) => {
             e.stopPropagation();
             onToggleSettings();
@@ -292,6 +293,7 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                   <motion.button
                     whileTap={{ scale: 0.9 }}
                     transition={iosSpring.press}
+                    aria-label={prevTooltip || t("nav_prev")}
                     onClick={(e) => {
                       e.stopPropagation();
                       onPrev?.();
@@ -302,7 +304,7 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                   </motion.button>
                 </Tooltip>
               ) : (
-                <div className={navDisabledClass}>
+                <div className={navDisabledClass} role="button" aria-disabled="true" aria-label={prevTooltip || t("nav_prev")}>
                   <ChevronLeft size={16} strokeWidth={2} />
                 </div>
               )}
@@ -317,6 +319,7 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                   <motion.button
                     whileTap={{ scale: 0.9 }}
                     transition={iosSpring.press}
+                    aria-label={`${t("nav_notifications")}${unreadNotificationsCount > 0 ? ` (${unreadNotificationsCount})` : ""}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleNotifications();
@@ -341,11 +344,12 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
               <AnimatePresence mode="wait" initial={false}>
                 <motion.span
                   key={title}
+                  title={title}
                   initial={{ opacity: 0, y: 3 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -3 }}
                   transition={{ duration: 0.16, ease: "easeOut" }}
-                  className="text-[18px] font-semibold tracking-[-0.01em] text-white truncate leading-tight text-center"
+                  className={`text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${activeIsLightMode ? "text-[#101828]" : "text-white"}`}
                 >
                   {title}
                 </motion.span>
@@ -361,6 +365,7 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                   <motion.button
                     whileTap={{ scale: 0.9 }}
                     transition={iosSpring.press}
+                    aria-label={nextTooltip || t("nav_next")}
                     onClick={(e) => {
                       e.stopPropagation();
                       onNext?.();
@@ -373,7 +378,7 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
               ) : settingsInNextSlot ? (
                 settingsButton
               ) : (
-                <div className={navDisabledClass}>
+                <div className={navDisabledClass} role="button" aria-disabled="true" aria-label={nextTooltip || t("nav_next")}>
                   <ChevronRight size={16} strokeWidth={2} />
                 </div>
               )}

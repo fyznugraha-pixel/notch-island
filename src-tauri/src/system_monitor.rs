@@ -112,8 +112,9 @@ fn sample_network_bytes() -> (u64, u64) {
             let rows: &[MIB_IF_ROW2] =
                 std::slice::from_raw_parts((*table_ptr).Table.as_ptr(), count);
             for row in rows {
-                // Skip loopback (type 24) and disconnected interfaces
-                if row.Type != 24 && row.OperStatus == IfOperStatusUp {
+                // Skip loopback (type 24), disconnected interfaces, and NDIS filter drivers (bit 1 of _bitfield: FilterInterface)
+                let is_filter = (row.InterfaceAndOperStatusFlags._bitfield & 0x02) != 0;
+                if !is_filter && row.Type != 24 && row.OperStatus == IfOperStatusUp {
                     total_in = total_in.saturating_add(row.InOctets);
                     total_out = total_out.saturating_add(row.OutOctets);
                 }

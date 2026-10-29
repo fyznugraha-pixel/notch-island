@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
   Bell,
   BellOff,
@@ -85,7 +85,19 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
     onUpdateNotifications(updated);
   };
 
+  // Two-step clear-all: first click arms for 3s; second click clears.
+  const [armedClearAll, setArmedClearAll] = useState(false);
+  const armedClearTimerRef = useRef<number | null>(null);
+
   const handleClearAll = () => {
+    if (!armedClearAll) {
+      setArmedClearAll(true);
+      if (armedClearTimerRef.current) window.clearTimeout(armedClearTimerRef.current);
+      armedClearTimerRef.current = window.setTimeout(() => setArmedClearAll(false), 3000);
+      return;
+    }
+    setArmedClearAll(false);
+    if (armedClearTimerRef.current) window.clearTimeout(armedClearTimerRef.current);
     const updated = clearNotificationHistory();
     onUpdateNotifications(updated);
   };
@@ -466,9 +478,12 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
             <button
               type="button"
               onClick={handleClearAll}
-              title={t("notif_clear_all") || "Hapus semua"}
+              aria-label={armedClearAll ? (isEn ? "Click again to confirm clearing all notifications" : "Klik lagi untuk konfirmasi hapus semua") : t("notif_clear_all") || "Hapus semua"}
+              title={armedClearAll ? (isEn ? "Confirm?" : "Yakin?") : t("notif_clear_all") || "Hapus semua"}
               className={`w-6 h-6 flex items-center justify-center border rounded-full transition-colors cursor-pointer ${
-                isLightMode
+                armedClearAll
+                  ? "bg-red-600 border-red-500 text-white ring-2 ring-red-400/40"
+                  : isLightMode
                   ? "bg-black/[0.04] hover:bg-red-500/15 border-black/[0.08] hover:border-red-500/25 text-neutral-600 hover:text-red-500"
                   : "bg-white/[0.06] hover:bg-red-500/20 border border-white/10 hover:border-red-500/30 text-white/60 hover:text-red-400"
               }`}
@@ -566,7 +581,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                           </div>
                         </div>
 
-                        <p className={`text-[11px] leading-relaxed break-words [overflow-wrap:anywhere] line-clamp-2 group-hover:line-clamp-none group-hover:block group-hover:overflow-visible group-hover:whitespace-pre-wrap transition-all duration-200 ${
+                        <p className={`text-[11px] leading-relaxed break-words [overflow-wrap:anywhere] line-clamp-2 max-h-[2.6em] overflow-hidden group-hover:max-h-[5.2em] group-hover:line-clamp-none group-hover:whitespace-pre-wrap transition-all duration-200 ${
                           isLightMode ? "text-[#48484a] group-hover:text-[#1d1d1f]" : "text-white/65 group-hover:text-white/90"
                         }`}>
                           {item.body}
@@ -613,6 +628,9 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
             {/* iOS Switch */}
             <button
               type="button"
+              role="switch"
+              aria-checked={isDnd}
+              aria-label={t("notif_dnd_title")}
               onClick={handleToggleDnd}
               className={`w-9 h-5 rounded-full p-0.5 transition-colors cursor-pointer shrink-0 relative ${
                 isDnd ? "bg-purple-600" : isLightMode ? "bg-black/15" : "bg-white/20"
@@ -698,6 +716,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                             e.stopPropagation();
                             handleToggleMute(app.name);
                           }}
+                          aria-label={isEn ? `Unmute ${app.name} notifications` : `${isMuted ? "Bunyikan" : "Bisukan"} notifikasi ${app.name}`}
                           title={isMuted ? `Bunyikan notifikasi ${app.name}` : `Bisukan notifikasi ${app.name}`}
                           className={`w-5 h-5 flex items-center justify-center rounded transition-colors cursor-pointer ${
                             isMuted

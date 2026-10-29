@@ -38,26 +38,24 @@ fn restore_banners(hkcu: &RegKey) {
     let Ok(backup) = hkcu.open_subkey_with_flags(BACKUP_PATH, KEY_READ) else {
         return;
     };
-    for (app_id, value) in backup.enum_values().flatten() {
+    for (app_id, _) in backup.enum_values().flatten() {
         if app_id == ACTIVE_MARKER {
             continue;
         }
-        let previous = String::from_utf8_lossy(&value.bytes)
-            .trim_end_matches('\0')
-            .to_string();
+        let previous = match backup.get_value::<String, _>(&app_id) {
+            Ok(val) => val,
+            Err(_) => continue,
+        };
         let Ok(app_key) = hkcu.open_subkey_with_flags(
             format!("{}\\{}", APP_SETTINGS_PATH, app_id),
             KEY_SET_VALUE,
         ) else {
             continue;
         };
-        match previous.parse::<u32>() {
-            Ok(v) => {
-                let _ = app_key.set_value("ShowBanner", &v);
-            }
-            Err(_) => {
-                let _ = app_key.delete_value("ShowBanner");
-            }
+        if previous == ABSENT {
+            let _ = app_key.delete_value("ShowBanner");
+        } else if let Ok(v) = previous.parse::<u32>() {
+            let _ = app_key.set_value("ShowBanner", &v);
         }
     }
     let _ = hkcu.delete_subkey_all(BACKUP_PATH);
