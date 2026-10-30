@@ -1,14 +1,16 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { ChevronLeft, ChevronRight, ChevronDown, Clock, Bell, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Clock, Bell, Check, Repeat } from "lucide-react";
+import { TodoRepeatRule, getRepeatBadgeText } from "../TodoListPanel";
 import { t, getLanguage, Language } from "../../../services/i18n";
 
 export interface TodoCalendarViewProps {
   taskTitle: string;
   initialDueAt?: number | null;
   initialReminders?: number[];
+  initialRepeat?: TodoRepeatRule;
   optAccent?: string;
   optLanguage?: Language;
-  onSave: (dueAt: number | null, reminders: number[]) => void;
+  onSave: (dueAt: number | null, reminders: number[], repeat?: TodoRepeatRule) => void;
   onCancel: () => void;
 }
 
@@ -26,6 +28,7 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
   taskTitle,
   initialDueAt,
   initialReminders,
+  initialRepeat,
   optAccent = "#3882F6",
   optLanguage,
   onSave,
@@ -55,6 +58,7 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
   const [reminders, setReminders] = useState<number[]>(
     initialReminders && initialReminders.length > 0 ? initialReminders : [0, 10]
   );
+  const [repeat, setRepeat] = useState<TodoRepeatRule>(initialRepeat || "none");
 
   useEffect(() => {
     if (!isTimePopoverOpen) return;
@@ -195,7 +199,7 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
         </h2>
         <button
           type="button"
-          onClick={() => onSave(computedDueTimestamp, reminders)}
+          onClick={() => onSave(computedDueTimestamp, reminders, repeat)}
           style={{ backgroundColor: optAccent }}
           className="h-7 px-3.5 rounded-full text-white text-[12px] font-semibold hover:brightness-110 active:scale-95 transition-all cursor-pointer shrink-0"
         >
@@ -486,6 +490,44 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
               })}
             </div>
           </div>
+
+          {/* Repeat Section */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold tracking-wider text-zinc-400 uppercase flex items-center gap-1">
+                <Repeat size={11} className="text-[#3882F6]" />
+                {t("todo_repeat_label")}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {([
+                { value: "none" as const, labelKey: "todo_repeat_none" as const },
+                { value: "daily" as const, labelKey: "todo_repeat_daily" as const },
+                { value: "weekdays" as const, labelKey: "todo_repeat_weekdays" as const },
+                { value: "weekly" as const, labelKey: "todo_repeat_weekly" as const },
+                { value: "monthly" as const, labelKey: "todo_repeat_monthly" as const },
+              ] as const).map((opt) => {
+                const active = repeat === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setRepeat(opt.value)}
+                    className={`h-7 rounded-xl border text-[11px] flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                      opt.value === "none" ? "col-span-2" : ""
+                    } ${
+                      active
+                        ? "border-[#3882F6] bg-[#3882F6]/15 text-[#8db8ff] font-semibold"
+                        : "border-[#2a2a31] bg-transparent text-zinc-300 hover:bg-white/5 font-medium"
+                    }`}
+                  >
+                    {active && <Check size={11} strokeWidth={2.8} />}
+                    <span>{t(opt.labelKey)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -493,6 +535,11 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
       <div className="mt-2 h-8 rounded-xl bg-[#101015] border border-[#1e1e25] px-3 flex items-center gap-2 shrink-0">
         <Bell size={13} className="text-amber-400 shrink-0" />
         <span className="text-[12px] font-semibold text-white truncate">{summaryDateText}</span>
+        {repeat !== "none" && (
+          <span className="text-[11px] text-[#8db8ff] font-medium flex items-center gap-1 shrink-0 ml-1">
+            • <Repeat size={10} /> {getRepeatBadgeText(repeat)}
+          </span>
+        )}
         <div className="flex-1" />
         {initialDueAt && (
           <button

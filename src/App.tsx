@@ -41,7 +41,7 @@ import {
   getDndStatus,
   setDndStatus,
 } from "./services/notificationHistoryService";
-import { TodoListPanel, TodoItem } from "./components/ui/TodoListPanel";
+import { TodoListPanel, TodoItem, TodoRepeatRule, computeNextRepeatDue } from "./components/ui/TodoListPanel";
 import { DropShelfPanel, StashedFile } from "./components/ui/DropShelfPanel";
 import { ControlCenterPanel } from "./components/ui/ControlCenterPanel";
 import { SettingsPanel } from "./components/ui/SettingsPanel";
@@ -792,7 +792,12 @@ export default function App() {
     pendingTodosRef.current = pendingTodos;
   }, [pendingTodos]);
 
-  const addTodoItem = (text: string, dueAt?: number | null, reminders?: number[]): TodoItem | undefined => {
+  const addTodoItem = (
+    text: string,
+    dueAt?: number | null,
+    reminders?: number[],
+    repeat?: TodoRepeatRule
+  ): TodoItem | undefined => {
     const trimmed = text.trim();
     if (!trimmed) return undefined;
     const newItem: TodoItem = {
@@ -802,6 +807,7 @@ export default function App() {
       createdAt: Date.now(),
       dueAt: dueAt ?? null,
       reminders: reminders ?? (dueAt ? [0, 10] : []),
+      repeat: repeat && repeat !== "none" ? repeat : undefined,
     };
     setTodoItems((prev) => {
       const updated = [newItem, ...prev];
@@ -826,8 +832,34 @@ export default function App() {
       playTaskCompleteSound();
     }
     setTodoItems((prev) => {
-      const updated = prev.map((item) =>
-        item.id === id ? { ...item, completed: !item.completed } : item
+      const item = prev.find((i) => i.id === id);
+      if (!item) return prev;
+
+      // Recurring task: completing it spawns the next occurrence
+      if (!item.completed && item.repeat && item.repeat !== "none") {
+        const nextDueAt = computeNextRepeatDue(item.dueAt || Date.now(), item.repeat);
+        const completedTask: TodoItem = {
+          ...item,
+          completed: true,
+        };
+        const nextTask: TodoItem = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          text: item.text,
+          completed: false,
+          createdAt: Date.now(),
+          dueAt: nextDueAt,
+          reminders: item.reminders,
+          repeat: item.repeat,
+        };
+        const updated = [nextTask, ...prev.map((i) => (i.id === id ? completedTask : i))];
+        try {
+          localStorage.setItem("island_todo_list", JSON.stringify(updated));
+        } catch {}
+        return updated;
+      }
+
+      const updated = prev.map((i) =>
+        i.id === id ? { ...i, completed: !i.completed } : i
       );
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
@@ -860,10 +892,22 @@ export default function App() {
     });
   };
 
-  const updateTodoDeadline = (id: string, dueAt: number | null, reminders: number[]) => {
+  const updateTodoDeadline = (
+    id: string,
+    dueAt: number | null,
+    reminders: number[],
+    repeat?: TodoRepeatRule
+  ) => {
     setTodoItems((prev) => {
       const updated = prev.map((item) =>
-        item.id === id ? { ...item, dueAt, reminders } : item
+        item.id === id
+          ? {
+              ...item,
+              dueAt,
+              reminders,
+              repeat: repeat && repeat !== "none" ? repeat : undefined,
+            }
+          : item
       );
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));

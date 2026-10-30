@@ -11,9 +11,12 @@ import {
   ChevronRight,
   ChevronDown,
   CornerDownLeft,
+  Repeat,
 } from "lucide-react";
 import { t, getLanguage, Language } from "../../services/i18n";
 import { TodoCalendarView } from "./todo/TodoCalendarView";
+
+export type TodoRepeatRule = "none" | "daily" | "weekdays" | "weekly" | "monthly";
 
 export interface TodoItem {
   id: string;
@@ -24,6 +27,68 @@ export interface TodoItem {
   reminders?: number[];
   remindedOffsets?: number[];
   snoozedUntil?: number | null;
+  repeat?: TodoRepeatRule;
+}
+
+export function computeNextRepeatDue(baseMs: number, rule: TodoRepeatRule): number {
+  const now = Date.now();
+  const d = new Date(baseMs);
+  const targetHour = d.getHours();
+  const targetMin = d.getMinutes();
+  const targetSec = d.getSeconds();
+
+  if (rule === "daily") {
+    d.setDate(d.getDate() + 1);
+    while (d.getTime() < now) {
+      d.setDate(d.getDate() + 1);
+    }
+  } else if (rule === "weekdays") {
+    do {
+      d.setDate(d.getDate() + 1);
+    } while (d.getDay() === 0 || d.getDay() === 6 || d.getTime() < now);
+  } else if (rule === "weekly") {
+    d.setDate(d.getDate() + 7);
+    while (d.getTime() < now) {
+      d.setDate(d.getDate() + 7);
+    }
+  } else if (rule === "monthly") {
+    d.setMonth(d.getMonth() + 1);
+    while (d.getTime() < now) {
+      d.setMonth(d.getMonth() + 1);
+    }
+  }
+  d.setHours(targetHour, targetMin, targetSec, 0);
+  return d.getTime();
+}
+
+export function getRepeatBadgeText(rule?: TodoRepeatRule): string {
+  switch (rule) {
+    case "daily":
+      return t("todo_repeat_badge_daily");
+    case "weekdays":
+      return t("todo_repeat_badge_weekdays");
+    case "weekly":
+      return t("todo_repeat_badge_weekly");
+    case "monthly":
+      return t("todo_repeat_badge_monthly");
+    default:
+      return "";
+  }
+}
+
+export function getRepeatLabel(rule?: TodoRepeatRule): string {
+  switch (rule) {
+    case "daily":
+      return t("todo_repeat_daily");
+    case "weekdays":
+      return t("todo_repeat_weekdays");
+    case "weekly":
+      return t("todo_repeat_weekly");
+    case "monthly":
+      return t("todo_repeat_monthly");
+    default:
+      return t("todo_repeat_none");
+  }
 }
 
 export interface TodoListPanelProps {
@@ -31,11 +96,11 @@ export interface TodoListPanelProps {
   optAccent?: string;
   optLanguage?: Language;
   isLightMode?: boolean;
-  onAddItem: (text: string, dueAt?: number | null, reminders?: number[]) => void;
+  onAddItem: (text: string, dueAt?: number | null, reminders?: number[], repeat?: TodoRepeatRule) => void;
   onToggleItem: (id: string) => void;
   onDeleteItem: (id: string) => void;
   onUpdateItem?: (id: string, text: string) => void;
-  onUpdateDeadline?: (id: string, dueAt: number | null, reminders: number[]) => void;
+  onUpdateDeadline?: (id: string, dueAt: number | null, reminders: number[], repeat?: TodoRepeatRule) => void;
   onStartPomodoroForTask?: (task: TodoItem) => void;
   onClearCompleted?: () => void;
   onClearAll?: () => void;
@@ -164,6 +229,7 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
   const [newDuePreset, setNewDuePreset] = useState<"today" | "tomorrow" | "none" | "custom">("today");
   const [customNewDueAt, setCustomNewDueAt] = useState<number | null>(null);
   const [customNewReminders, setCustomNewReminders] = useState<number[]>([0, 10]);
+  const [newRepeat, setNewRepeat] = useState<TodoRepeatRule>("none");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -291,11 +357,12 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
     const trimmed = inputText.trim();
     if (!trimmed) return;
     const { dueAt, reminders } = resolveNewTaskDue();
-    onAddItem(trimmed, dueAt, reminders);
+    onAddItem(trimmed, dueAt, reminders, newRepeat !== "none" ? newRepeat : undefined);
     setInputText("");
     setIsComposerOpen(false);
     setNewDuePreset("today");
     setCustomNewDueAt(null);
+    setNewRepeat("none");
   };
 
   const handleSaveInlineEdit = (id: string) => {
@@ -324,10 +391,11 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
         taskTitle={isNewTarget ? inputText.trim() || t("todo_add_task") : targetTask?.text || ""}
         initialDueAt={isNewTarget ? customNewDueAt || getDefaultEveningToday() : targetTask?.dueAt}
         initialReminders={isNewTarget ? customNewReminders : targetTask?.reminders}
+        initialRepeat={isNewTarget ? newRepeat : targetTask?.repeat}
         optAccent={optAccent}
         optLanguage={optLanguage}
         onCancel={() => setCalendarTargetId(null)}
-        onSave={(dueAt, reminders) => {
+        onSave={(dueAt, reminders, repeat) => {
           if (isNewTarget) {
             if (dueAt) {
               setNewDuePreset("custom");
@@ -337,9 +405,10 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
               setNewDuePreset("none");
               setCustomNewDueAt(null);
             }
+            setNewRepeat(repeat || "none");
             setIsComposerOpen(true);
           } else if (targetTask && onUpdateDeadline) {
-            onUpdateDeadline(targetTask.id, dueAt, reminders);
+            onUpdateDeadline(targetTask.id, dueAt, reminders, repeat);
           }
           setCalendarTargetId(null);
         }}
@@ -557,6 +626,35 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
                   : t("todo_pick_time")}
               </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const seq: TodoRepeatRule[] = ["none", "daily", "weekdays", "weekly", "monthly"];
+                const nextIdx = (seq.indexOf(newRepeat) + 1) % seq.length;
+                setNewRepeat(seq[nextIdx]);
+              }}
+              style={
+                newRepeat !== "none"
+                  ? { borderColor: optAccent, backgroundColor: "rgba(56,130,246,0.16)" }
+                  : undefined
+              }
+              title={t("todo_repeat_cycle_tip")}
+              className={`h-6 px-2.5 rounded-full border text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors ${
+                newRepeat !== "none"
+                  ? (isLightMode ? "text-[#1d4ed8]" : "text-[#8db8ff]")
+                  : isLightMode
+                  ? "border-black/15 text-[#475467] hover:bg-black/[0.06]"
+                  : "border-[#34343c] text-zinc-300 hover:bg-white/5"
+              }`}
+            >
+              <Repeat size={10} className={newRepeat !== "none" ? "text-current" : "text-zinc-400"} />
+              <span>
+                {newRepeat === "none"
+                  ? t("todo_repeat_none_short")
+                  : getRepeatBadgeText(newRepeat)}
+              </span>
+            </button>
           </div>
         )}
       </div>
@@ -636,6 +734,22 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
                   >
                     {task.text}
                   </div>
+                )}
+
+                {task.repeat && task.repeat !== "none" && (
+                  <button
+                    type="button"
+                    onClick={() => setCalendarTargetId(task.id)}
+                    title={getRepeatLabel(task.repeat)}
+                    className={`flex items-center gap-1 text-[10.5px] font-medium px-1.5 py-0.5 rounded-lg tabular-nums cursor-pointer transition-colors shrink-0 ${
+                      isLightMode
+                        ? "text-[#1d4ed8] bg-[#3882F6]/10 hover:bg-[#3882F6]/20"
+                        : "text-[#8db8ff] bg-[#3882F6]/15 hover:bg-[#3882F6]/25"
+                    }`}
+                  >
+                    <Repeat size={10} strokeWidth={2.4} />
+                    <span>{getRepeatBadgeText(task.repeat)}</span>
+                  </button>
                 )}
 
                 {/* Hover Action Buttons: Timer (Pomodoro), Reminder/Calendar, Snooze +1h, Edit, Delete */}

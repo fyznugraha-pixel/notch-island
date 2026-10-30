@@ -937,14 +937,14 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
   const [isSaved, setIsSaved] = useState(false);
   const [savedNote, setSavedNote] = useState<MiniNoteItem | null>(null);
   const [allNotes, setAllNotes] = useState<MiniNoteItem[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoCloseTimerRef = useRef<number | null>(null);
   const savedAtRef = useRef<number>(0);
 
   useEffect(() => {
     const focusInput = () => {
-      if (inputRef.current) {
-        inputRef.current.focus();
+      if (textareaRef.current) {
+        textareaRef.current.focus();
       }
     };
     focusInput();
@@ -1036,7 +1036,7 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
       clearTimeout(autoCloseTimerRef.current);
     }
     window.setTimeout(() => {
-      inputRef.current?.focus();
+      textareaRef.current?.focus();
     }, 40);
   }, [savedNote, onDeleteNote]);
 
@@ -1099,14 +1099,14 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
 
           {/* Middle Input */}
           <div className="my-auto py-1">
-            <input
-              ref={inputRef}
+            <textarea
+              ref={textareaRef}
               autoFocus
-              type="text"
+              rows={2}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSubmit();
                 } else if (e.key === "Escape") {
@@ -1115,7 +1115,7 @@ export const QuickNoteNotchCard: React.FC<QuickNoteNotchCardProps> = ({
                 }
               }}
               placeholder={t("note_quick_placeholder")}
-              className={`w-full bg-transparent text-[16px] font-medium outline-none tracking-tight leading-normal ${
+              className={`w-full bg-transparent text-[15px] font-medium outline-none tracking-tight leading-snug resize-none overflow-y-auto ${
                 isLightMode
                   ? "text-[#18181b] placeholder-[#a1a1aa]"
                   : "text-white placeholder-[#71717a]"
