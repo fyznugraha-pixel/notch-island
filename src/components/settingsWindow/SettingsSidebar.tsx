@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import {
   LayoutGrid,
   Sliders,
@@ -15,6 +15,7 @@ import {
 import { Language } from "../../services/i18n";
 
 export type SettingsWindowSection =
+  | "about"
   | "tabs"
   | "general"
   | "appearance"
@@ -22,8 +23,7 @@ export type SettingsWindowSection =
   | "notifications"
   | "shortcuts"
   | "system"
-  | "support"
-  | "about";
+  | "support";
 
 interface SettingsSidebarProps {
   activeSection: SettingsWindowSection;
@@ -48,6 +48,15 @@ interface SidebarItemMeta {
 }
 
 export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
+  {
+    id: "about",
+    labelId: "Tentang & Berita",
+    labelEn: "About & News",
+    subId: "Info app, pembuat & berita",
+    subEn: "App info, author & news",
+    icon: <Info size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#5ac8fa]",
+  },
   {
     id: "tabs",
     labelId: "Tab & Navigasi",
@@ -104,21 +113,12 @@ export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
   },
   {
     id: "system",
-    labelId: "Sistem & Tentang",
-    labelEn: "System & About",
+    labelId: "Sistem",
+    labelEn: "System",
     subId: "Update, cache & reset",
     subEn: "Updates, cache & reset",
     icon: <ShieldCheck size={15} strokeWidth={2.2} />,
     bgClass: "bg-[#32ade6]",
-  },
-  {
-    id: "about",
-    labelId: "Tentang & Perubahan",
-    labelEn: "About & Changelog",
-    subId: "Info app, pembuat & pembaruan",
-    subEn: "App info, author & changelog",
-    icon: <Info size={15} strokeWidth={2.2} />,
-    bgClass: "bg-[#5ac8fa]",
   },
   {
     id: "support",

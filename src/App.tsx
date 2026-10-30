@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
@@ -525,32 +525,25 @@ export default function App() {
       try {
         localStorage.setItem("island_onboarding_completed", "true");
       } catch {}
-      invoke("open_settings_window", { section: "tabs" }).catch(() => {});
+      invoke("open_settings_window", { section: "about" }).catch(() => {});
     };
     window.addEventListener("island_trigger_onboarding", handleOpenInitialSettings);
 
-    // First install or post-update: open Settings → About
+    // First install or post-update: open Settings to About & News
     getVersion().then((currentVersion) => {
       try {
         const lastSeen = localStorage.getItem("island_last_seen_version");
         const onboardingDone = localStorage.getItem("island_onboarding_completed");
 
-        if (!onboardingDone) {
-          // Brand-new install — mark done and show About
+        const isFreshInstall = !onboardingDone;
+        const isVersionChanged = !lastSeen || lastSeen !== currentVersion;
+
+        if (isFreshInstall || isVersionChanged) {
           localStorage.setItem("island_onboarding_completed", "true");
           localStorage.setItem("island_last_seen_version", currentVersion);
           setTimeout(() => {
             invoke("open_settings_window", { section: "about" }).catch(() => {});
-          }, 900);
-        } else if (lastSeen && lastSeen !== currentVersion) {
-          // App was updated — show What's New
-          localStorage.setItem("island_last_seen_version", currentVersion);
-          setTimeout(() => {
-            invoke("open_settings_window", { section: "about" }).catch(() => {});
-          }, 1200);
-        } else if (!lastSeen) {
-          // Existing install without version tracking — record silently
-          localStorage.setItem("island_last_seen_version", currentVersion);
+          }, 800);
         }
       } catch {}
     }).catch(() => {});

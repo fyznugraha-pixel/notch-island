@@ -137,7 +137,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 }) => {
   const isId = optLanguage === "id";
 
-  const handleOpenSettingsWindow = (section: string = "tabs") => {
+  const handleOpenSettingsWindow = (section: string = "about") => {
     invoke("open_settings_window", { section }).catch(console.error);
     onClose();
   };
@@ -159,7 +159,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       >
         {/* Top Action Banner: Open Full Apple-style Settings Window */}
         <div
-          onClick={() => handleOpenSettingsWindow("tabs")}
+          onClick={() => handleOpenSettingsWindow("about")}
           className={`group w-full rounded-[18px] px-3.5 py-2.5 flex items-center justify-between gap-3 border cursor-pointer transition-all shrink-0 ${
             isLightMode
               ? "bg-[#0a84ff]/[0.08] border-[#0a84ff]/25 hover:border-[#0a84ff]/45 shadow-sm"
@@ -194,7 +194,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              handleOpenSettingsWindow("tabs");
+              handleOpenSettingsWindow("about");
             }}
             className="px-3 py-1.5 rounded-full bg-[#0a84ff] group-hover:bg-[#0070e0] text-white text-[11.5px] font-semibold flex items-center gap-1.5 shadow-[0_2px_10px_rgba(10,132,255,0.35)] transition-colors shrink-0 cursor-pointer"
           >

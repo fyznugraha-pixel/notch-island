@@ -33,9 +33,17 @@ const CHANGELOG: ChangelogEntry[] = [
         icon: <CheckSquare size={14} />,
         titleId: "Fix: Bagian Repeat Kepotong di Detail Todo",
         titleEn: "Fix: Repeat Section Cut Off in Todo Detail",
-        descId: "Section Repeat di form detail todo tidak lagi terpotong di bagian bawah — sekarang bisa di-scroll.",
-        descEn: "The Repeat section in the todo detail form is no longer clipped at the bottom — now scrollable.",
+        descId: "Section Repeat di form detail todo tidak lagi terpotong di bagian bawah dan sekarang bisa di-scroll dengan leluasa.",
+        descEn: "The Repeat section in the todo detail form is no longer clipped at the bottom and is now fully scrollable.",
         badge: "fix",
+      },
+      {
+        icon: <Zap size={14} />,
+        titleId: "Halaman Tentang & Perubahan",
+        titleEn: "About & Changelog Page",
+        descId: "Info lengkap aplikasi dan riwayat pembaruan yang terbuka otomatis saat instalasi baru atau setelah update.",
+        descEn: "Complete app information and update history that opens automatically on fresh install or after an update.",
+        badge: "new",
       },
     ],
   },
@@ -55,8 +63,8 @@ const CHANGELOG: ChangelogEntry[] = [
         icon: <MessageSquare size={14} />,
         titleId: "Quick Note: Shift+Enter untuk Baris Baru",
         titleEn: "Quick Note: Shift+Enter for New Line",
-        descId: "Di Quick Note, tekan Shift+Enter untuk pindah baris. Enter saja untuk simpan.",
-        descEn: "In Quick Note, press Shift+Enter for a new line. Enter alone saves the note.",
+        descId: "Di Quick Note, tekan Shift+Enter untuk pindah baris, dan tekan Enter untuk menyimpan.",
+        descEn: "In Quick Note, press Shift+Enter for a new line and Enter alone to save.",
         badge: "new",
       },
       {
@@ -85,16 +93,16 @@ const CHANGELOG: ChangelogEntry[] = [
         icon: <ScanText size={14} />,
         titleId: "Sistem OCR: Copy Image to Text",
         titleEn: "OCR System: Copy Image to Text",
-        descId: "Fitur OCR baru — ambil teks dari gambar yang ada di clipboard. Bisa diaktifkan/nonaktifkan di Pengaturan → Modul.",
-        descEn: "New OCR feature — extract text from images in the clipboard. Toggle it in Settings → Modules.",
+        descId: "Fitur OCR untuk mengekstrak teks dari gambar di clipboard. Bisa diatur di menu Pengaturan > Modul.",
+        descEn: "OCR feature to extract text from images in clipboard. Toggle it in Settings > Modules.",
         badge: "new",
       },
       {
         icon: <Zap size={14} />,
         titleId: "Peningkatan Performa Umum",
         titleEn: "General Performance Improvements",
-        descId: "Berbagai optimasi internal: animasi lebih halus, konsumsi memori lebih rendah.",
-        descEn: "Various internal optimizations: smoother animations, lower memory usage.",
+        descId: "Berbagai optimasi internal untuk animasi yang lebih halus dan konsumsi memori lebih ringan.",
+        descEn: "Various internal optimizations for smoother animations and lower memory usage.",
         badge: "improve",
       },
     ],
@@ -163,8 +171,8 @@ export const AboutView: React.FC<AboutViewProps> = ({ appVersion, optLanguage, i
           </div>
           <p className={`text-[12.5px] leading-snug ${isLightMode ? "text-neutral-600" : "text-zinc-400"}`}>
             {isId
-              ? "Notch bar cerdas untuk Windows — media, todo, catatan, timer, dan lebih banyak lagi, semua dalam satu tempat."
-              : "A smart notch bar for Windows — media, todos, notes, timer, and more, all in one place."}
+              ? "Notch bar cerdas untuk Windows. Menghadirkan widget media, to-do list, catatan cepat, timer, dan berbagai utilitas dalam satu tempat elegan."
+              : "A smart notch bar for Windows. Media controls, to-dos, quick notes, timers, and essential utilities in one elegant surface."}
           </p>
           <div className={`flex items-center gap-1 mt-1.5 text-[12px] font-medium ${isLightMode ? "text-neutral-500" : "text-zinc-500"}`}>
             <span>{isId ? "Dibuat oleh" : "Made by"}</span>

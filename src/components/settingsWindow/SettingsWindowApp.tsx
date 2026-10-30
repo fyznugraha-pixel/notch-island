@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -82,7 +82,7 @@ export const SettingsWindowApp: React.FC = () => {
         return sec;
       }
     } catch {}
-    return "tabs";
+    return "about";
   }, []);
 
   const [activeSection, setActiveSection] = useState<SettingsWindowSection>(initialSection);

@@ -86,7 +86,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
                 isLightMode ? "text-neutral-900" : "text-white"
               }`}
             >
-              Saweria — payes
+              Saweria · payes
             </span>
             <span
               className={`text-[12px] font-mono truncate mt-0.5 ${
@@ -144,7 +144,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
                 isLightMode ? "text-neutral-900" : "text-white"
               }`}
             >
-              SociaBuzz — itsgili
+              SociaBuzz · itsgili
             </span>
             <span
               className={`text-[12px] font-mono truncate mt-0.5 ${
@@ -203,7 +203,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
                   isLightMode ? "text-neutral-900" : "text-white"
                 }`}
               >
-                QRIS — FYURL
+                QRIS · FYURL
               </span>
               <span
                 className={`text-[11px] leading-tight mt-0.5 ${
