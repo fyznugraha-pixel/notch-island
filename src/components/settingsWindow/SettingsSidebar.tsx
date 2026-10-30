@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   LayoutGrid,
   Sliders,
@@ -10,6 +10,7 @@ import {
   Heart,
   Search,
   X,
+  Info,
 } from "lucide-react";
 import { Language } from "../../services/i18n";
 
@@ -21,7 +22,8 @@ export type SettingsWindowSection =
   | "notifications"
   | "shortcuts"
   | "system"
-  | "support";
+  | "support"
+  | "about";
 
 interface SettingsSidebarProps {
   activeSection: SettingsWindowSection;
@@ -108,6 +110,15 @@ export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
     subEn: "Updates, cache & reset",
     icon: <ShieldCheck size={15} strokeWidth={2.2} />,
     bgClass: "bg-[#32ade6]",
+  },
+  {
+    id: "about",
+    labelId: "Tentang & Perubahan",
+    labelEn: "About & Changelog",
+    subId: "Info app, pembuat & pembaruan",
+    subEn: "App info, author & changelog",
+    icon: <Info size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#5ac8fa]",
   },
   {
     id: "support",

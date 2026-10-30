@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+﻿import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -51,6 +51,7 @@ import {
 } from "./SettingsSidebar";
 import { TabsManagerView } from "./TabsManagerView";
 import { SupportView } from "./SupportView";
+import { AboutView } from "./AboutView";
 import { AppearanceTab } from "../ui/settings/AppearanceTab";
 import { IdleTab } from "../ui/settings/IdleTab";
 import { GeneralTab } from "../ui/settings/GeneralTab";
@@ -1156,6 +1157,14 @@ export const SettingsWindowApp: React.FC = () => {
                       onClose={() => {
                         invoke("trigger_notch_action", { action: "restart_onboarding" }).catch(() => {});
                       }}
+                    />
+                  )}
+
+                  {activeSection === "about" && (
+                    <AboutView
+                      appVersion={currentAppVersion}
+                      optLanguage={optLanguage}
+                      isLightMode={isLightMode}
                     />
                   )}
 

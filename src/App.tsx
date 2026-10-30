@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -528,18 +529,31 @@ export default function App() {
     };
     window.addEventListener("island_trigger_onboarding", handleOpenInitialSettings);
 
-    try {
-      const completed = localStorage.getItem("island_onboarding_completed");
-      if (!completed) {
-        const timer = setTimeout(() => {
-          handleOpenInitialSettings();
-        }, 900);
-        return () => {
-          clearTimeout(timer);
-          window.removeEventListener("island_trigger_onboarding", handleOpenInitialSettings);
-        };
-      }
-    } catch {}
+    // First install or post-update: open Settings → About
+    getVersion().then((currentVersion) => {
+      try {
+        const lastSeen = localStorage.getItem("island_last_seen_version");
+        const onboardingDone = localStorage.getItem("island_onboarding_completed");
+
+        if (!onboardingDone) {
+          // Brand-new install — mark done and show About
+          localStorage.setItem("island_onboarding_completed", "true");
+          localStorage.setItem("island_last_seen_version", currentVersion);
+          setTimeout(() => {
+            invoke("open_settings_window", { section: "about" }).catch(() => {});
+          }, 900);
+        } else if (lastSeen && lastSeen !== currentVersion) {
+          // App was updated — show What's New
+          localStorage.setItem("island_last_seen_version", currentVersion);
+          setTimeout(() => {
+            invoke("open_settings_window", { section: "about" }).catch(() => {});
+          }, 1200);
+        } else if (!lastSeen) {
+          // Existing install without version tracking — record silently
+          localStorage.setItem("island_last_seen_version", currentVersion);
+        }
+      } catch {}
+    }).catch(() => {});
 
     return () => window.removeEventListener("island_trigger_onboarding", handleOpenInitialSettings);
   }, []);
