@@ -230,9 +230,24 @@ async fn read_clipboard_image(app: tauri::AppHandle) -> Result<Option<ClipboardI
         use tauri_plugin_clipboard_manager::ClipboardExt;
 
         let clipboard = app.clipboard();
-        let image = match clipboard.read_image() {
-            Ok(img) => img,
-            Err(_) => return Ok(None),
+
+        // Retry beberapa kali - Snipping Tool kadang masih memegang lock clipboard
+        // saat sequence number sudah naik, sehingga read_image() gagal di percobaan pertama.
+        let image = {
+            let mut result = Err(());
+            for attempt in 0..4u8 {
+                if attempt > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(60));
+                }
+                match clipboard.read_image() {
+                    Ok(img) => { result = Ok(img); break; }
+                    Err(_) => continue,
+                }
+            }
+            match result {
+                Ok(img) => img,
+                Err(_) => return Ok(None),
+            }
         };
 
         let width = image.width();

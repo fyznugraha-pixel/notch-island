@@ -25,6 +25,7 @@ import {
   Search,
   Activity,
   User,
+  ScanText,
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
@@ -87,6 +88,8 @@ export interface SearchResultsProps {
   onToggleVolume: () => void;
   optClipboard: boolean;
   onToggleClipboard: () => void;
+  optOcr: boolean;
+  onToggleOcr: () => void;
   optMedia: boolean;
   onToggleMedia: () => void;
   optSoundFx?: boolean;
@@ -168,6 +171,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onToggleVolume,
   optClipboard,
   onToggleClipboard,
+  optOcr,
+  onToggleOcr,
   optMedia,
   onToggleMedia,
   optSoundFx = true,
@@ -713,6 +718,25 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           checked={optClipboard}
           onChange={onToggleClipboard}
           activeColor="blue"
+        />
+      ),
+    },
+    {
+      id: "clipboard_ocr",
+      tab: "modules",
+      tabLabel: t("settings_subtab_modules"),
+      title: t("settings_clipboard_ocr"),
+      subtitle: t("settings_clipboard_ocr_desc"),
+      keywords: ["ocr", "teks", "text", "screenshot", "gambar", "image", "baca", "extract", "scan"],
+      icon: <ScanText size={18} />,
+      iconBgClass: "bg-[#1a2b1f]",
+      iconColorClass: "text-[#30d158]",
+      control: (
+        <IosSwitch
+          checked={optOcr && optClipboard}
+          onChange={onToggleOcr}
+          activeColor="blue"
+          disabled={!optClipboard}
         />
       ),
     },

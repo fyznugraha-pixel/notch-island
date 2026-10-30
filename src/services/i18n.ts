@@ -250,6 +250,8 @@ export const translations = {
   settings_volume_monitor_desc: { en: "Show indicator when volume changes", id: "Tampilkan indikator saat volume berubah" },
   settings_clipboard_monitor: { en: "Clipboard Monitor", id: "Monitor clipboard" },
   settings_clipboard_monitor_desc: { en: "Recent copy history in notch", id: "Riwayat salinan terakhir di notch" },
+  settings_clipboard_ocr: { en: "Screenshot Text (OCR)", id: "Teks Screenshot (OCR)" },
+  settings_clipboard_ocr_desc: { en: "Extract text from screenshots automatically", id: "Baca teks dari screenshot secara otomatis" },
   settings_media_player: { en: "Media Player", id: "Pemutar media" },
   settings_media_player_desc: { en: "Track control and lyrics", id: "Kontrol lagu dan lirik" },
   settings_sound_effects: { en: "Sound Effects", id: "Efek suara" },

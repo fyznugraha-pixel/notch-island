@@ -138,7 +138,6 @@ export default function App() {
 
   const isVolumeMixerRef = useRef(false);
   const isOcrWritingRef = useRef(false);
-  const isOcrRunningRef = useRef(false);
   type FocusModeType = "Normal" | "DND" | "Gaming" | "Sleep";
   const initialFocusMode: FocusModeType = getDndStatus() ? "DND" : "Normal";
   const focusModeRef = useRef<FocusModeType>(initialFocusMode);
@@ -1696,6 +1695,7 @@ export default function App() {
   
   const [optVolume, setOptVolume] = useState(true);
   const [optClipboard, setOptClipboard] = useState(true);
+  const [optOcr, setOptOcr] = useState(false);
   const [optMedia, setOptMedia] = useState(true);
   const [optSoundFx, setOptSoundFx] = useState<boolean>(() => isSoundEffectsEnabled());
   const [optPosition, setOptPosition] = useState<"top"|"bottom">(() => {
@@ -1848,6 +1848,8 @@ export default function App() {
   useEffect(() => { optVolumeRef.current = optVolume; }, [optVolume]);
   const optClipboardRef = useRef(optClipboard);
   useEffect(() => { optClipboardRef.current = optClipboard; }, [optClipboard]);
+  const optOcrRef = useRef(optOcr);
+  useEffect(() => { optOcrRef.current = optOcr; }, [optOcr]);
   const optNotifTimeRef = useRef(optNotifTime);
   useEffect(() => { optNotifTimeRef.current = optNotifTime; }, [optNotifTime]);
   const lastMediaPayloadRef = useRef<MediaPayload | null>(null);
@@ -2162,6 +2164,7 @@ export default function App() {
         }
         const v = await s.get('opt_volume'); if (v !== null) setOptVolume(v as boolean);
         const c = await s.get('opt_clipboard'); if (c !== null) setOptClipboard(c as boolean);
+        const ocr = await s.get('opt_ocr'); if (ocr !== null) setOptOcr(ocr as boolean);
         const m = await s.get('opt_media'); if (m !== null) setOptMedia(m as boolean);
         const p = await s.get('opt_position');
         if (p === 'top' || p === 'bottom') {
@@ -2770,19 +2773,19 @@ export default function App() {
 
     let clipboardDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     const unlistenClipboard = listen("clipboard-update", () => {
-      if (!optClipboardRef.current || isOcrWritingRef.current || isOcrRunningRef.current) return;
-      
+      if (!optClipboardRef.current || isOcrWritingRef.current) return;
+
       if (clipboardDebounceTimer) clearTimeout(clipboardDebounceTimer);
       clipboardDebounceTimer = setTimeout(async () => {
-        if (!optClipboardRef.current || isOcrWritingRef.current || isOcrRunningRef.current) return;
+        if (!optClipboardRef.current || isOcrWritingRef.current) return;
         try {
           // Cek teks terlebih dahulu
           const copiedText = await invoke<string>("read_clipboard_text").catch(() => "");
           if (copiedText && copiedText.trim().length > 0) {
             addClipboardItem(copiedText);
             if (!isClipboardRef.current) {
-              const snippet = copiedText.trim().length > 110 
-                ? `${copiedText.trim().slice(0, 110)}…` 
+              const snippet = copiedText.trim().length > 110
+                ? `${copiedText.trim().slice(0, 110)}…`
                 : copiedText.trim();
               showNotif({
                 title: t("notif_copied_clipboard"),
@@ -2804,7 +2807,6 @@ export default function App() {
           } | null>("read_clipboard_image").catch(() => null);
 
           if (clipImage && clipImage.path) {
-            // Langsung tambahkan ke riwayat clipboard secara instan (0ms delay)
             const addedItem = addClipboardImageItem({
               imagePath: clipImage.path,
               thumbnail: clipImage.thumbnail,
@@ -2813,7 +2815,6 @@ export default function App() {
               ocrText: "",
             });
 
-            // Tampilkan notifikasi awal instan
             if (!isClipboardRef.current) {
               const dimText = `${clipImage.width} × ${clipImage.height} px`;
               showNotif({
@@ -2824,59 +2825,49 @@ export default function App() {
               });
             }
 
-            // Jalankan OCR di background secara asinkron tanpa menahan UI/clipboard
-            isOcrRunningRef.current = true;
+            // Hanya jalankan OCR kalau fitur diaktifkan di settings
+            if (!optOcrRef.current) return;
+
             invoke<string>("extract_image_text", { path: clipImage.path })
               .then((ocrText) => {
                 const cleanOcr = ocrText ? ocrText.trim() : "";
-                if (cleanOcr) {
-                  // Perbarui teks OCR pada kartu riwayat clipboard
-                  updateClipboardItem(addedItem.id, { text: cleanOcr });
+                if (!cleanOcr) return;
 
-                  // Perbarui notifikasi notch dengan snippet teks & click-to-copy
-                  if (!isClipboardRef.current) {
-                    const notifSubtitle = cleanOcr.length > 80 ? `${cleanOcr.slice(0, 80)}…` : cleanOcr;
-                    showNotif({
-                      title: t("notif_ocr_detected"),
-                      body: notifSubtitle,
-                      headline: notifSubtitle,
-                      icon: "clipboard",
-                      onClick: () => {
-                        isOcrWritingRef.current = true;
-                        writeText(cleanOcr)
-                          .then(() => {
-                            addClipboardItem(cleanOcr);
-                            showNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
-                          })
-                          .catch((err) => {
-                            console.error(err);
-                            // Surface the failure instead of silently keeping the guard on
-                            showNotif({ title: t("notif_ocr_copy_failed"), body: "", icon: "clipboard" });
-                          })
-                          .finally(() => {
-                            // ALWAYS release the guard (success or failure), otherwise the
-                            // clipboard-history pipeline stays blocked permanently.
-                            setTimeout(() => {
-                              isOcrWritingRef.current = false;
-                            }, 2000);
-                          });
-                      },
-                    });
-                  }
+                updateClipboardItem(addedItem.id, { text: cleanOcr });
+
+                if (!isClipboardRef.current) {
+                  const notifSubtitle = cleanOcr.length > 80 ? `${cleanOcr.slice(0, 80)}…` : cleanOcr;
+                  showNotif({
+                    title: t("notif_ocr_detected"),
+                    body: notifSubtitle,
+                    headline: notifSubtitle,
+                    icon: "clipboard",
+                    onClick: () => {
+                      isOcrWritingRef.current = true;
+                      writeText(cleanOcr)
+                        .then(() => {
+                          addClipboardItem(cleanOcr);
+                          showNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
+                        })
+                        .catch((err) => {
+                          console.error(err);
+                          showNotif({ title: t("notif_ocr_copy_failed"), body: "", icon: "clipboard" });
+                        })
+                        .finally(() => {
+                          setTimeout(() => { isOcrWritingRef.current = false; }, 500);
+                        });
+                    },
+                  });
                 }
               })
               .catch((err) => {
                 console.debug("OCR extraction error:", err);
-              })
-              .finally(() => {
-                isOcrRunningRef.current = false;
               });
 
             return;
           }
         } catch (err) {
           console.debug("Clipboard handler error:", err);
-          isOcrRunningRef.current = false;
         }
       }, 350);
     });
@@ -3147,6 +3138,9 @@ export default function App() {
             break;
           case "opt_clipboard":
             setOptClipboard(Boolean(value));
+            break;
+          case "opt_ocr":
+            setOptOcr(Boolean(value));
             break;
           case "opt_media":
             setOptMedia(Boolean(value));

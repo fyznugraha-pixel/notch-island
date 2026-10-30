@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Volume2, ClipboardList, Music, Timer } from "lucide-react";
+import { Volume2, ClipboardList, Music, Timer, ScanText } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { t } from "../../../services/i18n";
@@ -13,6 +13,8 @@ export interface ModulesTabProps {
   onToggleVolume: () => void;
   optClipboard: boolean;
   onToggleClipboard: () => void;
+  optOcr: boolean;
+  onToggleOcr: () => void;
   optMedia: boolean;
   onToggleMedia: () => void;
   optSoundFx?: boolean;
@@ -24,6 +26,8 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
   onToggleVolume,
   optClipboard,
   onToggleClipboard,
+  optOcr,
+  onToggleOcr,
   optMedia,
   onToggleMedia,
   optSoundFx = true,
@@ -71,6 +75,23 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
             checked={optClipboard}
             onChange={onToggleClipboard}
             activeColor="blue"
+          />
+        }
+      />
+
+      {/* 2b. OCR teks dari screenshot (sub-setting clipboard) */}
+      <SettingRow
+        icon={<ScanText size={18} />}
+        iconBgClass="bg-[#1a2b1f]"
+        iconColorClass={optClipboard ? "text-[#30d158]" : "text-[#30d158]/40"}
+        title={t("settings_clipboard_ocr")}
+        subtitle={t("settings_clipboard_ocr_desc")}
+        control={
+          <IosSwitch
+            checked={optOcr && optClipboard}
+            onChange={onToggleOcr}
+            activeColor="blue"
+            disabled={!optClipboard}
           />
         }
       />

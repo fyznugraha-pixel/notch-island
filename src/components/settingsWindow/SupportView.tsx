@@ -77,8 +77,8 @@ export const SupportView: React.FC<SupportViewProps> = ({
       {/* 2. Saweria Link Card */}
       <div className={`w-full rounded-[20px] p-4 flex items-center justify-between gap-3 ${cardClass}`}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-[12px] bg-[#ff9f0a] text-white flex items-center justify-center shrink-0 font-bold text-[15px]">
-            S
+          <div className="w-10 h-10 rounded-[12px] overflow-hidden shrink-0 border border-black/[0.08]">
+            <img src="/logo/saweria.jpg" alt="Saweria" className="w-full h-full object-cover" draggable={false} />
           </div>
           <div className="flex flex-col min-w-0">
             <span
@@ -135,8 +135,8 @@ export const SupportView: React.FC<SupportViewProps> = ({
       {/* 3. SociaBuzz Link Card */}
       <div className={`w-full rounded-[20px] p-4 flex items-center justify-between gap-3 ${cardClass}`}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-[12px] bg-[#00c28e] text-white flex items-center justify-center shrink-0 font-bold text-[14px]">
-            SB
+          <div className="w-10 h-10 rounded-[12px] overflow-hidden shrink-0 border border-black/[0.08]">
+            <img src="/logo/sociabuzz_logo.jpg" alt="SociaBuzz" className="w-full h-full object-cover" draggable={false} />
           </div>
           <div className="flex flex-col min-w-0">
             <span

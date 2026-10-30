@@ -181,6 +181,7 @@ export const SettingsWindowApp: React.FC = () => {
   // Modules State
   const [optVolume, setOptVolume] = useState(true);
   const [optClipboard, setOptClipboard] = useState(true);
+  const [optOcr, setOptOcr] = useState(false);
   const [optMedia, setOptMedia] = useState(true);
   const [optSoundFx, setOptSoundFx] = useState<boolean>(() => isSoundEffectsEnabled());
 
@@ -291,6 +292,8 @@ export const SettingsWindowApp: React.FC = () => {
         if (typeof v === "boolean") setOptVolume(v);
         const c = await s.get("opt_clipboard");
         if (typeof c === "boolean") setOptClipboard(c);
+        const ocr = await s.get("opt_ocr");
+        if (typeof ocr === "boolean") setOptOcr(ocr);
         const m = await s.get("opt_media");
         if (typeof m === "boolean") setOptMedia(m);
 
@@ -637,6 +640,13 @@ export const SettingsWindowApp: React.FC = () => {
     broadcastSetting("opt_clipboard", next);
   };
 
+  const handleToggleOcr = async () => {
+    const next = !optOcr;
+    setOptOcr(next);
+    if (store) await store.set("opt_ocr", next);
+    broadcastSetting("opt_ocr", next);
+  };
+
   const handleToggleMedia = async () => {
     const next = !optMedia;
     setOptMedia(next);
@@ -932,6 +942,8 @@ export const SettingsWindowApp: React.FC = () => {
                     onToggleVolume={handleToggleVolume}
                     optClipboard={optClipboard}
                     onToggleClipboard={handleToggleClipboard}
+                    optOcr={optOcr}
+                    onToggleOcr={handleToggleOcr}
                     optMedia={optMedia}
                     onToggleMedia={handleToggleMedia}
                     optSoundFx={optSoundFx}
@@ -1105,6 +1117,8 @@ export const SettingsWindowApp: React.FC = () => {
                         onToggleVolume={handleToggleVolume}
                         optClipboard={optClipboard}
                         onToggleClipboard={handleToggleClipboard}
+                        optOcr={optOcr}
+                        onToggleOcr={handleToggleOcr}
                         optMedia={optMedia}
                         onToggleMedia={handleToggleMedia}
                         optSoundFx={optSoundFx}
