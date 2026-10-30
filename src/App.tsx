@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -4486,8 +4486,8 @@ export default function App() {
                 isIsland={isIsland}
                 isLightMode={isLightMode}
                 shortcutLabel={formatShortcutForBadge(shortcuts.quick_task)}
-                onSave={(text, dueAt, reminders) => {
-                  const created = addTodoItem(text, dueAt, reminders);
+                onSave={(text, dueAt, reminders, repeatRule) => {
+                  const created = addTodoItem(text, dueAt, reminders, repeatRule);
                   playTaskCompleteSound();
                   return created;
                 }}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+﻿import React, { useState, useMemo, useRef, useEffect } from "react";
 import { ChevronLeft, ChevronRight, ChevronDown, Clock, Bell, Check, Repeat } from "lucide-react";
 import { TodoRepeatRule, getRepeatBadgeText } from "../TodoListPanel";
 import { t, getLanguage, Language } from "../../../services/i18n";
@@ -291,7 +291,7 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
         </div>
 
         {/* Right: Quick Presets + Custom Time Picker + Multi-Reminder */}
-        <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
+        <div className="flex-1 min-w-0 flex flex-col gap-2 overflow-y-auto todo-scroll pr-0.5">
           {/* Quick Date Presets */}
           <div className="grid grid-cols-2 gap-1.5">
             {[

@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { TodoItem } from "./TodoListPanel";
+﻿import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { TodoItem, TodoRepeatRule } from "./TodoListPanel";
 import { parseDateNlp, formatNlpDateBadge, NlpDateResult } from "../../utils/dateNlpParser";
 import { formatShortcutForBadge } from "../../services/shortcuts";
 import { t, Language, getLanguage } from "../../services/i18n";
@@ -13,7 +13,7 @@ export interface QuickTodoNotchCardProps {
   shortcutLabel?: string;
   isIsland?: boolean;
   isLightMode?: boolean;
-  onSave: (text: string, dueAt?: number | null, reminders?: number[]) => TodoItem | undefined;
+  onSave: (text: string, dueAt?: number | null, reminders?: number[], repeatRule?: TodoRepeatRule) => TodoItem | undefined;
   onToggleTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
   onCancel: () => void;
@@ -54,6 +54,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
   const [manualDueAt, setManualDueAt] = useState<number | null>(null);
   const [manualHasTime, setManualHasTime] = useState<boolean>(false);
   const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [repeatRule, setRepeatRule] = useState<TodoRepeatRule>("none");
   
   // State 3: Saved confirmation view
   const [isSaved, setIsSaved] = useState(false);
@@ -194,7 +195,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
     const title = (nlpResult.hasDate && nlpResult.cleanText) ? nlpResult.cleanText : trimmed;
     const reminders = effectiveDueAt && reminderEnabled ? [0, 10] : [];
 
-    const created = onSave(title, effectiveDueAt, reminders);
+    const created = onSave(title, effectiveDueAt, reminders, repeatRule !== "none" ? repeatRule : undefined);
     if (created) {
       setSavedTask(created);
     } else {
@@ -209,7 +210,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
     }
     savedAtRef.current = Date.now();
     setIsSaved(true);
-  }, [inputText, nlpResult, effectiveDueAt, reminderEnabled, onSave]);
+  }, [inputText, nlpResult, effectiveDueAt, reminderEnabled, repeatRule, onSave]);
 
   const handleUndo = useCallback(() => {
     if (savedTask) {
@@ -531,6 +532,37 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
               </>
             )}
           </div>
+
+          {/* Repeat Rule — shown when a due date is active */}
+          {effectiveDueAt && (
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {(["none", "daily", "weekdays", "weekly", "monthly"] as const).map((rule) => {
+                const labels: Record<string, string> = {
+                  none: "\u21BB Tidak",
+                  daily: "Harian",
+                  weekdays: "Hari Kerja",
+                  weekly: "Mingguan",
+                  monthly: "Bulanan",
+                };
+                const active = repeatRule === rule;
+                return (
+                  <button
+                    key={rule}
+                    type="button"
+                    onClick={() => setRepeatRule(rule)}
+                    className="h-[26px] px-2.5 border-0 rounded-full text-[11px] font-medium cursor-pointer transition-colors"
+                    style={{
+                      background: active ? "rgba(56,130,246,0.18)" : isLightMode ? "rgba(0,0,0,0.05)" : "#17171c",
+                      color: active ? "#8db8ff" : isLightMode ? "#475467" : "#c4c4cc",
+                      boxShadow: active ? "inset 0 0 0 1px rgba(56,130,246,0.5)" : undefined,
+                    }}
+                  >
+                    {labels[rule]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Bottom Row / Actions */}
           <div className="flex items-center gap-2 mt-auto pt-2.5 h-8">
