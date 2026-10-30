@@ -178,10 +178,10 @@ export const AboutView: React.FC<AboutViewProps> = ({ appVersion, optLanguage, i
             <span>{isId ? "Dibuat oleh" : "Made by"}</span>
             <button
               type="button"
-              onClick={() => openUrl("https://github.com/fyznugraha-pixel").catch(() => {})}
+              onClick={() => openUrl("https://instagram.com/faizngraha").catch(() => {})}
               className={`flex items-center gap-1 font-semibold transition-colors cursor-pointer ${isLightMode ? "text-[#0a84ff] hover:text-[#0070e0]" : "text-[#8db8ff] hover:text-white"}`}
             >
-              Faiz Nugraha
+              Faiz Nugraha (@faizngraha)
               <ExternalLink size={11} />
             </button>
           </div>
@@ -259,19 +259,11 @@ export const AboutView: React.FC<AboutViewProps> = ({ appVersion, optLanguage, i
         </div>
       </div>
 
-      {/* Footer Links */}
-      <div className={`w-full rounded-[18px] p-4 flex items-center justify-between ${cardBase}`}>
-        <span className={`text-[11.5px] ${isLightMode ? "text-neutral-400" : "text-zinc-500"}`}>
+      {/* Footer Note */}
+      <div className={`w-full rounded-[18px] p-4 flex items-center justify-center text-center ${cardBase}`}>
+        <span className={`text-[12px] font-medium ${isLightMode ? "text-neutral-500" : "text-zinc-400"}`}>
           {isId ? "Terima kasih sudah menggunakan Gili 🙌" : "Thank you for using Gili 🙌"}
         </span>
-        <button
-          type="button"
-          onClick={() => openUrl("https://github.com/fyznugraha-pixel/notch-island/releases").catch(() => {})}
-          className={`flex items-center gap-1.5 text-[11.5px] font-medium transition-colors cursor-pointer ${isLightMode ? "text-[#0a84ff] hover:text-[#0070e0]" : "text-[#8db8ff] hover:text-white"}`}
-        >
-          <span>{isId ? "Lihat semua rilis" : "All releases"}</span>
-          <ExternalLink size={11} />
-        </button>
       </div>
     </div>
   );
