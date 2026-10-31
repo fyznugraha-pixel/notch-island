@@ -2552,8 +2552,8 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         }
 
         let url_path = match section.as_deref() {
-            Some(sec) if !sec.is_empty() => format!("index.html?section={}", sec),
-            _ => "index.html".to_string(),
+            Some(sec) if !sec.is_empty() => format!("index.html?window=settings&section={}", sec),
+            _ => "index.html?window=settings".to_string(),
         };
 
         match tauri::WebviewWindowBuilder::new(
@@ -2572,7 +2572,7 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         .center()
         .visible(true)
         .focused(true)
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache --renderer-process-limit=1")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache")
         .build()
         {
             Ok(win) => {
@@ -2633,7 +2633,7 @@ pub fn run() {
     {
         std::env::set_var(
             "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-            "--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache --renderer-process-limit=1",
+            "--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache",
         );
 
         // Migrate and clean up any legacy Notch artifacts before checking mutex

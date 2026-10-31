@@ -18,19 +18,22 @@ const SettingsWindowApp = lazy(() =>
 
 const isSettingsWindow = (() => {
   if (typeof window === "undefined") return false;
+  const searchParams = new URLSearchParams(window.location.search);
+  const fromUrl =
+    searchParams.get("window") === "settings" ||
+    window.location.search.includes("window=settings") ||
+    window.location.href.includes("window=settings");
+  if (fromUrl) {
+    document.documentElement.classList.add("settings-window");
+    return true;
+  }
   try {
     if (getCurrentWindow().label === "settings") {
       document.documentElement.classList.add("settings-window");
       return true;
     }
   } catch {}
-  const fromUrl =
-    new URLSearchParams(window.location.search).get("window") === "settings" ||
-    window.location.href.includes("window=settings");
-  if (fromUrl) {
-    document.documentElement.classList.add("settings-window");
-  }
-  return fromUrl;
+  return false;
 })();
 
 interface Props {

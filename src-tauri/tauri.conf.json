@@ -23,7 +23,7 @@
                 "skipTaskbar": true,
                 "visible": true,
                 "resizable": false,
-                "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion --renderer-process-limit=1"
+                "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion"
             }
         ],
         "security": {
