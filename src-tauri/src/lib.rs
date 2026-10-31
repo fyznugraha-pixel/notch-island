@@ -2472,6 +2472,11 @@ fn trigger_notch_action(app: tauri::AppHandle, action: String) {
     }
 }
 
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(windows)]
@@ -2580,7 +2585,8 @@ pub fn run() {
             open_settings_window,
             take_pending_settings_section,
             broadcast_settings_sync,
-            trigger_notch_action
+            trigger_notch_action,
+            restart_app
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};

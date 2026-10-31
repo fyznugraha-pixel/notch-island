@@ -46,7 +46,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
-          tagName: __VERSION__
+          tagName: v__VERSION__
           releaseName: 'Gili v__VERSION__'
           releaseBody: 'See the assets to download this version and install updates.'
           releaseDraft: false

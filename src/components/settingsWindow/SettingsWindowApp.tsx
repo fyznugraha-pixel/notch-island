@@ -781,6 +781,10 @@ export const SettingsWindowApp: React.FC = () => {
         setDownloadProgress(percent);
         if (percent >= 100) setUpdateStatus("installing");
       });
+      setUpdateStatus("installing");
+      setTimeout(() => {
+        invoke("restart_app").catch(console.error);
+      }, 600);
     } catch {
       setUpdateStatus("error");
     }
