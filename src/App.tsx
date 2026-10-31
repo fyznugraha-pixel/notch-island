@@ -474,19 +474,13 @@ export default function App() {
   const isShortcutPinnedRef = useRef(false);
   const shortcutPinnedTimerRef = useRef<number | null>(null);
   const isClosingRef = useRef(false);
-  // Rust emits notch-mouse-enter only once per entry; if it lands mid-close we replay it afterwards
-  const pendingHoverOpenRef = useRef(false);
+  const closeGraceUntilRef = useRef<number>(0);
+  const finishClosingTimerRef = useRef<number | null>(null);
+  const variantsRef = useRef<Record<string, { width: number; height: number }> | null>(null);
   const notchHoverEnterRef = useRef<() => void>(() => {});
 
   const finishClosing = () => {
     isClosingRef.current = false;
-    if (!pendingHoverOpenRef.current) return;
-    pendingHoverOpenRef.current = false;
-    invoke<boolean>("is_cursor_in_notch")
-      .then((inside) => {
-        if (inside) notchHoverEnterRef.current();
-      })
-      .catch(() => {});
   };
 
   useEffect(() => {
@@ -1374,7 +1368,34 @@ export default function App() {
 
   const handleCloseImmediate = useCallback(() => {
     if (isSwitchingTabRef.current) return;
-    isClosingRef.current = false;
+    const hadOpenPanel =
+      isExpandedRef.current ||
+      isQuickControlRef.current ||
+      isTodoRef.current ||
+      isPomodoroRef.current ||
+      isDropShelfRef.current ||
+      isSysMonitorRef.current ||
+      isMiniNoteRef.current ||
+      isPrayerReminderRef.current ||
+      isWaterReminderRef.current ||
+      isQuickNoteOpenRef.current ||
+      isQuickTodoOpenRef.current ||
+      isClipboardRef.current ||
+      isVolumeMixerRef.current ||
+      isNotificationsRef.current ||
+      isSettingsRef.current ||
+      currentTabRef.current !== null;
+
+    if (hadOpenPanel) {
+      isClosingRef.current = true;
+      closeGraceUntilRef.current = Date.now() + 450;
+      if (finishClosingTimerRef.current) {
+        clearTimeout(finishClosingTimerRef.current);
+      }
+      finishClosingTimerRef.current = window.setTimeout(finishClosing, 450);
+    } else {
+      isClosingRef.current = false;
+    }
     isCursorInsideNotchRef.current = false;
     isShortcutPinnedRef.current = false;
     if (shortcutPinnedTimerRef.current) {
@@ -1429,10 +1450,23 @@ export default function App() {
     invoke("broadcast_settings_sync", {
       payload: { type: "notch_tab_state", tab: null, isOpen: false },
     }).catch(() => {});
-    window.setTimeout(finishClosing, 450);
+
+    if (hadOpenPanel) {
+      const idleSize = variantsRef.current?.idle || { width: 120, height: 35 };
+      invoke("update_pill_size", {
+        width: idleSize.width,
+        height: idleSize.height,
+        isBottom: isBottomNotchPosition(optPositionRef.current),
+        position: optPositionRef.current,
+        topOffset: islandTopOffsetRef.current,
+        isIsland: isIslandRef.current,
+        dpr: window.devicePixelRatio || 1.0,
+      }).catch(() => {});
+    }
   }, [clearPausedMediaTimer]);
 
   const openLastOrPreferredTab = (forceTab?: ExpandedTab) => {
+    if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
     cancelCollapseTimer();
     setSlideDirection(0);
     isClosingRef.current = false;
@@ -1696,6 +1730,7 @@ export default function App() {
   };
 
   notchHoverEnterRef.current = () => {
+    if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
     isCursorInsideNotchRef.current = true;
     isShortcutPinnedRef.current = false;
     if (shortcutPinnedTimerRef.current) {
@@ -2500,7 +2535,6 @@ export default function App() {
     const unlistenMouseLeave = listen("notch-mouse-leave", () => {
       cancelCompactHoverTimer();
       isCursorInsideNotchRef.current = false;
-      pendingHoverOpenRef.current = false;
       setIsDragOver(false);
       if (isSwitchingTabRef.current || isShelfDraggingRef.current || isShortcutPinnedRef.current) return;
       startCollapseTimer(350);
@@ -2508,8 +2542,8 @@ export default function App() {
 
     const unlistenMouseEnter = listen("notch-mouse-enter", () => {
       if (isShelfDraggingRef.current) return;
+      if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
       isCursorInsideNotchRef.current = true;
-      isClosingRef.current = false;
       notchHoverEnterRef.current();
     });
 
@@ -2576,7 +2610,7 @@ export default function App() {
         const rect = pillElement.getBoundingClientRect();
         const currentVariant = variantRef.current;
         const currentVariants = variantsRef.current;
-        const currentSize = currentVariants[currentVariant as keyof typeof currentVariants] || currentVariants.idle;
+        const currentSize = currentVariants?.[currentVariant as keyof typeof currentVariants] || currentVariants?.idle || { width: 120, height: 35 };
         const anyOpen = isAnyPanelOpenRef.current;
         const targetWidth = anyOpen ? Math.max(currentSize.width, rect.width) : rect.width;
         const targetHeight = anyOpen ? Math.max(currentSize.height, rect.height) : rect.height;
@@ -4224,7 +4258,6 @@ export default function App() {
 
   const isAnyPanelOpenRef = useRef(isAnyPanelOpen);
   isAnyPanelOpenRef.current = isAnyPanelOpen;
-  const variantsRef = useRef(variants);
   variantsRef.current = variants;
   const isIslandRef = useRef(isIsland);
   isIslandRef.current = isIsland;
@@ -4235,30 +4268,14 @@ export default function App() {
 
   useEffect(() => {
     const currentSize = variants[variant as keyof typeof variants] || variants.idle;
-    // Only delay size reduction during active collapse animation (~350ms spring)
-    // so hit area isn't cut short while the panel is visibly shrinking.
-    if (isClosingRef.current) {
-      const fallbackTimer = window.setTimeout(() => {
-        invoke("update_pill_size", {
-          width: currentSize.width,
-          height: currentSize.height,
-          isBottom: isBottomNotchPosition(optPosition),
-          position: optPosition,
-          topOffset: islandTopOffset,
-          isIsland: notchShape === "island",
-          dpr: window.devicePixelRatio || 1.0,
-        }).catch(console.error);
-      }, 420);
-      return () => clearTimeout(fallbackTimer);
-    }
-
+    const isCollapsed = !isAnyPanelOpen;
     const pillEl = document.getElementById("notch-pill");
     const rect = pillEl ? pillEl.getBoundingClientRect() : null;
     const measuredWidth = rect && rect.width > 0 ? Math.round(rect.width) : currentSize.width;
     const measuredHeight = rect && rect.height > 0 ? Math.round(rect.height) : currentSize.height;
 
-    const targetWidth = Math.max(currentSize.width, measuredWidth);
-    const targetHeight = Math.max(currentSize.height, measuredHeight);
+    const targetWidth = isCollapsed ? currentSize.width : Math.max(currentSize.width, measuredWidth);
+    const targetHeight = isCollapsed ? currentSize.height : Math.max(currentSize.height, measuredHeight);
 
     invoke("update_pill_size", { 
       width: targetWidth, 
@@ -4504,6 +4521,7 @@ export default function App() {
         }}
         onWheel={handleNotchWheel}
         onMouseMove={() => {
+          if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
           isCursorInsideNotchRef.current = true;
           cancelCollapseTimer();
           if (
@@ -4522,8 +4540,7 @@ export default function App() {
           }
         }}
         onMouseEnter={() => {
-          if (isClosingRef.current) {
-            pendingHoverOpenRef.current = true;
+          if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) {
             return;
           }
           isCursorInsideNotchRef.current = true;
@@ -4569,7 +4586,7 @@ export default function App() {
           }
         }}
         onClick={() => {
-          if (isClosingRef.current) return;
+          if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
           if (currentTab !== null || isExpandedPanel) return;
           if (
             notif ||
@@ -4594,7 +4611,6 @@ export default function App() {
         }}
         onMouseLeave={() => {
           cancelCompactHoverTimer();
-          pendingHoverOpenRef.current = false;
           if (isSwitchingTabRef.current) return;
           isCursorInsideNotchRef.current = false;
           startCollapseTimer(350);
