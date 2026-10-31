@@ -40,6 +40,7 @@ import {
   isSideCenterNotchPosition,
 } from "./utils/notchGeometry";
 import { PanelFrame } from "./components/ui/PanelNavHeader";
+import type { MonitorInfo } from "./components/ui/settings/MonitorSelector";
 import { getTextWidth } from "./utils/text";
 import { LyricsData, LyricsProviderId, fetchLyrics, clearLyricsCacheForTrack } from "./services/lyricsService";
 import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
@@ -252,6 +253,7 @@ export default function App() {
       "sun",
       "moon",
       "clipboard",
+      "monitor",
     ];
     const isTransientSystemNotif =
       isGreeting ||
@@ -2107,6 +2109,7 @@ export default function App() {
     toggle_media_playback: "inactive",
     toggle_focus_mode: "inactive",
     toggle_hide: "inactive",
+    switch_monitor: "inactive",
   });
 
   const handleShortcutToggleNotch = useCallback(() => {
@@ -2210,6 +2213,70 @@ export default function App() {
     setIsHidden((prev) => !prev);
   }, []);
 
+  const handleShortcutSwitchMonitor = useCallback(async () => {
+    try {
+      const monitors = await invoke<MonitorInfo[]>("get_available_monitors");
+      if (!Array.isArray(monitors) || monitors.length === 0) return;
+
+      if (monitors.length <= 1) {
+        showNotif({
+          title: "Gili Notch",
+          body: t("monitor_single_detected"),
+          icon: "monitor",
+          type: "system",
+        });
+        return;
+      }
+
+      const currentTarget = optTargetMonitorRef.current || "primary";
+      let currentIndex = monitors.findIndex(
+        (m) => m.id === currentTarget || (currentTarget === "primary" && m.is_primary)
+      );
+      if (currentIndex === -1) {
+        currentIndex = monitors.findIndex((m) => m.is_current);
+      }
+      if (currentIndex === -1) currentIndex = 0;
+
+      const nextIndex = (currentIndex + 1) % monitors.length;
+      const targetMon = monitors[nextIndex];
+      const nextId = targetMon.id;
+
+      setOptTargetMonitor(nextId);
+      optTargetMonitorRef.current = nextId;
+
+      try {
+        localStorage.setItem("island_target_monitor", nextId);
+      } catch {}
+
+      if (store) {
+        try {
+          await store.set("opt_target_monitor", nextId);
+          await store.save();
+        } catch (err) {
+          console.error("Failed to save target monitor:", err);
+        }
+      }
+
+      await invoke("set_target_monitor", { targetMonitor: nextId });
+      invoke("broadcast_settings_sync", {
+        payload: { type: "opt_target_monitor", value: nextId },
+      }).catch(() => {});
+
+      const label = targetMon.name
+        ? `${targetMon.name} (${targetMon.width}x${targetMon.height})`
+        : `Monitor ${nextIndex + 1} (${targetMon.width}x${targetMon.height})`;
+
+      showNotif({
+        title: "Gili Notch",
+        body: `${t("monitor_switched_to")} ${label}`,
+        icon: "monitor",
+        type: "system",
+      });
+    } catch (err) {
+      console.error("[Shortcut] Failed to switch monitor:", err);
+    }
+  }, [store]);
+
   const shortcutHandlersRef = useRef({
     toggle_notch: handleShortcutToggleNotch,
     quick_task: handleShortcutQuickTask,
@@ -2218,6 +2285,7 @@ export default function App() {
     toggle_media_playback: handleShortcutToggleMediaPlayback,
     toggle_focus_mode: handleShortcutToggleFocusMode,
     toggle_hide: handleShortcutToggleHide,
+    switch_monitor: handleShortcutSwitchMonitor,
   });
 
   useEffect(() => {
@@ -2229,6 +2297,7 @@ export default function App() {
       toggle_media_playback: handleShortcutToggleMediaPlayback,
       toggle_focus_mode: handleShortcutToggleFocusMode,
       toggle_hide: handleShortcutToggleHide,
+      switch_monitor: handleShortcutSwitchMonitor,
     };
     shortcutManager.updateHandlers(shortcutHandlersRef.current);
   }, [
@@ -2239,6 +2308,7 @@ export default function App() {
     handleShortcutToggleMediaPlayback,
     handleShortcutToggleFocusMode,
     handleShortcutToggleHide,
+    handleShortcutSwitchMonitor,
   ]);
 
   useEffect(() => {

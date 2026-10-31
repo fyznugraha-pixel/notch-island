@@ -21,6 +21,7 @@ import {
   Coffee,
   Heart,
   MessageSquare,
+  Monitor,
 } from "lucide-react";
 import { resolveAppLogo } from "../../utils/appLogoResolver";
 
@@ -81,6 +82,7 @@ export const NotifGlyph: React.FC<{
   if (glyph === "capslock") return <Type size={size} strokeWidth={2.1} />;
   if (glyph === "message") return <MessageSquare size={size} strokeWidth={2} />;
   if (glyph === "mail") return <Mail size={size} strokeWidth={2} />;
+  if (glyph === "monitor") return <Monitor size={size} strokeWidth={2} />;
 
   return <Bell size={size} strokeWidth={2} />;
 };

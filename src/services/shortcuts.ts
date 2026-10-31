@@ -7,7 +7,8 @@ export type ShortcutActionId =
   | "open_media"
   | "toggle_media_playback"
   | "toggle_focus_mode"
-  | "toggle_hide";
+  | "toggle_hide"
+  | "switch_monitor";
 
 export type ShortcutStatus = "ok" | "conflict" | "invalid" | "inactive";
 
@@ -61,6 +62,12 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
     labelKey: "shortcut_action_toggle_hide",
     descKey: "shortcut_action_toggle_hide_desc",
   },
+  {
+    id: "switch_monitor",
+    defaultShortcut: "Control+Alt+M",
+    labelKey: "shortcut_action_switch_monitor",
+    descKey: "shortcut_action_switch_monitor_desc",
+  },
 ];
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutActionId, string | null> = {
@@ -71,6 +78,7 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutActionId, string | null> = {
   toggle_media_playback: null,
   toggle_focus_mode: null,
   toggle_hide: "Control+Shift+D",
+  switch_monitor: "Control+Alt+M",
 };
 
 const RESERVED_SYSTEM_COMBINATIONS = new Set([
@@ -337,6 +345,7 @@ class ShortcutManagerService {
         toggle_media_playback: "inactive",
         toggle_focus_mode: "inactive",
         toggle_hide: "inactive",
+        switch_monitor: "inactive",
       };
 
       try {

@@ -10,6 +10,7 @@ import {
   Play,
   Moon,
   EyeOff,
+  Monitor,
 } from "lucide-react";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { t } from "../../../services/i18n";
@@ -41,6 +42,7 @@ const ACTION_ICONS: Record<ShortcutActionId, React.ReactNode> = {
   toggle_media_playback: <Play size={17} strokeWidth={2} />,
   toggle_focus_mode: <Moon size={17} strokeWidth={2} />,
   toggle_hide: <EyeOff size={17} strokeWidth={2} />,
+  switch_monitor: <Monitor size={17} strokeWidth={2} />,
 };
 
 const ACTION_COLORS: Record<ShortcutActionId, { bg: string; text: string }> = {
@@ -51,6 +53,7 @@ const ACTION_COLORS: Record<ShortcutActionId, { bg: string; text: string }> = {
   toggle_media_playback: { bg: "bg-[#2c2010]", text: "text-[#ff9f0a]" },
   toggle_focus_mode: { bg: "bg-[#1f1a3a]", text: "text-[#818cf8]" },
   toggle_hide: { bg: "bg-[#1e1e24]", text: "text-[#9ca3af]" },
+  switch_monitor: { bg: "bg-[#142333]", text: "text-[#3882F6]" },
 };
 
 const ACTION_COLORS_LIGHT: Record<ShortcutActionId, { bg: string; text: string }> = {
@@ -61,6 +64,7 @@ const ACTION_COLORS_LIGHT: Record<ShortcutActionId, { bg: string; text: string }
   toggle_media_playback: { bg: "bg-[#ff9f0a]/15", text: "text-[#ea580c]" },
   toggle_focus_mode: { bg: "bg-[#818cf8]/15", text: "text-[#6366f1]" },
   toggle_hide: { bg: "bg-black/10", text: "text-neutral-600" },
+  switch_monitor: { bg: "bg-[#007aff]/15", text: "text-[#007aff]" },
 };
 
 export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
