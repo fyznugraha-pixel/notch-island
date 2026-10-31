@@ -83,8 +83,8 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
     : `${data.settings.defaultCupMl} ml`;
 
   return (
-    <div className="w-full flex flex-col justify-between select-none pt-3">
-      <div className="flex items-center gap-5">
+    <div className="w-full h-full flex flex-col justify-center select-none pt-0.5 pb-1">
+      <div className="flex items-center gap-4">
         {/* Animated Interactive Water Capsule SVG */}
         <Tooltip
           content={
@@ -112,8 +112,8 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
             }}
           >
             <svg
-              width="76"
-              height="150"
+              width="68"
+              height="136"
               viewBox="0 0 76 150"
               role="img"
               aria-label={isEn ? `Today water level ${percent} percent` : `Level air hari ini ${percent} persen`}
@@ -299,14 +299,14 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
         </Tooltip>
 
         {/* Center: Stats & 2-Hour Bar Chart */}
-        <div className="flex-1 min-w-0 flex flex-col justify-between h-[150px]">
+        <div className="flex-1 min-w-0 flex flex-col justify-between h-[136px]">
           <div>
             {/* Top row indicators */}
-            <div className="flex items-center gap-1.5 text-[12px] text-[#a1a1aa]">
+            <div className="flex items-center gap-1.5 text-[11.5px] text-[#a1a1aa]">
               <span style={{ color: accent }} className="flex items-center">
                 <svg
-                  width="13"
-                  height="13"
+                  width="12"
+                  height="12"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -327,7 +327,7 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
                 type="button"
                 onClick={onOpenStreak}
                 aria-label={isEn ? `Streak ${streak.currentStreak} days` : `Streak ${streak.currentStreak} hari`}
-                className="inline-flex items-center gap-1.5 h-[21px] px-2 rounded-full font-bold text-[12px] tabular-nums transition-transform active:scale-95 cursor-pointer border-0"
+                className="inline-flex items-center gap-1 h-[19px] px-2 rounded-full font-bold text-[11px] tabular-nums transition-transform active:scale-95 cursor-pointer border-0"
                 style={{
                   background: "rgba(251,146,60,0.16)",
                   color: "#FB923C",
@@ -342,8 +342,8 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
                   className="flex items-center"
                 >
                   <svg
-                    width="12"
-                    height="12"
+                    width="11"
+                    height="11"
                     viewBox="0 0 24 24"
                     fill="currentColor"
                     aria-hidden="true"
@@ -357,12 +357,12 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
               {/* Target Achieved Appreciation Badge */}
               {isGoalAchieved && (
                 <span
-                  className="inline-flex items-center gap-1 h-[21px] px-2 rounded-full text-[10.5px] font-bold bg-emerald-500/15 border border-emerald-400/40 text-emerald-400 dark:text-emerald-300 shadow-sm"
+                  className="inline-flex items-center gap-1 h-[19px] px-2 rounded-full text-[10px] font-bold bg-emerald-500/15 border border-emerald-400/40 text-emerald-400 dark:text-emerald-300 shadow-sm"
                   style={{ animation: "waterGoalIdlePulse 2.8s ease-in-out infinite" }}
                 >
                   <svg
-                    width="11"
-                    height="11"
+                    width="10"
+                    height="10"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -378,8 +378,8 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
               )}
             </div>
 
-            {/* Middle Row: Fixed On/Off Reminder Toggle Button (Always in the middle, never jumps to top row) */}
-            <div className="flex items-center my-1.5">
+            {/* Middle Row: Fixed On/Off Reminder Toggle Button */}
+            <div className="flex items-center my-1">
               <Tooltip
                 content={
                   data.settings.reminderEnabled
@@ -402,7 +402,7 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
                     } catch {}
                     updateWaterSettings({ reminderEnabled: !data.settings.reminderEnabled });
                   }}
-                  className={`inline-flex items-center gap-1.5 h-[24px] px-2.5 rounded-full text-[11px] font-bold transition-all cursor-pointer border select-none active:scale-95 ${
+                  className={`inline-flex items-center gap-1.5 h-[21px] px-2 rounded-full text-[10.5px] font-bold transition-all cursor-pointer border select-none active:scale-95 ${
                     data.settings.reminderEnabled
                       ? isLightMode
                         ? "bg-sky-50 text-sky-700 border-sky-200/90 shadow-sm hover:bg-sky-100"
@@ -413,9 +413,9 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
                   }`}
                 >
                   {data.settings.reminderEnabled ? (
-                    <Bell size={11} strokeWidth={2.4} className="shrink-0" />
+                    <Bell size={10.5} strokeWidth={2.4} className="shrink-0" />
                   ) : (
-                    <BellOff size={11} strokeWidth={2.2} className="shrink-0 opacity-70" />
+                    <BellOff size={10.5} strokeWidth={2.2} className="shrink-0 opacity-70" />
                   )}
                   <span>
                     {data.settings.reminderEnabled
@@ -424,15 +424,15 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
                   </span>
                   {/* Mini iOS Switch Track */}
                   <div
-                    className={`w-[20px] h-[12px] rounded-full transition-colors relative flex items-center p-0.5 ml-0.5 ${
+                    className={`w-[18px] h-[11px] rounded-full transition-colors relative flex items-center p-0.5 ml-0.5 ${
                       data.settings.reminderEnabled
                         ? isLightMode ? "bg-sky-500" : "bg-sky-400"
                         : isLightMode ? "bg-neutral-300" : "bg-neutral-600"
                     }`}
                   >
                     <div
-                      className={`w-[8px] h-[8px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                        data.settings.reminderEnabled ? "translate-x-[8px]" : "translate-x-0"
+                      className={`w-[7px] h-[7px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                        data.settings.reminderEnabled ? "translate-x-[7px]" : "translate-x-0"
                       }`}
                     />
                   </div>
@@ -441,9 +441,9 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
             </div>
 
             {/* Giant Numbers: 1,9 / 3,0 L */}
-            <div className="flex items-baseline gap-2 mt-0.5">
+            <div className="flex items-baseline gap-1.5 mt-0.5">
               <span
-                className={`text-[58px] font-bold tracking-[-0.045em] leading-none tabular-nums ${
+                className={`text-[44px] font-bold tracking-[-0.045em] leading-none tabular-nums ${
                   isGoalAchieved
                     ? "text-emerald-400 dark:text-emerald-400"
                     : isLightMode
@@ -462,7 +462,7 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
               >
                 {currentVal}
               </span>
-              <span className="text-[17px] font-medium" style={{ color: textSub }}>
+              <span className="text-[15px] font-medium" style={{ color: textSub }}>
                 / {targetVal} {unitLabel}
               </span>
               {isGoalAchieved && (
@@ -471,7 +471,7 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
                   side="top"
                   delay={200}
                 >
-                  <span className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full bg-emerald-500/20 text-emerald-400 font-extrabold text-[13px] ml-1 shadow-sm">
+                  <span className="inline-flex items-center justify-center w-[20px] h-[20px] rounded-full bg-emerald-500/20 text-emerald-400 font-extrabold text-[12px] ml-1 shadow-sm">
                     ✓
                   </span>
                 </Tooltip>
@@ -483,7 +483,7 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
           <div
             role="img"
             aria-label={isEn ? "2-hour intake distribution" : "Asupan per dua jam"}
-            className="flex items-end gap-1.5 w-full pt-1"
+            className="flex items-end gap-1.5 w-full pt-0.5"
           >
             {distribution.map((slot) => {
               const tipContent = slot.hasIntake
@@ -503,12 +503,12 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
                   delay={150}
                   wrapperClassName="flex-1"
                 >
-                  <div className="w-full flex flex-col items-center gap-1 cursor-default group">
-                    <div className="w-full h-[40px] flex items-end justify-center">
+                  <div className="w-full flex flex-col items-center gap-0.5 cursor-default group">
+                    <div className="w-full h-[26px] flex items-end justify-center">
                       {slot.hasIntake ? (
                         <motion.div
                           initial={{ height: 0 }}
-                          animate={{ height: slot.heightPx }}
+                          animate={{ height: Math.min(26, slot.heightPx) }}
                           transition={{ type: "spring", stiffness: 300, damping: 25 }}
                           className="w-full rounded-[4px]"
                           style={{
@@ -526,7 +526,7 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
                       )}
                     </div>
                     <span
-                      className="text-[10px] tabular-nums font-medium"
+                      className="text-[9.5px] tabular-nums font-medium leading-none"
                       style={{ color: textSub }}
                     >
                       {slot.label}
@@ -539,24 +539,24 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
         </div>
 
         {/* Right Side: Quick Intake Controls */}
-        <div className="w-[196px] shrink-0 flex flex-col gap-2">
+        <div className="w-[188px] shrink-0 flex flex-col gap-1.5">
           {/* Stepper: - 250 ml + */}
           <div
             role="group"
             aria-label={isEn ? "Drink size" : "Ukuran minum"}
-            className="flex items-center justify-between h-[40px] rounded-full px-1"
+            className="flex items-center justify-between h-[34px] rounded-full px-1"
             style={{ background: cardBg }}
           >
             <button
               type="button"
               aria-label={isEn ? "Decrease 50 ml" : "Kurangi 50 ml"}
               onClick={() => onAdjustCup(-50)}
-              className="w-[32px] h-[32px] rounded-full border-0 bg-transparent flex items-center justify-center p-0 cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-transform"
+              className="w-[28px] h-[28px] rounded-full border-0 bg-transparent flex items-center justify-center p-0 cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-transform"
               style={{ color: textColor }}
             >
               <svg
-                width="15"
-                height="15"
+                width="14"
+                height="14"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -570,7 +570,7 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
             </button>
 
             <span
-              className={`text-[14px] font-bold tabular-nums ${
+              className={`text-[13px] font-bold tabular-nums ${
                 isLightMode ? "text-[#101828]" : "text-white"
               }`}
             >
@@ -581,12 +581,12 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
               type="button"
               aria-label={isEn ? "Increase 50 ml" : "Tambah 50 ml"}
               onClick={() => onAdjustCup(50)}
-              className="w-[32px] h-[32px] rounded-full border-0 bg-transparent flex items-center justify-center p-0 cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-transform"
+              className="w-[28px] h-[28px] rounded-full border-0 bg-transparent flex items-center justify-center p-0 cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-transform"
               style={{ color: textColor }}
             >
               <svg
-                width="15"
-                height="15"
+                width="14"
+                height="14"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -605,15 +605,15 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
             whileTap={{ scale: 0.96 }}
             type="button"
             onClick={onDrink}
-            className="h-[46px] rounded-full border-0 flex items-center justify-center gap-2 font-bold text-[15px] cursor-pointer shadow-sm transition-all hover:brightness-105 active:brightness-95"
+            className="h-[38px] rounded-full border-0 flex items-center justify-center gap-2 font-bold text-[14px] cursor-pointer shadow-sm transition-all hover:brightness-105 active:brightness-95"
             style={{
               backgroundColor: isLightMode ? accentDeep : accent,
               color: isLightMode ? "#FFFFFF" : "#04202e",
             }}
           >
             <svg
-              width="16"
-              height="16"
+              width="15"
+              height="15"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -628,19 +628,19 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
           </motion.button>
 
           {/* Bottom Dual Buttons: Riwayat & Atur */}
-          <div className="flex gap-2">
+          <div className="flex gap-1.5">
             <button
               type="button"
               onClick={onOpenHistory}
-              className="flex-1 h-[34px] rounded-full bg-transparent flex items-center justify-center gap-1.5 text-[12px] font-medium cursor-pointer transition-colors hover:bg-white/5 active:scale-95"
+              className="flex-1 h-[30px] rounded-full bg-transparent flex items-center justify-center gap-1.5 text-[11.5px] font-medium cursor-pointer transition-colors hover:bg-white/5 active:scale-95"
               style={{
                 border: `1px solid ${borderBtn}`,
                 color: textColor,
               }}
             >
               <svg
-                width="13"
-                height="13"
+                width="12"
+                height="12"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -658,15 +658,15 @@ export const WaterCapsuleView: React.FC<WaterCapsuleViewProps> = ({
             <button
               type="button"
               onClick={onOpenSettings}
-              className="flex-1 h-[34px] rounded-full bg-transparent flex items-center justify-center gap-1.5 text-[12px] font-medium cursor-pointer transition-colors hover:bg-white/5 active:scale-95"
+              className="flex-1 h-[30px] rounded-full bg-transparent flex items-center justify-center gap-1.5 text-[11.5px] font-medium cursor-pointer transition-colors hover:bg-white/5 active:scale-95"
               style={{
                 border: `1px solid ${borderBtn}`,
                 color: textColor,
               }}
             >
               <svg
-                width="13"
-                height="13"
+                width="12"
+                height="12"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"

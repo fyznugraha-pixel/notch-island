@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -17,6 +17,60 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.3.0",
+    date: "31 Okt 2026",
+    highlights: [
+      {
+        icon: <SlidersHorizontal size={14} />,
+        titleId: "Custom Transparansi & Slider Blur Terpisah",
+        titleEn: "Custom Transparency & Independent Blur Slider",
+        descId: "Atur tingkat transparansi dan keburaman latar secara mandiri dengan difusi kaca optik yang halus tanpa kabut susu atau bintik kasar.",
+        descEn: "Independently adjust transparency and background blur with smooth optical glass diffusion free from milky fog or coarse grain.",
+        badge: "new",
+      },
+      {
+        icon: <Music size={14} />,
+        titleId: "Dukungan Transparansi pada Tab Musik",
+        titleEn: "Transparency Support on Music Tab",
+        descId: "Tab musik kini ikut mengikuti pengaturan transparansi dan blur dengan efek pendaran cover album native SVG beresolusi penuh.",
+        descEn: "Music tab now follows custom transparency and blur settings while preserving rich, full-resolution native SVG ambient glow.",
+        badge: "new",
+      },
+      {
+        icon: <Eye size={14} />,
+        titleId: "Toolbar Pratinjau Tab Langsung di Pengaturan",
+        titleEn: "Live Tab Preview Toolbar in Settings",
+        descId: "Buka dan intip tab Control Center, Monitor Sistem, dan Pemutar Musik secara langsung di Notch saat sedang menyesuaikan tampilan.",
+        descEn: "Directly open and preview Control Center, System Monitor, and Music player tabs on the Notch while fine-tuning appearance.",
+        badge: "new",
+      },
+      {
+        icon: <Maximize2 size={14} />,
+        titleId: "Ukuran Tab Konsisten & Terpadu",
+        titleEn: "Consistent & Unified Tab Sizing",
+        descId: "Setiap tab kini memiliki dimensi lebar dan tinggi yang seragam serta proporsional saat berpindah, menciptakan transisi antar widget yang jauh lebih mulus tanpa lonjakan ukuran.",
+        descEn: "All tabs now share standardized, uniform dimensions when switching, creating far smoother transitions without jarring size jumps.",
+        badge: "improve",
+      },
+      {
+        icon: <Cpu size={14} />,
+        titleId: "Pengurangan Penggunaan CPU, GPU & RAM",
+        titleEn: "Reduced CPU, GPU & Memory Usage",
+        descId: "Efisiensi rendering tinggi dengan interpolasi vektor GPU native, pembersihan otomatis working set memori, dan zero-overhead saat notch dalam keadaan idle.",
+        descEn: "High rendering efficiency via native GPU vector interpolation, automatic memory working set trimming, and zero overhead when the notch is idle.",
+        badge: "improve",
+      },
+      {
+        icon: <Zap size={14} />,
+        titleId: "Inner Card Blur & Optimalisasi Kaca",
+        titleEn: "Inner Card Blur & Glass Optimizations",
+        descId: "Kartu-kartu interior di dalam tab kini me-blur lapisan gradien di bawahnya untuk keterbacaan teks dan angka yang maksimal.",
+        descEn: "Interior cards inside tabs now blur underlying gradients for maximum text and metric legibility.",
+        badge: "improve",
+      },
+    ],
+  },
   {
     version: "4.2.5",
     date: "30 Okt 2026",

@@ -4,7 +4,7 @@ import { qqMusicProvider } from "./qqMusicProvider";
 import { geniusProvider } from "./geniusProvider";
 import { neteaseProvider } from "./neteaseProvider";
 import { kugouProvider } from "./kugouProvider";
-import { cleanArtist } from "./utils";
+import { cleanArtist, hasActualLyrics } from "./utils";
 
 export * from "./types";
 export * from "./utils";
@@ -93,7 +93,7 @@ export async function fetchLyricsMulti(
     if (provider) {
       try {
         const result = await provider.fetchLyrics(artist, title, duration);
-        if (result) {
+        if (result && (hasActualLyrics(result.lines) || result.instrumental)) {
           lyricsCache.set(cacheKey, result);
           return result;
         }
@@ -104,35 +104,51 @@ export async function fetchLyricsMulti(
   }
 
   // 2. AUTO MODE: Multi-source fallback pipeline
-  // Priority order: QQ Music (massive library) -> LRCLIB -> NetEase -> KuGou -> Genius (text fallback)
+  // Priority: LRCLIB (verified community synced) -> QQ Music -> NetEase -> KuGou -> Genius (rich plain text)
   const autoChain: LyricsProvider[] = [
-    qqMusicProvider,
     lrclibProvider,
+    qqMusicProvider,
     neteaseProvider,
     kugouProvider,
     geniusProvider,
   ];
 
-  let firstPlainLyrics: LyricsData | null = null;
+  let candidatePlain: LyricsData | null = null;
+  let candidateInstrumental: LyricsData | null = null;
 
   for (const provider of autoChain) {
     try {
       const result = await provider.fetchLyrics(artist, title, duration);
-      if (result) {
-        if (result.synced || result.instrumental) {
-          lyricsCache.set(cacheKey, result);
-          return result;
-        }
-        if (!firstPlainLyrics && result.plainLyrics) {
-          firstPlainLyrics = result;
-        }
+      if (!result) continue;
+
+      // High priority: Valid synchronized lyrics with actual readable text
+      if (result.synced && hasActualLyrics(result.lines)) {
+        lyricsCache.set(cacheKey, result);
+        return result;
+      }
+
+      // Plain lyrics candidate (e.g. from Genius or unsynced match)
+      if (!candidatePlain && hasActualLyrics(result.lines)) {
+        candidatePlain = result;
+      }
+
+      // Instrumental candidate (only used if NO provider has readable lyrics)
+      if (!candidateInstrumental && result.instrumental) {
+        candidateInstrumental = result;
       }
     } catch {}
   }
 
-  if (firstPlainLyrics) {
-    lyricsCache.set(cacheKey, firstPlainLyrics);
-    return firstPlainLyrics;
+  // If no synced lyrics were found across all providers, but plain lyrics exist
+  if (candidatePlain) {
+    lyricsCache.set(cacheKey, candidatePlain);
+    return candidatePlain;
+  }
+
+  // If no lyrics exist anywhere, but verified instrumental
+  if (candidateInstrumental) {
+    lyricsCache.set(cacheKey, candidateInstrumental);
+    return candidateInstrumental;
   }
 
   lyricsCache.set(cacheKey, null);

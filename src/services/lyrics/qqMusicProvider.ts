@@ -1,5 +1,5 @@
 import { LyricsProvider, LyricsData } from "./types";
-import { cleanTitle, cleanArtist, parseLrc, fetchJson } from "./utils";
+import { cleanTitle, cleanArtist, parseLrc, fetchJson, hasActualLyrics } from "./utils";
 
 export const qqMusicProvider: LyricsProvider = {
   id: "qqmusic",
@@ -53,7 +53,7 @@ export const qqMusicProvider: LyricsProvider = {
       const decodedLrc = new TextDecoder("utf-8").decode(bytes).replace(/^\uFEFF/, "");
 
       const lines = parseLrc(decodedLrc);
-      if (lines.length === 0) return null;
+      if (!hasActualLyrics(lines)) return null;
 
       return {
         synced: true,

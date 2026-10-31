@@ -1,5 +1,5 @@
 import { LyricsProvider, LyricsData } from "./types";
-import { cleanTitle, cleanArtist, parseLrc, fetchJson } from "./utils";
+import { cleanTitle, cleanArtist, parseLrc, fetchJson, hasActualLyrics } from "./utils";
 
 export const neteaseProvider: LyricsProvider = {
   id: "netease",
@@ -42,7 +42,7 @@ export const neteaseProvider: LyricsProvider = {
       if (!rawLrc || typeof rawLrc !== "string") return null;
 
       const lines = parseLrc(rawLrc);
-      if (lines.length === 0) return null;
+      if (!hasActualLyrics(lines)) return null;
 
       return {
         synced: true,

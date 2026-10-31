@@ -151,8 +151,8 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
   // ============================================================================
   if (subView === "location") {
     return (
-      <div className="w-full h-full flex flex-col gap-3 px-6 pt-2.5 pb-2.5 select-none overflow-hidden">
-        <div className="flex items-center justify-between gap-2">
+      <div className="w-full h-full flex flex-col gap-1.5 px-6 pt-0.5 pb-1 select-none overflow-hidden">
+        <div className="flex items-center justify-between gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setSubView("main")}
@@ -278,7 +278,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
   // ============================================================================
   if (subView === "settings") {
     return (
-      <div className="w-full h-full flex flex-col gap-2.5 px-6 pt-2 pb-2 select-none overflow-hidden">
+      <div className="w-full h-full flex flex-col gap-1.5 px-6 pt-0.5 pb-1 select-none overflow-hidden">
         <div className="flex items-center justify-between gap-2 shrink-0">
           <button
             type="button"
@@ -314,9 +314,9 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
           </button>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-1.5">
           {/* Row 1: Main Reminder Toggle */}
-          <div className={`flex items-center justify-between px-3.5 py-2.5 rounded-[14px] ${surfaceCard}`}>
+          <div className={`flex items-center justify-between px-3 py-1.5 rounded-[12px] ${surfaceCard}`}>
             <div className="flex flex-col">
               <span className={`text-[12px] font-semibold ${isLightMode ? "text-neutral-900" : "text-white"}`}>
                 {isId ? "Notifikasi Saat Masuk Waktu Sholat" : "Notify at Exact Prayer Time"}
@@ -340,7 +340,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
           </div>
 
           {/* Row 2: Pre-Reminder Toggle (5 / 10 / 15m before) */}
-          <div className={`flex items-center justify-between px-3.5 py-2.5 rounded-[14px] ${surfaceCard}`}>
+          <div className={`flex items-center justify-between px-3 py-1.5 rounded-[12px] ${surfaceCard}`}>
             <div className="flex flex-col">
               <span className={`text-[12px] font-semibold ${isLightMode ? "text-neutral-900" : "text-white"}`}>
                 {isId ? "Pengingat Sebelum Adzan" : "Pre-Adzan Reminder"}
@@ -394,7 +394,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
           </div>
 
           {/* Row 3: Calculation Method */}
-          <div className={`flex items-center justify-between px-3.5 py-2.5 rounded-[14px] ${surfaceCard}`}>
+          <div className={`flex items-center justify-between px-3 py-1.5 rounded-[12px] ${surfaceCard}`}>
             <div className="flex flex-col">
               <span className={`text-[12px] font-semibold ${isLightMode ? "text-neutral-900" : "text-white"}`}>
                 {isId ? "Metode Perhitungan Jadwal" : "Calculation Method"}
@@ -446,21 +446,21 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
   const nextPrayerName = getPrayerDisplayName(nextStatus.nextPrayer, optLanguage);
 
   return (
-    <div className="w-full h-full flex flex-col gap-2.5 px-6 pt-2 pb-2 select-none overflow-hidden">
+    <div className="w-full h-full flex flex-col gap-1.5 px-6 pt-0.5 pb-1 select-none overflow-hidden">
       {/* 1. Top Header Bar */}
-      <div className="flex items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex items-center justify-between gap-2.5 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
             onClick={() => setSubView("location")}
             title={isId ? "Klik untuk ubah kota/lokasi" : "Click to change city/location"}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold transition-colors cursor-pointer truncate max-w-[220px] ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors cursor-pointer truncate max-w-[220px] ${
               isLightMode
                 ? "bg-black/[0.06] hover:bg-black/[0.1] text-neutral-800"
                 : "bg-white/[0.08] hover:bg-white/[0.14] text-zinc-100"
             }`}
           >
-            <MapPin size={12.5} className="text-[#10b981] shrink-0" />
+            <MapPin size={11.5} className="text-[#10b981] shrink-0" />
             <span className="truncate">{schedule.locationName}</span>
             {customCity && (
               <span className="text-[9.5px] opacity-60 shrink-0">
@@ -471,7 +471,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
 
           {schedule.hijriDate && (
             <span
-              className={`text-[11px] font-medium truncate hidden sm:inline ${
+              className={`text-[10.5px] font-medium truncate hidden sm:inline ${
                 isLightMode ? "text-neutral-500" : "text-zinc-400"
               }`}
             >
@@ -481,9 +481,9 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           <span
-            className={`px-3 py-1 rounded-full text-[11px] font-semibold tabular-nums ${
+            className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold tabular-nums ${
               completedList.length === 5
                 ? "bg-[#10b981]/20 text-[#10b981]"
                 : isLightMode
@@ -498,7 +498,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
             type="button"
             onClick={() => setSubView("settings")}
             title={isId ? "Pengaturan pengingat sholat" : "Prayer reminder settings"}
-            className={`flex items-center gap-1.5 px-3 h-7 rounded-full text-[11px] font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center gap-1 px-2.5 h-6 rounded-full text-[10.5px] font-semibold transition-colors cursor-pointer ${
               settings.reminderEnabled
                 ? "bg-[#10b981] text-white"
                 : isLightMode
@@ -506,7 +506,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                 : "bg-white/[0.08] text-zinc-400"
             }`}
           >
-            <SlidersHorizontal size={12} />
+            <SlidersHorizontal size={11} />
             <span>{isId ? "Pengingat" : "Reminders"}</span>
           </button>
         </div>
@@ -514,15 +514,15 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
 
       {/* 2. Hero Upcoming Prayer Card */}
       <div
-        className={`w-full rounded-[18px] px-4 py-3.5 flex items-center justify-between gap-4 shrink-0 ${surfaceCard}`}
+        className={`w-full rounded-[14px] px-3.5 py-2 flex items-center justify-between gap-3 shrink-0 ${surfaceCard}`}
       >
-        <div className="flex items-center gap-3.5 min-w-0">
-          <div className="w-11 h-11 rounded-[13px] bg-[#10b981] text-white flex items-center justify-center shrink-0">
-            <Moon size={21} strokeWidth={2.2} />
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8.5 h-8.5 rounded-[10px] bg-[#10b981] text-white flex items-center justify-center shrink-0">
+            <Moon size={17} strokeWidth={2.2} />
           </div>
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[10.5px] font-bold uppercase tracking-wider text-[#10b981]">
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#10b981]">
                 {nextStatus.isTomorrow
                   ? isId
                     ? "Jadwal Subuh Besok"
@@ -532,7 +532,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                   : "Next Prayer"}
               </span>
               <span
-                className={`text-[10.5px] ${
+                className={`text-[10px] ${
                   isLightMode ? "text-neutral-500" : "text-zinc-400"
                 }`}
               >
@@ -540,24 +540,24 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                 {schedule.timings.Sunrise}
               </span>
             </div>
-            <div className="flex items-baseline gap-2.5">
+            <div className="flex items-baseline gap-2">
               <span
-                className={`text-[18px] font-extrabold tracking-tight leading-snug ${
+                className={`text-[15.5px] font-extrabold tracking-tight leading-snug ${
                   isLightMode ? "text-neutral-900" : "text-white"
                 }`}
               >
                 {isId ? `Sholat ${nextPrayerName}` : nextPrayerName}
               </span>
-              <span className="text-[17px] font-bold tabular-nums text-[#10b981] leading-snug">
+              <span className="text-[15px] font-bold tabular-nums text-[#10b981] leading-snug">
                 {nextStatus.nextPrayerTime}
               </span>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-1 shrink-0">
+        <div className="flex flex-col items-end gap-0.5 shrink-0">
           <span
-            className={`px-3 py-1 rounded-full text-[12.5px] font-bold tabular-nums ${
+            className={`px-2.5 py-0.5 rounded-full text-[11.5px] font-bold tabular-nums ${
               isLightMode
                 ? "bg-[#10b981]/15 text-[#047857]"
                 : "bg-[#10b981]/20 text-[#34d399]"
@@ -566,7 +566,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
             -{nextStatus.countdownText}
           </span>
           <span
-            className={`text-[10.5px] ${
+            className={`text-[10px] ${
               isLightMode ? "text-neutral-500" : "text-zinc-400"
             }`}
           >
@@ -586,7 +586,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
       </div>
 
       {/* 3. 5-Prayer Daily Schedule Row */}
-      <div className="grid grid-cols-5 gap-2.5 w-full flex-1 min-h-0">
+      <div className="grid grid-cols-5 gap-2 w-full flex-1 min-h-0">
         {PRAYER_ORDER.map((prayerId) => {
           const isNext =
             nextStatus.nextPrayer === prayerId && !nextStatus.isTomorrow;
@@ -599,7 +599,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
           return (
             <div
               key={prayerId}
-              className={`rounded-[16px] p-3 flex flex-col justify-between border transition-all ${
+              className={`rounded-[13px] p-2 flex flex-col justify-between border transition-all ${
                 isNext
                   ? isLightMode
                     ? "bg-[#10b981]/10 border-[#10b981] shadow-sm"
@@ -610,7 +610,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               {/* Top: Name + Notif Bell */}
               <div className="flex items-center justify-between gap-1">
                 <span
-                  className={`text-[12px] font-bold truncate ${
+                  className={`text-[11.5px] font-bold truncate ${
                     isNext
                       ? "text-[#10b981]"
                       : isLightMode
@@ -632,7 +632,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                       ? `Notifikasi ${pName} nonaktif`
                       : `${pName} notification off`
                   }
-                  className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                  className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
                     isNotifOn
                       ? "text-[#10b981] hover:bg-[#10b981]/15"
                       : isLightMode
@@ -640,13 +640,13 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                       : "text-zinc-500 hover:bg-white/5"
                   }`}
                 >
-                  {isNotifOn ? <Bell size={12} /> : <BellOff size={12} />}
+                  {isNotifOn ? <Bell size={11} /> : <BellOff size={11} />}
                 </button>
               </div>
 
               {/* Middle: Time */}
               <div
-                className={`text-[16px] font-extrabold tabular-nums tracking-tight my-0.5 ${
+                className={`text-[14.5px] font-extrabold tabular-nums tracking-tight ${
                   isLightMode ? "text-neutral-900" : "text-white"
                 }`}
               >
@@ -657,7 +657,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               <button
                 type="button"
                 onClick={() => handleTogglePrayerCompleted(prayerId)}
-                className={`w-full py-1.5 rounded-[10px] text-[10.5px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                className={`w-full py-1 rounded-[8px] text-[10px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                   isCompleted
                     ? "bg-[#10b981] text-white"
                     : isLightMode
@@ -665,7 +665,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                     : "bg-white/[0.07] hover:bg-white/[0.13] text-zinc-300"
                 }`}
               >
-                <Check size={11} strokeWidth={2.5} />
+                <Check size={10.5} strokeWidth={2.5} />
                 <span>
                   {isCompleted
                     ? isId

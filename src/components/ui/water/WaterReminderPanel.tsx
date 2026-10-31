@@ -61,10 +61,9 @@ export const WaterReminderPanel: React.FC<WaterReminderPanelProps> = ({
     };
   }, []);
 
-  // Update panel height based on active view (310px for capsule, 475px for subpages)
+  // Update panel height to slim unified tab height
   useEffect(() => {
-    const targetHeight = subView === "capsule" ? 310 : 475;
-    onHeightChange?.(targetHeight);
+    onHeightChange?.(292);
   }, [subView, onHeightChange]);
 
   const handleDrink = useCallback(() => {

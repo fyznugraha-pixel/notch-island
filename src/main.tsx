@@ -1,4 +1,4 @@
-import { Component, ErrorInfo, ReactNode } from "react";
+import { Component, ErrorInfo, lazy, ReactNode, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "@fontsource/inter/400.css";
@@ -7,9 +7,14 @@ import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
 import "./App.css";
 import "./index.css";
-import App from "./App";
-import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
 import { getLanguage } from "./services/i18n";
+
+const App = lazy(() => import("./App"));
+const SettingsWindowApp = lazy(() =>
+  import("./components/settingsWindow/SettingsWindowApp").then((m) => ({
+    default: m.SettingsWindowApp,
+  }))
+);
 
 const isSettingsWindow = (() => {
   if (typeof window === "undefined") return false;
@@ -66,6 +71,8 @@ class RootErrorBoundary extends Component<Props, State> {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RootErrorBoundary>
-    {isSettingsWindow ? <SettingsWindowApp /> : <App />}
+    <Suspense fallback={null}>
+      {isSettingsWindow ? <SettingsWindowApp /> : <App />}
+    </Suspense>
   </RootErrorBoundary>
 );

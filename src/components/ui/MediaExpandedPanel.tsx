@@ -51,32 +51,11 @@ export interface MediaExpandedPanelProps {
   queueHistory?: QueueTrackItem[];
 }
 
-const tabVariants = {
-  enter: (dir: number) => ({
-    x: dir > 0 ? 16 : dir < 0 ? -16 : 0,
-    opacity: 0,
-  }),
-  center: {
-    x: 0,
-    opacity: 1,
-    transition: {
-      x: { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const },
-      opacity: { duration: 0.18, ease: "easeOut" as const },
-    },
-    transitionEnd: { transform: "none" },
-  },
-  exit: (dir: number) => ({
-    x: dir > 0 ? -16 : dir < 0 ? 16 : 0,
-    opacity: 0,
-    transition: { duration: 0.12 },
-  }),
-};
-
 const timeLabelClass =
   "text-[11px] font-semibold tracking-tight text-white/50 media-time-label w-9 shrink-0 tabular-nums select-none";
 
 export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
-  slideDirection,
+  slideDirection: _slideDirection,
   tabWidth: _tabWidth,
   media,
   isPlaying,
@@ -155,14 +134,8 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   };
 
   return (
-    <motion.div
-      key="media_expanded"
-      custom={slideDirection}
-      variants={tabVariants}
-      initial="enter"
-      animate="center"
-      exit="exit"
-      className="absolute inset-0 w-full h-full flex px-3 pb-2.5 pt-1.5 min-w-0 cursor-default gap-3 relative gpu-accelerated"
+    <div
+      className="w-full h-full flex px-3 pb-2.5 pt-1.5 min-w-0 cursor-default gap-3 relative"
     >
       {/* Left Column: Player Controls */}
       <div className={`h-full flex flex-col justify-between min-w-0 relative z-10 shrink-0 overflow-hidden ${isCompact ? "w-[298px]" : "w-[320px]"}`}>
@@ -497,6 +470,6 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 };

@@ -1,9 +1,12 @@
 import React from "react";
-import { Moon, Type, Layout, Smile, Layers, Scaling, Activity, Sliders, MoveVertical } from "lucide-react";
+import { Moon, Type, Layout, Smile, Scaling, Activity, Sliders, MoveVertical } from "lucide-react";
 import { SettingRow } from "./SettingRow";
+import { NotchPositionPreviewSelector } from "./NotchPositionPreviewSelector";
+import { TransparencyControlSection } from "./TransparencyControlSection";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
 import { t } from "../../../services/i18n";
+import { NotchPosition } from "../../../utils/notchGeometry";
 
 export interface AppearanceTabProps {
   optTheme: "dark" | "light" | "auto";
@@ -12,8 +15,9 @@ export interface AppearanceTabProps {
   onChangeNotchShape: (shape: "notch" | "island") => void;
   islandTopOffset: number;
   onChangeIslandTopOffset: (offset: number) => void;
-  optPosition: "top" | "bottom";
-  onChangePosition: (pos: "top" | "bottom") => void;
+  optPosition: NotchPosition;
+  onChangePosition: (pos: NotchPosition) => void;
+  showPositionSetting?: boolean;
   isLightMode?: boolean;
   optFontSize: "small" | "default" | "large";
   onChangeFontSize: (size: "small" | "default" | "large") => void;
@@ -25,6 +29,8 @@ export interface AppearanceTabProps {
   onToggleEars: () => void;
   optOpacity: number;
   onChangeOpacity: (val: number) => void;
+  optBlur?: number;
+  onChangeBlur?: (val: number) => void;
   optAnimSpeed: "snappy" | "smooth" | "bouncy";
   onChangeAnimSpeed: (speed: "snappy" | "smooth" | "bouncy") => void;
 }
@@ -38,6 +44,7 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onChangeIslandTopOffset,
   optPosition,
   onChangePosition,
+  showPositionSetting = false,
   isLightMode = false,
   optFontSize,
   onChangeFontSize,
@@ -49,6 +56,8 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onToggleEars,
   optOpacity,
   onChangeOpacity,
+  optBlur,
+  onChangeBlur,
   optAnimSpeed,
   onChangeAnimSpeed,
 }) => {
@@ -280,23 +289,31 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
         />
       )}
 
-      {/* 3. Posisi (Top / Bottom) */}
-      <SettingRow
-        icon={<MoveVertical size={18} />}
-        iconBgClass="bg-[#142333]"
-        iconColorClass="text-[#32ade6]"
-        title={t("settings_position")}
-        control={
-          <IosSegmentedControl
+      {/* 3. Posisi (8 Titik Layar + Preview Penempatan - Hanya di Settings Window) */}
+      {showPositionSetting && (
+        <div className="flex flex-col gap-2.5 px-3 py-2.5 rounded-[12px] hover:bg-white/[0.02] transition-colors">
+          <div className="flex items-center gap-3">
+            <div className="w-[30px] h-[30px] rounded-[8px] flex items-center justify-center shrink-0 bg-[#142333] text-[#32ade6]">
+              <MoveVertical size={18} />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[13px] font-semibold text-white leading-tight">
+                {t("settings_position")}
+              </span>
+              <span className="text-[10.5px] text-[#71717a] leading-tight mt-0.5">
+                {t("settings_position_desc")}
+              </span>
+            </div>
+          </div>
+          <NotchPositionPreviewSelector
             value={optPosition}
-            onChange={(val) => onChangePosition(val as "top" | "bottom")}
-            options={[
-              { value: "top", label: t("settings_pos_top"), tooltip: t("settings_pos_top_tip") },
-              { value: "bottom", label: t("settings_pos_bottom"), tooltip: t("settings_pos_bottom_tip") },
-            ]}
+            onChange={onChangePosition}
+            notchShape={notchShape}
+            optEars={optEars}
+            isLightMode={isLightMode}
           />
-        }
-      />
+        </div>
+      )}
 
       {/* 4. Tema */}
       <SettingRow
@@ -396,23 +413,13 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
         />
       </div>
 
-      {/* 8. Transparansi */}
-      <SettingRow
-        icon={<Layers size={18} />}
-        iconBgClass="bg-[#142d1f]"
-        iconColorClass="text-[#30d158]"
-        title={t("settings_transparency")}
-        control={
-          <IosSegmentedControl
-            value={optOpacity >= 0.9 ? 1.0 : optOpacity >= 0.7 ? 0.8 : 0.5}
-            onChange={onChangeOpacity}
-            options={[
-              { value: 1.0, label: t("settings_theme_solid") },
-              { value: 0.8, label: t("settings_theme_glass") },
-              { value: 0.5, label: t("settings_theme_clear") },
-            ]}
-          />
-        }
+      {/* 8. Transparansi + Custom Tingkat Transparansi & Keburaman */}
+      <TransparencyControlSection
+        optOpacity={optOpacity}
+        onChangeOpacity={onChangeOpacity}
+        optBlur={optBlur}
+        onChangeBlur={onChangeBlur}
+        isLightMode={isLightMode}
       />
 
       {/* 9. Animasi */}

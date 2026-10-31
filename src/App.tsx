@@ -6,7 +6,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load } from "@tauri-apps/plugin-store";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, ShortcutActionId, ShortcutStatus, shortcutManager } from "./services/shortcuts";
+import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, ShortcutActionId, ShortcutStatus, shortcutManager, formatShortcutForBadge } from "./services/shortcuts";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
@@ -25,14 +25,27 @@ import { prefetchArtwork, getResolvedArtworkUrl } from "./services/artworkServic
 import { AudioVisualizer } from "./components/ui/AudioVisualizer";
 import { ScrollingText } from "./components/ui/ScrollingText";
 import { NotchSurface } from "./components/ui/NotchSurface";
+import {
+  getDefaultBlurForOpacity,
+  resolveNotchThemeMode,
+  computeNotchGlassCssVars,
+} from "./components/ui/settings/TransparencyControlSection";
+import {
+  NotchPosition,
+  isValidNotchPosition,
+  isBottomNotchPosition,
+  isTopNotchPosition,
+  isLeftNotchPosition,
+  isRightNotchPosition,
+  isSideCenterNotchPosition,
+} from "./utils/notchGeometry";
 import { PanelFrame } from "./components/ui/PanelNavHeader";
 import { getTextWidth } from "./utils/text";
 import { LyricsData, LyricsProviderId, fetchLyrics, clearLyricsCacheForTrack } from "./services/lyricsService";
 import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
 import { fetchCurrentWeather, subscribeWeatherChange, getCachedWeather } from "./services/weatherService";
 import { checkForAppUpdate } from "./services/updateService";
-import { ClipboardPanel, ClipboardItem } from "./components/ui/ClipboardPanel";
-import { NotificationCenterPanel } from "./components/ui/NotificationCenterPanel";
+import type { ClipboardItem } from "./components/ui/ClipboardPanel";
 import {
   NotificationHistoryItem,
   loadNotificationHistory,
@@ -42,21 +55,15 @@ import {
   getDndStatus,
   setDndStatus,
 } from "./services/notificationHistoryService";
-import { TodoListPanel, TodoItem, TodoRepeatRule, computeNextRepeatDue } from "./components/ui/TodoListPanel";
-import { DropShelfPanel, StashedFile } from "./components/ui/DropShelfPanel";
-import { ControlCenterPanel } from "./components/ui/ControlCenterPanel";
-import { SettingsPanel } from "./components/ui/SettingsPanel";
+import { type TodoItem, type TodoRepeatRule, computeNextRepeatDue } from "./services/todoUtils";
+import type { StashedFile } from "./components/ui/DropShelfPanel";
 import {
   NotchTabsPreferences,
   loadTabsPreferences,
   normalizeTabsPreferences,
   getOrderedEnabledTabs,
 } from "./services/tabConfigService";
-import { PomodoroPanel } from "./components/ui/PomodoroPanel";
-import { SystemMonitorPanel } from "./components/ui/SystemMonitorPanel";
-import { MiniNotePanel, QuickNoteNotchCard, createQuickNoteItem, deleteQuickNoteItem } from "./components/ui/MiniNotePanel";
-import { QuickTodoNotchCard, formatShortcutForBadge } from "./components/ui/QuickTodoNotchCard";
-import { WaterReminderPanel } from "./components/ui/water/WaterReminderPanel";
+import { createQuickNoteItem, deleteQuickNoteItem } from "./services/noteUtils";
 import { WaterNotchToast, WaterToastType } from "./components/ui/water/WaterNotchToast";
 import {
   loadWaterData,
@@ -66,7 +73,6 @@ import {
   WaterData,
 } from "./services/waterService";
 import { useWaterReminder } from "./hooks/useWaterReminder";
-import { PrayerReminderPanel } from "./components/ui/prayer/PrayerReminderPanel";
 import { PrayerNotchToast } from "./components/ui/prayer/PrayerNotchToast";
 import { PrayerToastPayload, togglePrayerCompleted, getPrayerDisplayName } from "./services/prayerService";
 import { usePrayerReminder } from "./hooks/usePrayerReminder";
@@ -99,10 +105,54 @@ import {
   parseIdleLayout,
   measureIdleLayoutWidth,
 } from "./components/ui/IdleLayoutSetting";
-import { VolumeMixerPanel } from "./components/ui/VolumeMixerPanel";
-import { MediaExpandedPanel } from "./components/ui/MediaExpandedPanel";
-import { QueueTrackItem } from "./components/ui/MediaQueueView";
+import type { QueueTrackItem } from "./components/ui/MediaQueueView";
 import { IdleLyrics } from "./components/ui/IdleLyrics";
+
+const ControlCenterPanel = React.lazy(() =>
+  import("./components/ui/ControlCenterPanel").then((m) => ({ default: m.ControlCenterPanel }))
+);
+const ClipboardPanel = React.lazy(() =>
+  import("./components/ui/ClipboardPanel").then((m) => ({ default: m.ClipboardPanel }))
+);
+const NotificationCenterPanel = React.lazy(() =>
+  import("./components/ui/NotificationCenterPanel").then((m) => ({ default: m.NotificationCenterPanel }))
+);
+const TodoListPanel = React.lazy(() =>
+  import("./components/ui/TodoListPanel").then((m) => ({ default: m.TodoListPanel }))
+);
+const DropShelfPanel = React.lazy(() =>
+  import("./components/ui/DropShelfPanel").then((m) => ({ default: m.DropShelfPanel }))
+);
+const SettingsPanel = React.lazy(() =>
+  import("./components/ui/SettingsPanel").then((m) => ({ default: m.SettingsPanel }))
+);
+const PomodoroPanel = React.lazy(() =>
+  import("./components/ui/PomodoroPanel").then((m) => ({ default: m.PomodoroPanel }))
+);
+const SystemMonitorPanel = React.lazy(() =>
+  import("./components/ui/SystemMonitorPanel").then((m) => ({ default: m.SystemMonitorPanel }))
+);
+const MiniNotePanel = React.lazy(() =>
+  import("./components/ui/MiniNotePanel").then((m) => ({ default: m.MiniNotePanel }))
+);
+const WaterReminderPanel = React.lazy(() =>
+  import("./components/ui/water/WaterReminderPanel").then((m) => ({ default: m.WaterReminderPanel }))
+);
+const PrayerReminderPanel = React.lazy(() =>
+  import("./components/ui/prayer/PrayerReminderPanel").then((m) => ({ default: m.PrayerReminderPanel }))
+);
+const VolumeMixerPanel = React.lazy(() =>
+  import("./components/ui/VolumeMixerPanel").then((m) => ({ default: m.VolumeMixerPanel }))
+);
+const MediaExpandedPanel = React.lazy(() =>
+  import("./components/ui/MediaExpandedPanel").then((m) => ({ default: m.MediaExpandedPanel }))
+);
+const QuickNoteNotchCard = React.lazy(() =>
+  import("./components/ui/MiniNotePanel").then((m) => ({ default: m.QuickNoteNotchCard }))
+);
+const QuickTodoNotchCard = React.lazy(() =>
+  import("./components/ui/QuickTodoNotchCard").then((m) => ({ default: m.QuickTodoNotchCard }))
+);
 import { getWheelVerticalDirection } from "./utils/gesture";
 import { iosSpring } from "./utils/iosMotion";
 import { t, getLanguage, setLanguage, Language } from "./services/i18n";
@@ -337,7 +387,6 @@ export default function App() {
   const [isHidden, setIsHidden] = useState(false);
   const [isVolumeMixer, setIsVolumeMixer] = useState(false);
   useEffect(() => { isVolumeMixerRef.current = isVolumeMixer; }, [isVolumeMixer]);
-  const [powerMode, setPowerMode] = useState<"Eco" | "Balanced" | "Performance">("Balanced");
   const [networkPing, setNetworkPing] = useState<number | null>(null);
   const [audioSessions, setAudioSessions] = useState<{pid: number, name: string, volume: number, muted: boolean}[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -364,6 +413,7 @@ export default function App() {
     }, delayMs);
   }, [clearPausedMediaTimer]);
   const [mediaProgress, setMediaProgress] = useState({ position: 0, duration: 0 });
+  const latestMediaProgressRef = useRef({ position: 0, duration: 0, updatedAt: performance.now() });
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekValue, setSeekValue] = useState(0);
   const [brightnessMode, setBrightnessMode] = useState<"auto" | "manual" | "reading">("manual");
@@ -375,6 +425,20 @@ export default function App() {
       return false;
     }
   });
+  const showLyricsRef = useRef(showLyrics);
+  useEffect(() => {
+    showLyricsRef.current = showLyrics;
+  }, [showLyrics]);
+  useEffect(() => {
+    if (isExpanded || showLyrics) {
+      const snap = latestMediaProgressRef.current;
+      const elapsedSec = isPlayingRef.current
+        ? Math.max(0, (performance.now() - snap.updatedAt) / 1000)
+        : 0;
+      const nextPos = snap.duration > 0 ? Math.min(snap.duration, snap.position + elapsedSec) : snap.position + elapsedSec;
+      setMediaProgress({ position: nextPos, duration: snap.duration });
+    }
+  }, [isExpanded, showLyrics]);
   const [queueHistory, setQueueHistory] = useState<QueueTrackItem[]>(() => {
     try {
       const saved = localStorage.getItem("island_queue_history");
@@ -614,8 +678,6 @@ export default function App() {
         setDisplayLevel(previousBrightnessRef.current);
       }
     } else if (nextMode === "Gaming") {
-      setPowerMode("Performance");
-      invoke("set_power_plan", { mode: "Performance" }).catch(console.error);
       if (wasSleep && previousBrightnessRef.current) {
         invoke("set_brightness", { level: previousBrightnessRef.current }).catch(console.error);
         setDisplayLevel(previousBrightnessRef.current);
@@ -624,13 +686,9 @@ export default function App() {
       if (!wasSleep) {
         previousBrightnessRef.current = displayLevel;
       }
-      setPowerMode("Eco");
-      invoke("set_power_plan", { mode: "Eco" }).catch(console.error);
       invoke("set_brightness", { level: 35 }).catch(console.error);
       setDisplayLevel(35);
     } else {
-      setPowerMode("Balanced");
-      invoke("set_power_plan", { mode: "Balanced" }).catch(console.error);
       if (wasSleep && previousBrightnessRef.current) {
         invoke("set_brightness", { level: previousBrightnessRef.current }).catch(console.error);
         setDisplayLevel(previousBrightnessRef.current);
@@ -1102,7 +1160,6 @@ export default function App() {
     type: WaterToastType;
     amount?: number;
   } | null>(null);
-  const [waterDynamicHeight, setWaterDynamicHeight] = useState<number>(310);
   const [waterData, setWaterData] = useState<WaterData>(() => loadWaterData());
 
   useEffect(() => {
@@ -1317,7 +1374,7 @@ export default function App() {
 
   const handleCloseImmediate = useCallback(() => {
     if (isSwitchingTabRef.current) return;
-    isClosingRef.current = true;
+    isClosingRef.current = false;
     isCursorInsideNotchRef.current = false;
     isShortcutPinnedRef.current = false;
     if (shortcutPinnedTimerRef.current) {
@@ -1329,18 +1386,32 @@ export default function App() {
     setSlideDirection(0);
     setIsDragOver(false);
     setIsSettings(false);
+    isSettingsRef.current = false;
     setIsNotifications(false);
+    isNotificationsRef.current = false;
     setIsVolumeMixer(false);
+    isVolumeMixerRef.current = false;
     setIsClipboard(false);
+    isClipboardRef.current = false;
     setIsPrayerReminder(false);
+    isPrayerReminderRef.current = false;
     setIsWaterReminder(false);
+    isWaterReminderRef.current = false;
     setIsMiniNote(false);
+    isMiniNoteRef.current = false;
     setIsSysMonitor(false);
+    isSysMonitorRef.current = false;
     setIsPomodoro(false);
+    isPomodoroRef.current = false;
     setIsTodo(false);
+    isTodoRef.current = false;
     setIsDropShelf(false);
+    isDropShelfRef.current = false;
     setIsQuickControl(false);
+    isQuickControlRef.current = false;
     setIsExpanded(false);
+    isExpandedRef.current = false;
+    currentTabRef.current = null;
     setIsQuickNoteOpen(false);
     setIsQuickNoteSaved(false);
     setIsQuickTodoOpen(false);
@@ -1355,46 +1426,52 @@ export default function App() {
       isPausedMediaCollapsedRef.current = true;
       setIsPausedMediaCollapsed(true);
     }
+    invoke("broadcast_settings_sync", {
+      payload: { type: "notch_tab_state", tab: null, isOpen: false },
+    }).catch(() => {});
     window.setTimeout(finishClosing, 450);
   }, [clearPausedMediaTimer]);
 
-  const openLastOrPreferredTab = () => {
+  const openLastOrPreferredTab = (forceTab?: ExpandedTab) => {
     cancelCollapseTimer();
     setSlideDirection(0);
-    if (currentTab !== null || isClosingRef.current) return;
+    isClosingRef.current = false;
     setTabSwitchGrace(600);
     const elapsed = lastPanelClosedAtRef.current > 0
       ? Date.now() - lastPanelClosedAtRef.current
       : Infinity;
     const tabExpired = elapsed > 3 * 60 * 1000;
     
-    let target: ExpandedTab = "quick_control";
-    const hasMediaTrack = Boolean(mediaRef.current?.title || lastMediaPayloadRef.current?.title);
-    const isMusicActive = Boolean(
-      hasMediaTrack && (isPlayingRef.current || ((variantRef.current === "media" || variantRef.current === "lyrics_idle") && !isPausedMediaCollapsedRef.current))
-    );
-    const openBehavior = tabsPrefsRef.current.defaultOpenBehavior;
-    if (isMusicActive) {
-      target = "media_expanded";
-    } else if (openBehavior === "first_tab") {
-      target = (availableTabs[0] as ExpandedTab) || "quick_control";
-    } else if (openBehavior === "quick_control") {
-      target = "quick_control";
-    } else if (!tabExpired && lastActiveTabRef.current) {
-      target = lastActiveTabRef.current;
-    } else {
-      target = (availableTabs[0] as ExpandedTab) || "quick_control";
+    let target: ExpandedTab = forceTab || "quick_control";
+    if (!forceTab) {
+      const hasMediaTrack = Boolean(mediaRef.current?.title || lastMediaPayloadRef.current?.title);
+      const isMusicActive = Boolean(
+        hasMediaTrack && (isPlayingRef.current || ((variantRef.current === "media" || variantRef.current === "lyrics_idle") && !isPausedMediaCollapsedRef.current))
+      );
+      const openBehavior = tabsPrefsRef.current.defaultOpenBehavior;
+      if (isMusicActive) {
+        target = "media_expanded";
+      } else if (openBehavior === "first_tab") {
+        target = (availableTabs[0] as ExpandedTab) || "quick_control";
+      } else if (openBehavior === "quick_control") {
+        target = "quick_control";
+      } else if (!tabExpired && lastActiveTabRef.current) {
+        target = lastActiveTabRef.current;
+      } else {
+        target = (availableTabs[0] as ExpandedTab) || "quick_control";
+      }
+
+      if (target === "media_expanded" && !hasMediaTrack) {
+        target = "quick_control";
+      }
+      if (!availableTabs.includes(target)) {
+        target = availableTabs.includes("quick_control")
+          ? "quick_control"
+          : (availableTabs[0] || "quick_control");
+      }
     }
 
-    if (target === "media_expanded" && !hasMediaTrack) {
-      target = "quick_control";
-    }
-    if (!availableTabs.includes(target)) {
-      target = availableTabs.includes("quick_control")
-        ? "quick_control"
-        : (availableTabs[0] || "quick_control");
-    }
-
+    currentTabRef.current = null;
     goToTab(target, 0);
   };
 
@@ -1605,6 +1682,9 @@ export default function App() {
     setIsNotifications(targetTab === "notif_center");
 
     // Defer background status refresh until after the expand animation settles so it never stutters mid-spring
+    invoke("broadcast_settings_sync", {
+      payload: { type: "notch_tab_state", tab: targetTab, isOpen: true },
+    }).catch(() => {});
     const fetchDelay = wasAlreadyOpen ? 40 : 260;
     if (targetTab === "quick_control") {
       window.setTimeout(() => fetchSystemStatus(), fetchDelay);
@@ -1624,13 +1704,12 @@ export default function App() {
     }
     cancelCollapseTimer();
     if (currentNotifRef.current) return;
-    if (currentTabRef.current !== null) return;
     if (focusModeRef.current === "Gaming") return;
     if (variantRef.current === "compact") {
       startCompactHoverTimer(80);
     } else if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
       goToTab("media_expanded", 0);
-    } else if (variantRef.current === "idle") {
+    } else if (variantRef.current === "idle" || currentTabRef.current === null) {
       openLastOrPreferredTab();
     }
   };
@@ -1749,14 +1828,37 @@ export default function App() {
   const [optOcr, setOptOcr] = useState(false);
   const [optMedia, setOptMedia] = useState(true);
   const [optSoundFx, setOptSoundFx] = useState<boolean>(() => isSoundEffectsEnabled());
-  const [optPosition, setOptPosition] = useState<"top"|"bottom">(() => {
+  const [optPosition, setOptPosition] = useState<NotchPosition>(() => {
     try {
       const p = localStorage.getItem("island_position");
-      if (p === "bottom" || p === "top") return p;
+      if (isValidNotchPosition(p)) return p;
     } catch {}
     return "top";
   });
-  const [optOpacity, setOptOpacity] = useState<number>(1.0);
+  const optPositionRef = useRef<NotchPosition>(optPosition);
+  useEffect(() => {
+    optPositionRef.current = optPosition;
+  }, [optPosition]);
+  const [optOpacity, setOptOpacity] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("island_opacity");
+      if (saved !== null) {
+        const n = Number(saved);
+        if (!isNaN(n) && n >= 0.15 && n <= 1.0) return n;
+      }
+    } catch {}
+    return 1.0;
+  });
+  const [optBlur, setOptBlur] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("island_blur");
+      if (saved !== null) {
+        const n = Number(saved);
+        if (!isNaN(n) && n >= 0 && n <= 100) return n;
+      }
+    } catch {}
+    return 0;
+  });
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy"|"smooth"|"bouncy">("smooth");
   const [optAccent, setOptAccent] = useState<"default"|"pink"|"blue"|"green">("default");
   const [optNotifTime, setOptNotifTime] = useState<number>(3);
@@ -1870,7 +1972,8 @@ export default function App() {
       } catch {}
     }
     invoke("set_window_position", {
-      isBottom: optPosition === "bottom",
+      isBottom: isBottomNotchPosition(optPosition),
+      position: optPosition,
       topOffset: islandTopOffset,
       isIsland: shape === "island",
     }).catch(console.error);
@@ -1887,7 +1990,8 @@ export default function App() {
       } catch {}
     }
     invoke("set_window_position", {
-      isBottom: optPosition === "bottom",
+      isBottom: isBottomNotchPosition(optPosition),
+      position: optPosition,
       topOffset: clamped,
       isIsland: notchShape === "island",
     }).catch(console.error);
@@ -2218,11 +2322,17 @@ export default function App() {
         const ocr = await s.get('opt_ocr'); if (ocr !== null) setOptOcr(ocr as boolean);
         const m = await s.get('opt_media'); if (m !== null) setOptMedia(m as boolean);
         const p = await s.get('opt_position');
-        if (p === 'top' || p === 'bottom') {
+        if (isValidNotchPosition(p)) {
           setOptPosition(p);
           try { localStorage.setItem("island_position", p); } catch {}
         }
         const o = await s.get('opt_opacity'); if (o !== null) setOptOpacity(Number(o));
+        const bl = await s.get('opt_blur');
+        if (bl !== null && bl !== undefined) {
+          setOptBlur(Number(bl));
+        } else if (o !== null) {
+          setOptBlur(getDefaultBlurForOpacity(Number(o)));
+        }
         const a = await s.get('opt_anim_speed'); if (a !== null) setOptAnimSpeed(a as string as any);
         const acc = await s.get('opt_accent'); if (acc !== null) setOptAccent(acc as string as any);
         const nt = await s.get('opt_notif_time'); if (nt !== null) setOptNotifTime(nt as number);
@@ -2364,7 +2474,7 @@ export default function App() {
     }, 12000);
 
     const unlistenClickOutside = listen("click-outside", () => {
-      if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
+      if (isSwitchingTabRef.current || isShelfDraggingRef.current || isShortcutPinnedRef.current) return;
       isCursorInsideNotchRef.current = false;
       handleCloseImmediate();
     });
@@ -2374,17 +2484,14 @@ export default function App() {
       isCursorInsideNotchRef.current = false;
       pendingHoverOpenRef.current = false;
       setIsDragOver(false);
-      if (isSwitchingTabRef.current || isShelfDraggingRef.current) return;
+      if (isSwitchingTabRef.current || isShelfDraggingRef.current || isShortcutPinnedRef.current) return;
       startCollapseTimer(350);
     });
 
     const unlistenMouseEnter = listen("notch-mouse-enter", () => {
       if (isShelfDraggingRef.current) return;
-      if (isClosingRef.current) {
-        isCursorInsideNotchRef.current = true;
-        pendingHoverOpenRef.current = true;
-        return;
-      }
+      isCursorInsideNotchRef.current = true;
+      isClosingRef.current = false;
       notchHoverEnterRef.current();
     });
 
@@ -2418,17 +2525,15 @@ export default function App() {
             isCursorInsideNotchRef.current = false;
             handleCloseImmediate();
           } else {
-            // When notch is closed, clicking anywhere in the floating margin area above/near the notch opens it
+            // When notch is closed, clicking anywhere in the floating margin area near the notch opens it
             const island = isIslandRef.current;
             const topOffset = islandTopOffsetRef.current;
-            const bot = isBotRef.current;
-            const topMargin = island ? Math.max(26, topOffset + 14) : 10;
-            const bottomMargin = island && bot ? Math.max(26, topOffset + 14) : 10;
+            const margin = island ? Math.max(26, topOffset + 14) : 14;
             const isNearNotch =
-              e.clientX >= rect.left - 16 &&
-              e.clientX <= rect.right + 16 &&
-              e.clientY >= (bot ? rect.bottom - 4 : rect.top - topMargin) &&
-              e.clientY <= (bot ? rect.bottom + bottomMargin : rect.top + rect.height + 6);
+              e.clientX >= rect.left - margin &&
+              e.clientX <= rect.right + margin &&
+              e.clientY >= rect.top - margin &&
+              e.clientY <= rect.bottom + margin;
             if (isNearNotch) {
               if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
                 goToTab("media_expanded", 0);
@@ -2441,7 +2546,12 @@ export default function App() {
       }
     };
 
-    const handleGlobalPointerMove = (e: MouseEvent | PointerEvent) => {
+    let pointerMoveRafId: number | null = null;
+    let lastClientX = 0;
+    let lastClientY = 0;
+
+    const processPointerMove = () => {
+      pointerMoveRafId = null;
       if (isShelfDraggingRef.current) return;
       const pillElement = document.getElementById("notch-pill");
       if (pillElement) {
@@ -2452,21 +2562,38 @@ export default function App() {
         const anyOpen = isAnyPanelOpenRef.current;
         const targetWidth = anyOpen ? Math.max(currentSize.width, rect.width) : rect.width;
         const targetHeight = anyOpen ? Math.max(currentSize.height, rect.height) : rect.height;
-        const centerX = (rect.left + rect.right) / 2;
-        const minX = centerX - targetWidth / 2 - 14;
-        const maxX = centerX + targetWidth / 2 + 14;
+        const pos = optPositionRef.current;
         const island = isIslandRef.current;
         const topOffset = islandTopOffsetRef.current;
-        const bot = isBotRef.current;
-        const topPadding = island ? Math.max(26, topOffset + 14) : 12;
-        const bottomPadding = island && bot ? Math.max(26, topOffset + 14) : 12;
-        const minY = bot ? rect.bottom - targetHeight - bottomPadding : rect.top - topPadding;
-        const maxY = bot ? rect.bottom + bottomPadding : rect.top + targetHeight + 14;
+        const pad = island ? Math.max(26, topOffset + 14) : 14;
+
+        const minX = isLeftNotchPosition(pos)
+          ? rect.left - pad
+          : isRightNotchPosition(pos)
+          ? rect.right - targetWidth - 14
+          : (rect.left + rect.right) / 2 - targetWidth / 2 - 14;
+        const maxX = isLeftNotchPosition(pos)
+          ? rect.left + targetWidth + 14
+          : isRightNotchPosition(pos)
+          ? rect.right + pad
+          : (rect.left + rect.right) / 2 + targetWidth / 2 + 14;
+
+        const minY = isBottomNotchPosition(pos)
+          ? rect.bottom - targetHeight - 14
+          : isTopNotchPosition(pos)
+          ? rect.top - pad
+          : (rect.top + rect.bottom) / 2 - targetHeight / 2 - 14;
+        const maxY = isBottomNotchPosition(pos)
+          ? rect.bottom + pad
+          : isTopNotchPosition(pos)
+          ? rect.top + targetHeight + 14
+          : (rect.top + rect.bottom) / 2 + targetHeight / 2 + 14;
+
         const isInside =
-          e.clientX >= minX &&
-          e.clientX <= maxX &&
-          e.clientY >= minY &&
-          e.clientY <= maxY;
+          lastClientX >= minX &&
+          lastClientX <= maxX &&
+          lastClientY >= minY &&
+          lastClientY <= maxY;
         if (isInside) {
           isCursorInsideNotchRef.current = true;
           isShortcutPinnedRef.current = false;
@@ -2489,6 +2616,15 @@ export default function App() {
         } else if (isCursorInsideNotchRef.current) {
           cancelCompactHoverTimer();
         }
+      }
+    };
+
+    const handleGlobalPointerMove = (e: MouseEvent | PointerEvent) => {
+      if (isShelfDraggingRef.current) return;
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      if (pointerMoveRafId === null) {
+        pointerMoveRafId = requestAnimationFrame(processPointerMove);
       }
     };
 
@@ -2526,6 +2662,7 @@ export default function App() {
     }
     
     return () => {
+      if (pointerMoveRafId !== null) cancelAnimationFrame(pointerMoveRafId);
       window.removeEventListener("pointerdown", handleGlobalPointerDown, true);
       window.removeEventListener("pointermove", handleGlobalPointerMove);
       unlistenClickOutside.then(unlisten => unlisten());
@@ -2669,6 +2806,11 @@ export default function App() {
     const unlistenMedia = listen<MediaPayload>("media-update", (event) => {
       lastMediaPayloadRef.current = event.payload;
       if (event.payload.position !== undefined && event.payload.duration !== undefined) {
+        latestMediaProgressRef.current = {
+          position: event.payload.position,
+          duration: event.payload.duration,
+          updatedAt: performance.now(),
+        };
         setMediaProgress({ position: event.payload.position, duration: event.payload.duration });
       }
       if (!optMediaRef.current) {
@@ -2795,7 +2937,19 @@ export default function App() {
     });
 
     const unlistenProgress = listen<{position: number, duration: number}>("media-progress", (event) => {
-      setMediaProgress(event.payload);
+      const prev = latestMediaProgressRef.current;
+      latestMediaProgressRef.current = {
+        position: event.payload.position,
+        duration: event.payload.duration,
+        updatedAt: performance.now(),
+      };
+      if (
+        isExpandedRef.current ||
+        showLyricsRef.current ||
+        Math.abs(event.payload.duration - prev.duration) > 1.0
+      ) {
+        setMediaProgress(event.payload);
+      }
     });
 
     const unlistenBattery = listen<{is_charging: boolean, percent: number}>("battery-update", (event) => {
@@ -3156,18 +3310,25 @@ export default function App() {
             handleChangeIslandTopOffset(Number(value));
             break;
           case "opt_position":
-            setOptPosition(value);
-            invoke("set_window_position", {
-              isBottom: value === "bottom",
-              topOffset: islandTopOffsetRef.current,
-              isIsland: isIslandRef.current,
-            }).catch(console.error);
+            if (isValidNotchPosition(value)) {
+              setOptPosition(value);
+              try { localStorage.setItem("island_position", value); } catch {}
+              invoke("set_window_position", {
+                isBottom: isBottomNotchPosition(value),
+                position: value,
+                topOffset: islandTopOffsetRef.current,
+                isIsland: isIslandRef.current,
+              }).catch(console.error);
+            }
             break;
           case "opt_ears":
             setOptEars(Boolean(value));
             break;
           case "opt_opacity":
             setOptOpacity(Number(value));
+            break;
+          case "opt_blur":
+            setOptBlur(Number(value));
             break;
           case "opt_anim_speed":
             setOptAnimSpeed(value);
@@ -3223,6 +3384,39 @@ export default function App() {
         });
       } else if (act === "restart_onboarding") {
         window.dispatchEvent(new CustomEvent("island_trigger_onboarding"));
+      } else if (act === "close_preview_tab" || act === "close_tab") {
+        isShortcutPinnedRef.current = false;
+        if (shortcutPinnedTimerRef.current) {
+          clearTimeout(shortcutPinnedTimerRef.current);
+          shortcutPinnedTimerRef.current = null;
+        }
+        handleCloseImmediate();
+      } else if (act === "toggle_preview" || act.startsWith("preview_tab:") || act.startsWith("open_tab:")) {
+        const rawTarget = act.includes(":") ? act.split(":")[1] : "quick_control";
+        const targetTab = (availableTabs.includes(rawTarget as any) ? rawTarget : (availableTabs[0] || "quick_control")) as ExpandedTab;
+
+        if (currentTabRef.current === targetTab && isExpandedPanel) {
+          isShortcutPinnedRef.current = false;
+          if (shortcutPinnedTimerRef.current) {
+            clearTimeout(shortcutPinnedTimerRef.current);
+            shortcutPinnedTimerRef.current = null;
+          }
+          handleCloseImmediate();
+          return;
+        }
+
+        setIsHidden(false);
+        isClosingRef.current = false;
+        currentTabRef.current = null;
+        goToTab(targetTab, 0);
+        isShortcutPinnedRef.current = true;
+        if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
+        shortcutPinnedTimerRef.current = window.setTimeout(() => {
+          if (!isCursorInsideNotchRef.current && isShortcutPinnedRef.current) {
+            isShortcutPinnedRef.current = false;
+            handleCloseImmediate();
+          }
+        }, 45000);
       }
     });
 
@@ -3406,27 +3600,34 @@ export default function App() {
     if (!needsFpsCounter) return;
     let frameCount = 0;
     let lastTime = performance.now();
-    let rafId: number;
+    let rafId: number | null = null;
+    let pauseTimer: number | null = null;
     const maxHz = screenRefreshRate || 60;
 
     const tick = (now: number) => {
       frameCount++;
       const elapsed = now - lastTime;
-      // Perbarui sampling frame rate setiap 450ms agar responsif dan dinamis
-      if (elapsed >= 450) {
+      if (elapsed >= 350) {
         const rawFps = (frameCount * 1000) / elapsed;
         const measured = Math.max(1, Math.min(maxHz, Math.round(rawFps)));
-        // Jika deviasi sangat kecil (<4%) dari native refresh rate monitor, tampilkan full refresh rate
         const displayFps = Math.abs(measured - maxHz) <= Math.max(2, Math.round(maxHz * 0.04)) ? maxHz : measured;
         setFps((prev) => (prev === displayFps ? prev : displayFps));
-        frameCount = 0;
-        lastTime = now;
+        rafId = null;
+        pauseTimer = window.setTimeout(() => {
+          frameCount = 0;
+          lastTime = performance.now();
+          rafId = requestAnimationFrame(tick);
+        }, 2500);
+        return;
       }
       rafId = requestAnimationFrame(tick);
     };
 
     rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (pauseTimer !== null) clearTimeout(pauseTimer);
+    };
   }, [needsFpsCounter, screenRefreshRate]);
 
   const needsSystemMetrics =
@@ -3826,18 +4027,39 @@ export default function App() {
 
   const isIsland = notchShape === "island";
   const effectiveEars = notchShape === "notch" && (optEars ?? true);
-  const isBot = optPosition === 'bottom';
+  const isBot = isBottomNotchPosition(optPosition);
+  const isTopPos = isTopNotchPosition(optPosition);
+  const isLeftPos = isLeftNotchPosition(optPosition);
+  const isRightPos = isRightNotchPosition(optPosition);
+  const isSideCenter = isSideCenterNotchPosition(optPosition);
+
   const radius = (bottomR: string, islandR?: string) => {
     if (isIsland) {
       const r = islandR ?? (isExpandedPanel ? "32px" : bottomR);
       return `${r} ${r} ${r} ${r}`;
     }
+    if (optPosition === "left") return `0px ${bottomR} ${bottomR} 0px`;
+    if (optPosition === "right") return `${bottomR} 0px 0px ${bottomR}`;
     return isBot ? `${bottomR} ${bottomR} 0px 0px` : `0px 0px ${bottomR} ${bottomR}`;
   };
-  const startY = isBot ? 20 : -20;
+  const startY = isSideCenter ? 0 : isBot ? 20 : -20;
+  const startX = optPosition === "left" ? -20 : optPosition === "right" ? 20 : 0;
 
   const idleMultiplier = effectiveIdleSize === "compact" ? 0.88 : effectiveIdleSize === "large" ? 1.15 : 1.0;
   const idleHeight = effectiveIdleSize === "compact" ? 28 : effectiveIdleSize === "large" ? 36 : 32;
+  const activeIdleSlotsCount =
+    (idleLayout.left !== "none" ? 1 : 0) +
+    (idleLayout.center !== "none" ? 1 : 0) +
+    (idleLayout.right !== "none" ? 1 : 0) +
+    (camActive || micActive ? 1 : 0);
+  const idleSideWidth = Math.round(
+    (effectiveIdleSize === "compact" ? 64 : effectiveIdleSize === "large" ? 80 : 72) *
+      (optFontSize === "large" ? 1.08 : optFontSize === "small" ? 0.94 : 1.0)
+  );
+  const idleSideHeight = Math.round(
+    Math.max(46, Math.max(1, activeIdleSlotsCount) * 20 + 18) * (idleHeight / 32)
+  );
+
   const lyricsIdleBaseHeight =
     optFontSize === "large" || effectiveIdleSize === "large"
       ? 54
@@ -3845,9 +4067,10 @@ export default function App() {
       ? 44
       : 48;
 
-  const tabWidth = effectiveTabSize === "compact" ? 600 : effectiveTabSize === "large" ? 700 : 660;
-  const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
   const lyricsExpandedWidth = effectiveTabSize === "compact" ? 652 : effectiveTabSize === "large" ? 740 : 680;
+  const tabWidth = lyricsExpandedWidth;
+  const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
+  const unifiedTabHeight = Math.round((isBot ? 330 : 292) * tabHeightMultiplier);
 
   const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let smoothSpring: any = prefersReducedMotion 
@@ -3856,13 +4079,28 @@ export default function App() {
   if (!prefersReducedMotion && optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 380, damping: 27, mass: 0.68 };
   if (!prefersReducedMotion && optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 260, damping: 19, mass: 0.78 };
 
-  const currentY = isBot ? -shapeTransitionY : shapeTransitionY;
+  const currentY = isSideCenter ? 0 : isBot ? -shapeTransitionY : shapeTransitionY;
+  const currentX = optPosition === "left" ? shapeTransitionY : optPosition === "right" ? -shapeTransitionY : 0;
 
   const variants = {
-    initialState: { width: 0, height: 0, x: 0, y: startY, opacity: 0, borderRadius: radius("16px") },
-    hidden: { width: 0, height: 0, x: 0, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
-    compact: { width: Math.round(52 * idleMultiplier), height: Math.round(7 * (idleHeight / 32)), x: 0, y: currentY, opacity: 0.95, borderRadius: radius("4px", `${Math.round(7 * (idleHeight / 32) / 2)}px`) },
-    idle: { width: idleWidth, height: idleHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius(idleHeight >= 36 ? "14px" : "12px", `${Math.round(idleHeight / 2)}px`) },
+    initialState: { width: 0, height: 0, x: startX, y: startY, opacity: 0, borderRadius: radius("16px") },
+    hidden: { width: 0, height: 0, x: startX, y: startY, opacity: 0, scale: 0.8, borderRadius: radius("16px") },
+    compact: {
+      width: isSideCenter ? Math.round(7 * (idleHeight / 32)) : Math.round(52 * idleMultiplier),
+      height: isSideCenter ? Math.round(52 * idleMultiplier) : Math.round(7 * (idleHeight / 32)),
+      x: currentX,
+      y: currentY,
+      opacity: 0.95,
+      borderRadius: radius("4px", `${Math.round(7 * (idleHeight / 32) / 2)}px`),
+    },
+    idle: {
+      width: isSideCenter ? idleSideWidth : idleWidth,
+      height: isSideCenter ? idleSideHeight : idleHeight,
+      x: currentX,
+      y: currentY,
+      opacity: 1,
+      borderRadius: radius(idleHeight >= 36 ? "14px" : "12px", `${Math.round(idleHeight / 2)}px`),
+    },
     pomo_idle: { width: Math.round(280 * idleMultiplier), height: Math.round(40 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("20px", `${Math.round(40 * (idleHeight / 32) / 2)}px`) },
     pomo_complete_alert: { width: 520, height: 112, x: 0, y: currentY, opacity: 1, borderRadius: radius("28px") },
     quick_todo: {
@@ -3881,25 +4119,25 @@ export default function App() {
       opacity: 1,
       borderRadius: radius("28px"),
     },
-    drag_over: { width: 660, height: 330, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    drag_over: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     media: { width: mediaPillWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", `${Math.round(48 * (idleHeight / 32) / 2)}px`) },
     lyrics_idle: { width: lyricsIdleWidth, height: lyricsIdleBaseHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", `${Math.round(lyricsIdleBaseHeight / 2)}px`) },
-    media_expanded: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    media_expanded_lyrics: { width: lyricsExpandedWidth, height: Math.round((isBot ? 330 : 292) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    media_expanded: { width: lyricsExpandedWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    media_expanded_lyrics: { width: lyricsExpandedWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     notif_greeting: { width: dynamicWidth, height: 52, x: 0, y: currentY, opacity: 1, borderRadius: radius("18px", "26px") },
     notif: { width: dynamicWidth, height: Math.round((isMultilineBody ? 82 : 68) * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius(isMultilineBody ? "22px" : "18px", "28px") },
     notif_small: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
     notif_volume: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
     notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
     notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
-    quick_control: { width: tabWidth, height: Math.round((controlCenterSubmenu ? 424 : 412) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    todo: { width: tabWidth, height: Math.round(todoDynamicHeight * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    pomodoro: { width: tabWidth, height: Math.round(338 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    drop_shelf: { width: tabWidth, height: Math.round((isBot ? 370 : 348) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    sys_monitor: { width: tabWidth, height: Math.round((isBot ? 356 : 318) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    mini_note: { width: tabWidth, height: Math.round((isNoteEditing ? 370 : 352) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    water_reminder: { width: tabWidth, height: Math.round(waterDynamicHeight * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    prayer_reminder: { width: tabWidth, height: Math.round((isBot ? 368 : 352) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    quick_control: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    todo: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    pomodoro: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    drop_shelf: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    sys_monitor: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    mini_note: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    water_reminder: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    prayer_reminder: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     prayer_toast: {
       width: 448,
       height: 68,
@@ -3916,9 +4154,9 @@ export default function App() {
       opacity: 1,
       borderRadius: radius("20px", "24px"),
     },
-    clipboard: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    settings: { width: tabWidth, height: Math.round(435 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
-    volume_mixer: { width: tabWidth, height: Math.round(420 * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    clipboard: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    settings: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    volume_mixer: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     notif_center: { width: tabWidth, height: Math.round((isBot ? 400 : 376) * tabHeightMultiplier), x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     onboarding: { width: Math.min(tabWidth, 460), height: 195, x: 0, y: currentY, opacity: 1, borderRadius: radius("26px") },
   };
@@ -3978,7 +4216,8 @@ export default function App() {
         invoke("update_pill_size", {
           width: currentSize.width,
           height: currentSize.height,
-          isBottom: optPosition === "bottom",
+          isBottom: isBottomNotchPosition(optPosition),
+          position: optPosition,
           topOffset: islandTopOffset,
           isIsland: notchShape === "island",
           dpr: window.devicePixelRatio || 1.0,
@@ -3998,13 +4237,14 @@ export default function App() {
     invoke("update_pill_size", { 
       width: targetWidth, 
       height: targetHeight,
-      isBottom: optPosition === "bottom",
+      isBottom: isBottomNotchPosition(optPosition),
+      position: optPosition,
       topOffset: islandTopOffset,
       isIsland: notchShape === "island",
       dpr: window.devicePixelRatio || 1.0,
     }).catch(console.error);
     invoke("enforce_always_on_top").catch(console.error);
-  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast]);
+  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, idleSideWidth, idleSideHeight, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast]);
 
   useEffect(() => {
     const handleDprOrResize = () => {
@@ -4015,7 +4255,8 @@ export default function App() {
       invoke("update_pill_size", {
         width: isCollapsed ? currentSize.width : (rect && rect.width > currentSize.width ? Math.round(rect.width) : currentSize.width),
         height: isCollapsed ? currentSize.height : (rect && rect.height > currentSize.height ? Math.round(rect.height) : currentSize.height),
-        isBottom: optPosition === "bottom",
+        isBottom: isBottomNotchPosition(optPosition),
+        position: optPosition,
         topOffset: islandTopOffset,
         isIsland: notchShape === "island",
         dpr: window.devicePixelRatio || 1.0,
@@ -4034,7 +4275,8 @@ export default function App() {
   
   useEffect(() => {
     invoke("set_window_position", { 
-      isBottom: optPosition === "bottom",
+      isBottom: isBottomNotchPosition(optPosition),
+      position: optPosition,
       topOffset: islandTopOffset,
       isIsland: notchShape === "island",
     }).catch(console.error);
@@ -4175,14 +4417,25 @@ export default function App() {
     return todoItems.find((t) => t.id === pomodoro.focusedTaskId)?.text || null;
   }, [pomodoro.focusedTaskId, todoItems]);
 
+  const isMusicExpandedTab = isExpandedPanel && (currentTab === "media_expanded" || variant === "media_expanded" || variant === "media_expanded_lyrics");
+  const activeEffectiveThemeMode = variant === "notif_greeting" || isMusicExpandedTab
+    ? "solid"
+    : resolveNotchThemeMode(Number(optOpacity), Number(optBlur));
+  const activeEffectiveOpacity = isMusicExpandedTab ? 1.0 : Number(optOpacity);
+  const activeEffectiveBlur = isMusicExpandedTab ? 0 : Number(optBlur);
+
   return (
-    <div className={`w-screen h-screen flex justify-center bg-transparent pointer-events-none ${optPosition === 'bottom' ? 'items-end' : 'items-start'}`}>
+    <div
+      className={`w-screen h-screen flex bg-transparent pointer-events-none ${
+        isLeftPos ? "justify-start" : isRightPos ? "justify-end" : "justify-center"
+      } ${isTopPos ? "items-start" : isBot ? "items-end" : "items-center"}`}
+    >
       <motion.div
         ref={notchPillRef}
         id="notch-pill"
         data-position={optPosition}
         data-notch-shape={notchShape}
-        data-theme-mode={variant === "notif_greeting" ? "solid" : Number(optOpacity) >= 0.95 ? "solid" : Number(optOpacity) >= 0.75 ? "glass" : "clear"}
+        data-theme-mode={activeEffectiveThemeMode}
         data-font-size={optFontSize}
         data-idle-size={effectiveIdleSize}
         data-tab-size={effectiveTabSize}
@@ -4190,6 +4443,7 @@ export default function App() {
           "--shape-radius-top": isIsland ? (isExpandedPanel ? "32px" : `${Math.round(idleHeight / 2)}px`) : (isBot ? "32px" : "0px"),
           "--shape-radius-bottom": isExpandedPanel ? "32px" : `${Math.round(idleHeight / 2)}px`,
           "--top-offset": isIsland ? `${islandTopOffset}px` : "0px",
+          ...computeNotchGlassCssVars(activeEffectiveOpacity, activeEffectiveBlur, isLightMode, isExpandedPanel),
         } as React.CSSProperties}
         initial="initialState"
         animate={variant}
@@ -4211,7 +4465,8 @@ export default function App() {
             invoke("update_pill_size", {
               width: finalWidth,
               height: finalHeight,
-              isBottom: optPosition === "bottom",
+              isBottom: isBottomNotchPosition(optPosition),
+              position: optPosition,
               topOffset: islandTopOffset,
               isIsland: notchShape === "island",
               dpr: window.devicePixelRatio || 1.0,
@@ -4413,7 +4668,9 @@ export default function App() {
               ? "drag_over"
               : "default"
           }
-          themeMode={variant === "notif_greeting" ? "solid" : Number(optOpacity) >= 0.95 ? "solid" : Number(optOpacity) >= 0.75 ? "glass" : "clear"}
+          themeMode={activeEffectiveThemeMode}
+          opacity={activeEffectiveOpacity}
+          blur={activeEffectiveBlur}
           isLightMode={isLightMode}
         />
 
@@ -4457,7 +4714,11 @@ export default function App() {
                   handleCompactHoverTrigger();
                 }}
               >
-                <div className="w-6 h-[2px] rounded-full bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]" />
+                <div
+                  className={`${
+                    isSideCenter ? "w-[2px] h-6" : "w-6 h-[2px]"
+                  } rounded-full bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]`}
+                />
               </motion.div>
             )}
 
@@ -4486,59 +4747,67 @@ export default function App() {
             )}
 
             {variant === "quick_todo" && isQuickTodoOpen && (
-              <QuickTodoNotchCard
-                todoItems={todoItems}
-                optAccent={optAccent}
-                optLanguage={optLanguage}
-                isIsland={isIsland}
-                isLightMode={isLightMode}
-                shortcutLabel={formatShortcutForBadge(shortcuts.quick_task)}
-                onSave={(text, dueAt, reminders, repeatRule) => {
-                  const created = addTodoItem(text, dueAt, reminders, repeatRule);
-                  playTaskCompleteSound();
-                  return created;
-                }}
-                onToggleTodo={toggleTodoItem}
-                onDeleteTodo={deleteTodoItem}
-                onSavedStateChange={setIsQuickTodoSaved}
-                onOpenTodoList={() => {
-                  setIsQuickTodoOpen(false);
-                  setIsQuickTodoSaved(false);
-                  goToTab("todo", 0);
-                }}
-                onCancel={() => {
-                  setIsQuickTodoOpen(false);
-                  setIsQuickTodoSaved(false);
-                  invoke("restore_previous_foreground_window").catch(() => {});
-                }}
-              />
+              <motion.div key="quick_todo" className="absolute inset-0 w-full h-full">
+                <React.Suspense fallback={null}>
+                  <QuickTodoNotchCard
+                    todoItems={todoItems}
+                    optAccent={optAccent}
+                    optLanguage={optLanguage}
+                    isIsland={isIsland}
+                    isLightMode={isLightMode}
+                    shortcutLabel={formatShortcutForBadge(shortcuts.quick_task)}
+                    onSave={(text, dueAt, reminders, repeatRule) => {
+                      const created = addTodoItem(text, dueAt, reminders, repeatRule);
+                      playTaskCompleteSound();
+                      return created;
+                    }}
+                    onToggleTodo={toggleTodoItem}
+                    onDeleteTodo={deleteTodoItem}
+                    onSavedStateChange={setIsQuickTodoSaved}
+                    onOpenTodoList={() => {
+                      setIsQuickTodoOpen(false);
+                      setIsQuickTodoSaved(false);
+                      goToTab("todo", 0);
+                    }}
+                    onCancel={() => {
+                      setIsQuickTodoOpen(false);
+                      setIsQuickTodoSaved(false);
+                      invoke("restore_previous_foreground_window").catch(() => {});
+                    }}
+                  />
+                </React.Suspense>
+              </motion.div>
             )}
 
             {variant === "quick_note" && isQuickNoteOpen && (
-              <QuickNoteNotchCard
-                isLightMode={isLightMode}
-                isIsland={isIsland}
-                shortcutLabel={formatShortcutForBadge(shortcuts.quick_note)}
-                onSave={(text, color, pinned) => {
-                  const created = createQuickNoteItem(text, color, pinned);
-                  playTaskCompleteSound();
-                  return created;
-                }}
-                onDeleteNote={(id) => {
-                  deleteQuickNoteItem(id);
-                }}
-                onSavedStateChange={setIsQuickNoteSaved}
-                onOpenNotesList={() => {
-                  setIsQuickNoteOpen(false);
-                  setIsQuickNoteSaved(false);
-                  goToTab("mini_note", 0);
-                }}
-                onCancel={() => {
-                  setIsQuickNoteOpen(false);
-                  setIsQuickNoteSaved(false);
-                  invoke("restore_previous_foreground_window").catch(() => {});
-                }}
-              />
+              <motion.div key="quick_note" className="absolute inset-0 w-full h-full">
+                <React.Suspense fallback={null}>
+                  <QuickNoteNotchCard
+                    isLightMode={isLightMode}
+                    isIsland={isIsland}
+                    shortcutLabel={formatShortcutForBadge(shortcuts.quick_note)}
+                    onSave={(text, color, pinned) => {
+                      const created = createQuickNoteItem(text, color, pinned);
+                      playTaskCompleteSound();
+                      return created;
+                    }}
+                    onDeleteNote={(id) => {
+                      deleteQuickNoteItem(id);
+                    }}
+                    onSavedStateChange={setIsQuickNoteSaved}
+                    onOpenNotesList={() => {
+                      setIsQuickNoteOpen(false);
+                      setIsQuickNoteSaved(false);
+                      goToTab("mini_note", 0);
+                    }}
+                    onCancel={() => {
+                      setIsQuickNoteOpen(false);
+                      setIsQuickNoteSaved(false);
+                      invoke("restore_previous_foreground_window").catch(() => {});
+                    }}
+                  />
+                </React.Suspense>
+              </motion.div>
             )}
 
             {variant === "prayer_toast" && prayerToast && (
@@ -4612,13 +4881,21 @@ export default function App() {
                   scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
                 }}
                 className={`absolute inset-0 flex items-center justify-center cursor-pointer overflow-hidden ${
-                  effectiveIdleSize === "compact" ? "px-[14px]" : effectiveIdleSize === "large" ? "px-5" : "px-4"
+                  isSideCenter
+                    ? "px-1.5 py-2"
+                    : effectiveIdleSize === "compact"
+                    ? "px-[14px]"
+                    : effectiveIdleSize === "large"
+                    ? "px-5"
+                    : "px-4"
                 }`}
                 onClick={() => openLastOrPreferredTab()}
               >
-                <div className={`flex items-center justify-center w-full ${
-                  effectiveIdleSize === "compact" ? "gap-2" : effectiveIdleSize === "large" ? "gap-3" : "gap-2.5"
-                }`}>
+                <div
+                  className={`flex ${
+                    isSideCenter ? "flex-col gap-1" : effectiveIdleSize === "compact" ? "gap-2" : effectiveIdleSize === "large" ? "gap-3" : "gap-2.5"
+                  } items-center justify-center w-full`}
+                >
                   {idleLayout.left !== "none" && (
                     <motion.div key={`idle-left-${idleLayout.left}`} layout transition={smoothSpring} className="flex items-center shrink-0">
                       <IdleSlotView item={idleLayout.left} data={idleRuntimeData} />
@@ -4757,27 +5034,53 @@ export default function App() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.16, ease: "easeOut" }}
                 className={`absolute inset-x-0 ${
-                  isBot ? "bottom-0" : "top-0"
-                } flex justify-center pointer-events-none`}
+                  isTopPos ? "top-0" : isBot ? "bottom-0" : "inset-y-0 items-center"
+                } flex ${
+                  isLeftPos ? "justify-start" : isRightPos ? "justify-end" : "justify-center"
+                } pointer-events-none`}
               >
                 <motion.div
                   style={{
                     width: lastExpandedSizeRef.current.width,
                     height: lastExpandedSizeRef.current.height,
                   }}
-                  initial={{ scale: 0.90, y: isBot ? 12 : -12 }}
+                  initial={{
+                    scale: 0.90,
+                    x: isLeftPos ? -12 : isRightPos ? 12 : 0,
+                    y: isSideCenter ? 0 : isBot ? 12 : -12,
+                  }}
                   animate={{
                     scale: 1,
+                    x: 0,
                     y: 0,
                     transitionEnd: { transform: "none" },
                   }}
-                  exit={{ scale: 0.92, y: isBot ? 8 : -8 }}
+                  exit={{
+                    scale: 0.92,
+                    x: isLeftPos ? -8 : isRightPos ? 8 : 0,
+                    y: isSideCenter ? 0 : isBot ? 8 : -8,
+                  }}
                   transition={{
                     scale: smoothSpring,
+                    x: smoothSpring,
                     y: smoothSpring,
                   }}
                   className={`flex flex-col overflow-hidden pointer-events-auto shrink-0 gpu-accelerated ${
-                    isBot ? "origin-bottom" : "origin-top"
+                    optPosition === "top-left"
+                      ? "origin-top-left"
+                      : optPosition === "top-right"
+                      ? "origin-top-right"
+                      : optPosition === "left"
+                      ? "origin-left"
+                      : optPosition === "right"
+                      ? "origin-right"
+                      : optPosition === "bottom-left"
+                      ? "origin-bottom-left"
+                      : optPosition === "bottom-right"
+                      ? "origin-bottom-right"
+                      : isBot
+                      ? "origin-bottom"
+                      : "origin-top"
                   }`}
                 >
                   <PanelFrame
@@ -4817,15 +5120,14 @@ export default function App() {
                     micActive={micActive}
                     isLightMode={isLightMode}
                     optAnimSpeed={optAnimSpeed}
-                    themeMode={variant === "notif_greeting" ? "solid" : Number(optOpacity) >= 0.95 ? "solid" : Number(optOpacity) >= 0.75 ? "glass" : "clear"}
+                    themeMode={activeEffectiveThemeMode}
                   >
                     <div className="relative w-full h-full min-w-0 overflow-hidden">
                       <AnimatePresence custom={slideDirection}>
                         {currentTab === "quick_control" && (
                           <ControlCenterPanel
+                            key="quick_control"
                             slideDirection={slideDirection}
-                            powerMode={powerMode}
-                            onSetPowerMode={setPowerMode}
                             displayLevel={displayLevel}
                             onSetDisplayLevel={setDisplayLevel}
                             brightnessMode={brightnessMode}
@@ -4861,25 +5163,27 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <ClipboardPanel
-                              items={clipboardHistory}
-                              onCopyItem={(item) => {
-                                if (item.type === "image" && item.imagePath) {
-                                  invoke("copy_image_to_clipboard", { path: item.imagePath }).catch(console.error);
-                                } else {
-                                  writeText(item.text).catch(console.error);
-                                  addClipboardItem(item.text);
-                                }
-                              }}
-                              onCopyText={(text) => {
-                                writeText(text).catch(console.error);
-                                addClipboardItem(text);
-                              }}
-                              onTogglePinItem={togglePinClipboardItem}
-                              onUpdateItem={updateClipboardItem}
-                              onDeleteItem={deleteClipboardItem}
-                              onClearAll={clearAllClipboard}
-                            />
+                            <React.Suspense fallback={null}>
+                              <ClipboardPanel
+                                items={clipboardHistory}
+                                onCopyItem={(item) => {
+                                  if (item.type === "image" && item.imagePath) {
+                                    invoke("copy_image_to_clipboard", { path: item.imagePath }).catch(console.error);
+                                  } else {
+                                    writeText(item.text).catch(console.error);
+                                    addClipboardItem(item.text);
+                                  }
+                                }}
+                                onCopyText={(text) => {
+                                  writeText(text).catch(console.error);
+                                  addClipboardItem(text);
+                                }}
+                                onTogglePinItem={togglePinClipboardItem}
+                                onUpdateItem={updateClipboardItem}
+                                onDeleteItem={deleteClipboardItem}
+                                onClearAll={clearAllClipboard}
+                              />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
@@ -4893,23 +5197,25 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <TodoListPanel
-                              items={todoItems}
-                              optLanguage={optLanguage}
-                              isLightMode={isLightMode}
-                              onAddItem={addTodoItem}
-                              onToggleItem={toggleTodoItem}
-                              onDeleteItem={deleteTodoItem}
-                              onUpdateItem={updateTodoItem}
-                              onUpdateDeadline={updateTodoDeadline}
-                              onStartPomodoroForTask={(task) => {
-                                pomodoro.startFocusOnTask(task.id);
-                                goToTab("pomodoro", 1);
-                              }}
-                              onClearCompleted={clearCompletedTodos}
-                              onClearAll={clearAllTodos}
-                              onHeightChange={setTodoDynamicHeight}
-                            />
+                            <React.Suspense fallback={null}>
+                              <TodoListPanel
+                                items={todoItems}
+                                optLanguage={optLanguage}
+                                isLightMode={isLightMode}
+                                onAddItem={addTodoItem}
+                                onToggleItem={toggleTodoItem}
+                                onDeleteItem={deleteTodoItem}
+                                onUpdateItem={updateTodoItem}
+                                onUpdateDeadline={updateTodoDeadline}
+                                onStartPomodoroForTask={(task) => {
+                                  pomodoro.startFocusOnTask(task.id);
+                                  goToTab("pomodoro", 1);
+                                }}
+                                onClearCompleted={clearCompletedTodos}
+                                onClearAll={clearAllTodos}
+                                onHeightChange={setTodoDynamicHeight}
+                              />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
@@ -4923,23 +5229,25 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <PomodoroPanel
-                              mode={pomodoro.mode}
-                              remainingSeconds={pomodoro.remainingSec}
-                              totalSeconds={pomodoro.totalSec}
-                              isRunning={pomodoro.isRunning}
-                              currentCycleSession={pomodoro.cycleSession}
-                              settings={pomodoro.settings}
-                              dailyStats={pomodoro.dailyStats}
-                              focusedTaskId={pomodoro.focusedTaskId}
-                              todoItems={todoItems}
-                              onSelectMode={pomodoro.handleSelectMode}
-                              onToggleRun={pomodoro.handleToggleRunning}
-                              onResetSession={pomodoro.handleReset}
-                              onSkipSession={pomodoro.handleSkip}
-                              onSelectFocusedTask={pomodoro.setFocusedTaskId}
-                              onUpdateSettings={pomodoro.handleUpdateSettings}
-                            />
+                            <React.Suspense fallback={null}>
+                              <PomodoroPanel
+                                mode={pomodoro.mode}
+                                remainingSeconds={pomodoro.remainingSec}
+                                totalSeconds={pomodoro.totalSec}
+                                isRunning={pomodoro.isRunning}
+                                currentCycleSession={pomodoro.cycleSession}
+                                settings={pomodoro.settings}
+                                dailyStats={pomodoro.dailyStats}
+                                focusedTaskId={pomodoro.focusedTaskId}
+                                todoItems={todoItems}
+                                onSelectMode={pomodoro.handleSelectMode}
+                                onToggleRun={pomodoro.handleToggleRunning}
+                                onResetSession={pomodoro.handleReset}
+                                onSkipSession={pomodoro.handleSkip}
+                                onSelectFocusedTask={pomodoro.setFocusedTaskId}
+                                onUpdateSettings={pomodoro.handleUpdateSettings}
+                              />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
@@ -4953,28 +5261,30 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <DropShelfPanel
-                              files={stashedFiles}
-                              onRemoveFile={removeStashedFile}
-                              onRemoveFiles={removeStashedFiles}
-                              onClearAll={clearAllStashedFiles}
-                              onAddFiles={addStashedFiles}
-                              onFileTransferred={removeStashedFile}
-                              onFilesTransferred={removeStashedFiles}
-                              onDragStateChange={(active, paths) => {
-                                isShelfDraggingRef.current = active;
-                                if (active) {
-                                  if (paths) {
-                                    outgoingShelfPathsRef.current = new Set(paths.map((p) => p.toLowerCase()));
+                            <React.Suspense fallback={null}>
+                              <DropShelfPanel
+                                files={stashedFiles}
+                                onRemoveFile={removeStashedFile}
+                                onRemoveFiles={removeStashedFiles}
+                                onClearAll={clearAllStashedFiles}
+                                onAddFiles={addStashedFiles}
+                                onFileTransferred={removeStashedFile}
+                                onFilesTransferred={removeStashedFiles}
+                                onDragStateChange={(active, paths) => {
+                                  isShelfDraggingRef.current = active;
+                                  if (active) {
+                                    if (paths) {
+                                      outgoingShelfPathsRef.current = new Set(paths.map((p) => p.toLowerCase()));
+                                    }
+                                    handleCloseImmediate();
+                                  } else {
+                                    setTimeout(() => {
+                                      outgoingShelfPathsRef.current.clear();
+                                    }, 500);
                                   }
-                                  handleCloseImmediate();
-                                } else {
-                                  setTimeout(() => {
-                                    outgoingShelfPathsRef.current.clear();
-                                  }, 500);
-                                }
-                              }}
-                            />
+                                }}
+                              />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
@@ -4988,7 +5298,9 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <SystemMonitorPanel ping={networkPing} wifiSsid={wifiName} />
+                            <React.Suspense fallback={null}>
+                              <SystemMonitorPanel ping={networkPing} wifiSsid={wifiName} />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
@@ -5002,7 +5314,9 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <MiniNotePanel optLanguage={optLanguage} onEditingChange={setIsNoteEditing} />
+                            <React.Suspense fallback={null}>
+                              <MiniNotePanel optLanguage={optLanguage} onEditingChange={setIsNoteEditing} />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
@@ -5016,14 +5330,15 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <WaterReminderPanel
-                              optLanguage={optLanguage}
-                              isLightMode={isLightMode}
-                              onHeightChange={setWaterDynamicHeight}
-                              onTriggerToast={(type, amount) => {
-                                setWaterToast({ type, amount });
-                              }}
-                            />
+                            <React.Suspense fallback={null}>
+                              <WaterReminderPanel
+                                optLanguage={optLanguage}
+                                isLightMode={isLightMode}
+                                onTriggerToast={(type, amount) => {
+                                  setWaterToast({ type, amount });
+                                }}
+                              />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
@@ -5037,30 +5352,42 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <PrayerReminderPanel
-                              schedule={prayerSchedule}
-                              onRefreshSchedule={refreshPrayerSchedule}
-                              onTriggerToast={(toast) => {
-                                setPrayerToast(toast);
-                                playReminderSound();
-                              }}
-                              optLanguage={optLanguage}
-                              isLightMode={isLightMode}
-                            />
+                            <React.Suspense fallback={null}>
+                              <PrayerReminderPanel
+                                schedule={prayerSchedule}
+                                onRefreshSchedule={refreshPrayerSchedule}
+                                onTriggerToast={(toast) => {
+                                  setPrayerToast(toast);
+                                  playReminderSound();
+                                }}
+                                optLanguage={optLanguage}
+                                isLightMode={isLightMode}
+                              />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
                         {currentTab === "settings" && (
-                          <SettingsPanel
-                            slideDirection={slideDirection}
-                            optLanguage={optLanguage}
-                            onChangeLanguage={handleChangeLanguage}
-                            optAutoCompact={optAutoCompact}
-                            onToggleAutoCompact={async () => {
-                              const next = !optAutoCompact;
-                              setOptAutoCompact(next);
-                              if (store) await store.set("opt_auto_compact", next);
-                            }}
+                          <motion.div
+                            key="settings"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <React.Suspense fallback={null}>
+                              <SettingsPanel
+                                slideDirection={slideDirection}
+                                optLanguage={optLanguage}
+                                onChangeLanguage={handleChangeLanguage}
+                                optAutoCompact={optAutoCompact}
+                                onToggleAutoCompact={async () => {
+                                  const next = !optAutoCompact;
+                                  setOptAutoCompact(next);
+                                  if (store) await store.set("opt_auto_compact", next);
+                                }}
                             isAutostart={isAutostart}
                             onToggleAutostart={async () => {
                               try {
@@ -5255,7 +5582,8 @@ export default function App() {
                                 } catch {}
                               }
                               invoke("set_window_position", {
-                                isBottom: pos === "bottom",
+                                isBottom: isBottomNotchPosition(pos),
+                                position: pos,
                                 topOffset: islandTopOffset,
                                 isIsland: notchShape === "island",
                               }).catch(console.error);
@@ -5263,7 +5591,30 @@ export default function App() {
                             optOpacity={optOpacity}
                             onChangeOpacity={async (val) => {
                               setOptOpacity(val);
-                              if (store) await store.set("opt_opacity", val);
+                              try { localStorage.setItem("island_opacity", String(val)); } catch {}
+                              if (store) {
+                                try {
+                                  await store.set("opt_opacity", val);
+                                  await store.save();
+                                } catch {}
+                              }
+                              invoke("broadcast_settings_sync", {
+                                payload: { type: "setting_key", key: "opt_opacity", value: val },
+                              }).catch(() => {});
+                            }}
+                            optBlur={optBlur}
+                            onChangeBlur={async (val) => {
+                              setOptBlur(val);
+                              try { localStorage.setItem("island_blur", String(val)); } catch {}
+                              if (store) {
+                                try {
+                                  await store.set("opt_blur", val);
+                                  await store.save();
+                                } catch {}
+                              }
+                              invoke("broadcast_settings_sync", {
+                                payload: { type: "setting_key", key: "opt_blur", value: val },
+                              }).catch(() => {});
                             }}
                             optAnimSpeed={optAnimSpeed}
                             onChangeAnimSpeed={async (speed) => {
@@ -5295,17 +5646,31 @@ export default function App() {
                               setSoundEffectsEnabled(next);
                             }}
                             onClose={() => setIsSettings(false)}
-                          />
+                              />
+                            </React.Suspense>
+                          </motion.div>
                         )}
 
                         {currentTab === "volume_mixer" && (
-                          <VolumeMixerPanel
-                            slideDirection={slideDirection}
-                            soundLevel={soundLevel}
-                            onSetSoundLevel={setSoundLevel}
-                            audioSessions={audioSessions}
-                            onUpdateAudioSessions={setAudioSessions}
-                          />
+                          <motion.div
+                            key="volume_mixer"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <React.Suspense fallback={null}>
+                              <VolumeMixerPanel
+                                slideDirection={slideDirection}
+                                soundLevel={soundLevel}
+                                onSetSoundLevel={setSoundLevel}
+                                audioSessions={audioSessions}
+                                onUpdateAudioSessions={setAudioSessions}
+                              />
+                            </React.Suspense>
+                          </motion.div>
                         )}
 
                         {currentTab === "notif_center" && (
@@ -5318,53 +5683,67 @@ export default function App() {
                             exit="exit"
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
                           >
-                            <NotificationCenterPanel
-                              notifications={notificationsHistory}
-                              onUpdateNotifications={setNotificationsHistory}
-                              isDndActive={focusMode === "DND"}
-                              isLightMode={isLightMode}
-                              onDndChange={(enabled) => {
-                                selectFocusMode(enabled ? "DND" : "Normal");
-                              }}
-                              onGoToTab={(tab) => goToTab(tab as any)}
-                            />
+                            <React.Suspense fallback={null}>
+                              <NotificationCenterPanel
+                                notifications={notificationsHistory}
+                                onUpdateNotifications={setNotificationsHistory}
+                                isDndActive={focusMode === "DND"}
+                                isLightMode={isLightMode}
+                                onDndChange={(enabled) => {
+                                  selectFocusMode(enabled ? "DND" : "Normal");
+                                }}
+                                onGoToTab={(tab) => goToTab(tab as any)}
+                              />
+                            </React.Suspense>
                           </motion.div>
                         )}
 
                         {currentTab === "media_expanded" && (
-                          <MediaExpandedPanel
-                            tabWidth={tabWidth}
-                            slideDirection={slideDirection}
-                            media={media || (lastMediaPayloadRef.current?.title ? lastMediaPayloadRef.current : null)}
-                            isPlaying={Boolean(media && isPlaying)}
-                            onMediaControl={handleMediaControl}
-                            optAccent={optAccent}
-                            showLyrics={showLyrics}
-                            onToggleLyrics={() => {
-                              setShowLyrics((prev) => {
-                                const next = !prev;
-                                try {
-                                  localStorage.setItem("island_show_lyrics", String(next));
-                                } catch {}
-                                return next;
-                              });
-                            }}
-                            onRefreshLyrics={handleRefreshLyrics}
-                            currentLyricsProvider={lyricsProvider}
-                            onChangeLyricsProvider={handleChangeLyricsProvider}
-                            lyricsData={lyricsData}
-                            isLyricsLoading={isLyricsLoading}
-                            mediaProgress={mediaProgress}
-                            onSetMediaProgress={setMediaProgress}
-                            isSeeking={isSeeking}
-                            onSetIsSeeking={setIsSeeking}
-                            seekValue={seekValue}
-                            onSetSeekValue={setSeekValue}
-                            soundLevel={soundLevel}
-                            onSetSoundLevel={setSoundLevel}
-                            isAdjustingVolumeRef={isAdjustingVolumeRef}
-                            queueHistory={queueHistory}
-                          />
+                          <motion.div
+                            key="media_expanded"
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                          >
+                            <React.Suspense fallback={null}>
+                              <MediaExpandedPanel
+                                tabWidth={tabWidth}
+                                slideDirection={slideDirection}
+                                media={media || (lastMediaPayloadRef.current?.title ? lastMediaPayloadRef.current : null)}
+                                isPlaying={Boolean(media && isPlaying)}
+                                onMediaControl={handleMediaControl}
+                                optAccent={optAccent}
+                                showLyrics={showLyrics}
+                                onToggleLyrics={() => {
+                                  setShowLyrics((prev) => {
+                                    const next = !prev;
+                                    try {
+                                      localStorage.setItem("island_show_lyrics", String(next));
+                                    } catch {}
+                                    return next;
+                                  });
+                                }}
+                                onRefreshLyrics={handleRefreshLyrics}
+                                currentLyricsProvider={lyricsProvider}
+                                onChangeLyricsProvider={handleChangeLyricsProvider}
+                                lyricsData={lyricsData}
+                                isLyricsLoading={isLyricsLoading}
+                                mediaProgress={mediaProgress}
+                                onSetMediaProgress={setMediaProgress}
+                                isSeeking={isSeeking}
+                                onSetIsSeeking={setIsSeeking}
+                                seekValue={seekValue}
+                                onSetSeekValue={setSeekValue}
+                                soundLevel={soundLevel}
+                                onSetSoundLevel={setSoundLevel}
+                                isAdjustingVolumeRef={isAdjustingVolumeRef}
+                                queueHistory={queueHistory}
+                              />
+                            </React.Suspense>
+                          </motion.div>
                         )}
                       </AnimatePresence>
                     </div>

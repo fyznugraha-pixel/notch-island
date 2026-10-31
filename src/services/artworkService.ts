@@ -9,7 +9,7 @@ const failedArtworkUrls = new Set<string>();
 const failedLookupTimestamps = new Map<string, number>();
 const artworkListeners = new Set<() => void>();
 
-const MAX_CACHE_SIZE = 60;
+const MAX_CACHE_SIZE = 12;
 const FAILED_LOOKUP_COOLDOWN_MS = 15_000;
 
 function setCachedArtwork(key: string, url: string | null) {

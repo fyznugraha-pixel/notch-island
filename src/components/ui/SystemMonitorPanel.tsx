@@ -106,7 +106,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
       {/* Sub-tab Selector Bar (Ringkasan | CPU | GPU | Wi-Fi | Memori) */}
       <div
         role="tablist"
-        className="flex gap-0.5 p-0.5 bg-[#121216] rounded-[10px] border border-white/5 shrink-0 mb-2"
+        className="flex gap-0.5 p-0.5 bg-[#121216] rounded-[10px] border border-white/5 shrink-0 mb-1.5"
       >
         {[
           { id: "summary" as const, label: t("sys_summary"), dot: null },
@@ -123,7 +123,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
               role="tab"
               aria-selected={active}
               onClick={() => setSubTab(tab.id)}
-              className={`flex-1 h-6 rounded-[8px] flex items-center justify-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+              className={`flex-1 h-5.5 rounded-[8px] flex items-center justify-center gap-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
                 active ? "bg-[#2a2a31] text-white" : "text-zinc-400 hover:text-zinc-200"
               }`}
             >
@@ -142,32 +142,32 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
       {/* Content Area */}
       <div className="flex-1 min-h-0">
         {subTab === "summary" ? (
-          <div className="h-full grid grid-cols-2 grid-rows-2 gap-2">
+          <div className="h-full grid grid-cols-2 grid-rows-2 gap-1.5">
             {/* CPU Card */}
             {(() => {
-              const { linePoints, areaPoints } = buildSparklinePoints(cpuHistory, 108, 34);
+              const { linePoints, areaPoints } = buildSparklinePoints(cpuHistory, 108, 26);
               return (
                 <div
                   onClick={() => setSubTab("cpu")}
-                  className="bg-[#101015] hover:bg-[#14141b] border border-[#1e1e25] rounded-2xl px-3 py-2 flex flex-col justify-between min-w-0 cursor-pointer transition-colors"
+                  className="bg-[#101015] hover:bg-[#14141b] border border-[#1e1e25] rounded-2xl px-3 py-1.5 flex flex-col justify-between min-w-0 cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-1.5">
-                    <span className="w-5 h-5 rounded-full bg-[#3882F6]/15 text-[#8DB8FF] flex items-center justify-center shrink-0">
-                      <Cpu size={12} />
+                    <span className="w-4.5 h-4.5 rounded-full bg-[#3882F6]/15 text-[#8DB8FF] flex items-center justify-center shrink-0">
+                      <Cpu size={11} />
                     </span>
-                    <span className="text-[12px] font-semibold">CPU</span>
+                    <span className="text-[11.5px] font-semibold">CPU</span>
                     <span className="ml-auto text-[10px] text-zinc-400 tabular-nums truncate">
                       {metrics.cpu_speed_ghz} GHz · {metrics.cpu_temp_c}°C
                     </span>
                   </div>
                   <div className="flex items-end justify-between gap-2">
                     <div className="tabular-nums whitespace-nowrap">
-                      <span className="text-[22px] font-semibold tracking-tight leading-none">
+                      <span className="text-[19px] font-semibold tracking-tight leading-none">
                         {metrics.cpu_usage}
                       </span>
-                      <span className="text-[11px] text-zinc-400 ml-0.5">%</span>
+                      <span className="text-[10.5px] text-zinc-400 ml-0.5">%</span>
                     </div>
-                    <svg width="108" height="34" viewBox="0 0 108 34" className="shrink-0">
+                    <svg width="108" height="26" viewBox="0 0 108 26" className="shrink-0">
                       <polygon points={areaPoints} fill="#3882F6" fillOpacity="0.16" />
                       <polyline
                         points={linePoints}
@@ -191,29 +191,29 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
 
             {/* GPU Card */}
             {(() => {
-              const { linePoints, areaPoints } = buildSparklinePoints(gpuHistory, 108, 34);
+              const { linePoints, areaPoints } = buildSparklinePoints(gpuHistory, 108, 26);
               return (
                 <div
                   onClick={() => setSubTab("gpu")}
-                  className="bg-[#101015] hover:bg-[#14141b] border border-[#1e1e25] rounded-2xl px-3 py-2 flex flex-col justify-between min-w-0 cursor-pointer transition-colors"
+                  className="bg-[#101015] hover:bg-[#14141b] border border-[#1e1e25] rounded-2xl px-3 py-1.5 flex flex-col justify-between min-w-0 cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-1.5">
-                    <span className="w-5 h-5 rounded-full bg-[#A78BFA]/15 text-[#C4B5FD] flex items-center justify-center shrink-0">
-                      <Monitor size={12} />
+                    <span className="w-4.5 h-4.5 rounded-full bg-[#A78BFA]/15 text-[#C4B5FD] flex items-center justify-center shrink-0">
+                      <Monitor size={11} />
                     </span>
-                    <span className="text-[12px] font-semibold">GPU</span>
+                    <span className="text-[11.5px] font-semibold">GPU</span>
                     <span className="ml-auto text-[10px] text-zinc-400 tabular-nums truncate">
                       {metrics.gpu_temp_c}°C · {metrics.gpu_vram_gb} GB VRAM
                     </span>
                   </div>
                   <div className="flex items-end justify-between gap-2">
                     <div className="tabular-nums whitespace-nowrap">
-                      <span className="text-[22px] font-semibold tracking-tight leading-none">
+                      <span className="text-[19px] font-semibold tracking-tight leading-none">
                         {metrics.gpu_usage}
                       </span>
-                      <span className="text-[11px] text-zinc-400 ml-0.5">%</span>
+                      <span className="text-[10.5px] text-zinc-400 ml-0.5">%</span>
                     </div>
-                    <svg width="108" height="34" viewBox="0 0 108 34" className="shrink-0">
+                    <svg width="108" height="26" viewBox="0 0 108 26" className="shrink-0">
                       <polygon points={areaPoints} fill="#A78BFA" fillOpacity="0.16" />
                       <polyline
                         points={linePoints}
@@ -237,29 +237,29 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
 
             {/* Wi-Fi Card */}
             {(() => {
-              const { linePoints, areaPoints } = buildSparklinePoints(wifiHistory, 108, 34);
+              const { linePoints, areaPoints } = buildSparklinePoints(wifiHistory, 108, 26);
               return (
                 <div
                   onClick={() => setSubTab("wifi")}
-                  className="bg-[#101015] hover:bg-[#14141b] border border-[#1e1e25] rounded-2xl px-3 py-2 flex flex-col justify-between min-w-0 cursor-pointer transition-colors"
+                  className="bg-[#101015] hover:bg-[#14141b] border border-[#1e1e25] rounded-2xl px-3 py-1.5 flex flex-col justify-between min-w-0 cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-1.5">
-                    <span className="w-5 h-5 rounded-full bg-[#34C3A0]/15 text-[#5EEAD4] flex items-center justify-center shrink-0">
-                      <Wifi size={12} />
+                    <span className="w-4.5 h-4.5 rounded-full bg-[#34C3A0]/15 text-[#5EEAD4] flex items-center justify-center shrink-0">
+                      <Wifi size={11} />
                     </span>
-                    <span className="text-[12px] font-semibold">Wi-Fi</span>
+                    <span className="text-[11.5px] font-semibold">Wi-Fi</span>
                     <span className="ml-auto text-[10px] text-zinc-400 tabular-nums truncate">
                       ↑ {metrics.wifi_up_mbps} · {ping ?? 16} ms
                     </span>
                   </div>
                   <div className="flex items-end justify-between gap-2">
                     <div className="tabular-nums whitespace-nowrap">
-                      <span className="text-[22px] font-semibold tracking-tight leading-none">
+                      <span className="text-[19px] font-semibold tracking-tight leading-none">
                         {metrics.wifi_down_mbps}
                       </span>
-                      <span className="text-[11px] text-zinc-400 ml-1">Mbps ↓</span>
+                      <span className="text-[10.5px] text-zinc-400 ml-1">Mbps ↓</span>
                     </div>
-                    <svg width="108" height="34" viewBox="0 0 108 34" className="shrink-0">
+                    <svg width="108" height="26" viewBox="0 0 108 26" className="shrink-0">
                       <polygon points={areaPoints} fill="#34C3A0" fillOpacity="0.16" />
                       <polyline
                         points={linePoints}
@@ -283,29 +283,29 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
 
             {/* Memory Card */}
             {(() => {
-              const { linePoints, areaPoints } = buildSparklinePoints(memHistory, 108, 34);
+              const { linePoints, areaPoints } = buildSparklinePoints(memHistory, 108, 26);
               return (
                 <div
                   onClick={() => setSubTab("memory")}
-                  className="bg-[#101015] hover:bg-[#14141b] border border-[#1e1e25] rounded-2xl px-3 py-2 flex flex-col justify-between min-w-0 cursor-pointer transition-colors"
+                  className="bg-[#101015] hover:bg-[#14141b] border border-[#1e1e25] rounded-2xl px-3 py-1.5 flex flex-col justify-between min-w-0 cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-1.5">
-                    <span className="w-5 h-5 rounded-full bg-[#F5B531]/15 text-[#FBBF24] flex items-center justify-center shrink-0">
-                      <HardDrive size={12} />
+                    <span className="w-4.5 h-4.5 rounded-full bg-[#F5B531]/15 text-[#FBBF24] flex items-center justify-center shrink-0">
+                      <HardDrive size={11} />
                     </span>
-                    <span className="text-[12px] font-semibold">{t("sys_memory")}</span>
+                    <span className="text-[11.5px] font-semibold">{t("sys_memory")}</span>
                     <span className="ml-auto text-[10px] text-zinc-400 tabular-nums truncate">
                       {metrics.mem_used_gb} / {metrics.mem_total_gb} GB
                     </span>
                   </div>
                   <div className="flex items-end justify-between gap-2">
                     <div className="tabular-nums whitespace-nowrap">
-                      <span className="text-[22px] font-semibold tracking-tight leading-none">
+                      <span className="text-[19px] font-semibold tracking-tight leading-none">
                         {metrics.mem_usage}
                       </span>
-                      <span className="text-[11px] text-zinc-400 ml-0.5">%</span>
+                      <span className="text-[10.5px] text-zinc-400 ml-0.5">%</span>
                     </div>
-                    <svg width="108" height="34" viewBox="0 0 108 34" className="shrink-0">
+                    <svg width="108" height="26" viewBox="0 0 108 26" className="shrink-0">
                       <polygon points={areaPoints} fill="#F5B531" fillOpacity="0.16" />
                       <polyline
                         points={linePoints}
@@ -346,7 +346,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                 : subTab === "wifi"
                 ? "#34C3A0"
                 : "#F5B531";
-            const { linePoints, areaPoints } = buildSparklinePoints(activeHistory, 260, 74, 26);
+            const { linePoints, areaPoints } = buildSparklinePoints(activeHistory, 260, 56, 26);
 
             const headlineValue =
               subTab === "cpu"
@@ -394,21 +394,21 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                   ];
 
             return (
-              <div className="h-full flex flex-col gap-2">
+              <div className="h-full flex flex-col gap-1.5">
                 <div className="flex gap-2 flex-1 min-h-0">
                   {/* Area Chart Card */}
-                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3 py-2 flex-[1.6] min-w-0 flex flex-col justify-between">
+                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3 py-1.5 flex-[1.6] min-w-0 flex flex-col justify-between">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-[22px] font-semibold tracking-tight tabular-nums leading-none">
+                      <span className="text-[19px] font-semibold tracking-tight tabular-nums leading-none">
                         {headlineValue}
-                        <span className="text-[11px] text-zinc-400 ml-1">{headlineUnit}</span>
+                        <span className="text-[10.5px] text-zinc-400 ml-1">{headlineUnit}</span>
                       </span>
-                      <span className="text-[10px] text-zinc-400 truncate">
+                      <span className="text-[9.5px] text-zinc-400 truncate">
                         {t("sys_last_60s")}
                       </span>
                     </div>
 
-                    <svg width="100%" height="74" viewBox="0 0 260 74" className="overflow-visible">
+                    <svg width="100%" height="56" viewBox="0 0 260 56" className="overflow-visible">
                       <line
                         x1="26"
                         x2="260"
@@ -424,25 +424,25 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                       <line
                         x1="26"
                         x2="260"
-                        y1="38"
-                        y2="38"
+                        y1="29"
+                        y2="29"
                         stroke="#1e1e25"
                         strokeDasharray="3 4"
                         className="sys-chart-grid"
                       />
-                      <text x="0" y="41" fill="#a1a1aa" fontSize="8" className="sys-chart-label">
+                      <text x="0" y="32" fill="#a1a1aa" fontSize="8" className="sys-chart-label">
                         50%
                       </text>
                       <line
                         x1="26"
                         x2="260"
-                        y1="72"
-                        y2="72"
+                        y1="54"
+                        y2="54"
                         stroke="#1e1e25"
                         strokeDasharray="3 4"
                         className="sys-chart-grid"
                       />
-                      <text x="0" y="74" fill="#a1a1aa" fontSize="8" className="sys-chart-label">
+                      <text x="0" y="56" fill="#a1a1aa" fontSize="8" className="sys-chart-label">
                         0%
                       </text>
                       <polygon points={areaPoints} fill={color} fillOpacity="0.16" />
@@ -458,11 +458,11 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                   </div>
 
                   {/* Stats Card */}
-                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3 py-2 flex-1 min-w-0 flex flex-col justify-between">
+                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3 py-1.5 flex-1 min-w-0 flex flex-col justify-between">
                     {statRows.map((row) => (
                       <div
                         key={row.k}
-                        className="flex items-baseline justify-between gap-2 text-[11px]"
+                        className="flex items-baseline justify-between gap-2 text-[10.5px]"
                       >
                         <span className="text-zinc-400 shrink-0">{row.k}</span>
                         <span className="font-medium text-white tabular-nums truncate">
@@ -475,20 +475,20 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
 
                 {/* Bottom Bar: Per-core bars for CPU, or contextual hardware status */}
                 {subTab === "cpu" ? (
-                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3 py-1 flex items-center gap-3 shrink-0 h-[40px]">
-                    <span className="text-[10.5px] text-zinc-400 w-12 shrink-0">
+                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3 py-0.5 flex items-center gap-3 shrink-0 h-[34px]">
+                    <span className="text-[10px] text-zinc-400 w-12 shrink-0">
                       {t("sys_per_core")}
                     </span>
                     <div className="flex flex-1 items-center justify-between gap-1">
                       {metrics.cpu_cores.slice(0, 8).map((corePct, idx) => (
                         <div key={idx} className="flex flex-col items-center gap-0.5 flex-1">
-                          <div className="w-4 h-5 rounded-[4px] bg-[#1d1d25] flex items-end overflow-hidden">
+                          <div className="w-4 h-3.5 rounded-[3px] bg-[#1d1d25] flex items-end overflow-hidden">
                             <div
                               style={{ height: `${Math.max(12, corePct)}%` }}
-                              className="w-full rounded-[4px] bg-[#3882F6] transition-all duration-300"
+                              className="w-full rounded-[3px] bg-[#3882F6] transition-all duration-300"
                             />
                           </div>
-                          <span className="text-[9px] text-zinc-400 tabular-nums">
+                          <span className="text-[8.5px] text-zinc-400 tabular-nums leading-none">
                             C{idx + 1}
                           </span>
                         </div>
@@ -496,14 +496,14 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                     </div>
                   </div>
                 ) : subTab === "memory" ? (
-                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3.5 py-1 flex items-center justify-between gap-3 shrink-0 h-[40px]">
+                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3.5 py-0.5 flex items-center justify-between gap-3 shrink-0 h-[34px]">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2 h-2 rounded-full bg-[#F5B531] shrink-0" />
-                      <span className="text-[11px] text-zinc-300 truncate">
+                      <span className="text-[10.5px] text-zinc-300 truncate">
                         {t("sys_memory")}: <span className="font-semibold text-white">{metrics.mem_used_gb} GB</span> / {metrics.mem_total_gb} GB
                       </span>
                     </div>
-                    <div className="w-28 h-2 bg-[#1d1d25] rounded-full overflow-hidden shrink-0">
+                    <div className="w-28 h-1.5 bg-[#1d1d25] rounded-full overflow-hidden shrink-0">
                       <div
                         style={{ width: `${metrics.mem_usage}%` }}
                         className="h-full bg-[#F5B531] rounded-full transition-all duration-300"
@@ -511,14 +511,14 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                     </div>
                   </div>
                 ) : subTab === "gpu" ? (
-                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3.5 py-1 flex items-center justify-between gap-3 shrink-0 h-[40px]">
+                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3.5 py-0.5 flex items-center justify-between gap-3 shrink-0 h-[34px]">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2 h-2 rounded-full bg-[#A78BFA] shrink-0" />
-                      <span className="text-[11px] text-zinc-300 truncate">
+                      <span className="text-[10.5px] text-zinc-300 truncate">
                         GPU VRAM: <span className="font-semibold text-white">{metrics.gpu_vram_gb} GB</span> · {metrics.gpu_temp_c}°C
                       </span>
                     </div>
-                    <div className="w-28 h-2 bg-[#1d1d25] rounded-full overflow-hidden shrink-0">
+                    <div className="w-28 h-1.5 bg-[#1d1d25] rounded-full overflow-hidden shrink-0">
                       <div
                         style={{ width: `${metrics.gpu_usage}%` }}
                         className="h-full bg-[#A78BFA] rounded-full transition-all duration-300"
@@ -526,14 +526,14 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3.5 py-1 flex items-center justify-between gap-3 shrink-0 h-[40px]">
+                  <div className="bg-[#101015] border border-[#1e1e25] rounded-2xl px-3.5 py-0.5 flex items-center justify-between gap-3 shrink-0 h-[34px]">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2 h-2 rounded-full bg-[#34C3A0] shrink-0" />
-                      <span className="text-[11px] text-zinc-300 truncate">
+                      <span className="text-[10.5px] text-zinc-300 truncate">
                         {wifiSsid || "Wi-Fi"} · <span className="font-semibold text-white">{ping ?? 16} ms</span> ping
                       </span>
                     </div>
-                    <span className="text-[10.5px] text-zinc-400 font-medium tabular-nums">
+                    <span className="text-[10px] text-zinc-400 font-medium tabular-nums">
                       ↑ {metrics.wifi_up_mbps} Mbps · ↓ {metrics.wifi_down_mbps} Mbps
                     </span>
                   </div>

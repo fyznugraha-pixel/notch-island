@@ -28,6 +28,7 @@ import {
   ScanText,
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
+import { NotchPosition } from "../../../utils/notchGeometry";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
 import { NotifSoundPicker } from "./NotifSoundPicker";
@@ -68,8 +69,8 @@ export interface SearchResultsProps {
   onChangeNotchShape?: (shape: "notch" | "island") => void;
   islandTopOffset?: number;
   onChangeIslandTopOffset?: (offset: number) => void;
-  optPosition?: "top" | "bottom";
-  onChangePosition?: (pos: "top" | "bottom") => void;
+  optPosition?: NotchPosition;
+  onChangePosition?: (pos: NotchPosition) => void;
   isLightMode?: boolean;
   optFontSize: "small" | "default" | "large";
   onChangeFontSize: (size: "small" | "default" | "large") => void;
@@ -81,6 +82,8 @@ export interface SearchResultsProps {
   onToggleEars: () => void;
   optOpacity: number;
   onChangeOpacity: (opacity: number) => void;
+  optBlur?: number;
+  onChangeBlur?: (blur: number) => void;
   optAnimSpeed?: "snappy" | "smooth" | "bouncy";
   onChangeAnimSpeed?: (speed: "snappy" | "smooth" | "bouncy") => void;
   // Modules props
@@ -165,6 +168,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onToggleEars,
   optOpacity,
   onChangeOpacity,
+  optBlur,
+  onChangeBlur,
   optAnimSpeed,
   onChangeAnimSpeed,
   optVolume,
@@ -579,20 +584,30 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
       tab: "appearance" as const,
       tabLabel: t("settings_subtab_appearance"),
       title: t("settings_position"),
-      subtitle: t("settings_position"),
-      keywords: ["position", "posisi", "atas", "bawah", "top", "bottom", "screen"],
+      subtitle: t("settings_position_desc"),
+      keywords: ["position", "posisi", "atas", "bawah", "kiri", "kanan", "pojok", "top", "bottom", "left", "right", "corner", "screen"],
       icon: <MoveVertical size={18} />,
       iconBgClass: "bg-[#142333]",
       iconColorClass: "text-[#32ade6]",
       control: (
-        <IosSegmentedControl
+        <select
           value={optPosition || "top"}
-          onChange={(val) => onChangePosition?.(val as "top" | "bottom")}
-          options={[
-            { value: "top", label: t("settings_pos_top"), tooltip: t("settings_pos_top_tip") },
-            { value: "bottom", label: t("settings_pos_bottom"), tooltip: t("settings_pos_bottom_tip") },
-          ]}
-        />
+          onChange={(e) => onChangePosition?.(e.target.value as NotchPosition)}
+          className={`rounded-[10px] px-2.5 py-1.5 text-[12px] font-medium outline-none cursor-pointer border ${
+            isLightMode
+              ? "bg-black/[0.05] text-neutral-800 border-black/10"
+              : "bg-[#1c1c23] text-white border-white/10"
+          }`}
+        >
+          <option value="top-left">{t("settings_pos_top_left")}</option>
+          <option value="top">{t("settings_pos_top")}</option>
+          <option value="top-right">{t("settings_pos_top_right")}</option>
+          <option value="left">{t("settings_pos_left")}</option>
+          <option value="right">{t("settings_pos_right")}</option>
+          <option value="bottom-left">{t("settings_pos_bottom_left")}</option>
+          <option value="bottom">{t("settings_pos_bottom")}</option>
+          <option value="bottom-right">{t("settings_pos_bottom_right")}</option>
+        </select>
       ),
     },
     {
@@ -624,18 +639,24 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
       tab: "appearance",
       tabLabel: t("settings_subtab_appearance"),
       title: t("settings_transparency"),
-      keywords: ["transparency", "transparansi", "solid", "glass", "clear", "kaca", "opacity"],
+      subtitle: t("settings_transparency_desc"),
+      keywords: ["transparency", "transparansi", "solid", "glass", "clear", "kaca", "opacity", "blur", "keburaman", "buram", "custom"],
       icon: <Layers size={18} />,
       iconBgClass: "bg-[#142d1f]",
       iconColorClass: "text-[#30d158]",
       control: (
         <IosSegmentedControl
-          value={optOpacity >= 0.9 ? 1.0 : optOpacity >= 0.7 ? 0.8 : 0.5}
-          onChange={onChangeOpacity}
+          value={optOpacity >= 0.92 && (optBlur ?? 0) <= 5 ? 1.0 : optOpacity >= 0.66 ? 0.78 : 0.54}
+          onChange={(val) => {
+            onChangeOpacity(val);
+            if (val >= 0.95) onChangeBlur?.(0);
+            else if (val >= 0.66) onChangeBlur?.(68);
+            else onChangeBlur?.(45);
+          }}
           options={[
             { value: 1.0, label: t("settings_theme_solid") },
-            { value: 0.8, label: t("settings_theme_glass") },
-            { value: 0.5, label: t("settings_theme_clear") },
+            { value: 0.78, label: t("settings_theme_glass") },
+            { value: 0.54, label: t("settings_theme_clear") },
           ]}
         />
       ),

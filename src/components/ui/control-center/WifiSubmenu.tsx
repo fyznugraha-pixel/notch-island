@@ -188,26 +188,26 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 16 }}
       transition={iosSpring.snappy}
-      className={`absolute inset-0 w-full h-full flex flex-col px-6 py-1.5 select-none overflow-hidden ${
+      className={`absolute inset-0 w-full h-full flex flex-col px-6 py-0.5 select-none overflow-hidden ${
         activeIsLightMode ? "text-[#1d1d1f]" : "text-white"
       }`}
     >
       {/* Header: Back circle + Title + Switch (Board 05) */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2.5 shrink-0 h-[26px]">
         <button
           type="button"
           onClick={onBack}
           aria-label={t("cc_back")}
-          className={`w-[30px] h-[30px] rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
+          className={`w-[26px] h-[26px] rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
             activeIsLightMode
               ? "bg-black/5 hover:bg-black/10 text-[#1d1d1f]"
               : "bg-[#17171c] hover:bg-[#23232a] text-[#e4e4e7]"
           }`}
         >
-          <ChevronLeft size={16} />
+          <ChevronLeft size={15} />
         </button>
 
-        <div className="text-[16px] font-semibold tracking-tight flex-1">{t("cc_wifi")}</div>
+        <div className="text-[14.5px] font-semibold tracking-tight flex-1">{t("cc_wifi")}</div>
 
         <button
           type="button"
@@ -215,7 +215,7 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
           aria-checked={status.enabled}
           disabled={isToggling}
           onClick={() => handleToggle(!status.enabled)}
-          className={`w-[44px] h-[26px] rounded-full p-[2px] flex items-center transition-colors cursor-pointer ${
+          className={`w-[40px] h-[22px] rounded-full p-[2px] flex items-center transition-colors cursor-pointer ${
             status.enabled
               ? "bg-[#3882F6] justify-end"
               : activeIsLightMode
@@ -223,31 +223,31 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
               : "bg-[#27272f] justify-start"
           }`}
         >
-          <span className="w-[22px] h-[22px] rounded-full bg-white shadow-sm" />
+          <span className="w-[18px] h-[18px] rounded-full bg-white shadow-sm" />
         </button>
       </div>
 
       {/* Body Content */}
-      <div className="flex-1 min-h-0 flex flex-col pt-2.5 overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col pt-1.5 overflow-hidden">
         {!status.enabled ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2.5 text-center p-4">
+          <div className="flex-1 flex flex-col items-center justify-center gap-1.5 text-center p-2">
             <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center ${
+              className={`w-10 h-10 rounded-full flex items-center justify-center ${
                 activeIsLightMode ? "bg-black/5 text-neutral-400" : "bg-[#17171c] text-[#a1a1aa]"
               }`}
             >
-              <WifiOff size={22} />
+              <WifiOff size={18} />
             </div>
             <div>
               <p
-                className={`text-[13px] font-semibold ${
+                className={`text-[12.5px] font-semibold ${
                   activeIsLightMode ? "text-[#1d1d1f]" : "text-white"
                 }`}
               >
                 {t("cc_not_connected")}
               </p>
               <p
-                className={`text-[11px] mt-0.5 ${
+                className={`text-[10.5px] mt-0.5 ${
                   activeIsLightMode ? "text-neutral-500" : "text-[#a1a1aa]"
                 }`}
               >
@@ -257,7 +257,7 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
             <button
               type="button"
               onClick={() => handleToggle(true)}
-              className="mt-1 px-3.5 py-1.5 rounded-[11px] bg-[#3882F6] hover:bg-[#2563eb] text-white text-[12px] font-semibold transition-colors cursor-pointer"
+              className="mt-0.5 px-3 py-1 rounded-[10px] bg-[#3882F6] hover:bg-[#2563eb] text-white text-[11.5px] font-semibold transition-colors cursor-pointer"
             >
               Turn On
             </button>
@@ -267,30 +267,30 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
             {/* Connected Network Card (Board 05) */}
             {connectedNetwork && (
               <div
-                className={`h-[58px] rounded-[18px] px-3 flex items-center gap-3 shrink-0 ${
+                className={`h-[44px] rounded-[14px] px-2.5 flex items-center gap-2.5 shrink-0 ${
                   activeIsLightMode
                     ? "bg-blue-500/10 border border-blue-500/30"
                     : "bg-[rgba(56,130,246,0.16)] border border-[rgba(56,130,246,0.4)]"
                 }`}
               >
-                <div className="w-[38px] h-[38px] rounded-full bg-[#3882F6] text-white flex items-center justify-center shrink-0">
-                  <Wifi size={18} />
+                <div className="w-[30px] h-[30px] rounded-full bg-[#3882F6] text-white flex items-center justify-center shrink-0">
+                  <Wifi size={15} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div
-                    className={`text-[13.5px] font-semibold truncate ${
+                    className={`text-[12.5px] font-semibold leading-tight truncate ${
                       activeIsLightMode ? "text-[#1d1d1f]" : "text-white"
                     }`}
                   >
                     {connectedNetwork.ssid}
                   </div>
                   <div
-                    className={`text-[11.5px] flex items-center gap-1.5 tabular-nums truncate ${
+                    className={`text-[10.5px] flex items-center gap-1 tabular-nums truncate ${
                       activeIsLightMode ? "text-blue-700" : "text-[#b4b4bd]"
                     }`}
                   >
                     <Check
-                      size={12}
+                      size={11}
                       strokeWidth={2.6}
                       className={`shrink-0 ${
                         activeIsLightMode ? "text-blue-600" : "text-[#7fb0ff]"
@@ -306,7 +306,7 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
                 <button
                   type="button"
                   onClick={handleDisconnect}
-                  className={`h-[32px] px-3 rounded-[11px] border text-[11.5px] font-medium transition-colors cursor-pointer shrink-0 ${
+                  className={`h-[26px] px-2.5 rounded-[9px] border text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
                     activeIsLightMode
                       ? "border-black/15 bg-white/70 hover:bg-black/5 text-[#1d1d1f]"
                       : "border-[#3a3a43] bg-transparent hover:bg-white/[0.06] text-[#e4e4e7]"
@@ -318,9 +318,9 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
             )}
 
             {/* Section Label */}
-            <div className="flex items-center justify-between h-[28px] mt-2 px-1 shrink-0">
+            <div className="flex items-center justify-between h-[22px] mt-1 px-1 shrink-0">
               <span
-                className={`text-[10.5px] font-medium tracking-[0.06em] uppercase ${
+                className={`text-[10px] font-medium tracking-[0.06em] uppercase ${
                   activeIsLightMode ? "text-neutral-500" : "text-[#a1a1aa]"
                 }`}
               >
@@ -330,31 +330,31 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
                 type="button"
                 onClick={loadStatus}
                 disabled={isLoading}
-                className={`w-[26px] h-[26px] rounded-full flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40 ${
+                className={`w-[22px] h-[22px] rounded-full flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40 ${
                   activeIsLightMode
                     ? "text-neutral-500 hover:text-[#1d1d1f]"
                     : "text-[#a1a1aa] hover:text-white"
                 }`}
               >
-                <RotateCw size={13.5} className={isLoading ? "animate-spin text-[#3882F6]" : ""} />
+                <RotateCw size={12.5} className={isLoading ? "animate-spin text-[#3882F6]" : ""} />
               </button>
             </div>
 
             {/* Network List with Bottom Fade */}
             <div className="flex-1 min-h-0 relative overflow-hidden">
-              <div className="h-full overflow-y-auto no-scrollbar flex flex-col gap-0.5 pb-6">
+              <div className="h-full overflow-y-auto no-scrollbar flex flex-col gap-0.5 pb-4">
                 {isLoading && otherNetworks.length === 0 ? (
                   <div
-                    className={`flex items-center justify-center py-6 gap-2 text-[12px] ${
+                    className={`flex items-center justify-center py-4 gap-2 text-[11.5px] ${
                       activeIsLightMode ? "text-neutral-500" : "text-[#a1a1aa]"
                     }`}
                   >
-                    <Loader2 size={14} className="animate-spin text-[#3882F6]" />
+                    <Loader2 size={13} className="animate-spin text-[#3882F6]" />
                     <span>{t("cc_searching")}</span>
                   </div>
                 ) : otherNetworks.length === 0 ? (
                   <div
-                    className={`text-center py-6 text-[12px] ${
+                    className={`text-center py-4 text-[11.5px] ${
                       activeIsLightMode ? "text-neutral-500" : "text-[#a1a1aa]"
                     }`}
                   >
@@ -368,7 +368,7 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
                     return (
                       <div
                         key={net.ssid}
-                        className={`flex flex-col rounded-[12px] transition-colors ${
+                        className={`flex flex-col rounded-[10px] transition-colors ${
                           isPasswordOpen
                             ? activeIsLightMode
                               ? "bg-neutral-100/90 p-1.5"
@@ -378,18 +378,18 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
                       >
                         <div
                           onClick={() => handleConnect(net)}
-                          className={`h-[38px] rounded-[12px] px-2.5 flex items-center gap-2.5 transition-colors cursor-pointer select-none group ${
+                          className={`h-[32px] rounded-[10px] px-2 flex items-center gap-2 transition-colors cursor-pointer select-none group ${
                             activeIsLightMode ? "hover:bg-black/5" : "hover:bg-[#15151a]"
                           }`}
                         >
                           <Wifi
-                            size={16}
+                            size={14.5}
                             className={`shrink-0 ${
                               activeIsLightMode ? "text-neutral-600" : "text-[#e4e4e7]"
                             }`}
                           />
                           <span
-                            className={`flex-1 text-[13px] font-medium truncate ${
+                            className={`flex-1 text-[12px] font-medium truncate ${
                               activeIsLightMode ? "text-[#1d1d1f]" : "text-white"
                             }`}
                           >

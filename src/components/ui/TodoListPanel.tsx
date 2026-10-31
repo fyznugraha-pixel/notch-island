@@ -15,81 +15,21 @@ import {
 } from "lucide-react";
 import { t, getLanguage, Language } from "../../services/i18n";
 import { TodoCalendarView } from "./todo/TodoCalendarView";
+import {
+  type TodoRepeatRule,
+  type TodoItem,
+  computeNextRepeatDue,
+  getRepeatBadgeText,
+  getRepeatLabel,
+} from "../../services/todoUtils";
 
-export type TodoRepeatRule = "none" | "daily" | "weekdays" | "weekly" | "monthly";
-
-export interface TodoItem {
-  id: string;
-  text: string;
-  completed: boolean;
-  createdAt: number;
-  dueAt?: number | null;
-  reminders?: number[];
-  remindedOffsets?: number[];
-  snoozedUntil?: number | null;
-  repeat?: TodoRepeatRule;
-}
-
-export function computeNextRepeatDue(baseMs: number, rule: TodoRepeatRule): number {
-  const now = Date.now();
-  const d = new Date(baseMs);
-  const targetHour = d.getHours();
-  const targetMin = d.getMinutes();
-  const targetSec = d.getSeconds();
-
-  if (rule === "daily") {
-    d.setDate(d.getDate() + 1);
-    while (d.getTime() < now) {
-      d.setDate(d.getDate() + 1);
-    }
-  } else if (rule === "weekdays") {
-    do {
-      d.setDate(d.getDate() + 1);
-    } while (d.getDay() === 0 || d.getDay() === 6 || d.getTime() < now);
-  } else if (rule === "weekly") {
-    d.setDate(d.getDate() + 7);
-    while (d.getTime() < now) {
-      d.setDate(d.getDate() + 7);
-    }
-  } else if (rule === "monthly") {
-    d.setMonth(d.getMonth() + 1);
-    while (d.getTime() < now) {
-      d.setMonth(d.getMonth() + 1);
-    }
-  }
-  d.setHours(targetHour, targetMin, targetSec, 0);
-  return d.getTime();
-}
-
-export function getRepeatBadgeText(rule?: TodoRepeatRule): string {
-  switch (rule) {
-    case "daily":
-      return t("todo_repeat_badge_daily");
-    case "weekdays":
-      return t("todo_repeat_badge_weekdays");
-    case "weekly":
-      return t("todo_repeat_badge_weekly");
-    case "monthly":
-      return t("todo_repeat_badge_monthly");
-    default:
-      return "";
-  }
-}
-
-export function getRepeatLabel(rule?: TodoRepeatRule): string {
-  switch (rule) {
-    case "daily":
-      return t("todo_repeat_daily");
-    case "weekdays":
-      return t("todo_repeat_weekdays");
-    case "weekly":
-      return t("todo_repeat_weekly");
-    case "monthly":
-      return t("todo_repeat_monthly");
-    default:
-      return t("todo_repeat_none");
-  }
-}
+export {
+  type TodoRepeatRule,
+  type TodoItem,
+  computeNextRepeatDue,
+  getRepeatBadgeText,
+  getRepeatLabel,
+};
 
 export interface TodoListPanelProps {
   items: TodoItem[];
@@ -270,8 +210,6 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
   const ringCircumference = 69.1; // 2 * pi * 11
   const ringDash = `${(progressRatio * ringCircumference).toFixed(1)} ${ringCircumference}`;
 
-  const composerExpanded = isComposerOpen || inputText.trim().length > 0;
-
   // Theme tokens — the panel previously hardcoded dark-only colors, which made
   // white text invisible on the light island surface.
   const textMain = isLightMode ? "text-[#101828]" : "text-white";
@@ -316,30 +254,8 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
 
   useEffect(() => {
     if (!onHeightChange) return;
-    if (calendarTargetId) {
-      onHeightChange(418);
-      return;
-    }
-    const baseChrome = 208;
-    const composerExtra = composerExpanded ? 44 : 0;
-    const visibleSlots = Math.min(4, Math.max(1, pendingItems.length));
-    const tasksHeight =
-      pendingItems.length === 0
-        ? 52
-        : visibleSlots * 40 + (visibleSlots - 1) * 4 + 10;
-    const completedExtra =
-      completedItems.length > 0
-        ? 32 + (showCompleted ? Math.min(2, completedItems.length) * 36 : 0)
-        : 0;
-    onHeightChange(Math.min(446, baseChrome + composerExtra + tasksHeight + completedExtra));
-  }, [
-    onHeightChange,
-    calendarTargetId,
-    composerExpanded,
-    pendingItems.length,
-    completedItems.length,
-    showCompleted,
-  ]);
+    onHeightChange(292);
+  }, [onHeightChange]);
 
   const resolveNewTaskDue = (): { dueAt: number | null; reminders: number[] } => {
     if (newDuePreset === "none") return { dueAt: null, reminders: [] };
@@ -422,11 +338,11 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
   ).padStart(2, "0")}`;
 
   return (
-    <div className={`flex flex-col w-full h-full min-h-0 px-6 pb-2 select-none overflow-hidden ${textMain}`}>
+    <div className={`flex flex-col w-full h-full min-h-0 px-6 pb-1 select-none overflow-hidden ${textMain}`}>
       {/* Top Row: Progress Ring Summary + Filter Tabs (Hari ini | Mendatang | Semua) */}
-      <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
+      <div className="flex items-center justify-between gap-2 shrink-0 mb-1.5">
         <div className="flex items-center gap-2">
-          <svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true" className="shrink-0">
+          <svg width="20" height="20" viewBox="0 0 28 28" aria-hidden="true" className="shrink-0">
             <circle cx="14" cy="14" r="11" fill="none" stroke={isLightMode ? "#d0d5dd" : "#2a2a31"} strokeWidth="3" />
             <circle
               cx="14"
@@ -441,14 +357,14 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
               className="transition-all duration-300"
             />
           </svg>
-          <span className={`text-[11.5px] font-medium tabular-nums ${textSub}`}>
+          <span className={`text-[11px] font-medium tabular-nums ${textSub}`}>
             {t("todo_progress_summary", { done: doneCount, total: totalCount })}
           </span>
         </div>
 
         <div
           role="tablist"
-          className={`flex items-center gap-0.5 p-0.5 rounded-[10px] ${
+          className={`flex items-center gap-0.5 p-0.5 rounded-[9px] ${
             isLightMode ? "bg-black/[0.04] border border-black/10" : "bg-[#121216] border border-white/5"
           }`}
         >
@@ -465,7 +381,7 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
                 role="tab"
                 aria-selected={active}
                 onClick={() => setFilter(tab.id)}
-                className={`h-6 px-2.5 rounded-[8px] text-[11px] font-medium transition-colors cursor-pointer ${
+                className={`h-5.5 px-2.5 rounded-[7px] text-[10.5px] font-medium transition-colors cursor-pointer ${
                   active
                     ? isLightMode
                       ? "bg-white text-[#101828] shadow-sm"
@@ -484,10 +400,10 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
 
       {/* New Task Composer AT THE TOP with Time/Deadline Button */}
       <div
-        className={`shrink-0 rounded-xl transition-all mb-2 ${
+        className={`shrink-0 rounded-xl transition-all mb-1.5 ${
           isComposerOpen || inputText.trim().length > 0
-            ? "border-[1.5px] px-3 py-2 flex flex-col gap-2"
-            : `border border-dashed px-3 h-9 flex items-center ${
+            ? "border-[1.5px] px-2.5 py-1.5 flex flex-col gap-1.5"
+            : `border border-dashed px-2.5 h-8 flex items-center ${
                 isLightMode ? "border-black/20 hover:border-black/40" : "border-[#34343c] hover:border-zinc-500"
               }`
         }`}
@@ -660,7 +576,7 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
       </div>
 
       {/* Scrollable Task List */}
-      <div className="flex-1 min-h-0 overflow-y-auto todo-scroll flex flex-col gap-1.5 pr-0.5 pb-3">
+      <div className="flex-1 min-h-0 overflow-y-auto todo-scroll flex flex-col gap-1 pr-0.5 pb-1">
         {pendingItems.length === 0 && completedItems.length === 0 ? (
           <div className={`flex flex-col items-center justify-center text-center py-2 ${textSub}`}>
             <span className={`text-[12.5px] font-medium ${isLightMode ? "text-[#344054]" : "text-zinc-300"}`}>{t("todo_empty")}</span>
@@ -687,7 +603,7 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
             return (
               <div
                 key={task.id}
-                className={`group h-[38px] min-h-[38px] rounded-xl px-2.5 flex items-center gap-2.5 transition-colors shrink-0 ${surfaceCard}`}
+                className={`group h-[34px] min-h-[34px] rounded-xl px-2.5 flex items-center gap-2 transition-colors shrink-0 ${surfaceCard}`}
               >
                 {/* Checkbox */}
                 <button

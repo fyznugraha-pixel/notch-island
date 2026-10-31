@@ -336,32 +336,32 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
         {files.length === 0 ? (
           /* Empty / Active Drop Zone */
           <div
-            className={`flex-1 my-3 rounded-[24px] flex flex-col items-center justify-center gap-2 px-8 text-center transition-all ${
+            className={`flex-1 my-1.5 rounded-[20px] flex flex-col items-center justify-center gap-1.5 px-6 text-center transition-all ${
               isHoveringDrop
                 ? "border-2 border-[#3882F6] bg-[rgba(56,130,246,0.08)] shadow-[0_0_24px_rgba(56,130,246,0.2)]"
                 : "border-[1.5px] border-dashed border-white/10 hover:border-white/20 bg-[#0d0d12]"
             }`}
           >
             <div
-              className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-0.5 transition-all ${
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
                 isHoveringDrop
                   ? "bg-[#3882F6] text-white scale-110 shadow-lg shadow-[#3882F6]/30"
                   : "bg-white/[0.06] border border-white/8 text-zinc-300"
               }`}
             >
-              <Upload size={22} strokeWidth={2} />
+              <Upload size={19} strokeWidth={2} />
             </div>
-            <div className="text-[15px] font-semibold text-white tracking-tight">
+            <div className="text-[14px] font-semibold text-white tracking-tight">
               {isHoveringDrop ? t("drag_drop_title") : t("shelf_drop_here")}
             </div>
-            <div className="text-[11.5px] leading-relaxed text-zinc-400 max-w-[340px]">
+            <div className="text-[11px] leading-relaxed text-zinc-400 max-w-[340px]">
               {t("shelf_drop_desc")}
             </div>
             {!isHoveringDrop && (
               <button
                 type="button"
                 onClick={handleChooseFiles}
-                className="mt-1.5 h-8 px-4 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 text-[11.5px] font-medium transition-colors cursor-pointer"
+                className="mt-1 h-7 px-3.5 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 text-[11px] font-medium transition-colors cursor-pointer"
               >
                 {t("shelf_choose_files")}
               </button>
@@ -371,13 +371,13 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
           /* Filled State */
           <>
             {/* Toolbar: summary left, clean actions right */}
-            <div className="flex items-center gap-2 mt-1 mb-2 h-[32px] shrink-0">
+            <div className="flex items-center gap-2 mt-0.5 mb-1.5 h-[28px] shrink-0">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full bg-white/[0.07] border border-white/8 text-[11.5px] font-medium text-zinc-200 tabular-nums">
+                <span className="px-2.5 py-0.5 rounded-full bg-white/[0.07] border border-white/8 text-[11px] font-medium text-zinc-200 tabular-nums">
                   {files.length} {files.length === 1 ? "file" : "files"}
                 </span>
                 {selectedIds.size > 0 && (
-                  <span className="text-[11px] font-medium text-[#3882F6] tabular-nums">
+                  <span className="text-[10.5px] font-medium text-[#3882F6] tabular-nums">
                     · {t("shelf_selected_count", { count: selectedIds.size })}
                   </span>
                 )}
@@ -389,9 +389,9 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 <div
                   draggable
                   onDragStart={(e) => handleDragSelected(e as any)}
-                  className="h-[28px] px-2.5 bg-[#3882F6] hover:bg-[#2563eb] text-white rounded-lg text-[11.5px] font-medium transition-colors flex items-center gap-1.5 cursor-grab active:cursor-grabbing shadow-sm shadow-[#3882F6]/30"
+                  className="h-[26px] px-2.5 bg-[#3882F6] hover:bg-[#2563eb] text-white rounded-lg text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-grab active:cursor-grabbing shadow-sm shadow-[#3882F6]/30"
                 >
-                  <GripHorizontal size={13} />
+                  <GripHorizontal size={12.5} />
                   <span>{t("shelf_drag_all", { count: selectedIds.size })}</span>
                 </div>
               )}
@@ -399,17 +399,17 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               <button
                 type="button"
                 onClick={handleChooseFiles}
-                className="h-[28px] px-2.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/8 text-zinc-200 hover:text-white text-[11.5px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+                className="h-[26px] px-2.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/8 text-zinc-200 hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
                 title={t("shelf_choose_files")}
               >
-                <Plus size={13} strokeWidth={2.2} />
+                <Plus size={12.5} strokeWidth={2.2} />
                 <span>{t("shelf_choose_files")?.replace(/\.\.\.$/, "") || t("shelf_add")}</span>
               </button>
 
               <button
                 type="button"
                 onClick={toggleSelectAll}
-                className="h-[28px] px-2.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white text-[11.5px] font-medium transition-colors cursor-pointer"
+                className="h-[26px] px-2.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white text-[11px] font-medium transition-colors cursor-pointer"
               >
                 {isAllSelected ? t("shelf_deselect_all") : t("shelf_select_all")}
               </button>
@@ -417,9 +417,9 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               <button
                 type="button"
                 onClick={handleDelete}
-                className="h-[28px] px-2.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 text-[11.5px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="h-[26px] px-2.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
               >
-                <Trash2 size={12} />
+                <Trash2 size={11.5} />
                 <span>
                   {selectedIds.size > 0 && selectedIds.size < files.length
                     ? t("shelf_delete_selected", { count: selectedIds.size })
@@ -433,7 +433,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               {canScrollLeft && (
                 <button
                   onClick={() => handleScrollStep("left")}
-                  className="absolute left-0 top-[40px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
+                  className="absolute left-0 top-[34px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
                   aria-label={isEn ? "Scroll left" : "Gulir ke kiri"}
                 >
                   <ChevronLeft size={15} />
@@ -457,7 +457,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                     scrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, scrollLeft + delta));
                   }
                 }}
-                className="notes-horizontal-scroll flex items-start gap-3 overflow-x-auto overflow-y-hidden no-scrollbar w-full py-1 select-none"
+                className="notes-horizontal-scroll flex items-start gap-2.5 overflow-x-auto overflow-y-hidden no-scrollbar w-full py-0.5 select-none"
               >
                 <AnimatePresence initial={false}>
                   {files.map((file) => {
@@ -489,10 +489,10 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                             handleCopyFile(file);
                           }
                         }}
-                        className="group w-[146px] shrink-0 flex flex-col gap-1.5 cursor-grab active:cursor-grabbing select-none"
+                        className="group w-[138px] shrink-0 flex flex-col gap-1 cursor-grab active:cursor-grabbing select-none"
                       >
                         <div
-                          className={`relative w-[146px] h-[108px] rounded-[16px] bg-[#121217] flex items-center justify-center overflow-hidden transition-all ${
+                          className={`relative w-[138px] h-[94px] rounded-[14px] bg-[#121217] flex items-center justify-center overflow-hidden transition-all ${
                             isSelected
                               ? "border-2 border-[#3882F6] shadow-[0_0_12px_rgba(56,130,246,0.3)] bg-[#3882F6]/5"
                               : "border border-white/10 group-hover:border-white/20 group-hover:bg-[#16161d]"
@@ -502,11 +502,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                             <img
                               src={thumb}
                               alt={file.name}
-                              className="w-full h-full object-contain p-2 select-none pointer-events-none"
+                              className="w-full h-full object-contain p-1.5 select-none pointer-events-none"
                             />
                           ) : (
                             <div className="flex flex-col items-center justify-center gap-1">
-                              <IconComponent size={32} className={color} strokeWidth={1.8} />
+                              <IconComponent size={28} className={color} strokeWidth={1.8} />
                             </div>
                           )}
 
@@ -517,17 +517,17 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                               e.stopPropagation();
                               toggleSelectFile(file.id);
                             }}
-                            className={`absolute left-2 top-2 z-20 w-5 h-5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                            className={`absolute left-1.5 top-1.5 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                               isSelected
                                 ? "bg-[#3882F6] text-white opacity-100 shadow-sm"
                                 : "border border-white/40 bg-black/50 text-transparent opacity-0 group-hover:opacity-100 hover:border-white"
                             }`}
                           >
-                            <Check size={11} strokeWidth={3} />
+                            <Check size={10} strokeWidth={3} />
                           </button>
 
                           {/* Top-Right Remove Button + Folder Button */}
-                          <div className="absolute right-2 top-2 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="absolute right-1.5 top-1.5 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Tooltip content={t("shelf_explorer")} side="top">
                               <button
                                 type="button"
@@ -535,9 +535,9 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                   e.stopPropagation();
                                   handleShowInFolder(file.path);
                                 }}
-                                className="w-5 h-5 rounded-full bg-black/70 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                                className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
                               >
-                                <ExternalLink size={10} />
+                                <ExternalLink size={9.5} />
                               </button>
                             </Tooltip>
                             <button
@@ -547,30 +547,30 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                 onRemoveFile(file.id);
                               }}
                               aria-label={isEn ? "Remove file" : "Hapus file"}
-                              className="w-5 h-5 rounded-full bg-black/70 hover:bg-rose-500/80 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                              className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-rose-500/80 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
                             >
-                              <X size={10} strokeWidth={2.4} />
+                              <X size={9.5} strokeWidth={2.4} />
                             </button>
                           </div>
 
                           {/* Copied Overlay */}
                           {isCopied && (
                             <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 text-white z-30">
-                              <Check size={16} className="text-[#13FF00]" strokeWidth={2.8} />
-                              <span className="text-[10.5px] font-semibold">{t("shelf_copied")}</span>
+                              <Check size={15} className="text-[#13FF00]" strokeWidth={2.8} />
+                              <span className="text-[10px] font-semibold">{t("shelf_copied")}</span>
                             </div>
                           )}
                         </div>
 
-                        <div className="px-1 min-w-0">
+                        <div className="px-0.5 min-w-0">
                           <div
-                            className="text-[12px] font-medium text-white/90 group-hover:text-white truncate transition-colors leading-snug"
+                            className="text-[11.5px] font-medium text-white/90 group-hover:text-white truncate transition-colors leading-tight"
                             title={file.name}
                           >
                             {file.name}
                           </div>
-                          <div className="text-[10.5px] text-zinc-400 mt-0.5 truncate flex items-center gap-1.5">
-                            <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[9px] bg-white/[0.08] px-1 py-0.5 rounded leading-none">
+                          <div className="text-[10px] text-zinc-400 mt-0.5 truncate flex items-center gap-1.5">
+                            <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[8.5px] bg-white/[0.08] px-1 py-0.5 rounded leading-none">
                               {extBadge}
                             </span>
                             <span className="truncate">{sizeText}</span>
@@ -585,12 +585,12 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 <button
                   type="button"
                   onClick={handleChooseFiles}
-                  className="w-[146px] h-[108px] shrink-0 rounded-[16px] border border-dashed border-white/15 hover:border-white/30 hover:bg-white/[0.03] flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                  className="w-[138px] h-[94px] shrink-0 rounded-[14px] border border-dashed border-white/15 hover:border-white/30 hover:bg-white/[0.03] flex flex-col items-center justify-center gap-1 text-zinc-400 hover:text-white transition-colors cursor-pointer"
                 >
-                  <div className="w-8 h-8 rounded-full bg-white/[0.05] flex items-center justify-center">
-                    <Plus size={16} strokeWidth={2.2} />
+                  <div className="w-7 h-7 rounded-full bg-white/[0.05] flex items-center justify-center">
+                    <Plus size={14} strokeWidth={2.2} />
                   </div>
-                  <span className="text-[11px] font-medium px-2 text-center text-zinc-400">
+                  <span className="text-[10.5px] font-medium px-2 text-center text-zinc-400">
                     {t("shelf_drag_to_add")}
                   </span>
                 </button>
@@ -599,7 +599,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               {canScrollRight && (
                 <button
                   onClick={() => handleScrollStep("right")}
-                  className="absolute right-0 top-[40px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
+                  className="absolute right-0 top-[34px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
                   aria-label={isEn ? "Scroll right" : "Gulir ke kanan"}
                 >
                   <ChevronRight size={15} />

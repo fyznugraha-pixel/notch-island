@@ -1,6 +1,6 @@
-﻿import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import { ChevronLeft, ChevronRight, ChevronDown, Clock, Bell, Check, Repeat } from "lucide-react";
-import { TodoRepeatRule, getRepeatBadgeText } from "../TodoListPanel";
+import { TodoRepeatRule, getRepeatBadgeText } from "../../../services/todoUtils";
 import { t, getLanguage, Language } from "../../../services/i18n";
 
 export interface TodoCalendarViewProps {
@@ -185,35 +185,57 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
         />
       )}
 
-      {/* Header Row */}
-      <div className="flex items-center gap-2.5 shrink-0 mb-2">
+      {/* Header Row with Inline Summary */}
+      <div className="flex items-center gap-2 shrink-0 mb-1.5">
         <button
           type="button"
           onClick={onCancel}
-          className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+          className="w-6.5 h-6.5 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center transition-colors cursor-pointer shrink-0"
         >
-          <ChevronLeft size={15} />
+          <ChevronLeft size={14} />
         </button>
-        <h2 className="text-[14px] font-semibold tracking-tight truncate flex-1 min-w-0">
+        <h2 className="text-[13px] font-semibold tracking-tight truncate flex-1 min-w-0">
           {taskTitle || t("todo_set_reminder")}
         </h2>
+
+        {/* Inline Summary Pill */}
+        <div className="h-6.5 rounded-full bg-[#101015] border border-[#1e1e25] px-2.5 flex items-center gap-1.5 shrink-0">
+          <Bell size={11} className="text-amber-400 shrink-0" />
+          <span className="text-[11px] font-semibold text-white tabular-nums">{summaryDateText}</span>
+          {repeat !== "none" && (
+            <span className="text-[10px] text-[#8db8ff] font-medium flex items-center gap-0.5 shrink-0">
+              • <Repeat size={9.5} /> {getRepeatBadgeText(repeat)}
+            </span>
+          )}
+        </div>
+
+        {initialDueAt && (
+          <button
+            type="button"
+            onClick={() => onSave(null, [])}
+            className="h-6.5 px-2.5 rounded-full text-[11px] font-medium text-[#ff9b8f] bg-[#ff6b5a]/10 hover:bg-[#ff6b5a]/20 transition-colors cursor-pointer shrink-0"
+          >
+            {t("todo_remove_deadline")}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => onSave(computedDueTimestamp, reminders, repeat)}
           style={{ backgroundColor: optAccent }}
-          className="h-7 px-3.5 rounded-full text-white text-[12px] font-semibold hover:brightness-110 active:scale-95 transition-all cursor-pointer shrink-0"
+          className="h-6.5 px-3 rounded-full text-white text-[11.5px] font-semibold hover:brightness-110 active:scale-95 transition-all cursor-pointer shrink-0"
         >
           {t("todo_save")}
         </button>
       </div>
 
       {/* Main Body: Left Calendar + Right Options */}
-      <div className="flex gap-4 flex-1 min-h-0 items-stretch">
+      <div className="flex gap-3.5 flex-1 min-h-0 items-stretch">
         {/* Left: Compact Monthly Calendar */}
-        <div className="w-[245px] shrink-0 flex flex-col justify-between bg-[#101015] border border-[#1e1e25] rounded-2xl px-3 py-2">
-          <div className="flex items-center justify-between h-6">
-            <span className="text-[12.5px] font-semibold capitalize">{monthTitle}</span>
-            <div className="flex items-center gap-1">
+        <div className="w-[238px] shrink-0 flex flex-col justify-between bg-[#101015] border border-[#1e1e25] rounded-2xl px-2.5 py-1.5">
+          <div className="flex items-center justify-between h-5">
+            <span className="text-[11.5px] font-semibold capitalize">{monthTitle}</span>
+            <div className="flex items-center gap-0.5">
               <button
                 type="button"
                 onClick={() => {
@@ -224,9 +246,9 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
                     setViewMonth((m) => m - 1);
                   }
                 }}
-                className="w-6 h-6 rounded-full hover:bg-white/10 text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer"
+                className="w-5 h-5 rounded-full hover:bg-white/10 text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer"
               >
-                <ChevronLeft size={13} />
+                <ChevronLeft size={12} />
               </button>
               <button
                 type="button"
@@ -238,22 +260,22 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
                     setViewMonth((m) => m + 1);
                   }
                 }}
-                className="w-6 h-6 rounded-full hover:bg-white/10 text-zinc-200 hover:text-white flex items-center justify-center cursor-pointer"
+                className="w-5 h-5 rounded-full hover:bg-white/10 text-zinc-200 hover:text-white flex items-center justify-center cursor-pointer"
               >
-                <ChevronRight size={13} />
+                <ChevronRight size={12} />
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-7 text-center text-[10px] text-zinc-400 font-medium my-0.5">
+          <div className="grid grid-cols-7 text-center text-[9.5px] text-zinc-400 font-medium">
             {dayHeaders.map((dh) => (
               <span key={dh}>{dh}</span>
             ))}
           </div>
 
-          <div className="grid grid-cols-7 gap-y-0.5 justify-items-center text-[11.5px] tabular-nums flex-1 items-center">
+          <div className="grid grid-cols-7 gap-y-0 justify-items-center text-[11px] tabular-nums flex-1 items-center">
             {calendarCells.map((day, idx) => {
-              if (!day) return <span key={`empty-${idx}`} className="w-7 h-6" />;
+              if (!day) return <span key={`empty-${idx}`} className="w-6 h-4.5" />;
               const cellDate = new Date(viewYear, viewMonth, day);
               const cellTime = cellDate.getTime();
               const isPast = cellTime < todayMidnight;
@@ -273,7 +295,7 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
                       ? { borderColor: optAccent, color: "#8db8ff" }
                       : undefined
                   }
-                  className={`w-7 h-6 rounded-full flex items-center justify-center transition-colors ${
+                  className={`w-6 h-4.5 rounded-full flex items-center justify-center transition-colors ${
                     isSelected
                       ? "font-semibold shadow-sm cursor-pointer"
                       : isToday
@@ -529,27 +551,6 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Bottom Summary Bar */}
-      <div className="mt-2 h-8 rounded-xl bg-[#101015] border border-[#1e1e25] px-3 flex items-center gap-2 shrink-0">
-        <Bell size={13} className="text-amber-400 shrink-0" />
-        <span className="text-[12px] font-semibold text-white truncate">{summaryDateText}</span>
-        {repeat !== "none" && (
-          <span className="text-[11px] text-[#8db8ff] font-medium flex items-center gap-1 shrink-0 ml-1">
-            • <Repeat size={10} /> {getRepeatBadgeText(repeat)}
-          </span>
-        )}
-        <div className="flex-1" />
-        {initialDueAt && (
-          <button
-            type="button"
-            onClick={() => onSave(null, [])}
-            className="h-6 px-2 rounded-lg text-[11px] font-medium text-[#ff9b8f] hover:bg-[#ff6b5a]/15 transition-colors cursor-pointer"
-          >
-            {t("todo_remove_deadline")}
-          </button>
-        )}
       </div>
     </div>
   );

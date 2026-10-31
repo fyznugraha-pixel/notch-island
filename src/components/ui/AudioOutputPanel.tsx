@@ -139,7 +139,7 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
   };
 
   const getDeviceIcon = (type: string) => {
-    const size = 18;
+    const size = 15;
     const strokeWidth = 2;
     if (type === "headphones") {
       return <Headphones size={size} strokeWidth={strokeWidth} />;
@@ -161,31 +161,31 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
       animate="center"
       exit="exit"
       data-no-swipe="true"
-      className="absolute inset-0 w-full h-full flex flex-col px-3 pb-3 min-w-0 cursor-default gpu-accelerated select-none overflow-hidden"
+      className="absolute inset-0 w-full h-full flex flex-col px-6 pb-1.5 min-w-0 cursor-default gpu-accelerated select-none overflow-hidden"
     >
       {/* 1. Header Bar */}
       <div
-        className="flex items-center justify-between h-[34px] mb-2 px-0.5 shrink-0"
+        className="flex items-center justify-between h-[28px] mb-1.5 px-0.5 shrink-0"
       >
         <button
           type="button"
           onClick={onBack}
           aria-label={t("nav_back") || "Kembali"}
-          className="w-[34px] h-[34px] rounded-full bg-[#17171c] hover:bg-white/10 text-[#e4e4e7] border border-white/10 flex items-center justify-center transition-colors cursor-pointer"
+          className="w-[28px] h-[28px] rounded-full bg-[#17171c] hover:bg-white/10 text-[#e4e4e7] border border-white/10 flex items-center justify-center transition-colors cursor-pointer"
         >
-          <ChevronLeft size={16} strokeWidth={2.2} />
+          <ChevronLeft size={15} strokeWidth={2.2} />
         </button>
 
-        <h1 className="text-[17px] font-semibold text-white tracking-[-0.01em]">
+        <h1 className="text-[14.5px] font-semibold text-white tracking-[-0.01em]">
           {t("audio_output_title") || "Audio Output"}
         </h1>
 
-        <div className="w-[34px] h-[34px]" />
+        <div className="w-[28px] h-[28px]" />
       </div>
 
       {/* 2. Main Content Layout */}
       <div
-        className="flex-1 min-h-0 flex flex-col justify-between gap-3 px-0.5"
+        className="flex-1 min-h-0 flex flex-col justify-between gap-2 px-0.5"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Device Cards Grid */}
@@ -201,7 +201,7 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
                   aria-checked={isActive}
                   tabIndex={0}
                   onClick={() => handleSelectDevice(device)}
-                  className={`relative box-border h-[96px] rounded-[18px] p-2.5 px-3 flex flex-col justify-between transition-all cursor-pointer ${
+                  className={`relative box-border h-[76px] rounded-[14px] p-2 px-2.5 flex flex-col justify-between transition-all cursor-pointer ${
                     isActive
                       ? "border border-[#3882F6] bg-[#3882F6]/15 shadow-[0_2px_12px_rgba(56,130,246,0.25)]"
                       : "border border-[#23232a] bg-[#1c1c1e]/90 hover:bg-white/[0.08]"
@@ -209,14 +209,14 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
                 >
                   {/* Active Checkmark Badge */}
                   {isActive && (
-                    <span className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-[#3882F6] text-white flex items-center justify-center shadow-sm">
-                      <Check size={12} strokeWidth={3} />
+                    <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-[#3882F6] text-white flex items-center justify-center shadow-sm">
+                      <Check size={10} strokeWidth={3} />
                     </span>
                   )}
 
                   {/* Device Icon Badge */}
                   <span
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${
                       isActive ? "bg-[#3882F6] text-white" : "bg-[#1b1b21] text-[#d4d4d8]"
                     }`}
                   >
@@ -225,10 +225,10 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
 
                   {/* Device Name & Status */}
                   <div className="min-w-0 pr-1">
-                    <div className="text-[13.5px] font-semibold text-white truncate leading-tight">
+                    <div className="text-[12px] font-semibold text-white truncate leading-tight">
                       {device.name}
                     </div>
-                    <div className="flex items-center justify-between text-[11px] mt-1 gap-1">
+                    <div className="flex items-center justify-between text-[10px] mt-0.5 gap-1">
                       <span className="text-[#a1a1aa] truncate flex-1">
                         {device.desc || "Audio Device"}
                       </span>
@@ -249,10 +249,10 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
             <button
               type="button"
               onClick={handleAddBluetooth}
-              className="box-border h-[96px] rounded-[18px] border-[1.5px] border-dashed border-[#34343c] bg-transparent hover:bg-white/[0.04] text-[#a1a1aa] hover:text-white flex flex-col items-center justify-center gap-1.5 text-xs font-medium cursor-pointer transition-colors"
+              className="box-border h-[76px] rounded-[14px] border-[1.5px] border-dashed border-[#34343c] bg-transparent hover:bg-white/[0.04] text-[#a1a1aa] hover:text-white flex flex-col items-center justify-center gap-1 text-[11px] font-medium cursor-pointer transition-colors"
             >
-              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center">
-                <Plus size={16} strokeWidth={2.2} />
+              <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center">
+                <Plus size={14} strokeWidth={2.2} />
               </div>
               <span>{t("audio_add_bluetooth")}</span>
             </button>
@@ -260,9 +260,9 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
         </div>
 
         {/* 3. Bottom Active Device Volume Bar & Sound Test */}
-        <div className="shrink-0 box-border rounded-[18px] border border-[#23232a] bg-[#1c1c1e]/95 backdrop-blur-md h-[58px] px-3.5 flex items-center gap-3 shadow-sm">
+        <div className="shrink-0 box-border rounded-[14px] border border-[#23232a] bg-[#1c1c1e]/95 backdrop-blur-md h-[42px] px-3 flex items-center gap-2.5 shadow-sm">
           <span className="text-[#e4e4e7] shrink-0">
-            <Volume2 size={18} />
+            <Volume2 size={15.5} />
           </span>
 
           {/* Interactive Horizontal Slider */}
@@ -309,7 +309,7 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
                 (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
               }
             }}
-            className="flex-1 relative h-2 rounded-full bg-[#2a2a31] overflow-hidden cursor-pointer touch-none"
+            className="flex-1 relative h-1.5 rounded-full bg-[#2a2a31] overflow-hidden cursor-pointer touch-none"
           >
             <div
               className={`h-full bg-[#3882F6] pointer-events-none rounded-full ${
@@ -319,7 +319,7 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
             />
           </div>
 
-          <span className="w-9 text-right text-[13px] font-bold font-mono text-white tabular-nums shrink-0">
+          <span className="w-8 text-right text-[12px] font-bold font-mono text-white tabular-nums shrink-0">
             {soundLevel}%
           </span>
 
@@ -327,9 +327,9 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
             type="button"
             onClick={handleTestSound}
             title={isEn ? "Test audio output sound" : "Uji suara audio output"}
-            className="h-[34px] px-3.5 rounded-xl border border-[#2a2a31] bg-white/[0.04] hover:bg-white/[0.12] text-[#e4e4e7] flex items-center gap-1.5 text-xs font-medium cursor-pointer transition-colors shrink-0"
+            className="h-[28px] px-2.5 rounded-lg border border-[#2a2a31] bg-white/[0.04] hover:bg-white/[0.12] text-[#e4e4e7] flex items-center gap-1 text-[11px] font-medium cursor-pointer transition-colors shrink-0"
           >
-            <Play size={11} fill="currentColor" strokeWidth={2} />
+            <Play size={10} fill="currentColor" strokeWidth={2} />
             <span>{isEn ? "Test sound" : "Tes suara"}</span>
           </button>
         </div>

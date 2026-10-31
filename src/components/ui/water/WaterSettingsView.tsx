@@ -53,46 +53,44 @@ export const WaterSettingsView: React.FC<WaterSettingsViewProps> = ({
   };
 
   return (
-    <div className="w-full h-full flex flex-col select-none">
-      {/* Top Header */}
-      <div className="relative flex items-center justify-between h-[34px] w-full mt-1">
-        <button
-          type="button"
-          aria-label={t("action_back")}
-          onClick={onBack}
-          className="w-[34px] h-[34px] rounded-full border-0 flex items-center justify-center p-0 cursor-pointer transition-transform active:scale-95 z-10"
-          style={{ background: btnBg, color: btnColor }}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+    <div className="w-full h-full flex flex-col select-none pb-1 overflow-hidden">
+      {/* Top Header with Subtab Segmented Bar */}
+      <div className="flex items-center justify-between h-[28px] w-full shrink-0 gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={t("action_back")}
+            onClick={onBack}
+            className="w-[26px] h-[26px] rounded-full border-0 flex items-center justify-center p-0 cursor-pointer transition-transform active:scale-95 z-10"
+            style={{ background: btnBg, color: btnColor }}
           >
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
 
-        <h1
-          className="m-0 absolute inset-x-0 text-center text-[18px] font-semibold tracking-[-0.01em] pointer-events-none"
-          style={{ color: textColor }}
-        >
-          {t("water_settings_title")}
-        </h1>
+          <h1
+            className="m-0 text-[14px] font-semibold tracking-[-0.01em]"
+            style={{ color: textColor }}
+          >
+            {t("water_settings_title")}
+          </h1>
+        </div>
 
-        <div className="w-[34px] h-[34px] shrink-0" />
-      </div>
-
-      {/* Subtab Segmented Bar: [ Umum | Pengingat | Streak dan data ] */}
-      <div className="mt-2.5 flex justify-center">
+        {/* Subtab Segmented Bar: [ Umum | Pengingat | Streak dan data ] */}
         <div
           role="tablist"
-          className="flex gap-0.5 p-0.5 rounded-[10px]"
+          className="flex gap-0.5 p-0.5 rounded-[8px]"
           style={{ background: isLightMode ? "#E7ECF3" : "#121216" }}
         >
           <button
@@ -103,7 +101,7 @@ export const WaterSettingsView: React.FC<WaterSettingsViewProps> = ({
               setSubTab("general");
               if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
             }}
-            className="h-[28px] px-3 border-0 rounded-[8px] text-[12px] font-medium cursor-pointer transition-colors"
+            className="h-[22px] px-2.5 border-0 rounded-[6px] text-[11px] font-medium cursor-pointer transition-colors"
             style={{
               background: subTab === "general" ? (isLightMode ? "#FFFFFF" : "#2a2a31") : "transparent",
               color: subTab === "general" ? (isLightMode ? "#101828" : "#ffffff") : textSub,
@@ -119,7 +117,7 @@ export const WaterSettingsView: React.FC<WaterSettingsViewProps> = ({
               setSubTab("reminders");
               if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
             }}
-            className="h-[28px] px-3 border-0 rounded-[8px] text-[12px] font-medium cursor-pointer transition-colors"
+            className="h-[22px] px-2.5 border-0 rounded-[6px] text-[11px] font-medium cursor-pointer transition-colors"
             style={{
               background: subTab === "reminders" ? (isLightMode ? "#FFFFFF" : "#2a2a31") : "transparent",
               color: subTab === "reminders" ? (isLightMode ? "#101828" : "#ffffff") : textSub,
@@ -135,7 +133,7 @@ export const WaterSettingsView: React.FC<WaterSettingsViewProps> = ({
               setSubTab("streak");
               if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
             }}
-            className="h-[28px] px-3 border-0 rounded-[8px] text-[12px] font-medium cursor-pointer transition-colors"
+            className="h-[22px] px-2.5 border-0 rounded-[6px] text-[11px] font-medium cursor-pointer transition-colors"
             style={{
               background: subTab === "streak" ? (isLightMode ? "#FFFFFF" : "#2a2a31") : "transparent",
               color: subTab === "streak" ? (isLightMode ? "#101828" : "#ffffff") : textSub,
@@ -150,10 +148,10 @@ export const WaterSettingsView: React.FC<WaterSettingsViewProps> = ({
       <div
         ref={scrollContainerRef}
         key={subTab}
-        className="mt-3 flex-1 overflow-y-auto"
+        className="mt-1.5 flex-1 min-h-0 overflow-y-auto no-scrollbar"
       >
         <div
-          className="rounded-[16px] overflow-hidden"
+          className="rounded-[14px] overflow-hidden"
           style={{
             background: cardBg,
             border: `1px solid ${cardBorder}`,

@@ -123,9 +123,9 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
   return (
     <div className="flex flex-col w-full h-full min-h-0 px-6 select-none overflow-hidden pb-1">
       {/* Top Search & Actions Bar */}
-      <div className="flex items-center gap-2 mb-2 px-0.5 shrink-0">
-        <div className="relative flex-1 flex items-center bg-[#1c1c1e]/90 border border-white/10 rounded-2xl px-3 py-1.5 focus-within:border-[#0a84ff]/60 focus-within:ring-2 focus-within:ring-[#0a84ff]/20 transition-all shadow-sm">
-          <Search size={13} className="text-white/40 shrink-0 mr-2" />
+      <div className="flex items-center gap-2 mb-1.5 px-0.5 shrink-0">
+        <div className="relative flex-1 flex items-center bg-[#1c1c1e]/90 border border-white/10 rounded-xl px-2.5 py-1 focus-within:border-[#0a84ff]/60 focus-within:ring-2 focus-within:ring-[#0a84ff]/20 transition-all shadow-sm">
+          <Search size={12.5} className="text-white/40 shrink-0 mr-2" />
           <input
             type="text"
             value={searchQuery}
@@ -147,7 +147,7 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
           <Tooltip content={t("clipboard_clear")} side="left">
             <button
               onClick={onClearAll}
-              className="h-[29px] px-2.5 bg-red-500/10 hover:bg-red-500/20 text-[#ff453a] border border-red-500/20 rounded-xl flex items-center gap-1.5 text-[11px] font-semibold transition-all shrink-0 cursor-pointer active:scale-95 shadow-sm"
+              className="h-[26px] px-2.5 bg-red-500/10 hover:bg-red-500/20 text-[#ff453a] border border-red-500/20 rounded-xl flex items-center gap-1.5 text-[11px] font-semibold transition-all shrink-0 cursor-pointer active:scale-95 shadow-sm"
             >
               <Trash2 size={11} />
               <span>{t("clipboard_clear_btn")}</span>
@@ -159,12 +159,12 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
       {/* Clipboard History List */}
       <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-1.5 pr-0.5 min-h-0">
         {items.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center py-8 px-4">
-            <div className="w-12 h-12 rounded-[18px] bg-white/5 border border-white/10 flex items-center justify-center text-white/30 mb-2.5 shadow-inner">
-              <Clipboard size={22} />
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-3 px-4">
+            <div className="w-10 h-10 rounded-[14px] bg-white/5 border border-white/10 flex items-center justify-center text-white/30 mb-1.5 shadow-inner">
+              <Clipboard size={18} />
             </div>
-            <p className="text-[12.5px] font-semibold text-white/80">{t("clipboard_no_history")}</p>
-            <p className="text-[11px] text-white/40 mt-1 max-w-[220px] leading-relaxed">
+            <p className="text-[12px] font-semibold text-white/80">{t("clipboard_no_history")}</p>
+            <p className="text-[10.5px] text-white/40 mt-0.5 max-w-[220px] leading-relaxed">
               {t("clipboard_no_history_sub")}
             </p>
           </div>
@@ -283,7 +283,7 @@ export const ClipboardPanel = React.memo<ClipboardPanelProps>(({
                 {/* Content: Image Thumbnail or Text */}
                 {item.type === "image" ? (
                   <div className="flex flex-col gap-1.5 mt-0.5">
-                    <div className="relative w-full h-[120px] rounded-xl overflow-hidden bg-black/40 border border-white/5 flex items-center justify-center group/thumb">
+                    <div className="relative w-full h-[88px] rounded-xl overflow-hidden bg-black/40 border border-white/5 flex items-center justify-center group/thumb">
                       {(item.thumbnail || loadedThumbnails[item.id]) ? (
                         <img
                           src={item.thumbnail || loadedThumbnails[item.id]}

@@ -1,5 +1,4 @@
 import React from "react";
-import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ExternalLink,
@@ -15,6 +14,7 @@ import { SettingRow } from "./settings/SettingRow";
 import { IosSwitch } from "../ios/IosSwitch";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { ShortcutActionId, ShortcutStatus } from "../../services/shortcuts";
+import { NotchPosition } from "../../utils/notchGeometry";
 
 export interface SettingsPanelProps {
   slideDirection: number;
@@ -63,10 +63,12 @@ export interface SettingsPanelProps {
   onChangeFontSize: (size: "small" | "default" | "large") => void;
   optEars: boolean;
   onToggleEars: () => void;
-  optPosition: "top" | "bottom";
-  onChangePosition: (pos: "top" | "bottom") => void;
+  optPosition: NotchPosition;
+  onChangePosition: (pos: NotchPosition) => void;
   optOpacity: number;
   onChangeOpacity: (val: number) => void;
+  optBlur?: number;
+  onChangeBlur?: (val: number) => void;
   optAnimSpeed: "snappy" | "smooth" | "bouncy";
   onChangeAnimSpeed: (speed: "snappy" | "smooth" | "bouncy") => void;
   // Modules
@@ -82,29 +84,8 @@ export interface SettingsPanelProps {
   onClose: () => void;
 }
 
-const tabVariants = {
-  enter: (dir: number) => ({
-    x: dir > 0 ? 16 : dir < 0 ? -16 : 0,
-    opacity: 0,
-  }),
-  center: {
-    x: 0,
-    opacity: 1,
-    transition: {
-      x: { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const },
-      opacity: { duration: 0.18, ease: "easeOut" as const },
-    },
-    transitionEnd: { transform: "none" },
-  },
-  exit: (dir: number) => ({
-    x: dir > 0 ? -16 : dir < 0 ? 16 : 0,
-    opacity: 0,
-    transition: { duration: 0.12 },
-  }),
-};
-
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
-  slideDirection,
+  slideDirection: _slideDirection,
   optLanguage,
   optAutoCompact,
   onToggleAutoCompact,
@@ -128,6 +109,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangePosition,
   optOpacity,
   onChangeOpacity,
+  optBlur,
+  onChangeBlur,
   optAnimSpeed,
   onChangeAnimSpeed,
   optSoundFx = true,
@@ -143,71 +126,65 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   };
 
   return (
-    <motion.div
-      key="settings"
-      custom={slideDirection}
-      variants={tabVariants}
-      initial="enter"
-      animate="center"
-      exit="exit"
-      className="absolute inset-0 w-full h-full flex flex-col px-4 pt-1 pb-1 overflow-hidden select-none min-w-0 cursor-default gpu-accelerated"
+    <div
+      className="w-full h-full flex flex-col px-4 pt-1 pb-1 overflow-hidden select-none min-w-0 cursor-default"
       onClick={onClose}
     >
       <div
-        className="flex-1 flex flex-col min-w-0 h-full gap-2.5"
+        className="flex-1 flex flex-col min-w-0 h-full min-h-0"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Action Banner: Open Full Apple-style Settings Window */}
-        <div
-          onClick={() => handleOpenSettingsWindow("about")}
-          className={`group w-full rounded-[18px] px-3.5 py-2.5 flex items-center justify-between gap-3 border cursor-pointer transition-all shrink-0 ${
-            isLightMode
-              ? "bg-[#0a84ff]/[0.08] border-[#0a84ff]/25 hover:border-[#0a84ff]/45 shadow-sm"
-              : "bg-[#151822] border-[#3882F6]/30 hover:border-[#3882F6]/55 shadow-[0_6px_20px_rgba(0,0,0,0.35)]"
-          }`}
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-[11px] bg-[#0a84ff] flex items-center justify-center text-white shadow-[0_4px_12px_rgba(10,132,255,0.35)] shrink-0">
-              <LayoutGrid size={17} strokeWidth={2.2} />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span
-                className={`text-[13px] font-semibold leading-tight truncate ${
-                  isLightMode ? "text-neutral-900" : "text-white"
-                }`}
-              >
-                {isId ? "Pengaturan Lengkap & Kelola Tab" : "Full Settings & Manage Tabs"}
-              </span>
-              <span
-                className={`text-[10.5px] leading-tight truncate mt-0.5 ${
-                  isLightMode ? "text-neutral-600" : "text-zinc-400"
-                }`}
-              >
-                {isId
-                  ? "Atur urutan & on/off tab, layar diam, pintasan keyboard, notifikasi & sistem"
-                  : "Reorder & toggle tabs, idle layout, shortcuts, notifications & system"}
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenSettingsWindow("about");
-            }}
-            className="px-3 py-1.5 rounded-full bg-[#0a84ff] group-hover:bg-[#0070e0] text-white text-[11.5px] font-semibold flex items-center gap-1.5 shadow-[0_2px_10px_rgba(10,132,255,0.35)] transition-colors shrink-0 cursor-pointer"
-          >
-            <span>{isId ? "Buka Jendela" : "Open Window"}</span>
-            <ExternalLink size={12.5} strokeWidth={2.3} />
-          </button>
-        </div>
-
         {/* Scrollable Core Settings Body (Live Notch Preview) */}
         <div
-          className="flex-1 w-full pb-2 flex flex-col gap-2.5 overflow-y-auto settings-scroll min-h-0 pr-0.5 rounded-[22px]"
+          className="flex-1 w-full pb-2 flex flex-col gap-2.5 overflow-y-auto settings-scroll min-h-0 pr-0.5 rounded-b-[22px]"
           data-scrollable="true"
         >
+          {/* Top Action Banner: Open Full Apple-style Settings Window (Scrolls with content) */}
+          <div
+            onClick={() => handleOpenSettingsWindow("about")}
+            className={`group w-full rounded-[16px] px-3 py-2 flex items-center justify-between gap-3 border cursor-pointer transition-all shrink-0 ${
+              isLightMode
+                ? "bg-[#0a84ff]/[0.08] border-[#0a84ff]/25 hover:border-[#0a84ff]/45 shadow-sm"
+                : "bg-[#151822] border-[#3882F6]/30 hover:border-[#3882F6]/55 shadow-[0_6px_20px_rgba(0,0,0,0.35)]"
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-[10px] bg-[#0a84ff] flex items-center justify-center text-white shadow-[0_4px_12px_rgba(10,132,255,0.35)] shrink-0">
+                <LayoutGrid size={15.5} strokeWidth={2.2} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span
+                  className={`text-[12.5px] font-semibold leading-tight truncate ${
+                    isLightMode ? "text-neutral-900" : "text-white"
+                  }`}
+                >
+                  {isId ? "Pengaturan Lengkap & Kelola Tab" : "Full Settings & Manage Tabs"}
+                </span>
+                <span
+                  className={`text-[10px] leading-tight truncate mt-0.5 ${
+                    isLightMode ? "text-neutral-600" : "text-zinc-400"
+                  }`}
+                >
+                  {isId
+                    ? "Atur urutan & on/off tab, layar diam, pintasan keyboard, notifikasi & sistem"
+                    : "Reorder & toggle tabs, idle layout, shortcuts, notifications & system"}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOpenSettingsWindow("about");
+              }}
+              className="px-2.5 py-1 rounded-full bg-[#0a84ff] group-hover:bg-[#0070e0] text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-[0_2px_10px_rgba(10,132,255,0.35)] transition-colors shrink-0 cursor-pointer"
+            >
+              <span>{isId ? "Buka Jendela" : "Open Window"}</span>
+              <ExternalLink size={12} strokeWidth={2.3} />
+            </button>
+          </div>
+
           {/* 1. Core Appearance & Sizing (Live Morphing on Notch) */}
           <AppearanceTab
             optTheme={optTheme}
@@ -229,6 +206,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             onToggleEars={onToggleEars}
             optOpacity={optOpacity}
             onChangeOpacity={onChangeOpacity}
+            optBlur={optBlur}
+            onChangeBlur={onChangeBlur}
             optAnimSpeed={optAnimSpeed}
             onChangeAnimSpeed={onChangeAnimSpeed}
           />
@@ -296,6 +275,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 };

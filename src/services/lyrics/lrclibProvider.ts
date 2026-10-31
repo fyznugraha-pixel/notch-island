@@ -1,5 +1,5 @@
 import { LyricsProvider, LyricsData, LyricLine } from "./types";
-import { cleanTitle, cleanArtist, parseLrc, fetchJson } from "./utils";
+import { cleanTitle, cleanArtist, parseLrc, fetchJson, hasActualLyrics } from "./utils";
 
 function pickBestLrclibMatch(list: any[], duration?: number): any {
   if (!Array.isArray(list) || list.length === 0) return null;
@@ -24,19 +24,9 @@ function pickBestLrclibMatch(list: any[], duration?: number): any {
 function processLrclibResponse(data: any): LyricsData | null {
   if (!data) return null;
 
-  if (data.instrumental) {
-    return {
-      synced: false,
-      lines: [],
-      instrumental: true,
-      provider: "lrclib",
-      providerName: "LRCLIB",
-    };
-  }
-
   if (data.syncedLyrics) {
     const lines = parseLrc(data.syncedLyrics);
-    if (lines.length > 0) {
+    if (hasActualLyrics(lines)) {
       return {
         synced: true,
         lines,
@@ -53,10 +43,22 @@ function processLrclibResponse(data: any): LyricsData | null {
       time: idx,
       text: text.trim(),
     }));
+    if (hasActualLyrics(lines)) {
+      return {
+        synced: false,
+        lines,
+        plainLyrics: data.plainLyrics,
+        provider: "lrclib",
+        providerName: "LRCLIB",
+      };
+    }
+  }
+
+  if (data.instrumental) {
     return {
       synced: false,
-      lines,
-      plainLyrics: data.plainLyrics,
+      lines: [],
+      instrumental: true,
       provider: "lrclib",
       providerName: "LRCLIB",
     };

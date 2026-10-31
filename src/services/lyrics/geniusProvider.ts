@@ -1,5 +1,5 @@
 import { LyricsProvider, LyricsData, LyricLine } from "./types";
-import { cleanTitle, cleanArtist, fetchJson, fetchText } from "./utils";
+import { cleanTitle, cleanArtist, fetchJson, fetchText, hasActualLyrics } from "./utils";
 
 export const geniusProvider: LyricsProvider = {
   id: "genius",
@@ -85,6 +85,8 @@ export const geniusProvider: LyricsProvider = {
         time: idx,
         text,
       }));
+
+      if (!hasActualLyrics(lines)) return null;
 
       return {
         synced: false,

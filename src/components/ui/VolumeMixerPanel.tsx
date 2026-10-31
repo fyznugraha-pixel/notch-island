@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import {
   Volume2,
   Globe,
@@ -29,27 +28,6 @@ export interface VolumeMixerPanelProps {
   audioSessions: AudioSession[];
   onUpdateAudioSessions: React.Dispatch<React.SetStateAction<AudioSession[]>>;
 }
-
-const tabVariants = {
-  enter: (dir: number) => ({
-    x: dir > 0 ? 16 : dir < 0 ? -16 : 0,
-    opacity: 0,
-  }),
-  center: {
-    x: 0,
-    opacity: 1,
-    transition: {
-      x: { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const },
-      opacity: { duration: 0.18, ease: "easeOut" as const },
-    },
-    transitionEnd: { transform: "none" },
-  },
-  exit: (dir: number) => ({
-    x: dir > 0 ? -16 : dir < 0 ? 16 : 0,
-    opacity: 0,
-    transition: { duration: 0.12 },
-  }),
-};
 
 const getAppIcon = (name: string) => {
   const lower = name.toLowerCase();
@@ -94,7 +72,7 @@ const getAppIcon = (name: string) => {
 };
 
 export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
-  slideDirection,
+  slideDirection: _slideDirection,
   soundLevel,
   onSetSoundLevel,
   audioSessions,
@@ -254,19 +232,13 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
   };
 
   return (
-    <motion.div
-      key="volume_mixer_ios"
-      custom={slideDirection}
-      variants={tabVariants}
-      initial="enter"
-      animate="center"
-      exit="exit"
+    <div
       data-no-swipe="true"
-      className="absolute inset-0 w-full h-full flex flex-col px-3 pb-3 min-w-0 cursor-default gpu-accelerated select-none overflow-hidden"
+      className="w-full h-full flex flex-col px-6 pb-1.5 min-w-0 cursor-default select-none overflow-hidden"
     >
       {/* Main Split: Left (Vertical Master Capsule) + Right (Output & App List) */}
       <div
-        className="flex-1 min-h-0 flex items-stretch gap-4 px-0.5 overflow-hidden"
+        className="flex-1 min-h-0 flex items-stretch gap-3.5 px-0.5 overflow-hidden"
       >
         {/* Left Column: Vertical iOS Master Volume Capsule */}
         <div
@@ -316,31 +288,31 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
               (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
             }
           }}
-          className="w-[54px] h-full flex-shrink-0 rounded-[18px] bg-[#2c2c2e] overflow-hidden flex flex-col justify-end relative cursor-pointer touch-none shadow-sm"
+          className="w-[46px] h-full flex-shrink-0 rounded-[16px] bg-[#2c2c2e] overflow-hidden flex flex-col justify-end relative cursor-pointer touch-none shadow-sm"
         >
           {/* Top percentage text */}
-          <div className="absolute top-4 left-0 right-0 text-center text-[13.5px] font-bold font-mono text-white tabular-nums z-10 pointer-events-none drop-shadow-sm">
+          <div className="absolute top-2.5 left-0 right-0 text-center text-[12px] font-bold font-mono text-white tabular-nums z-10 pointer-events-none drop-shadow-sm">
             {soundLevel}%
           </div>
 
           {/* Bottom white filled portion with speaker icon */}
           <div
-            className={`w-full bg-white flex items-end justify-center pb-4 text-[#1c1c1e] pointer-events-none ${
+            className={`w-full bg-white flex items-end justify-center pb-3 text-[#1c1c1e] pointer-events-none ${
               isDraggingMaster ? "" : "transition-[height] duration-150 ease-out"
             }`}
             style={{ height: `${soundLevel}%` }}
           >
             <span className="relative">
-              <Volume2 size={24} strokeWidth={2.4} />
+              <Volume2 size={20} strokeWidth={2.4} />
             </span>
           </div>
         </div>
 
         {/* Right Column: Output Card & Apps Section */}
-        <div className="flex-1 min-w-0 flex flex-col gap-2 overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col gap-1.5 overflow-hidden">
           {/* 1. Output Section Header & Card */}
           <div className="shrink-0 flex flex-col">
-            <div className="flex justify-between items-center text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider px-2 h-[20px]">
+            <div className="flex justify-between items-center text-[10px] font-semibold text-[#8e8e93] uppercase tracking-wider px-1.5 h-[16px]">
               <span>{t("mixer_output") || "Output"}</span>
             </div>
 
@@ -348,34 +320,34 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
               type="button"
               onClick={() => setActiveView("output")}
               title={t("audio_select_device") || (getLanguage() === "id" ? "Pilih perangkat audio output" : "Select audio output device")}
-              className="bg-[#1c1c1e]/90 hover:bg-white/[0.08] active:scale-[0.99] border border-white/10 rounded-[14px] w-full h-[46px] flex items-center gap-3 px-3 text-white cursor-pointer transition-all shadow-sm text-left"
+              className="bg-[#1c1c1e]/90 hover:bg-white/[0.08] active:scale-[0.99] border border-white/10 rounded-[12px] w-full h-[38px] flex items-center gap-2.5 px-2.5 text-white cursor-pointer transition-all shadow-sm text-left"
             >
-              <span className="w-[30px] h-[30px] rounded-[8px] bg-[#0a84ff] text-white flex items-center justify-center shrink-0 shadow-sm">
+              <span className="w-[26px] h-[26px] rounded-[7px] bg-[#0a84ff] text-white flex items-center justify-center shrink-0 shadow-sm">
                 {getOutputIcon(activeOutputDevice?.device_type)}
               </span>
 
-              <span className="flex-1 truncate text-[14px] font-medium text-white">
+              <span className="flex-1 truncate text-[12.5px] font-medium text-white">
                 {activeOutputDevice?.name || "Speakers (Realtek Audio)"}
               </span>
 
               <span className="text-[#8e8e93] shrink-0">
-                <ChevronRight size={16} strokeWidth={2.2} />
+                <ChevronRight size={15} strokeWidth={2.2} />
               </span>
             </button>
           </div>
 
           {/* 2. Apps Section Header & Scrollable List */}
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider px-2 h-[20px] shrink-0">
+            <div className="flex justify-between items-center text-[10px] font-semibold text-[#8e8e93] uppercase tracking-wider px-1.5 h-[16px] shrink-0">
               <span>{t("mixer_apps") || "Aplikasi"}</span>
-              <span className="text-white/40 font-mono text-[10.5px]">
+              <span className="text-white/40 font-mono text-[10px]">
                 {aggregatedSessions.length}
               </span>
             </div>
 
-            <div className="flex-1 min-h-0 bg-[#1c1c1e]/90 rounded-[14px] border border-white/10 overflow-y-auto no-scrollbar shadow-sm backdrop-blur-md">
+            <div className="flex-1 min-h-0 bg-[#1c1c1e]/90 rounded-[12px] border border-white/10 overflow-y-auto no-scrollbar shadow-sm backdrop-blur-md">
               {aggregatedSessions.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-white/40 text-[12px] py-8 font-medium">
+                <div className="h-full flex flex-col items-center justify-center text-white/40 text-[11.5px] py-4 font-medium">
                   {t("mixer_empty") || "Tidak ada aplikasi aktif"}
                 </div>
               ) : (
@@ -386,22 +358,22 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                   return (
                     <div
                       key={`${session.name}-${idx}`}
-                      className="relative flex items-center gap-3 h-[52px] px-3.5 border-b border-[#38383a]/40 last:border-b-0"
+                      className="relative flex items-center gap-2.5 h-[42px] px-3 border-b border-[#38383a]/40 last:border-b-0"
                     >
                       {/* App Icon Badge */}
-                      <span className="w-[34px] h-[34px] rounded-[9px] bg-white/10 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+                      <span className="w-[28px] h-[28px] rounded-[8px] bg-white/10 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
                         {getAppIcon(session.name)}
                       </span>
 
                       {/* Info & Slider */}
                       <div className="flex-1 min-w-0">
                         {/* Top Line: App Name & Vol */}
-                        <div className="flex items-center justify-between text-[13.5px] mb-2 leading-none">
+                        <div className="flex items-center justify-between text-[12px] mb-1.5 leading-none">
                           <span className="font-medium text-white truncate capitalize pr-2">
                             {session.name.replace(/\.exe$/i, "")}
                           </span>
                           <span
-                            className={`text-[11px] font-mono tabular-nums shrink-0 ${
+                            className={`text-[10.5px] font-mono tabular-nums shrink-0 ${
                               isMuted ? "text-[#FF453A] font-semibold" : "text-[#8e8e93]"
                             }`}
                           >
@@ -453,11 +425,11 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                               (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                             }
                           }}
-                          className="relative h-[4px] rounded-[2px] bg-[#3a3a3c] cursor-pointer touch-none"
+                          className="relative h-[3.5px] rounded-[2px] bg-[#3a3a3c] cursor-pointer touch-none"
                         >
                           {/* Active Blue Fill */}
                           <div
-                            className={`h-[4px] rounded-[2px] bg-[#0a84ff] pointer-events-none ${
+                            className={`h-[3.5px] rounded-[2px] bg-[#0a84ff] pointer-events-none ${
                               draggingSessionName === session.name ? "" : "transition-[width] duration-150 ease-out"
                             }`}
                             style={{ width: `${volPercent}%` }}
@@ -465,7 +437,7 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
 
                           {/* Circular White Thumb Knob */}
                           <span
-                            className={`absolute top-[-9px] w-[22px] h-[22px] -ml-[11px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.4)] pointer-events-none ${
+                            className={`absolute top-[-7px] w-[18px] h-[18px] -ml-[9px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.4)] pointer-events-none ${
                               draggingSessionName === session.name ? "" : "transition-[left] duration-150 ease-out"
                             }`}
                             style={{ left: `${volPercent}%` }}
@@ -480,6 +452,6 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 };

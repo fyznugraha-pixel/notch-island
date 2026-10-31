@@ -45,6 +45,30 @@ export function parseLrc(lrcContent: string): LyricLine[] {
 }
 
 /**
+ * Checks if a line is a dummy placeholder, credit-only, or "no lyrics / instrumental" message.
+ */
+export function isDummyLyricLine(text: string): boolean {
+  if (!text) return true;
+  const trimmed = text.trim();
+  if (trimmed.length < 2) return true;
+
+  const dummyRegex = /^(纯音乐[，,]?\s*请[您]?欣赏|此歌曲为没有填词的纯音乐|暂无歌词|没有歌词|此歌曲为纯音乐|纯音乐|instrumental|no lyrics|written by\b|composed by\b|arranged by\b|lyrics by\b|作词\s*[:：]|作曲\s*[:：]|编曲\s*[:：]|制作人\s*[:：]|监制\s*[:：]|混音\s*[:：]|母带\s*[:：]|词\s*[:：]|曲\s*[:：])/i;
+
+  return dummyRegex.test(trimmed);
+}
+
+/**
+ * Checks whether an array of LyricLine contains actual readable song lyric content
+ * and is not just empty lines or a single placeholder notice.
+ */
+export function hasActualLyrics(lines: LyricLine[]): boolean {
+  if (!Array.isArray(lines) || lines.length === 0) return false;
+  const meaningfulCount = lines.filter((l) => !isDummyLyricLine(l.text)).length;
+  // A real song lyric must have at least 2 meaningful lines
+  return meaningfulCount >= 2;
+}
+
+/**
  * Universal CORS-free HTTP fetcher using Tauri native Rust backend with fallback to browser fetch.
  */
 export async function fetchText(

@@ -43,6 +43,7 @@ import { clearAllLyricsCache } from "../../services/lyricsService";
 import { clearArtworkCache } from "../../services/artworkService";
 import { clearShelfPreviewCache } from "../../services/shelfService";
 import { clearWeatherCache, getCachedWeather } from "../../services/weatherService";
+import { NotchPosition, isValidNotchPosition } from "../../utils/notchGeometry";
 
 import {
   SettingsSidebar,
@@ -88,7 +89,7 @@ export const SettingsWindowApp: React.FC = () => {
   const [activeSection, setActiveSection] = useState<SettingsWindowSection>(initialSection);
   const [searchQuery, setSearchQuery] = useState("");
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("4.2.2");
+  const [currentAppVersion, setCurrentAppVersion] = useState("4.3.0");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
@@ -158,18 +159,37 @@ export const SettingsWindowApp: React.FC = () => {
     } catch {}
     return 10;
   });
-  const [optPosition, setOptPosition] = useState<"top" | "bottom">(() => {
+  const [optPosition, setOptPosition] = useState<NotchPosition>(() => {
     try {
-      return localStorage.getItem("island_position") === "bottom" ? "bottom" : "top";
-    } catch {
-      return "top";
-    }
+      const saved = localStorage.getItem("island_position");
+      if (isValidNotchPosition(saved)) return saved;
+    } catch {}
+    return "top";
   });
   const [optFontSize, setOptFontSize] = useState<"small" | "default" | "large">("default");
   const [optIdleSize, setOptIdleSize] = useState<"compact" | "default" | "large">("default");
   const [optTabSize, setOptTabSize] = useState<"compact" | "default" | "large">("default");
   const [optEars, setOptEars] = useState(true);
-  const [optOpacity, setOptOpacity] = useState(1.0);
+  const [optOpacity, setOptOpacity] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("island_opacity");
+      if (saved !== null) {
+        const n = Number(saved);
+        if (!isNaN(n) && n >= 0.15 && n <= 1.0) return n;
+      }
+    } catch {}
+    return 1.0;
+  });
+  const [optBlur, setOptBlur] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("island_blur");
+      if (saved !== null) {
+        const n = Number(saved);
+        if (!isNaN(n) && n >= 0 && n <= 100) return n;
+      }
+    } catch {}
+    return 0;
+  });
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy" | "smooth" | "bouncy">("smooth");
 
   // Idle Layout State
@@ -299,10 +319,17 @@ export const SettingsWindowApp: React.FC = () => {
         if (typeof m === "boolean") setOptMedia(m);
 
         const p = await s.get("opt_position");
-        if (p === "top" || p === "bottom") setOptPosition(p);
+        if (isValidNotchPosition(p)) setOptPosition(p);
 
         const o = await s.get("opt_opacity");
         if (o !== null && o !== undefined) setOptOpacity(Number(o));
+        const bl = await s.get("opt_blur");
+        if (bl !== null && bl !== undefined) {
+          setOptBlur(Number(bl));
+        } else if (o !== null && o !== undefined) {
+          const numO = Number(o);
+          setOptBlur(numO >= 0.95 ? 0 : numO >= 0.68 ? 68 : 45);
+        }
 
         const a = await s.get("opt_anim_speed");
         if (a === "snappy" || a === "smooth" || a === "bouncy") setOptAnimSpeed(a);
@@ -568,7 +595,7 @@ export const SettingsWindowApp: React.FC = () => {
     broadcastSetting("island_top_offset", clamped);
   };
 
-  const handleChangePosition = async (pos: "top" | "bottom") => {
+  const handleChangePosition = async (pos: NotchPosition) => {
     setOptPosition(pos);
     try {
       localStorage.setItem("island_position", pos);
@@ -590,8 +617,26 @@ export const SettingsWindowApp: React.FC = () => {
 
   const handleChangeOpacity = async (val: number) => {
     setOptOpacity(val);
-    if (store) await store.set("opt_opacity", val);
+    try { localStorage.setItem("island_opacity", String(val)); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_opacity", val);
+        await store.save();
+      } catch {}
+    }
     broadcastSetting("opt_opacity", val);
+  };
+
+  const handleChangeBlur = async (val: number) => {
+    setOptBlur(val);
+    try { localStorage.setItem("island_blur", String(val)); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_blur", val);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_blur", val);
   };
 
   const handleChangeAnimSpeed = async (speed: "snappy" | "smooth" | "bouncy") => {
@@ -770,6 +815,11 @@ export const SettingsWindowApp: React.FC = () => {
     SIDEBAR_SECTIONS.find((s) => s.id === activeSection) || SIDEBAR_SECTIONS[0];
   const isId = optLanguage === "id";
 
+  const handleCloseWindow = () => {
+    const win = getCurrentWindow();
+    win.close().catch(() => win.destroy().catch(() => {}));
+  };
+
   return (
     <div
       className={`w-screen h-screen overflow-hidden flex flex-col select-none ${
@@ -817,7 +867,7 @@ export const SettingsWindowApp: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => getCurrentWindow().hide()}
+            onClick={handleCloseWindow}
             title={isId ? "Tutup" : "Close"}
             className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
               isLightMode
@@ -937,6 +987,8 @@ export const SettingsWindowApp: React.FC = () => {
                     onToggleEars={handleToggleEars}
                     optOpacity={optOpacity}
                     onChangeOpacity={handleChangeOpacity}
+                    optBlur={optBlur}
+                    onChangeBlur={handleChangeBlur}
                     optAnimSpeed={optAnimSpeed}
                     onChangeAnimSpeed={handleChangeAnimSpeed}
                     optVolume={optVolume}
@@ -961,7 +1013,7 @@ export const SettingsWindowApp: React.FC = () => {
                     onTestNotification={() => {
                       invoke("trigger_notch_action", { action: "test_notification" }).catch(() => {});
                     }}
-                    onClose={() => getCurrentWindow().hide()}
+                    onClose={handleCloseWindow}
                   />
                 </motion.div>
               ) : (
@@ -992,6 +1044,7 @@ export const SettingsWindowApp: React.FC = () => {
                       onChangeIslandTopOffset={handleChangeIslandTopOffset}
                       optPosition={optPosition}
                       onChangePosition={handleChangePosition}
+                      showPositionSetting={true}
                       isLightMode={isLightMode}
                       optFontSize={optFontSize}
                       onChangeFontSize={handleChangeFontSize}
@@ -1003,6 +1056,8 @@ export const SettingsWindowApp: React.FC = () => {
                       onToggleEars={handleToggleEars}
                       optOpacity={optOpacity}
                       onChangeOpacity={handleChangeOpacity}
+                      optBlur={optBlur}
+                      onChangeBlur={handleChangeBlur}
                       optAnimSpeed={optAnimSpeed}
                       onChangeAnimSpeed={handleChangeAnimSpeed}
                     />

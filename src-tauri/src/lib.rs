@@ -749,11 +749,62 @@ fn get_system_text_scale() -> f64 {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotchPos {
+    Top,
+    TopLeft,
+    TopRight,
+    Left,
+    Right,
+    BottomLeft,
+    BottomRight,
+    Bottom,
+}
+
+impl NotchPos {
+    pub fn from_str_or_bottom(pos: Option<&str>, is_bottom: bool) -> Self {
+        match pos {
+            Some("top") => Self::Top,
+            Some("top-left") => Self::TopLeft,
+            Some("top-right") => Self::TopRight,
+            Some("left") => Self::Left,
+            Some("right") => Self::Right,
+            Some("bottom-left") => Self::BottomLeft,
+            Some("bottom-right") => Self::BottomRight,
+            Some("bottom") => Self::Bottom,
+            _ => {
+                if is_bottom {
+                    Self::Bottom
+                } else {
+                    Self::Top
+                }
+            }
+        }
+    }
+
+    pub fn is_bottom(self) -> bool {
+        matches!(self, Self::Bottom | Self::BottomLeft | Self::BottomRight)
+    }
+
+    pub fn is_top(self) -> bool {
+        matches!(self, Self::Top | Self::TopLeft | Self::TopRight)
+    }
+
+    pub fn is_left(self) -> bool {
+        matches!(self, Self::Left | Self::TopLeft | Self::BottomLeft)
+    }
+
+    pub fn is_right(self) -> bool {
+        matches!(self, Self::Right | Self::TopRight | Self::BottomRight)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct PillState {
     pub width: f32,
     pub height: f32,
     pub is_bottom: bool,
+    pub pos: NotchPos,
     pub top_offset: f32,
     pub is_island: bool,
     pub dpr: f32,
@@ -765,6 +816,7 @@ impl Default for PillState {
             width: 120.0,
             height: 35.0,
             is_bottom: false,
+            pos: NotchPos::Top,
             top_offset: 0.0,
             is_island: false,
             dpr: 1.0,
@@ -774,19 +826,28 @@ impl Default for PillState {
 
 pub struct PillSize(pub std::sync::Mutex<PillState>);
 
-fn position_notch_window(window: &tauri::WebviewWindow, is_bottom: bool, top_offset_phys: i32) {
+fn position_notch_window(window: &tauri::WebviewWindow, pos: NotchPos, top_offset_phys: i32) {
     if let Ok(Some(monitor)) = window.current_monitor() {
         let work_area = monitor.work_area();
         let physical_size = monitor.size();
         let physical_pos = monitor.position();
-        let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(1200, 760));
+        let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(820, 460));
 
-        let x = physical_pos.x + (physical_size.width as i32 - window_size.width as i32) / 2;
-        let y = if is_bottom {
+        let x = if pos.is_left() {
+            physical_pos.x + top_offset_phys
+        } else if pos.is_right() {
+            physical_pos.x + (physical_size.width as i32 - window_size.width as i32) - top_offset_phys
+        } else {
+            physical_pos.x + (physical_size.width as i32 - window_size.width as i32) / 2
+        };
+
+        let y = if pos.is_bottom() {
             let base = work_area.position.y + (work_area.size.height as i32 - window_size.height as i32);
             base - top_offset_phys
-        } else {
+        } else if pos.is_top() {
             physical_pos.y + top_offset_phys
+        } else {
+            physical_pos.y + (physical_size.height as i32 - window_size.height as i32) / 2
         };
 
         let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
@@ -796,6 +857,7 @@ fn position_notch_window(window: &tauri::WebviewWindow, is_bottom: bool, top_off
 #[tauri::command]
 fn set_window_position(
     is_bottom: bool,
+    position: Option<String>,
     top_offset: Option<f32>,
     is_island: Option<bool>,
     window: tauri::WebviewWindow,
@@ -804,10 +866,12 @@ fn set_window_position(
     if window.label() != "main" {
         return;
     }
+    let pos = NotchPos::from_str_or_bottom(position.as_deref(), is_bottom);
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
     let dpr = if let Ok(mut size) = state.0.lock() {
-        size.is_bottom = is_bottom;
+        size.is_bottom = pos.is_bottom();
+        size.pos = pos;
         size.top_offset = top_offset;
         size.is_island = is_island;
         size.dpr
@@ -817,7 +881,83 @@ fn set_window_position(
     let sf = window.scale_factor().unwrap_or(1.0);
     let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
     let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-    position_notch_window(&window, is_bottom, phys_offset);
+    position_notch_window(&window, pos, phys_offset);
+}
+
+static IS_TRIM_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(windows)]
+fn trim_webview_working_set() {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::ProcessStatus::{EmptyWorkingSet, EnumProcesses};
+    use windows::Win32::System::Threading::{
+        GetCurrentProcess, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
+    };
+
+    unsafe {
+        let _ = EmptyWorkingSet(GetCurrentProcess());
+
+        let mut pids = [0u32; 1024];
+        let mut bytes_returned = 0u32;
+        if EnumProcesses(
+            pids.as_mut_ptr(),
+            std::mem::size_of_val(&pids) as u32,
+            &mut bytes_returned,
+        )
+        .is_ok()
+        {
+            let count = (bytes_returned as usize) / std::mem::size_of::<u32>();
+            for &pid in &pids[..count] {
+                if pid == 0 {
+                    continue;
+                }
+                if let Ok(handle) = OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA,
+                    false,
+                    pid,
+                ) {
+                    let mut buf = [0u16; 260];
+                    let mut len = buf.len() as u32;
+                    if QueryFullProcessImageNameW(
+                        handle,
+                        PROCESS_NAME_FORMAT(0),
+                        windows::core::PWSTR(buf.as_mut_ptr()),
+                        &mut len,
+                    )
+                    .is_ok()
+                    {
+                        let path = String::from_utf16_lossy(&buf[..len as usize]);
+                        if path.to_ascii_lowercase().ends_with("msedgewebview2.exe") {
+                            let _ = EmptyWorkingSet(handle);
+                        }
+                    }
+                    let _ = CloseHandle(handle);
+                }
+            }
+        }
+    }
+}
+
+fn schedule_working_set_trim(delay_ms: u64) {
+    #[cfg(windows)]
+    {
+        if IS_TRIM_SCHEDULED
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_ok()
+        {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                trim_webview_working_set();
+                IS_TRIM_SCHEDULED.store(false, std::sync::atomic::Ordering::SeqCst);
+            });
+        }
+    }
 }
 
 #[tauri::command]
@@ -825,6 +965,7 @@ fn update_pill_size(
     width: f32,
     height: f32,
     is_bottom: bool,
+    position: Option<String>,
     top_offset: Option<f32>,
     is_island: Option<bool>,
     dpr: Option<f32>,
@@ -834,14 +975,21 @@ fn update_pill_size(
     if window.label() != "main" {
         return;
     }
+    let pos = NotchPos::from_str_or_bottom(position.as_deref(), is_bottom);
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
     let dpr = dpr.unwrap_or(0.0);
     if let Ok(mut size) = state.0.lock() {
-        let should_reposition = size.top_offset != top_offset || size.is_island != is_island || size.is_bottom != is_bottom;
+        let was_expanded = size.width > 95.0 && size.height > 95.0;
+        let now_expanded = width > 95.0 && height > 95.0;
+        let should_reposition = size.top_offset != top_offset
+            || size.is_island != is_island
+            || size.is_bottom != pos.is_bottom()
+            || size.pos != pos;
         size.width = width;
         size.height = height;
-        size.is_bottom = is_bottom;
+        size.is_bottom = pos.is_bottom();
+        size.pos = pos;
         size.top_offset = top_offset;
         size.is_island = is_island;
         if dpr > 0.0 {
@@ -852,7 +1000,11 @@ fn update_pill_size(
             let sf = window.scale_factor().unwrap_or(1.0);
             let effective_sf = if size.dpr > 0.0 { (size.dpr as f64).max(sf) } else { sf * get_system_text_scale() };
             let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-            position_notch_window(&window, is_bottom, phys_offset);
+            position_notch_window(&window, pos, phys_offset);
+        }
+
+        if was_expanded && !now_expanded {
+            schedule_working_set_trim(1200);
         }
     }
 }
@@ -873,21 +1025,30 @@ fn calculate_notch_hit(
     let pill_w = (pill.width as f64 * effective_sf) as i32;
     let pill_h = (pill.height as f64 * effective_sf) as i32;
 
-    let (hit_w, hit_h, margin) = if pill.height <= 10.0 {
+    let (hit_w, hit_h, margin) = if pill.height <= 10.0 || pill.width <= 10.0 {
         (pill_w, pill_h, 0)
     } else {
         (pill_w, pill_h, (6.0 * effective_sf) as i32)
     };
 
-    let pill_x = win_pos.x + (win_size.width as i32 - hit_w) / 2;
-    let pill_y = if pill.is_bottom {
-        win_pos.y + (win_size.height as i32) - hit_h
+    let pill_x = if pill.pos.is_left() {
+        win_pos.x
+    } else if pill.pos.is_right() {
+        win_pos.x + (win_size.width as i32) - hit_w
     } else {
-        win_pos.y
+        win_pos.x + (win_size.width as i32 - hit_w) / 2
     };
 
-    // All idle, media, lyrics, alert, and toast pills are <= 95px height
-    let is_closed = pill.height <= 95.0;
+    let pill_y = if pill.pos.is_bottom() || pill.is_bottom {
+        win_pos.y + (win_size.height as i32) - hit_h
+    } else if pill.pos.is_top() {
+        win_pos.y
+    } else {
+        win_pos.y + (win_size.height as i32 - hit_h) / 2
+    };
+
+    // All idle, media, lyrics, alert, and toast pills are <= 95px height (or <= 95px width on side bezel)
+    let is_closed = pill.height <= 95.0 || pill.width <= 95.0;
 
     let phys_offset = if pill.is_island {
         (pill.top_offset as f64 * effective_sf).round() as i32
@@ -901,19 +1062,30 @@ fn calculate_notch_hit(
         (10.0 * effective_sf) as i32
     };
 
-    let min_x = pill_x - margin - side_tolerance;
-    let max_x = pill_x + hit_w + margin + side_tolerance;
+    let edge_extra = (phys_offset + (18.0 * effective_sf) as i32).max((22.0 * effective_sf) as i32);
 
-    let (min_y, max_y) = if pill.is_bottom {
-        let bottom_extra = (phys_offset + (18.0 * effective_sf) as i32).max((22.0 * effective_sf) as i32);
+    let min_x = if pill.pos.is_left() {
+        pill_x - margin - edge_extra
+    } else {
+        pill_x - margin - side_tolerance
+    };
+    let max_x = if pill.pos.is_right() {
+        pill_x + hit_w + margin + edge_extra
+    } else {
+        pill_x + hit_w + margin + side_tolerance
+    };
+
+    let (min_y, max_y) = if pill.pos.is_bottom() || pill.is_bottom {
+        let bottom_extra = edge_extra;
         let top_extra = if is_closed { (4.0 * effective_sf) as i32 } else { (10.0 * effective_sf) as i32 };
         (pill_y - margin - top_extra, pill_y + hit_h + margin + bottom_extra)
-    } else {
-        // When docked or floating at top, extend upwards all the way to screen edge and beyond (+18px buffer)
-        // so hovering/touching anywhere in the 10+ px gap above the floating notch triggers reliably
-        let top_extra = (phys_offset + (18.0 * effective_sf) as i32).max((22.0 * effective_sf) as i32);
+    } else if pill.pos.is_top() {
+        let top_extra = edge_extra;
         let bottom_extra = if is_closed { (6.0 * effective_sf) as i32 } else { (12.0 * effective_sf) as i32 };
         (pill_y - top_extra, pill_y + hit_h + margin + bottom_extra)
+    } else {
+        let ear_extra = (18.0 * effective_sf) as i32;
+        (pill_y - margin - ear_extra, pill_y + hit_h + margin + ear_extra)
     };
 
     pt.x >= min_x && pt.x <= max_x && pt.y >= min_y && pt.y <= max_y
@@ -1377,26 +1549,6 @@ fn system_power_action(action: &str) {
         "hotspot" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:network-mobilehotspot"]).spawn(); },
         "focus" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:quiethours"]).spawn(); },
         _ => {}
-    }
-}
-
-#[tauri::command]
-fn set_power_plan(mode: &str) {
-    use windows::Win32::System::Power::PowerSetActiveScheme;
-    use windows::core::GUID;
-    
-    let eco_guid = GUID::from_values(0xa1841308, 0x3541, 0x4fab, [0xbc, 0x81, 0xf7, 0x15, 0x56, 0xf2, 0x0b, 0x4a]);
-    let perf_guid = GUID::from_values(0x8c5e7fda, 0xe8bf, 0x4a96, [0x9a, 0x85, 0xa6, 0xe2, 0x3a, 0x8c, 0x63, 0x5c]);
-    let balanced_guid = GUID::from_values(0x381b4222, 0xf694, 0x41f0, [0x96, 0x85, 0xff, 0x5b, 0xb2, 0x60, 0xdf, 0x2e]);
-    
-    let target_guid = match mode {
-        "Eco" => &eco_guid,
-        "Performance" => &perf_guid,
-        _ => &balanced_guid,
-    };
-    
-    unsafe {
-        let _ = PowerSetActiveScheme(None, Some(target_guid));
     }
 }
 
@@ -2249,10 +2401,15 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
             return;
         }
 
+        let url_path = match section.as_deref() {
+            Some(sec) if !sec.is_empty() => format!("index.html?section={}", sec),
+            _ => "index.html".to_string(),
+        };
+
         match tauri::WebviewWindowBuilder::new(
             &app_handle,
             "settings",
-            tauri::WebviewUrl::App("index.html".into()),
+            tauri::WebviewUrl::App(url_path.into()),
         )
         .title("Gili Settings")
         .inner_size(880.0, 620.0)
@@ -2265,15 +2422,15 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         .center()
         .visible(true)
         .focused(true)
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache --renderer-process-limit=1")
         .build()
         {
             Ok(win) => {
-                let sw = win.clone();
+                let win_for_close = win.clone();
                 win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = sw.hide();
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        let _ = win_for_close.destroy();
+                        schedule_working_set_trim(800);
                     }
                 });
                 let _ = win.show();
@@ -2319,6 +2476,11 @@ fn trigger_notch_action(app: tauri::AppHandle, action: String) {
 pub fn run() {
     #[cfg(windows)]
     {
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache --renderer-process-limit=1",
+        );
+
         // Migrate and clean up any legacy Notch artifacts before checking mutex
         migration::run_legacy_migration();
 
@@ -2380,7 +2542,6 @@ pub fn run() {
             read_clipboard_text,
             read_clipboard_image,
             copy_image_to_clipboard,
-            set_power_plan,
             get_audio_sessions,
             set_app_volume,
             get_audio_endpoints,
@@ -2477,9 +2638,11 @@ pub fn run() {
             // 1. Awalnya buat window tembus klik & paksa matikan DWM shadow bawaan Windows
             let _ = window.set_ignore_cursor_events(true);
             let _ = window.set_shadow(false);
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(820.0, 460.0)));
 
             // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI berubah
-            position_notch_window(&window, false, 0);
+            position_notch_window(&window, NotchPos::Top, 0);
+            schedule_working_set_trim(3500);
             let win_for_events = window.clone();
             let app_for_events = app.handle().clone();
             window.on_window_event(move |event| {
@@ -2492,16 +2655,16 @@ pub fn run() {
                         if win_for_events.is_minimized().unwrap_or(false) {
                             let _ = win_for_events.unminimize();
                         }
-                        let (is_bottom, top_offset, is_island, dpr) = app_for_events
+                        let (pos, top_offset, is_island, dpr) = app_for_events
                             .state::<PillSize>()
                             .0
                             .lock()
-                            .map(|s| (s.is_bottom, s.top_offset, s.is_island, s.dpr))
-                            .unwrap_or((false, 0.0, false, 1.0));
+                            .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr))
+                            .unwrap_or((NotchPos::Top, 0.0, false, 1.0));
                         let sf = win_for_events.scale_factor().unwrap_or(1.0);
                         let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
                         let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-                        position_notch_window(&win_for_events, is_bottom, phys_offset);
+                        position_notch_window(&win_for_events, pos, phys_offset);
                     }
                     _ => {}
                 }
@@ -2520,6 +2683,8 @@ pub fn run() {
                 let mut browser_false_count: u32 = 0;
                 let mut click_outside_emitted = false;
                 let mut pending_cursor_nudge = false;
+                let mut cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
+                let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     
@@ -2546,14 +2711,27 @@ pub fn run() {
 
                     let mut pt = POINT { x: 0, y: 0 };
                     if unsafe { GetCursorPos(&mut pt) }.is_ok() {
-                        if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (win_clone.outer_position(), win_clone.outer_size(), win_clone.scale_factor()) {
-                            // Ambil ukuran dinamis dari React
-                            let pill = if let Ok(size) = app_handle_poll.state::<PillSize>().0.lock() {
-                                *size
-                            } else {
-                                PillState::default()
-                            };
+                        let pill = if let Ok(size) = app_handle_poll.state::<PillSize>().0.lock() {
+                            *size
+                        } else {
+                            PillState::default()
+                        };
+                        let cur_pos_state = (pill.pos, (pill.top_offset * 10.0) as i32, pill.is_island);
+                        let need_geom_refresh = cached_geom.is_none()
+                            || loop_count.is_multiple_of(15)
+                            || last_pos_state != Some(cur_pos_state);
+                        if need_geom_refresh {
+                            if let (Ok(wp), Ok(ws), Ok(s)) = (
+                                win_clone.outer_position(),
+                                win_clone.outer_size(),
+                                win_clone.scale_factor(),
+                            ) {
+                                cached_geom = Some((wp, ws, s));
+                                last_pos_state = Some(cur_pos_state);
+                            }
+                        }
 
+                        if let Some((win_pos, win_size, sf)) = cached_geom {
                             let in_pill = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
 
                             if IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2732,8 +2910,10 @@ pub fn run() {
                 
                 // Audio Device Initialization
                 use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
+                use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
                 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
                 let audio_enumerator = unsafe { CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() };
+                let mut cached_volume_ctrl: Option<IAudioEndpointVolume> = None;
                 if let Some(enumerator) = &audio_enumerator {
                     if let Ok(device) = unsafe { enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) } {
                         if let Ok(id) = unsafe { device.GetId() } {
@@ -2745,6 +2925,7 @@ pub fn run() {
                             }
                             unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(id.0 as *const std::ffi::c_void)); }
                         }
+                        cached_volume_ctrl = unsafe { device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None).ok() };
                     }
                 }
                 let mut last_clipboard_seq = unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() };
@@ -2752,11 +2933,13 @@ pub fn run() {
                 
                 let smtc_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|r| r.get()).ok();
                 let notif_listener = windows::UI::Notifications::Management::UserNotificationListener::Current().ok();
+                let mut notif_access_allowed = false;
                 if let Some(listener) = &notif_listener {
                     if let Ok(status) = listener.GetAccessStatus() {
                         if status == windows::UI::Notifications::Management::UserNotificationListenerAccessStatus::Unspecified {
                             let _ = listener.RequestAccessAsync().and_then(|r| r.get());
                         }
+                        notif_access_allowed = status == windows::UI::Notifications::Management::UserNotificationListenerAccessStatus::Allowed;
                     }
                 }
                 
@@ -2783,33 +2966,43 @@ pub fn run() {
                         let _ = app_handle.emit("caps-update", CapsPayload { is_on: current_caps == 1 });
                     }
                     
-                    // Volume Check (Immediate 100ms check for instant hardware key HUD response)
-                    use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-                    
-                    if let Some(enumerator) = &audio_enumerator {
-                        if let Ok(device) = unsafe { enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) } {
-                            if let Ok(volume_ctrl) = unsafe { device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) } {
-                                if let Ok(level) = unsafe { volume_ctrl.GetMasterVolumeLevelScalar() } {
-                                    if (level - last_volume).abs() > 0.01 && last_volume != -1.0 {
-                                        #[derive(serde::Serialize, Clone)]
-                                        struct VolumePayload { level: f32 }
-                                        let _ = app_handle.emit("volume-update", VolumePayload { level });
-                                    }
-                                    last_volume = level;
-                                }
+                    // Volume Check using cached COM interface (zero per-100ms COM activation overhead)
+                    if let Some(volume_ctrl) = &cached_volume_ctrl {
+                        if let Ok(level) = unsafe { volume_ctrl.GetMasterVolumeLevelScalar() } {
+                            if (level - last_volume).abs() > 0.01 && last_volume != -1.0 {
+                                #[derive(serde::Serialize, Clone)]
+                                struct VolumePayload { level: f32 }
+                                let _ = app_handle.emit("volume-update", VolumePayload { level });
                             }
+                            last_volume = level;
                         }
                     }
                     
                     if counter % 5 != 0 {
                         continue;
                     }
+
+                    // Periodic idle working-set cleanup every 3 minutes when notch is collapsed
+                    if counter % 1800 == 0 {
+                        let is_collapsed = app_handle
+                            .try_state::<PillSize>()
+                            .and_then(|s| s.0.lock().ok().map(|g| g.height <= 95.0 || g.width <= 95.0))
+                            .unwrap_or(true);
+                        if is_collapsed {
+                            schedule_working_set_trim(100);
+                        }
+                    }
                     
-                    // Real Notifications Check (non-blocking status check to prevent Windows 10 hangs)
-                    use windows::UI::Notifications::Management::UserNotificationListenerAccessStatus;
-                    if let Some(listener) = &notif_listener {
-                        if let Ok(status) = listener.GetAccessStatus() {
-                            if status == UserNotificationListenerAccessStatus::Allowed {
+                    // Real Notifications Check (every 1s with cached access status)
+                    if counter % 10 == 0 {
+                        use windows::UI::Notifications::Management::UserNotificationListenerAccessStatus;
+                        if let Some(listener) = &notif_listener {
+                            if !notif_access_allowed && counter % 50 == 0 {
+                                if let Ok(status) = listener.GetAccessStatus() {
+                                    notif_access_allowed = status == UserNotificationListenerAccessStatus::Allowed;
+                                }
+                            }
+                            if notif_access_allowed {
                                 if let Ok(notifs) = listener.GetNotificationsAsync(windows::UI::Notifications::NotificationKinds::Toast).and_then(|r| r.get()) {
                                     let mut current_ids = std::collections::HashSet::new();
                                     
@@ -2971,6 +3164,9 @@ pub fn run() {
                                     }
                                     unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(id.0 as *const std::ffi::c_void)); }
                                     
+                                    if cached_volume_ctrl.is_none() || id_str != last_audio_id {
+                                        cached_volume_ctrl = unsafe { device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None).ok() };
+                                    }
                                     if !last_audio_id.is_empty() && id_str != last_audio_id {
                                         use winreg::enums::*;
                                         use winreg::RegKey;
@@ -3398,7 +3594,7 @@ pub fn run() {
                                                                     // Ignore stale cover carried over from the previous track during the first ~800ms of transition
                                                                     if !is_same_as_prev || track_change_ticks >= 8 {
                                                                         if !is_same_as_prev || track_change_ticks >= 15 {
-                                                                            if thumbnail_cache.len() >= 40 && !thumbnail_cache.contains_key(&cache_key) {
+                                                                            if thumbnail_cache.len() >= 8 && !thumbnail_cache.contains_key(&cache_key) {
                                                                                 if let Some(first_key) = thumbnail_cache.keys().next().cloned() {
                                                                                     thumbnail_cache.remove(&first_key);
                                                                                 }
@@ -3596,6 +3792,7 @@ mod hit_test {
             width: 120.0,
             height: 35.0,
             is_bottom: false,
+            pos: NotchPos::Top,
             top_offset: 0.0,
             is_island: false,
             dpr: 1.0,
@@ -3622,6 +3819,7 @@ mod hit_test {
             width: 680.0,
             height: 292.0,
             is_bottom: false,
+            pos: NotchPos::Top,
             top_offset: 0.0,
             is_island: false,
             dpr: 1.25,
@@ -3659,6 +3857,7 @@ mod hit_test {
             width: 120.0,
             height: 35.0,
             is_bottom: false,
+            pos: NotchPos::Top,
             top_offset: 10.0,
             is_island: true,
             dpr: 1.0,
@@ -3685,6 +3884,7 @@ mod hit_test {
             width: 120.0,
             height: 35.0,
             is_bottom: true,
+            pos: NotchPos::Bottom,
             top_offset: 0.0,
             is_island: false,
             dpr: 1.0,
@@ -3707,6 +3907,7 @@ mod hit_test {
             width: 420.0,
             height: 54.0,
             is_bottom: false,
+            pos: NotchPos::Top,
             top_offset: 12.0,
             is_island: true,
             dpr: 1.0,

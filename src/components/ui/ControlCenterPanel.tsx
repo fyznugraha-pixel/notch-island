@@ -5,9 +5,6 @@ import {
   ClipboardList,
   ListTodo,
   Folder,
-  Gauge,
-  Leaf,
-  Zap,
   Wifi,
   Bluetooth,
   Radio,
@@ -50,8 +47,6 @@ export interface FocusModeOption {
 
 export interface ControlCenterPanelProps {
   slideDirection: number;
-  powerMode: "Eco" | "Balanced" | "Performance";
-  onSetPowerMode: (mode: "Eco" | "Balanced" | "Performance") => void;
   displayLevel: number;
   onSetDisplayLevel: (level: number) => void;
   brightnessMode: "auto" | "manual" | "reading";
@@ -86,8 +81,6 @@ export interface ControlCenterPanelProps {
 
 export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   slideDirection,
-  powerMode,
-  onSetPowerMode,
   displayLevel,
   onSetDisplayLevel,
   brightnessMode,
@@ -201,12 +194,6 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
     }
   };
 
-  const handleSelectPowerMode = (mode: "Eco" | "Balanced" | "Performance", e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSetPowerMode(mode);
-    invoke("set_power_plan", { mode }).catch(console.error);
-  };
-
   const handleNextBrightnessMode = (e: React.MouseEvent) => {
     e.stopPropagation();
     let next: "auto" | "manual" | "reading";
@@ -285,13 +272,6 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
     };
   }, []);
 
-  const powerModeLabel =
-    powerMode === "Eco"
-      ? t("cc_power_eco")
-      : powerMode === "Balanced"
-      ? t("cc_power_balanced")
-      : t("cc_power_performance");
-
   const getFocusIconColor = (id: FocusModeType) => {
     if (id === "Normal") return "text-[#fbbf24]";
     if (id === "DND") return "text-[#a5a8ff]";
@@ -348,14 +328,14 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
             />
           )}
 
-          {/* Row 1: 2x2 Toggles + Right Power/Session Column (Board 04) */}
-          <div className="flex gap-3 items-stretch">
+          {/* Top Section: Left 2x2 Connectivity/Mode Grid + Right Session & Quick Actions Column */}
+          <div className="flex gap-2.5 items-stretch">
             {/* Left 2x2 Toggle Grid */}
-            <div className="flex-1 grid grid-cols-2 gap-2 min-w-0">
+            <div className="flex-1 grid grid-cols-2 gap-1.5 min-w-0">
               {/* Wi-Fi Tile */}
               <div
                 onClick={handleOpenWifi}
-                className={`h-[60px] rounded-[16px] pl-2.5 pr-1.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
+                className={`h-[50px] rounded-[15px] pl-2.5 pr-1.5 flex items-center gap-2 transition-all cursor-pointer min-w-0 ${
                   isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
                 } ${
                   isWifiConnected
@@ -367,7 +347,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   type="button"
                   onClick={handleQuickToggleWifi}
                   aria-label={isEn ? "Toggle Wi-Fi" : "Alihkan Wi-Fi"}
-                  className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                  className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                     isWifiConnected
                       ? "bg-[#3882F6] text-white"
                       : isWifiOn
@@ -375,13 +355,13 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       : "bg-[#1d1d25] text-[#a1a1aa]"
                   }`}
                 >
-                  <Wifi size={18} />
+                  <Wifi size={16} />
                 </button>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-white leading-tight truncate">
+                  <div className="text-[12.5px] font-semibold text-white leading-tight truncate">
                     Wi-Fi
                   </div>
-                  <div className="text-[11px] text-[#b4b4bd] truncate mt-0.5 tabular-nums">
+                  <div className="text-[10.5px] text-[#b4b4bd] truncate mt-0.5 tabular-nums">
                     {isWifiOn
                       ? isWifiConnected
                         ? networkPing !== null
@@ -397,13 +377,13 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     e.stopPropagation();
                     handleOpenWifi();
                   }}
-                  className="w-[28px] h-[40px] flex items-center justify-center text-[#b4b4bd] hover:text-white transition-colors shrink-0 cursor-pointer"
+                  className="w-[24px] h-[36px] flex items-center justify-center text-[#b4b4bd] hover:text-white transition-colors shrink-0 cursor-pointer"
                 >
-                  <ChevronRight size={16} />
+                  <ChevronRight size={15} />
                 </button>
               </div>
 
-              {/* Mode Tile + Floating Menu (Board 06) */}
+              {/* Mode Tile + Floating Menu */}
               <div
                 className={`relative min-w-0 transition-opacity ${
                   isModeDropdownOpen
@@ -426,7 +406,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       openUrl("ms-settings:quiethours").catch(console.error);
                     });
                   }}
-                  className={`h-[60px] rounded-[16px] pl-2.5 pr-1.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
+                  className={`h-[50px] rounded-[15px] pl-2.5 pr-1.5 flex items-center gap-2 transition-all cursor-pointer min-w-0 ${
                     isModeDropdownOpen
                       ? "bg-[#17171d] border border-[#3a3a43]"
                       : focusMode === "DND"
@@ -451,7 +431,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                         ? "Aktifkan Mode Jangan Ganggu"
                         : "Enable Do Not Disturb"
                     }
-                    className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                    className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                       focusMode === "DND"
                         ? "bg-[#6366f1] text-white shadow-sm"
                         : focusMode === "Gaming"
@@ -461,14 +441,14 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                         : "bg-[#1d1d25] text-[#fbbf24] hover:bg-[#252530]"
                     }`}
                   >
-                    {renderFocusGlyph(focusMode, 18)}
+                    {renderFocusGlyph(focusMode, 16)}
                   </button>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-semibold text-white leading-tight truncate">
+                    <div className="text-[12.5px] font-semibold text-white leading-tight truncate">
                       {t("cc_mode_title")}
                     </div>
                     <div
-                      className={`text-[11px] truncate mt-0.5 ${
+                      className={`text-[10.5px] truncate mt-0.5 ${
                         focusMode === "DND"
                           ? "text-indigo-300 font-medium"
                           : focusMode === "Gaming"
@@ -489,9 +469,9 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       setIsModeDropdownOpen((prev) => !prev);
                     }}
                     aria-label={getLanguage() === "id" ? "Pilih Mode" : "Select Mode"}
-                    className="w-[28px] h-[40px] flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors shrink-0 cursor-pointer"
+                    className="w-[24px] h-[36px] flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors shrink-0 cursor-pointer"
                   >
-                    {isModeDropdownOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    {isModeDropdownOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                   </button>
                 </div>
 
@@ -503,7 +483,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       exit={{ opacity: 0, scale: 0.96, y: -4 }}
                       transition={iosSpring.snappy}
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-[calc(100%+4px)] z-50 w-[264px] p-1 rounded-[16px] bg-[#17171d] border border-[#2a2a31] shadow-[0_8px_20px_rgba(0,0,0,0.5)] flex flex-col gap-0.5"
+                      className="absolute left-0 top-[calc(100%+4px)] z-50 w-[252px] p-1 rounded-[15px] bg-[#17171d] border border-[#2a2a31] shadow-[0_8px_20px_rgba(0,0,0,0.5)] flex flex-col gap-0.5"
                     >
                       {focusModeOptions.map((opt) => {
                         const isSelected = focusMode === opt.id;
@@ -516,27 +496,27 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                               onSelectFocusMode(opt.id);
                               setIsModeDropdownOpen(false);
                             }}
-                            className={`h-[40px] rounded-[11px] px-2.5 flex items-center gap-2 text-left transition-colors cursor-pointer ${
+                            className={`h-[34px] rounded-[10px] px-2 flex items-center gap-2 text-left transition-colors cursor-pointer ${
                               isSelected ? "bg-[#23232a] text-white" : "hover:bg-white/[0.04] text-white"
                             }`}
                           >
                             <span
-                              className={`w-[28px] h-[28px] rounded-full flex items-center justify-center shrink-0 ${
+                              className={`w-[24px] h-[24px] rounded-full flex items-center justify-center shrink-0 ${
                                 isSelected ? "bg-[#2e2e36]" : "bg-[#1d1d25]"
                               } ${getFocusIconColor(opt.id)}`}
                             >
-                              {renderFocusGlyph(opt.id, 14)}
+                              {renderFocusGlyph(opt.id, 13)}
                             </span>
                             <span className="flex-1 min-w-0 flex flex-col">
-                              <span className="text-[12px] font-semibold text-white leading-tight truncate">
+                              <span className="text-[11.5px] font-semibold text-white leading-tight truncate">
                                 {opt.label}
                               </span>
-                              <span className="text-[10px] text-[#a1a1aa] leading-tight truncate mt-0.5">
+                              <span className="text-[9.5px] text-[#a1a1aa] leading-tight truncate">
                                 {opt.desc}
                               </span>
                             </span>
                             {isSelected && (
-                              <Check size={14} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
+                              <Check size={13} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
                             )}
                           </button>
                         );
@@ -549,7 +529,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
               {/* Bluetooth Tile */}
               <div
                 onClick={handleOpenBt}
-                className={`h-[60px] rounded-[16px] pl-2.5 pr-1.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
+                className={`h-[50px] rounded-[15px] pl-2.5 pr-1.5 flex items-center gap-2 transition-all cursor-pointer min-w-0 ${
                   isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
                 } ${
                   isBtConnected
@@ -561,7 +541,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   type="button"
                   onClick={handleQuickToggleBt}
                   aria-label={isEn ? "Toggle Bluetooth" : "Alihkan Bluetooth"}
-                  className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                  className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                     isBtConnected
                       ? "bg-[#3882F6] text-white"
                       : isBtOn
@@ -569,13 +549,13 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       : "bg-[#1d1d25] text-[#71717a]"
                   }`}
                 >
-                  <Bluetooth size={18} />
+                  <Bluetooth size={16} />
                 </button>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-white leading-tight truncate">
+                  <div className="text-[12.5px] font-semibold text-white leading-tight truncate">
                     Bluetooth
                   </div>
-                  <div className="text-[11px] text-[#a1a1aa] truncate mt-0.5">
+                  <div className="text-[10.5px] text-[#a1a1aa] truncate mt-0.5">
                     {isBtOn
                       ? isBtConnected
                         ? hasBtBattery
@@ -591,9 +571,9 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     e.stopPropagation();
                     handleOpenBt();
                   }}
-                  className="w-[28px] h-[40px] flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors shrink-0 cursor-pointer"
+                  className="w-[24px] h-[36px] flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors shrink-0 cursor-pointer"
                 >
-                  <ChevronRight size={16} />
+                  <ChevronRight size={15} />
                 </button>
               </div>
 
@@ -607,7 +587,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     openUrl("ms-settings:network-mobilehotspot").catch(console.error);
                   });
                 }}
-                className={`h-[60px] rounded-[16px] px-2.5 flex items-center gap-2.5 transition-all cursor-pointer min-w-0 ${
+                className={`h-[50px] rounded-[15px] px-2.5 flex items-center gap-2 transition-all cursor-pointer min-w-0 ${
                   isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
                 } ${
                   isHotspotOn
@@ -616,86 +596,28 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 }`}
               >
                 <div
-                  className={`w-[36px] h-[36px] rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                  className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors ${
                     isHotspotOn ? "bg-[#3882F6] text-white" : "bg-[#1d1d25] text-[#c4c4cc]"
                   }`}
                 >
-                  <Radio size={18} className={isHotspotOn ? "animate-pulse" : ""} />
+                  <Radio size={16} className={isHotspotOn ? "animate-pulse" : ""} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-white leading-tight truncate">
+                  <div className="text-[12.5px] font-semibold text-white leading-tight truncate">
                     Hotspot
                   </div>
-                  <div className="text-[11px] text-[#a1a1aa] truncate mt-0.5">
+                  <div className="text-[10.5px] text-[#a1a1aa] truncate mt-0.5">
                     {isHotspotOn ? t("cc_hotspot_active") : t("cc_hotspot_inactive")}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Power Profile + Session Bar */}
-            <div className="w-[208px] shrink-0 flex flex-col gap-2">
-              {/* Power Mode Card */}
+            {/* Right Column: Session Bar (Top) + 4 Compact Quick Action Icons (Bottom) */}
+            <div className="w-[208px] shrink-0 flex flex-col gap-1.5">
+              {/* Session Actions: Lock, Sleep, Power Dropdown (Moved Up) */}
               <div
-                className={`h-[72px] rounded-[16px] px-3 py-2 bg-[#101015] border border-[#1e1e25] flex flex-col justify-between transition-opacity ${
-                  isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 h-[18px]">
-                  <span className="text-[11px] text-[#a1a1aa] whitespace-nowrap">
-                    {t("cc_power_mode_label")}
-                  </span>
-                  <span className="text-[13px] font-semibold text-white whitespace-nowrap">
-                    {powerModeLabel}
-                  </span>
-                </div>
-                <div
-                  role="radiogroup"
-                  aria-label={t("cc_power_mode_label")}
-                  className="flex gap-0.5 p-0.5 bg-[#08080b] rounded-[10px] h-[32px]"
-                >
-                  <button
-                    type="button"
-                    onClick={(e) => handleSelectPowerMode("Eco", e)}
-                    title={t("cc_power_eco")}
-                    className={`flex-1 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
-                      powerMode === "Eco"
-                        ? "bg-[#2a2a31] text-white"
-                        : "text-[#a1a1aa] hover:text-white"
-                    }`}
-                  >
-                    <Leaf size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleSelectPowerMode("Balanced", e)}
-                    title={t("cc_power_balanced")}
-                    className={`flex-1 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
-                      powerMode === "Balanced"
-                        ? "bg-[#2a2a31] text-white"
-                        : "text-[#a1a1aa] hover:text-white"
-                    }`}
-                  >
-                    <Gauge size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleSelectPowerMode("Performance", e)}
-                    title={t("cc_power_performance")}
-                    className={`flex-1 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
-                      powerMode === "Performance"
-                        ? "bg-[#2a2a31] text-white"
-                        : "text-[#a1a1aa] hover:text-white"
-                    }`}
-                  >
-                    <Zap size={15} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Session Actions: Lock, Sleep, Daya Dropdown */}
-              <div
-                className={`h-[48px] rounded-[16px] p-1.5 bg-[#101015] border border-[#1e1e25] flex items-center gap-1.5 relative transition-opacity ${
+                className={`h-[50px] rounded-[15px] p-1.5 bg-[#101015] border border-[#1e1e25] flex items-center gap-1.5 relative transition-opacity ${
                   isPowerMenuOpen
                     ? "z-50"
                     : isModeDropdownOpen
@@ -711,7 +633,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       invoke("system_power_action", { action: "lock" }).catch(console.error);
                       onClose();
                     }}
-                    className="w-[36px] h-[34px] rounded-[11px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                    className="w-[36px] h-[36px] rounded-[10px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                   >
                     <Lock size={15} />
                   </button>
@@ -725,7 +647,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       invoke("system_power_action", { action: "sleep" }).catch(console.error);
                       onClose();
                     }}
-                    className="w-[36px] h-[34px] rounded-[11px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                    className="w-[36px] h-[36px] rounded-[10px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                   >
                     <Moon size={15} />
                   </button>
@@ -738,7 +660,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     setIsModeDropdownOpen(false);
                     setIsPowerMenuOpen((prev) => !prev);
                   }}
-                  className="flex-1 h-[34px] rounded-[11px] bg-[rgba(255,107,90,0.14)] hover:bg-[rgba(255,107,90,0.22)] text-[#ff9b8f] text-[12px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  className="flex-1 h-[36px] rounded-[10px] bg-[rgba(255,107,90,0.14)] hover:bg-[rgba(255,107,90,0.22)] text-[#ff9b8f] text-[12px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                 >
                   <Power size={13.5} strokeWidth={2.2} />
                   <span>{t("cc_power_btn")}</span>
@@ -753,10 +675,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       exit={{ opacity: 0, scale: 0.95, y: -4 }}
                       transition={iosSpring.snappy}
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute right-0 top-[calc(100%+6px)] z-50 w-[168px] p-1.5 rounded-[16px] bg-[#17171d] border border-[#2a2a31] shadow-[0_8px_20px_rgba(0,0,0,0.5)] flex flex-col gap-1"
+                      className="absolute right-0 top-[calc(100%+5px)] z-50 w-[168px] p-1.5 rounded-[15px] bg-[#17171d] border border-[#2a2a31] shadow-[0_8px_20px_rgba(0,0,0,0.5)] flex flex-col gap-1"
                     >
                       {pendingPowerAction === "restart" ? (
-                        <div className="p-2 rounded-[11px] bg-[rgba(255,107,90,0.10)] border border-[rgba(255,107,90,0.25)] flex flex-col gap-2">
+                        <div className="p-2 rounded-[10px] bg-[rgba(255,107,90,0.10)] border border-[rgba(255,107,90,0.25)] flex flex-col gap-1.5">
                           <span className="text-[11px] text-[#ff9b8f] font-medium leading-snug">
                             {isEn ? "Restart this PC now?" : "Restart PC sekarang?"}
                           </span>
@@ -767,7 +689,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                                 e.stopPropagation();
                                 setPendingPowerAction(null);
                               }}
-                              className="flex-1 h-[28px] rounded-[9px] bg-transparent border-0 text-[#a1a1aa] text-[11px] font-medium cursor-pointer hover:bg-white/[0.06]"
+                              className="flex-1 h-[26px] rounded-[8px] bg-transparent border-0 text-[#a1a1aa] text-[11px] font-medium cursor-pointer hover:bg-white/[0.06]"
                             >
                               {t("action_cancel")}
                             </button>
@@ -780,7 +702,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                                 invoke("system_power_action", { action: "restart" }).catch(console.error);
                                 onClose();
                               }}
-                              className="flex-1 h-[28px] rounded-[9px] bg-red-600 border-0 text-white text-[11px] font-bold cursor-pointer"
+                              className="flex-1 h-[26px] rounded-[8px] bg-red-600 border-0 text-white text-[11px] font-bold cursor-pointer"
                             >
                               {isEn ? "Restart" : "Restart"}
                             </button>
@@ -793,18 +715,18 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                             e.stopPropagation();
                             setPendingPowerAction("restart");
                           }}
-                          className="h-[36px] px-2.5 rounded-[11px] hover:bg-white/[0.06] text-[#e4e4e7] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
+                          className="h-[34px] px-2.5 rounded-[10px] hover:bg-white/[0.06] text-[#e4e4e7] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
                         >
                           <RotateCcw size={14} className="text-sky-400" />
                           <span>{t("cc_restart_pc")}</span>
                         </button>
                       )}
                       {pendingPowerAction === "shutdown" ? (
-                        <div className="p-2 rounded-[11px] bg-[rgba(255,107,90,0.10)] border border-[rgba(255,107,90,0.25)] flex flex-col gap-2">
-                          <span className="text-[11px] text-[#ff9b8f] font-medium leading-snug">
+                        <div className="p-2 rounded-[10px] bg-[rgba(255,107,90,0.10)] border border-[rgba(255,107,90,0.25)] flex flex-col gap-1.5">
+                          <span className="text-[10.5px] text-[#ff9b8f] font-medium leading-snug">
                             {isEn
                               ? "Shut down this PC now? Unsaved work will be lost."
-                              : "Matikan PC sekarang? Pekerjaan yang belum disimpan akan hilang."}
+                              : "Matikan PC sekarang? Pekerjaan belum disimpan akan hilang."}
                           </span>
                           <div className="flex items-center gap-1.5">
                             <button
@@ -813,7 +735,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                                 e.stopPropagation();
                                 setPendingPowerAction(null);
                               }}
-                              className="flex-1 h-[28px] rounded-[9px] bg-transparent border-0 text-[#a1a1aa] text-[11px] font-medium cursor-pointer hover:bg-white/[0.06]"
+                              className="flex-1 h-[26px] rounded-[8px] bg-transparent border-0 text-[#a1a1aa] text-[11px] font-medium cursor-pointer hover:bg-white/[0.06]"
                             >
                               {t("action_cancel")}
                             </button>
@@ -826,7 +748,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                                 invoke("system_power_action", { action: "shutdown" }).catch(console.error);
                                 onClose();
                               }}
-                              className="flex-1 h-[28px] rounded-[9px] bg-red-600 border-0 text-white text-[11px] font-bold cursor-pointer"
+                              className="flex-1 h-[26px] rounded-[8px] bg-red-600 border-0 text-white text-[11px] font-bold cursor-pointer"
                             >
                               {isEn ? "Shut Down" : "Matikan"}
                             </button>
@@ -839,7 +761,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                             e.stopPropagation();
                             setPendingPowerAction("shutdown");
                           }}
-                          className="h-[36px] px-2.5 rounded-[11px] hover:bg-[rgba(255,107,90,0.16)] text-[#ff9b8f] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
+                          className="h-[34px] px-2.5 rounded-[10px] hover:bg-[rgba(255,107,90,0.16)] text-[#ff9b8f] text-[12px] font-medium flex items-center gap-2.5 cursor-pointer transition-colors"
                         >
                           <Power size={14} />
                           <span>{t("cc_shutdown_pc")}</span>
@@ -849,81 +771,89 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   )}
                 </AnimatePresence>
               </div>
+
+              {/* 4 Quick Action Icon Buttons (Snipping, Clipboard, To-Do, Files) */}
+              <div
+                className={`h-[50px] rounded-[15px] p-1.5 bg-[#101015] border border-[#1e1e25] grid grid-cols-4 gap-1.5 transition-opacity ${
+                  isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
+                }`}
+              >
+                <Tooltip content={t("cc_sniping")} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={t("cc_sniping")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      invoke("system_power_action", { action: "screenshot" }).catch(console.error);
+                      onClose();
+                    }}
+                    className="w-full h-[36px] rounded-[10px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <Scissors size={15} />
+                  </button>
+                </Tooltip>
+
+                <Tooltip content={t("tab_clipboard")} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={t("tab_clipboard")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onGoToTab("clipboard");
+                    }}
+                    className="w-full h-[36px] rounded-[10px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <ClipboardList size={15} />
+                  </button>
+                </Tooltip>
+
+                <Tooltip content={t("todo_badge")} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={t("todo_badge")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onGoToTab("todo");
+                    }}
+                    className="w-full h-[36px] rounded-[10px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <ListTodo size={15} />
+                  </button>
+                </Tooltip>
+
+                <Tooltip content={t("cc_files_short")} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={t("cc_files_short")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onGoToTab("drop_shelf");
+                    }}
+                    className="w-full h-[36px] rounded-[10px] bg-[#1d1d25] hover:bg-[#272732] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer relative"
+                  >
+                    <Folder size={15} />
+                    {stashedFilesCount > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-[#3882F6] text-white text-[9px] font-bold flex items-center justify-center tabular-nums shadow-sm">
+                        {stashedFilesCount}
+                      </span>
+                    )}
+                  </button>
+                </Tooltip>
+              </div>
             </div>
           </div>
 
-          {/* Row 2: 4 Quick Action Buttons (Sniping, Clipboard, Todo, Berkas) */}
+          {/* Bottom Section: Slimmer Brightness & Volume Pill Sliders */}
           <div
-            className={`grid grid-cols-4 gap-2 transition-opacity ${
-              isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
-            }`}
-          >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                invoke("system_power_action", { action: "screenshot" }).catch(console.error);
-                onClose();
-              }}
-              className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <Scissors size={16} />
-              <span>{t("cc_sniping")}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onGoToTab("clipboard");
-              }}
-              className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <ClipboardList size={16} />
-              <span>{t("tab_clipboard")}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onGoToTab("todo");
-              }}
-              className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <ListTodo size={16} />
-              <span>{t("todo_badge")}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onGoToTab("drop_shelf");
-              }}
-              className="h-[42px] rounded-[14px] border border-[#1e1e25] bg-[#101015] hover:bg-[#17171f] hover:border-[#2a2a33] text-[#e4e4e7] text-[12px] font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer relative"
-            >
-              <Folder size={16} />
-              <span>{t("cc_files_short")}</span>
-              {stashedFilesCount > 0 && (
-                <span className="min-w-[16px] h-[16px] px-1 rounded-full bg-[#3882F6] text-white text-[9.5px] font-bold flex items-center justify-center tabular-nums">
-                  {stashedFilesCount}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Row 3: Brightness & Volume Pill Sliders (Board 04) */}
-          <div
-            className={`flex flex-col gap-2 transition-opacity ${
+            className={`flex flex-col gap-1.5 transition-opacity ${
               isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
             }`}
             data-no-swipe="true"
           >
             {/* Brightness Slider Row */}
-            <div className="flex items-center gap-2.5 h-[40px]" data-no-swipe="true">
+            <div className="flex items-center gap-2.5 h-[30px]" data-no-swipe="true">
               <div
-                className="flex-1 h-[40px] rounded-full bg-[#15151b] relative overflow-hidden cursor-pointer"
+                className="flex-1 h-[30px] rounded-full bg-[#15151b] relative overflow-hidden cursor-pointer"
                 onWheel={(e) => {
                   if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
                     e.stopPropagation();
@@ -940,11 +870,11 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   style={{ width: `${Math.max(0, Math.min(100, displayLevel))}%` }}
                 />
                 <div
-                  className={`absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none transition-colors ${
+                  className={`absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none transition-colors ${
                     displayLevel > 10 ? "text-[#0b0b0d]" : "text-[#e4e4e7]"
                   }`}
                 >
-                  <Sun size={17} />
+                  <Sun size={14.5} />
                 </div>
                 <input
                   type="range"
@@ -965,7 +895,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 />
               </div>
 
-              <span className="w-[40px] text-right text-[13px] font-semibold text-white tabular-nums shrink-0">
+              <span className="w-[38px] text-right text-[12px] font-semibold text-white tabular-nums shrink-0">
                 {Math.round(displayLevel)}%
               </span>
 
@@ -973,25 +903,25 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 <button
                   type="button"
                   onClick={handleNextBrightnessMode}
-                  className={`w-[40px] h-[40px] rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
+                  className={`w-[30px] h-[30px] rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
                     brightnessMode === "auto"
                       ? "bg-[#3882F6]/20 text-[#3882F6] border border-[#3882F6]/40"
                       : "bg-[#17171c] hover:bg-[#222229] text-[#e4e4e7]"
                   }`}
                 >
                   {brightnessMode === "reading" ? (
-                    <Moon size={17} className="text-indigo-400" />
+                    <Moon size={14.5} className="text-indigo-400" />
                   ) : (
-                    <span className="text-[14px] font-semibold leading-none">A</span>
+                    <span className="text-[12.5px] font-semibold leading-none">A</span>
                   )}
                 </button>
               </Tooltip>
             </div>
 
             {/* Volume Slider Row */}
-            <div className="flex items-center gap-2.5 h-[40px]" data-no-swipe="true">
+            <div className="flex items-center gap-2.5 h-[30px]" data-no-swipe="true">
               <div
-                className="flex-1 h-[40px] rounded-full bg-[#15151b] relative overflow-hidden cursor-pointer"
+                className="flex-1 h-[30px] rounded-full bg-[#15151b] relative overflow-hidden cursor-pointer"
                 onWheel={(e) => {
                   if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
                     e.stopPropagation();
@@ -1008,11 +938,11 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   style={{ width: `${Math.max(0, Math.min(100, soundLevel))}%` }}
                 />
                 <div
-                  className={`absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none transition-colors ${
+                  className={`absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none transition-colors ${
                     soundLevel > 10 ? "text-[#0b0b0d]" : "text-[#e4e4e7]"
                   }`}
                 >
-                  <Volume2 size={17} />
+                  <Volume2 size={14.5} />
                 </div>
                 <input
                   type="range"
@@ -1033,7 +963,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 />
               </div>
 
-              <span className="w-[40px] text-right text-[13px] font-semibold text-white tabular-nums shrink-0">
+              <span className="w-[38px] text-right text-[12px] font-semibold text-white tabular-nums shrink-0">
                 {Math.round(soundLevel)}%
               </span>
 
@@ -1041,9 +971,9 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => onGoToTab("volume_mixer", 1)}
-                  className="w-[40px] h-[40px] rounded-full bg-[#17171c] hover:bg-[#222229] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  className="w-[30px] h-[30px] rounded-full bg-[#17171c] hover:bg-[#222229] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                 >
-                  <SlidersHorizontal size={17} />
+                  <SlidersHorizontal size={14.5} />
                 </button>
               </Tooltip>
             </div>

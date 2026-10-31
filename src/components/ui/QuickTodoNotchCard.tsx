@@ -1,5 +1,5 @@
-﻿import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { TodoItem, TodoRepeatRule } from "./TodoListPanel";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { TodoItem, TodoRepeatRule } from "../../services/todoUtils";
 import { parseDateNlp, formatNlpDateBadge, NlpDateResult } from "../../utils/dateNlpParser";
 import { formatShortcutForBadge } from "../../services/shortcuts";
 import { t, Language, getLanguage } from "../../services/i18n";

@@ -75,7 +75,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
     totalSeconds > 0 ? Math.max(0, Math.min(1, remainingSeconds / totalSeconds)) : 1;
   const elapsedRatio = 1 - progressRatio;
 
-  const ringRadius = 74;
+  const ringRadius = 64;
   const ringCircumference = 2 * Math.PI * ringRadius;
   const ringDash = `${(progressRatio * ringCircumference).toFixed(1)} ${ringCircumference.toFixed(
     1
@@ -101,22 +101,22 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
     return (
       <div className="flex flex-col w-full h-full min-h-0 px-6 pb-1 select-none text-white">
         {/* Settings Header */}
-        <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
+        <div className="flex items-center justify-between gap-2 shrink-0 mb-1">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowSettings(false)}
-              className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center cursor-pointer"
+              className="w-6 h-6 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center cursor-pointer"
             >
-              <ChevronLeft size={15} />
+              <ChevronLeft size={14} />
             </button>
-            <h2 className="text-[14px] font-semibold tracking-tight">{t("pomo_settings_title")}</h2>
+            <h2 className="text-[13.5px] font-semibold tracking-tight">{t("pomo_settings_title")}</h2>
           </div>
 
           <button
             type="button"
             onClick={() => onUpdateSettings(DEFAULT_POMODORO_SETTINGS)}
-            className="h-6 px-2.5 rounded-lg text-[11px] font-medium text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+            className="h-6 px-2 rounded-lg text-[10.5px] font-medium text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
           >
             {t("pomo_reset_default")}
           </button>
@@ -125,11 +125,11 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
         {/* Two Columns: Duration & Behavior (Board 18) */}
         <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
           {/* Duration Card */}
-          <div className="flex flex-col gap-1 min-w-0">
-            <span className="text-[10px] font-semibold tracking-wider text-zinc-400 pl-1">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <span className="text-[9.5px] font-semibold tracking-wider text-zinc-400 pl-1">
               {t("pomo_durations")}
             </span>
-            <div className="rounded-2xl bg-[#101015] border border-[#1e1e25] px-3 py-1 flex flex-col justify-between flex-1">
+            <div className="rounded-2xl bg-[#101015] border border-[#1e1e25] px-3 py-0.5 flex flex-col justify-between flex-1">
               {[
                 {
                   label: t("pomo_focus"),
@@ -165,25 +165,25 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
                 },
               ].map((row, i, arr) => (
                 <React.Fragment key={row.field}>
-                  <div className="flex items-center justify-between h-8">
-                    <span className="text-[12px] font-medium text-zinc-200 truncate pr-2">
+                  <div className="flex items-center justify-between h-7">
+                    <span className="text-[11.5px] font-medium text-zinc-200 truncate pr-2">
                       {row.label}
                     </span>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => adjustSetting(row.field, -row.step, row.min, row.max)}
-                        className="w-6 h-6 rounded-full bg-[#1d1d25] hover:bg-[#2a2a35] text-zinc-200 text-[14px] flex items-center justify-center cursor-pointer"
+                        className="w-5 h-5 rounded-full bg-[#1d1d25] hover:bg-[#2a2a35] text-zinc-200 text-[13px] flex items-center justify-center cursor-pointer"
                       >
                         −
                       </button>
-                      <span className="w-12 text-center text-[11.5px] font-semibold tabular-nums">
+                      <span className="w-12 text-center text-[11px] font-semibold tabular-nums">
                         {row.val}
                       </span>
                       <button
                         type="button"
                         onClick={() => adjustSetting(row.field, row.step, row.min, row.max)}
-                        className="w-6 h-6 rounded-full bg-[#1d1d25] hover:bg-[#2a2a35] text-zinc-200 text-[14px] flex items-center justify-center cursor-pointer"
+                        className="w-5 h-5 rounded-full bg-[#1d1d25] hover:bg-[#2a2a35] text-zinc-200 text-[13px] flex items-center justify-center cursor-pointer"
                       >
                         +
                       </button>
@@ -196,11 +196,11 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
           </div>
 
           {/* Behavior Card */}
-          <div className="flex flex-col gap-1 min-w-0">
-            <span className="text-[10px] font-semibold tracking-wider text-zinc-400 pl-1">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <span className="text-[9.5px] font-semibold tracking-wider text-zinc-400 pl-1">
               {t("pomo_behavior")}
             </span>
-            <div className="rounded-2xl bg-[#101015] border border-[#1e1e25] px-3 py-1 flex flex-col justify-between flex-1">
+            <div className="rounded-2xl bg-[#101015] border border-[#1e1e25] px-3 py-0.5 flex flex-col justify-between flex-1">
               {[
                 { label: t("pomo_auto_start"), field: "autoStartNext" as const },
                 { label: t("pomo_sound_on_done"), field: "soundOnComplete" as const },
@@ -210,8 +210,8 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
                 const checked = settings[row.field];
                 return (
                   <React.Fragment key={row.field}>
-                    <div className="flex items-center justify-between gap-2 h-8">
-                      <span className="text-[11.5px] font-medium text-zinc-200 leading-tight">
+                    <div className="flex items-center justify-between gap-2 h-7">
+                      <span className="text-[11px] font-medium text-zinc-200 leading-tight">
                         {row.label}
                       </span>
                       <button
@@ -219,11 +219,11 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
                         role="switch"
                         aria-checked={checked}
                         onClick={() => toggleBehavior(row.field)}
-                        className={`w-9 h-5 rounded-full p-0.5 flex items-center transition-colors shrink-0 cursor-pointer ${
+                        className={`w-8 h-4.5 rounded-full p-0.5 flex items-center transition-colors shrink-0 cursor-pointer ${
                           checked ? "bg-[#3882F6] justify-end" : "bg-[#2a2a31] justify-start"
                         }`}
                       >
-                        <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                        <span className="w-3.5 h-3.5 rounded-full bg-white shadow-sm" />
                       </button>
                     </div>
                     {i < arr.length - 1 && <div className="h-[1px] bg-[#1e1e25]" />}
@@ -238,40 +238,40 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
   }
 
   return (
-    <div className="flex items-center gap-6 w-full h-full min-h-0 px-6 pb-1 select-none text-white">
+    <div className="flex items-center gap-5 w-full h-full min-h-0 px-6 pb-1 select-none text-white">
       {/* Left: Circular Countdown Ring */}
-      <div className="relative w-[172px] h-[172px] shrink-0 flex items-center justify-center">
+      <div className="relative w-[152px] h-[152px] shrink-0 flex items-center justify-center">
         <svg
-          width="172"
-          height="172"
-          viewBox="0 0 172 172"
+          width="152"
+          height="152"
+          viewBox="0 0 152 152"
           aria-hidden="true"
           className="absolute inset-0"
         >
-          <circle cx="86" cy="86" r={ringRadius} fill="none" stroke="#1d1d25" strokeWidth="10" />
+          <circle cx="76" cy="76" r={ringRadius} fill="none" stroke="#1d1d25" strokeWidth="9" />
           <circle
-            cx="86"
-            cy="86"
+            cx="76"
+            cy="76"
             r={ringRadius}
             fill="none"
             stroke={modeColor}
-            strokeWidth="10"
+            strokeWidth="9"
             strokeLinecap="round"
             strokeDasharray={ringDash}
-            transform="rotate(-90 86 86)"
+            transform="rotate(-90 76 76)"
             className="transition-all duration-300"
           />
         </svg>
         <div className="flex flex-col items-center justify-center z-10">
           <div
             role="timer"
-            className="text-[38px] font-semibold tracking-tight tabular-nums leading-none"
+            className="text-[33px] font-semibold tracking-tight tabular-nums leading-none"
           >
             {formatPomodoroTime(remainingSeconds)}
           </div>
           <div
             style={{ color: modeColor }}
-            className="text-[12px] font-medium mt-1.5 tracking-tight"
+            className="text-[11px] font-medium mt-1 tracking-tight"
           >
             {modeLabel}
           </div>
@@ -279,7 +279,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
       </div>
 
       {/* Right Column: Mode Tabs, Task Selector, Cycle Progress, Controls */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center gap-3 relative">
+      <div className="flex-1 min-w-0 flex flex-col justify-center gap-2 relative">
         {/* Top Row: Mode Switcher + Settings Button */}
         <div className="flex items-center gap-2">
           <div
@@ -299,7 +299,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
                   role="tab"
                   aria-selected={active}
                   onClick={() => onSelectMode(tab.id)}
-                  className={`flex-1 h-7 rounded-[10px] text-[11.5px] transition-colors cursor-pointer truncate px-1.5 ${
+                  className={`flex-1 h-6.5 rounded-[9px] text-[11px] transition-colors cursor-pointer truncate px-1.5 ${
                     active
                       ? "bg-[#2a2a31] text-white font-semibold"
                       : "text-zinc-400 hover:text-zinc-200 font-medium"
@@ -315,9 +315,9 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
             type="button"
             onClick={() => setShowSettings(true)}
             title={t("pomo_settings_title")}
-            className="w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+            className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
           >
-            <SlidersHorizontal size={14} />
+            <SlidersHorizontal size={13} />
           </button>
         </div>
 
@@ -326,36 +326,36 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
           <button
             type="button"
             onClick={() => setShowTaskDropdown((v) => !v)}
-            className="w-full h-11 rounded-2xl border border-[#1e1e25] bg-[#101015] hover:bg-[#15151c] px-3 flex items-center gap-2.5 text-left transition-colors cursor-pointer"
+            className="w-full h-9.5 rounded-xl border border-[#1e1e25] bg-[#101015] hover:bg-[#15151c] px-2.5 flex items-center gap-2 text-left transition-colors cursor-pointer"
           >
-            <span className="w-7 h-7 rounded-full bg-[#1d1d25] text-zinc-300 flex items-center justify-center shrink-0">
-              <ListTodo size={14} />
+            <span className="w-6 h-6 rounded-full bg-[#1d1d25] text-zinc-300 flex items-center justify-center shrink-0">
+              <ListTodo size={13} />
             </span>
             <span className="flex-1 min-w-0 flex flex-col">
-              <span className="text-[9.5px] font-semibold tracking-wider text-zinc-400 uppercase leading-none">
+              <span className="text-[9px] font-semibold tracking-wider text-zinc-400 uppercase leading-none">
                 {t("pomo_focus_on")}
               </span>
-              <span className="text-[12.5px] font-semibold text-white truncate mt-0.5">
+              <span className="text-[11.5px] font-semibold text-white truncate mt-0.5">
                 {focusedTask ? focusedTask.text : t("pomo_no_task")}
               </span>
             </span>
-            <ChevronDown size={15} className="text-zinc-400 shrink-0" />
+            <ChevronDown size={14} className="text-zinc-400 shrink-0" />
           </button>
 
           {showTaskDropdown && (
-            <div className="absolute left-0 right-0 top-12 z-30 rounded-2xl bg-[#17171d] border border-[#2a2a31] shadow-2xl p-1.5 max-h-36 overflow-y-auto todo-scroll flex flex-col gap-0.5">
+            <div className="absolute left-0 right-0 top-10.5 z-30 rounded-xl bg-[#17171d] border border-[#2a2a31] shadow-2xl p-1 max-h-32 overflow-y-auto todo-scroll flex flex-col gap-0.5">
               <button
                 type="button"
                 onClick={() => {
                   onSelectFocusedTask(null);
                   setShowTaskDropdown(false);
                 }}
-                className={`h-7 px-2.5 rounded-xl text-[12px] flex items-center justify-between text-left cursor-pointer ${
+                className={`h-6.5 px-2 rounded-lg text-[11.5px] flex items-center justify-between text-left cursor-pointer ${
                   !focusedTaskId ? "bg-[#23232a] text-white font-semibold" : "text-zinc-300 hover:bg-white/5"
                 }`}
               >
                 <span className="truncate">{t("pomo_no_task")}</span>
-                {!focusedTaskId && <Check size={12} className="text-[#3882F6] shrink-0" />}
+                {!focusedTaskId && <Check size={11.5} className="text-[#3882F6] shrink-0" />}
               </button>
               {pendingTasks.map((task) => {
                 const selected = task.id === focusedTaskId;
@@ -367,12 +367,12 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
                       onSelectFocusedTask(task.id);
                       setShowTaskDropdown(false);
                     }}
-                    className={`h-7 px-2.5 rounded-xl text-[12px] flex items-center justify-between text-left cursor-pointer ${
+                    className={`h-6.5 px-2 rounded-lg text-[11.5px] flex items-center justify-between text-left cursor-pointer ${
                       selected ? "bg-[#23232a] text-white font-semibold" : "text-zinc-300 hover:bg-white/5"
                     }`}
                   >
                     <span className="truncate">{task.text}</span>
-                    {selected && <Check size={12} className="text-[#3882F6] shrink-0" />}
+                    {selected && <Check size={11.5} className="text-[#3882F6] shrink-0" />}
                   </button>
                 );
               })}
@@ -409,7 +409,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
               );
             })}
           </div>
-          <div className="flex justify-between mt-1 text-[10.5px] text-zinc-400 tabular-nums">
+          <div className="flex justify-between mt-1 text-[10px] text-zinc-400 tabular-nums">
             <span>
               {t("pomo_session_of", {
                 curr: currentCycleSession,
@@ -426,34 +426,34 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
         </div>
 
         {/* Transport Controls: Reset / Play-Pause / Skip */}
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex items-center justify-center gap-3.5">
           <button
             type="button"
             onClick={onResetSession}
-            className="w-9 h-9 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center transition-colors cursor-pointer"
           >
-            <RotateCcw size={15} />
+            <RotateCcw size={14} />
           </button>
 
           <button
             type="button"
             onClick={onToggleRun}
             style={{ backgroundColor: modeColor }}
-            className="w-12 h-12 rounded-full text-[#0b0b0d] flex items-center justify-center shadow-lg hover:brightness-105 active:scale-95 transition-all cursor-pointer"
+            className="w-10 h-10 rounded-full text-[#0b0b0d] flex items-center justify-center shadow-lg hover:brightness-105 active:scale-95 transition-all cursor-pointer"
           >
             {isRunning ? (
-              <Pause size={21} fill="currentColor" />
+              <Pause size={18} fill="currentColor" />
             ) : (
-              <Play size={21} fill="currentColor" className="ml-0.5" />
+              <Play size={18} fill="currentColor" className="ml-0.5" />
             )}
           </button>
 
           <button
             type="button"
             onClick={onSkipSession}
-            className="w-9 h-9 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center transition-colors cursor-pointer"
           >
-            <SkipForward size={15} fill="currentColor" />
+            <SkipForward size={14} fill="currentColor" />
           </button>
         </div>
       </div>
