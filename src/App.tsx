@@ -5123,34 +5123,45 @@ export default function App() {
                     themeMode={activeEffectiveThemeMode}
                   >
                     <div className="relative w-full h-full min-w-0 overflow-hidden">
-                      <AnimatePresence custom={slideDirection}>
+                      <AnimatePresence custom={slideDirection} initial={false}>
                         {currentTab === "quick_control" && (
-                          <ControlCenterPanel
+                          <motion.div
                             key="quick_control"
-                            slideDirection={slideDirection}
-                            displayLevel={displayLevel}
-                            onSetDisplayLevel={setDisplayLevel}
-                            brightnessMode={brightnessMode}
-                            onSetBrightnessMode={setBrightnessMode}
-                            soundLevel={soundLevel}
-                            onSetSoundLevel={setSoundLevel}
-                            wifiName={wifiName}
-                            networkPing={networkPing}
-                            btName={btName}
-                            isHotspotOn={isHotspotOn}
-                            onToggleHotspot={handleToggleHotspot}
-                            focusMode={focusMode}
-                            onSelectFocusMode={selectFocusMode}
-                            focusModeOptions={focusModeOptions}
-                            stashedFilesCount={stashedFiles.length}
-                            onGoToTab={goToTab}
-                            onClose={() => {
-                              setIsQuickControl(false);
-                              setControlCenterSubmenu(null);
-                            }}
-                            onSubmenuChange={setControlCenterSubmenu}
-                            isLightMode={isLightMode}
-                          />
+                            custom={slideDirection}
+                            variants={tabVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
+                          >
+                            <React.Suspense fallback={null}>
+                              <ControlCenterPanel
+                                slideDirection={slideDirection}
+                                displayLevel={displayLevel}
+                                onSetDisplayLevel={setDisplayLevel}
+                                brightnessMode={brightnessMode}
+                                onSetBrightnessMode={setBrightnessMode}
+                                soundLevel={soundLevel}
+                                onSetSoundLevel={setSoundLevel}
+                                wifiName={wifiName}
+                                networkPing={networkPing}
+                                btName={btName}
+                                isHotspotOn={isHotspotOn}
+                                onToggleHotspot={handleToggleHotspot}
+                                focusMode={focusMode}
+                                onSelectFocusMode={selectFocusMode}
+                                focusModeOptions={focusModeOptions}
+                                stashedFilesCount={stashedFiles.length}
+                                onGoToTab={goToTab}
+                                onClose={() => {
+                                  setIsQuickControl(false);
+                                  setControlCenterSubmenu(null);
+                                }}
+                                onSubmenuChange={setControlCenterSubmenu}
+                                isLightMode={isLightMode}
+                              />
+                            </React.Suspense>
+                          </motion.div>
                         )}
 
                         {currentTab === "clipboard" && (
@@ -5161,7 +5172,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <ClipboardPanel
@@ -5195,7 +5206,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <TodoListPanel
@@ -5227,7 +5238,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <PomodoroPanel
@@ -5259,7 +5270,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <DropShelfPanel
@@ -5296,7 +5307,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <SystemMonitorPanel ping={networkPing} wifiSsid={wifiName} />
@@ -5312,7 +5323,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <MiniNotePanel optLanguage={optLanguage} onEditingChange={setIsNoteEditing} />
@@ -5328,7 +5339,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <WaterReminderPanel
@@ -5350,7 +5361,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <PrayerReminderPanel
@@ -5375,7 +5386,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <SettingsPanel
@@ -5659,7 +5670,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <VolumeMixerPanel
@@ -5681,7 +5692,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <NotificationCenterPanel
@@ -5706,7 +5717,7 @@ export default function App() {
                             initial="enter"
                             animate="center"
                             exit="exit"
-                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated"
+                            className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
                               <MediaExpandedPanel

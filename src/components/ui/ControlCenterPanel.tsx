@@ -27,7 +27,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Tooltip } from "./Tooltip";
-import { iosSpring, iosRiseVariants } from "../../utils/iosMotion";
+import { iosSpring } from "../../utils/iosMotion";
 import { t, getLanguage } from "../../services/i18n";
 import { WifiSubmenu } from "./control-center/WifiSubmenu";
 import { BluetoothSubmenu } from "./control-center/BluetoothSubmenu";
@@ -46,7 +46,7 @@ export interface FocusModeOption {
 }
 
 export interface ControlCenterPanelProps {
-  slideDirection: number;
+  slideDirection?: number;
   displayLevel: number;
   onSetDisplayLevel: (level: number) => void;
   brightnessMode: "auto" | "manual" | "reading";
@@ -80,7 +80,6 @@ export interface ControlCenterPanelProps {
 }
 
 export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
-  slideDirection,
   displayLevel,
   onSetDisplayLevel,
   brightnessMode,
@@ -307,12 +306,11 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
         />
       ) : (
         <motion.div
-          key="quick_control"
-          custom={slideDirection}
-          variants={iosRiseVariants}
-          initial="enter"
-          animate="center"
-          exit="exit"
+          key="quick_control_main"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
           className="absolute inset-0 w-full h-full flex flex-col px-6 pt-1 pb-1 justify-start gap-2 min-w-0 select-none gpu-accelerated"
         >
           {/* Click-outside catcher when Mode Dropdown or Power Menu is open */}

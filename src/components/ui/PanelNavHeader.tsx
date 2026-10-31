@@ -792,7 +792,13 @@ export const PanelFrame = React.memo<PanelFrameProps>(
         return;
       }
 
+      const now = Date.now();
+      if (now - lastSwipeTimeRef.current < 280) {
+        return;
+      }
+
       if (Math.abs(info.offset.x) > 35 && Math.abs(info.offset.x) > Math.abs(info.offset.y) * 1.1) {
+        lastSwipeTimeRef.current = now;
         if (info.offset.x < 0 && hasNext) {
           onNext();
         } else if (info.offset.x > 0 && hasPrev) {
