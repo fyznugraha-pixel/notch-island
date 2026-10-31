@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -43,6 +43,14 @@ const CHANGELOG: ChangelogEntry[] = [
         titleEn: "Live Tab Preview Toolbar in Settings",
         descId: "Buka dan intip tab Control Center, Monitor Sistem, dan Pemutar Musik secara langsung di Notch saat sedang menyesuaikan tampilan.",
         descEn: "Directly open and preview Control Center, System Monitor, and Music player tabs on the Notch while fine-tuning appearance.",
+        badge: "new",
+      },
+      {
+        icon: <LayoutGrid size={14} />,
+        titleId: "8 Pilihan Posisi Fleksibel Notch di Layar",
+        titleEn: "8 Flexible Notch Screen Positions",
+        descId: "Pilih posisi Notch di 8 titik layar (Atas Tengah, Bawah Tengah, Kiri, Kanan, serta 4 Sudut Layar) lengkap dengan selector pratinjau visual interaktif.",
+        descEn: "Position the Notch across 8 screen locations (Top Center, Bottom Center, Left, Right, and all 4 corners) with an interactive visual preview selector.",
         badge: "new",
       },
       {
