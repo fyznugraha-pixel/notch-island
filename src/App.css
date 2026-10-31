@@ -12,6 +12,22 @@ html, body, #root {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html.settings-window,
+html.settings-window body,
+body.settings-window,
+html.settings-window #root {
+  background-color: #0c0c10 !important;
+  background: #0c0c10 !important;
+}
+
+html.settings-window.light,
+html.settings-window.light body,
+body.settings-window.light,
+html.settings-window.light #root {
+  background-color: #f5f5f7 !important;
+  background: #f5f5f7 !important;
+}
+
 * {
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;

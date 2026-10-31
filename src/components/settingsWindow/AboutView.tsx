@@ -18,9 +18,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "4.3.1",
+    version: "4.3.2",
     date: "1 Nov 2026",
     highlights: [
+      {
+        icon: <Bug size={14} />,
+        titleId: "Perbaikan Stabilitas Jendela Pengaturan",
+        titleEn: "Settings Window Stability Fix",
+        descId: "Memulihkan sepenuhnya kestabilan jendela Pengaturan dengan menghapus pembatasan proses WebView2 dan mengembalikan siklus hidup sinkron bebas crash.",
+        descEn: "Completely restored Settings window stability by eliminating WebView2 process limits and restoring synchronous crash-free lifecycle.",
+        badge: "fix",
+      },
       {
         icon: <Monitor size={14} />,
         titleId: "Dukungan Dual Monitor & Pintasan Layar",
@@ -28,14 +36,6 @@ const CHANGELOG: ChangelogEntry[] = [
         descId: "Pindai otomatis seluruh layar yang terhubung dan pindahkan posisi Gili Notch antar monitor secara instan, baik melalui pemilih di menu Pengaturan Tampilan maupun pintasan keyboard global (Control+Alt+M) dengan notifikasi HUD nama & resolusi monitor.",
         descEn: "Automatically detects all connected displays and moves Gili Notch between screens instantly, via the Appearance settings selector or the new global shortcut (Control+Alt+M) with resolution HUD feedback.",
         badge: "new",
-      },
-      {
-        icon: <Bug size={14} />,
-        titleId: "Perbaikan Bug Buka Jendela Pengaturan",
-        titleEn: "Settings Window Launch Bug Fix",
-        descId: "Memperbaiki masalah di mana jendela pengaturan terbuka sekejap lalu langsung tertutup di perangkat tertentu dengan menghapus batasan proses render WebView2 dan memperkuat deteksi rute jendela secara sinkron.",
-        descEn: "Fixed an issue where the settings window briefly flashed and immediately closed on certain devices by eliminating WebView2 process restrictions and hardening synchronous window route detection.",
-        badge: "fix",
       },
       {
         icon: <Zap size={14} />,

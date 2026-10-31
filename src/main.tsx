@@ -1,4 +1,4 @@
-import { Component, ErrorInfo, lazy, ReactNode, Suspense } from "react";
+import { Component, ErrorInfo, ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "@fontsource/inter/400.css";
@@ -7,33 +7,40 @@ import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
 import "./App.css";
 import "./index.css";
+import App from "./App";
+import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
 import { getLanguage } from "./services/i18n";
-
-const App = lazy(() => import("./App"));
-const SettingsWindowApp = lazy(() =>
-  import("./components/settingsWindow/SettingsWindowApp").then((m) => ({
-    default: m.SettingsWindowApp,
-  }))
-);
 
 const isSettingsWindow = (() => {
   if (typeof window === "undefined") return false;
-  const searchParams = new URLSearchParams(window.location.search);
-  const fromUrl =
-    searchParams.get("window") === "settings" ||
-    window.location.search.includes("window=settings") ||
-    window.location.href.includes("window=settings");
-  if (fromUrl) {
-    document.documentElement.classList.add("settings-window");
-    return true;
-  }
-  try {
-    if (getCurrentWindow().label === "settings") {
-      document.documentElement.classList.add("settings-window");
-      return true;
+  let result = false;
+  if ((window as any).__IS_SETTINGS_WINDOW__ === true) {
+    result = true;
+  } else {
+    try {
+      if (getCurrentWindow().label === "settings") {
+        result = true;
+      }
+    } catch {}
+    if (!result) {
+      result =
+        new URLSearchParams(window.location.search).get("window") === "settings" ||
+        window.location.search.includes("window=settings") ||
+        window.location.href.includes("window=settings");
     }
-  } catch {}
-  return false;
+  }
+
+  if (result) {
+    document.documentElement.classList.add("settings-window");
+    if (document.body) {
+      document.body.classList.add("settings-window");
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add("settings-window");
+      });
+    }
+  }
+  return result;
 })();
 
 interface Props {
@@ -74,8 +81,6 @@ class RootErrorBoundary extends Component<Props, State> {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RootErrorBoundary>
-    <Suspense fallback={null}>
-      {isSettingsWindow ? <SettingsWindowApp /> : <App />}
-    </Suspense>
+    {isSettingsWindow ? <SettingsWindowApp /> : <App />}
   </RootErrorBoundary>
 );

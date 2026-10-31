@@ -2551,15 +2551,10 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
             return;
         }
 
-        let url_path = match section.as_deref() {
-            Some(sec) if !sec.is_empty() => format!("index.html?window=settings&section={}", sec),
-            _ => "index.html?window=settings".to_string(),
-        };
-
         match tauri::WebviewWindowBuilder::new(
             &app_handle,
             "settings",
-            tauri::WebviewUrl::App(url_path.into()),
+            tauri::WebviewUrl::App("index.html".into()),
         )
         .title("Gili Settings")
         .inner_size(880.0, 620.0)
@@ -2572,7 +2567,8 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         .center()
         .visible(true)
         .focused(true)
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache")
+        .initialization_script("window.__IS_SETTINGS_WINDOW__ = true;")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
         .build()
         {
             Ok(win) => {
@@ -2581,21 +2577,8 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
                         let _ = sw.hide();
-                        schedule_working_set_trim(800);
                     }
                 });
-                let _ = win.show();
-                let _ = win.set_focus();
-                #[cfg(windows)]
-                if let Ok(hwnd) = win.hwnd() {
-                    use windows::Win32::Foundation::HWND;
-                    use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, ShowWindow, SW_SHOW};
-                    unsafe {
-                        let h = HWND(hwnd.0);
-                        let _ = ShowWindow(h, SW_SHOW);
-                        let _ = SetForegroundWindow(h);
-                    }
-                }
             }
             Err(e) => {
                 eprintln!("Failed to create settings window: {:?}", e);
@@ -2632,11 +2615,6 @@ fn restart_app(app: tauri::AppHandle) {
 pub fn run() {
     #[cfg(windows)]
     {
-        std::env::set_var(
-            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-            "--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache",
-        );
-
         // Migrate and clean up any legacy Notch artifacts before checking mutex
         migration::run_legacy_migration();
 
