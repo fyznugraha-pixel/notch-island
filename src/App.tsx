@@ -1839,6 +1839,17 @@ export default function App() {
   useEffect(() => {
     optPositionRef.current = optPosition;
   }, [optPosition]);
+  const [optTargetMonitor, setOptTargetMonitor] = useState<string>(() => {
+    try {
+      return localStorage.getItem("island_target_monitor") || "primary";
+    } catch {
+      return "primary";
+    }
+  });
+  const optTargetMonitorRef = useRef<string>(optTargetMonitor);
+  useEffect(() => {
+    optTargetMonitorRef.current = optTargetMonitor;
+  }, [optTargetMonitor]);
   const [optOpacity, setOptOpacity] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("island_opacity");
@@ -1976,6 +1987,7 @@ export default function App() {
       position: optPosition,
       topOffset: islandTopOffset,
       isIsland: shape === "island",
+      targetMonitor: optTargetMonitorRef.current,
     }).catch(console.error);
   }, [store, optPosition, islandTopOffset, notchShape]);
 
@@ -1994,6 +2006,7 @@ export default function App() {
       position: optPosition,
       topOffset: clamped,
       isIsland: notchShape === "island",
+      targetMonitor: optTargetMonitorRef.current,
     }).catch(console.error);
   }, [store, optPosition, notchShape]);
   
@@ -2325,6 +2338,11 @@ export default function App() {
         if (isValidNotchPosition(p)) {
           setOptPosition(p);
           try { localStorage.setItem("island_position", p); } catch {}
+        }
+        const mon = await s.get('opt_target_monitor');
+        if (typeof mon === 'string' && mon) {
+          setOptTargetMonitor(mon);
+          try { localStorage.setItem("island_target_monitor", mon); } catch {}
         }
         const o = await s.get('opt_opacity'); if (o !== null) setOptOpacity(Number(o));
         const bl = await s.get('opt_blur');
@@ -3318,7 +3336,15 @@ export default function App() {
                 position: value,
                 topOffset: islandTopOffsetRef.current,
                 isIsland: isIslandRef.current,
+                targetMonitor: optTargetMonitorRef.current,
               }).catch(console.error);
+            }
+            break;
+          case "opt_target_monitor":
+            if (typeof value === "string") {
+              setOptTargetMonitor(value);
+              try { localStorage.setItem("island_target_monitor", value); } catch {}
+              invoke("set_target_monitor", { targetMonitor: value }).catch(console.error);
             }
             break;
           case "opt_ears":
@@ -4279,8 +4305,9 @@ export default function App() {
       position: optPosition,
       topOffset: islandTopOffset,
       isIsland: notchShape === "island",
+      targetMonitor: optTargetMonitor,
     }).catch(console.error);
-  }, [optPosition, notchShape, islandTopOffset]);
+  }, [optPosition, notchShape, islandTopOffset, optTargetMonitor]);
 
   useEffect(() => {
     const handleFocus = () => {
@@ -5593,6 +5620,7 @@ export default function App() {
                                 position: pos,
                                 topOffset: islandTopOffset,
                                 isIsland: notchShape === "island",
+                                targetMonitor: optTargetMonitorRef.current,
                               }).catch(console.error);
                             }}
                             optOpacity={optOpacity}

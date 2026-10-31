@@ -2,6 +2,7 @@ import React from "react";
 import { Moon, Type, Layout, Smile, Scaling, Activity, Sliders, MoveVertical } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { NotchPositionPreviewSelector } from "./NotchPositionPreviewSelector";
+import { MonitorSelector } from "./MonitorSelector";
 import { TransparencyControlSection } from "./TransparencyControlSection";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
@@ -17,6 +18,8 @@ export interface AppearanceTabProps {
   onChangeIslandTopOffset: (offset: number) => void;
   optPosition: NotchPosition;
   onChangePosition: (pos: NotchPosition) => void;
+  targetMonitor?: string;
+  onChangeTargetMonitor?: (id: string) => void;
   showPositionSetting?: boolean;
   isLightMode?: boolean;
   optFontSize: "small" | "default" | "large";
@@ -44,6 +47,8 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onChangeIslandTopOffset,
   optPosition,
   onChangePosition,
+  targetMonitor = "primary",
+  onChangeTargetMonitor,
   showPositionSetting = false,
   isLightMode = false,
   optFontSize,
@@ -289,7 +294,16 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
         />
       )}
 
-      {/* 3. Posisi (8 Titik Layar + Preview Penempatan - Hanya di Settings Window) */}
+      {/* 3. Pilih Monitor (Multi-Monitor Support) */}
+      {showPositionSetting && onChangeTargetMonitor && (
+        <MonitorSelector
+          value={targetMonitor}
+          onChange={onChangeTargetMonitor}
+          isLightMode={isLightMode}
+        />
+      )}
+
+      {/* 4. Posisi (8 Titik Layar + Preview Penempatan - Hanya di Settings Window) */}
       {showPositionSetting && (
         <div className="flex flex-col gap-2.5 px-3 py-2.5 rounded-[12px] hover:bg-white/[0.02] transition-colors">
           <div className="flex items-center gap-3">

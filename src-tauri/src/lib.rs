@@ -799,7 +799,7 @@ impl NotchPos {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct PillState {
     pub width: f32,
     pub height: f32,
@@ -808,6 +808,7 @@ pub struct PillState {
     pub top_offset: f32,
     pub is_island: bool,
     pub dpr: f32,
+    pub target_monitor: Option<String>,
 }
 
 impl Default for PillState {
@@ -820,14 +821,72 @@ impl Default for PillState {
             top_offset: 0.0,
             is_island: false,
             dpr: 1.0,
+            target_monitor: None,
         }
     }
 }
 
 pub struct PillSize(pub std::sync::Mutex<PillState>);
 
-fn position_notch_window(window: &tauri::WebviewWindow, pos: NotchPos, top_offset_phys: i32) {
-    if let Ok(Some(monitor)) = window.current_monitor() {
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct MonitorInfo {
+    pub id: String,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub scale_factor: f64,
+    pub is_primary: bool,
+    pub is_current: bool,
+}
+
+fn resolve_target_monitor(
+    window: &tauri::WebviewWindow,
+    target_id: Option<&str>,
+) -> Option<tauri::Monitor> {
+    let monitors = window.available_monitors().ok()?;
+    if monitors.is_empty() {
+        return None;
+    }
+
+    if let Some(target) = target_id {
+        let trimmed_target = target.trim();
+        if !trimmed_target.is_empty() && !trimmed_target.eq_ignore_ascii_case("primary") {
+            if let Some(found) = monitors.iter().find(|m| {
+                if let Some(name) = m.name() {
+                    let clean_m = name.trim_start_matches(r"\\.\");
+                    let clean_t = trimmed_target.trim_start_matches(r"\\.\");
+                    if name == trimmed_target || clean_m.eq_ignore_ascii_case(clean_t) {
+                        return true;
+                    }
+                }
+                false
+            }) {
+                return Some(found.clone());
+            }
+
+            if let Ok(idx) = trimmed_target.parse::<usize>() {
+                if let Some(found) = monitors.get(idx) {
+                    return Some(found.clone());
+                }
+            }
+        }
+    }
+
+    window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| monitors.into_iter().next())
+}
+
+fn position_notch_window(
+    window: &tauri::WebviewWindow,
+    pos: NotchPos,
+    top_offset_phys: i32,
+    target_monitor_id: Option<&str>,
+) {
+    if let Some(monitor) = resolve_target_monitor(window, target_monitor_id) {
         let work_area = monitor.work_area();
         let physical_size = monitor.size();
         let physical_pos = monitor.position();
@@ -855,33 +914,124 @@ fn position_notch_window(window: &tauri::WebviewWindow, pos: NotchPos, top_offse
 }
 
 #[tauri::command]
+fn get_available_monitors(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Vec<MonitorInfo> {
+    let main_win = if window.label() == "main" {
+        Some(window.clone())
+    } else {
+        app.get_webview_window("main")
+    };
+
+    let (current_name, monitors) = if let Some(ref win) = main_win {
+        let cur = win.current_monitor().ok().flatten().and_then(|m| m.name().map(|s| s.to_string()));
+        let list = win.available_monitors().unwrap_or_default();
+        (cur, list)
+    } else {
+        (None, window.available_monitors().unwrap_or_default())
+    };
+
+    let primary_name = main_win
+        .as_ref()
+        .and_then(|w| w.primary_monitor().ok().flatten())
+        .and_then(|m| m.name().map(|s| s.to_string()));
+
+    monitors
+        .into_iter()
+        .enumerate()
+        .map(|(idx, m)| {
+            let m_name = m.name().map(|s| s.to_string()).unwrap_or_else(|| format!("Display {}", idx + 1));
+            let is_primary = if let Some(ref p_name) = primary_name {
+                &m_name == p_name
+            } else {
+                m.position().x == 0 && m.position().y == 0
+            };
+            let is_current = current_name.as_ref().map(|cn| cn == &m_name).unwrap_or(false);
+            let size = m.size();
+            let clean_name = m_name.trim_start_matches(r"\\.\").to_string();
+            let label = if is_primary {
+                format!("Monitor {} ({}) • Primary", idx + 1, clean_name)
+            } else {
+                format!("Monitor {} ({})", idx + 1, clean_name)
+            };
+
+            MonitorInfo {
+                id: m_name,
+                name: label,
+                width: size.width,
+                height: size.height,
+                scale_factor: m.scale_factor(),
+                is_primary,
+                is_current,
+            }
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn set_target_monitor(
+    target_monitor: Option<String>,
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, PillSize>,
+) {
+    let main_win = if window.label() == "main" {
+        window
+    } else if let Some(w) = app.get_webview_window("main") {
+        w
+    } else {
+        return;
+    };
+
+    let (pos, top_offset, is_island, dpr) = if let Ok(mut size) = state.0.lock() {
+        size.target_monitor = target_monitor.clone();
+        (size.pos, size.top_offset, size.is_island, size.dpr)
+    } else {
+        (NotchPos::Top, 0.0, false, 1.0)
+    };
+
+    let sf = main_win.scale_factor().unwrap_or(1.0);
+    let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
+    let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+    position_notch_window(&main_win, pos, phys_offset, target_monitor.as_deref());
+}
+
+#[tauri::command]
 fn set_window_position(
     is_bottom: bool,
     position: Option<String>,
     top_offset: Option<f32>,
     is_island: Option<bool>,
+    target_monitor: Option<String>,
+    app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PillSize>,
 ) {
-    if window.label() != "main" {
+    let target_win = if window.label() == "main" {
+        window
+    } else if let Some(w) = app.get_webview_window("main") {
+        w
+    } else {
         return;
-    }
+    };
+
     let pos = NotchPos::from_str_or_bottom(position.as_deref(), is_bottom);
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
-    let dpr = if let Ok(mut size) = state.0.lock() {
+    let (dpr, chosen_monitor) = if let Ok(mut size) = state.0.lock() {
         size.is_bottom = pos.is_bottom();
         size.pos = pos;
         size.top_offset = top_offset;
         size.is_island = is_island;
-        size.dpr
+        if target_monitor.is_some() {
+            size.target_monitor = target_monitor.clone();
+        }
+        (size.dpr, size.target_monitor.clone())
     } else {
-        1.0
+        (1.0, target_monitor)
     };
-    let sf = window.scale_factor().unwrap_or(1.0);
+    let sf = target_win.scale_factor().unwrap_or(1.0);
     let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
     let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-    position_notch_window(&window, pos, phys_offset);
+    position_notch_window(&target_win, pos, phys_offset, chosen_monitor.as_deref());
 }
 
 static IS_TRIM_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1000,7 +1150,7 @@ fn update_pill_size(
             let sf = window.scale_factor().unwrap_or(1.0);
             let effective_sf = if size.dpr > 0.0 { (size.dpr as f64).max(sf) } else { sf * get_system_text_scale() };
             let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-            position_notch_window(&window, pos, phys_offset);
+            position_notch_window(&window, pos, phys_offset, size.target_monitor.as_deref());
         }
 
         if was_expanded && !now_expanded {
@@ -2162,7 +2312,7 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
         if unsafe { GetCursorPos(&mut pt) }.is_ok() {
             if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (window.outer_position(), window.outer_size(), window.scale_factor()) {
                 let pill = if let Ok(size) = state.0.lock() {
-                    *size
+                    size.clone()
                 } else {
                     PillState::default()
                 };
@@ -2531,6 +2681,8 @@ pub fn run() {
             fetch_external_lyrics_api,
             update_pill_size,
             set_window_position,
+            get_available_monitors,
+            set_target_monitor,
             get_battery_status,
             get_privacy_status,
             get_privacy_debug_info,
@@ -2647,7 +2799,7 @@ pub fn run() {
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(820.0, 460.0)));
 
             // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI berubah
-            position_notch_window(&window, NotchPos::Top, 0);
+            position_notch_window(&window, NotchPos::Top, 0, None);
             schedule_working_set_trim(3500);
             let win_for_events = window.clone();
             let app_for_events = app.handle().clone();
@@ -2661,16 +2813,16 @@ pub fn run() {
                         if win_for_events.is_minimized().unwrap_or(false) {
                             let _ = win_for_events.unminimize();
                         }
-                        let (pos, top_offset, is_island, dpr) = app_for_events
+                        let (pos, top_offset, is_island, dpr, target_mon) = app_for_events
                             .state::<PillSize>()
                             .0
                             .lock()
-                            .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr))
-                            .unwrap_or((NotchPos::Top, 0.0, false, 1.0));
+                            .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr, s.target_monitor.clone()))
+                            .unwrap_or((NotchPos::Top, 0.0, false, 1.0, None));
                         let sf = win_for_events.scale_factor().unwrap_or(1.0);
                         let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
                         let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-                        position_notch_window(&win_for_events, pos, phys_offset);
+                        position_notch_window(&win_for_events, pos, phys_offset, target_mon.as_deref());
                     }
                     _ => {}
                 }
@@ -2718,7 +2870,7 @@ pub fn run() {
                     let mut pt = POINT { x: 0, y: 0 };
                     if unsafe { GetCursorPos(&mut pt) }.is_ok() {
                         let pill = if let Ok(size) = app_handle_poll.state::<PillSize>().0.lock() {
-                            *size
+                            size.clone()
                         } else {
                             PillState::default()
                         };
@@ -3802,6 +3954,7 @@ mod hit_test {
             top_offset: 0.0,
             is_island: false,
             dpr: 1.0,
+            target_monitor: None,
         };
 
         // Center is at 360 + (1200 - 120) / 2 = 900.
@@ -3829,6 +3982,7 @@ mod hit_test {
             top_offset: 0.0,
             is_island: false,
             dpr: 1.25,
+            target_monitor: None,
         };
 
         // With 125% text scale:
@@ -3867,6 +4021,7 @@ mod hit_test {
             top_offset: 10.0,
             is_island: true,
             dpr: 1.0,
+            target_monitor: None,
         };
 
         // phys_offset = 10, min_y = 10 - 10 = 0 (physical screen edge)
@@ -3894,6 +4049,7 @@ mod hit_test {
             top_offset: 0.0,
             is_island: false,
             dpr: 1.0,
+            target_monitor: None,
         };
 
         // pill_y = 320 + 760 - 35 = 1045
@@ -3917,6 +4073,7 @@ mod hit_test {
             top_offset: 12.0,
             is_island: true,
             dpr: 1.0,
+            target_monitor: None,
         };
 
         // Point inside the 12px floating gap above the notch (y = 6)
@@ -3938,5 +4095,92 @@ mod hit_test {
         // Point too far above (y = -40)
         let too_far_above = POINT { x: 960, y: -40 };
         assert!(!calculate_notch_hit(too_far_above, win_pos, win_size, 1.0, &pill));
+    }
+
+    #[test]
+    fn test_monitor_enumeration_win32() {
+        use windows::Win32::Graphics::Gdi::{
+            EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
+        };
+        use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
+
+        unsafe extern "system" fn monitor_enum(
+            hmonitor: HMONITOR,
+            _: HDC,
+            _: *mut RECT,
+            lparam: LPARAM,
+        ) -> BOOL {
+            let list = &mut *(lparam.0 as *mut Vec<(String, bool, RECT)>);
+            let mut info = MONITORINFOEXW::default();
+            info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+            if GetMonitorInfoW(hmonitor, &mut info.monitorInfo as *mut _ as *mut _).as_bool() {
+                let name = String::from_utf16_lossy(&info.szDevice)
+                    .trim_matches(char::from(0))
+                    .to_string();
+                let is_primary = (info.monitorInfo.dwFlags & 1) != 0;
+                list.push((name, is_primary, info.monitorInfo.rcMonitor));
+            }
+            BOOL(1)
+        }
+
+        let mut monitors: Vec<(String, bool, RECT)> = Vec::new();
+        unsafe {
+            let _ = EnumDisplayMonitors(
+                HDC(std::ptr::null_mut()),
+                None,
+                Some(monitor_enum),
+                LPARAM(&mut monitors as *mut _ as isize),
+            );
+        }
+
+        println!("Detected monitors count: {}", monitors.len());
+        for (idx, (name, is_primary, rect)) in monitors.iter().enumerate() {
+            println!(
+                "Monitor {}: name='{}', primary={}, width={}, height={}, left={}, top={}",
+                idx,
+                name,
+                is_primary,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                rect.left,
+                rect.top
+            );
+        }
+        assert!(!monitors.is_empty(), "Should detect at least 1 monitor on Windows");
+    }
+
+    #[test]
+    fn test_multi_monitor_position_and_hit_detection() {
+        // Monitor 1: 1536x864 at (0, 0)
+        // Monitor 2: 1920x1080 at (1536, 0)
+        let mon2_x = 1536;
+        let mon2_w = 1920;
+        let win_w = 820;
+        let win_h = 460;
+
+        // Position on Monitor 2 Top Center:
+        let expected_win_x = mon2_x + (mon2_w - win_w) / 2; // 1536 + 550 = 2086
+        let expected_win_y = 0;
+        let win_pos = tauri::PhysicalPosition::new(expected_win_x, expected_win_y);
+        let win_size = tauri::PhysicalSize::new(win_w as u32, win_h as u32);
+
+        let pill = PillState {
+            width: 120.0,
+            height: 35.0,
+            is_bottom: false,
+            pos: NotchPos::Top,
+            top_offset: 0.0,
+            is_island: false,
+            dpr: 1.0,
+            target_monitor: Some(r"\\.\DISPLAY2".to_string()),
+        };
+
+        // Pill center on Monitor 2: 2086 + (820 - 120)/2 + 60 = 2086 + 350 + 60 = 2496
+        let inside_monitor_2 = POINT { x: 2496, y: 15 };
+        assert!(calculate_notch_hit(inside_monitor_2, win_pos, win_size, 1.0, &pill));
+
+        // Cursor on Monitor 1 at same relative location (e.g. x = 768) should NOT hit
+        let cursor_on_monitor_1 = POINT { x: 768, y: 15 };
+        assert!(!calculate_notch_hit(cursor_on_monitor_1, win_pos, win_size, 1.0, &pill));
     }
 }

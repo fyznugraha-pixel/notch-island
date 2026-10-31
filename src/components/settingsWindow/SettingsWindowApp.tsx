@@ -166,6 +166,13 @@ export const SettingsWindowApp: React.FC = () => {
     } catch {}
     return "top";
   });
+  const [optTargetMonitor, setOptTargetMonitor] = useState<string>(() => {
+    try {
+      return localStorage.getItem("island_target_monitor") || "primary";
+    } catch {
+      return "primary";
+    }
+  });
   const [optFontSize, setOptFontSize] = useState<"small" | "default" | "large">("default");
   const [optIdleSize, setOptIdleSize] = useState<"compact" | "default" | "large">("default");
   const [optTabSize, setOptTabSize] = useState<"compact" | "default" | "large">("default");
@@ -320,6 +327,8 @@ export const SettingsWindowApp: React.FC = () => {
 
         const p = await s.get("opt_position");
         if (isValidNotchPosition(p)) setOptPosition(p);
+        const mon = await s.get("opt_target_monitor");
+        if (typeof mon === "string" && mon) setOptTargetMonitor(mon);
 
         const o = await s.get("opt_opacity");
         if (o !== null && o !== undefined) setOptOpacity(Number(o));
@@ -432,6 +441,9 @@ export const SettingsWindowApp: React.FC = () => {
             break;
           case "opt_position":
             setOptPosition(value);
+            break;
+          case "opt_target_monitor":
+            if (typeof value === "string") setOptTargetMonitor(value);
             break;
           case "opt_ears":
             setOptEars(Boolean(value));
@@ -605,6 +617,19 @@ export const SettingsWindowApp: React.FC = () => {
       await store.save();
     }
     broadcastSetting("opt_position", pos);
+  };
+
+  const handleChangeTargetMonitor = async (monitorId: string) => {
+    setOptTargetMonitor(monitorId);
+    try {
+      localStorage.setItem("island_target_monitor", monitorId);
+    } catch {}
+    if (store) {
+      await store.set("opt_target_monitor", monitorId);
+      await store.save();
+    }
+    broadcastSetting("opt_target_monitor", monitorId);
+    invoke("set_target_monitor", { targetMonitor: monitorId }).catch(() => {});
   };
 
   const handleToggleEars = async () => {
@@ -1048,6 +1073,8 @@ export const SettingsWindowApp: React.FC = () => {
                       onChangeIslandTopOffset={handleChangeIslandTopOffset}
                       optPosition={optPosition}
                       onChangePosition={handleChangePosition}
+                      targetMonitor={optTargetMonitor}
+                      onChangeTargetMonitor={handleChangeTargetMonitor}
                       showPositionSetting={true}
                       isLightMode={isLightMode}
                       optFontSize={optFontSize}

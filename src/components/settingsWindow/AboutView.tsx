@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -43,6 +43,14 @@ const CHANGELOG: ChangelogEntry[] = [
         titleEn: "Live Tab Preview Toolbar in Settings",
         descId: "Buka dan intip tab Control Center, Monitor Sistem, dan Pemutar Musik secara langsung di Notch saat sedang menyesuaikan tampilan.",
         descEn: "Directly open and preview Control Center, System Monitor, and Music player tabs on the Notch while fine-tuning appearance.",
+        badge: "new",
+      },
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Dukungan Multi-Monitor & Pemilih Layar",
+        titleEn: "Multi-Monitor Support & Display Selector",
+        descId: "Pindai otomatis seluruh layar yang terhubung dan pilih dengan bebas monitor mana yang ingin digunakan untuk menampilkan Gili Notch.",
+        descEn: "Automatically scans all connected displays and allows you to freely select which monitor hosts Gili Notch.",
         badge: "new",
       },
       {
