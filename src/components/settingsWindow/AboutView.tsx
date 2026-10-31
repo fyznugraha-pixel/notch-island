@@ -23,18 +23,26 @@ const CHANGELOG: ChangelogEntry[] = [
     highlights: [
       {
         icon: <Monitor size={14} />,
-        titleId: "Pintasan Keyboard Beralih Monitor",
-        titleEn: "Display Monitor Switch Shortcut",
-        descId: "Pintasan global baru (default Control+Alt+M) untuk memindai monitor aktif secara otomatis dan memindahkan notch ke layar berikutnya dengan notifikasi HUD.",
-        descEn: "New global shortcut (default Control+Alt+M) to auto-scan active displays and cycle the notch to the next monitor with HUD feedback.",
+        titleId: "Dukungan Dual Monitor & Pintasan Layar",
+        titleEn: "Dual Monitor Support & Display Shortcut",
+        descId: "Pindai otomatis seluruh layar yang terhubung dan pindahkan posisi Gili Notch antar monitor secara instan, baik melalui pemilih di menu Pengaturan Tampilan maupun pintasan keyboard global (Control+Alt+M) dengan notifikasi HUD nama & resolusi monitor.",
+        descEn: "Automatically detects all connected displays and moves Gili Notch between screens instantly, via the Appearance settings selector or the new global shortcut (Control+Alt+M) with resolution HUD feedback.",
         badge: "new",
       },
       {
         icon: <Bug size={14} />,
-        titleId: "Perbaikan Stabilitas Jendela Pengaturan",
-        titleEn: "Settings Window Stability Fixes",
-        descId: "Menghapus batas proses render WebView2 dan memperkuat deteksi rute jendela agar jendela Settings tidak crash atau tertutup mendadak saat dibuka.",
-        descEn: "Eliminated WebView2 renderer process limits and hardened window route detection to prevent the Settings window from crashing or unexpectedly closing.",
+        titleId: "Perbaikan Bug Buka Jendela Pengaturan",
+        titleEn: "Settings Window Launch Bug Fix",
+        descId: "Memperbaiki masalah di mana jendela pengaturan terbuka sekejap lalu langsung tertutup di perangkat tertentu dengan menghapus batasan proses render WebView2 dan memperkuat deteksi rute jendela secara sinkron.",
+        descEn: "Fixed an issue where the settings window briefly flashed and immediately closed on certain devices by eliminating WebView2 process restrictions and hardening synchronous window route detection.",
+        badge: "fix",
+      },
+      {
+        icon: <Zap size={14} />,
+        titleId: "Pencegahan Notch Terbuka Kembali Saat Menutup",
+        titleEn: "Prevent Re-opening During Collapse Animation",
+        descId: "Memperbaiki interaksi kursor di mana gerakan mouse yang melintasi area bekas tab saat notch sedang dalam proses animasi menutup tidak akan membuka kembali notch secara tidak sengaja.",
+        descEn: "Fixed cursor interaction where moving the mouse across former tab bounds during the collapse animation no longer accidentally re-triggers opening.",
         badge: "fix",
       },
     ],
@@ -283,7 +291,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ appVersion, optLanguage, i
       {/* What's New Section */}
       <div className="flex flex-col gap-2">
         <h2 className={`text-[13px] font-bold tracking-tight px-1 ${isLightMode ? "text-neutral-900" : "text-white"}`}>
-          {isId ? "✦ Yang Baru" : "✦ What's New"}
+          {isId ? "Yang Baru" : "What's New"}
         </h2>
 
         <div className="flex flex-col gap-2">
@@ -354,7 +362,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ appVersion, optLanguage, i
       {/* Footer Note */}
       <div className={`w-full rounded-[18px] p-4 flex items-center justify-center text-center ${cardBase}`}>
         <span className={`text-[12px] font-medium ${isLightMode ? "text-neutral-500" : "text-zinc-400"}`}>
-          {isId ? "Terima kasih sudah menggunakan Gili 🙌" : "Thank you for using Gili 🙌"}
+          {isId ? "Terima kasih sudah menggunakan Gili" : "Thank you for using Gili"}
         </span>
       </div>
     </div>
