@@ -2572,14 +2572,15 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         .center()
         .visible(true)
         .focused(true)
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache")
         .build()
         {
             Ok(win) => {
-                let win_for_close = win.clone();
+                let sw = win.clone();
                 win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { .. } = event {
-                        let _ = win_for_close.destroy();
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = sw.hide();
                         schedule_working_set_trim(800);
                     }
                 });
@@ -2633,7 +2634,7 @@ pub fn run() {
     {
         std::env::set_var(
             "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-            "--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --enable-zero-copy --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache",
+            "--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion,Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,SpareRendererForSitePerProcess,BackForwardCache",
         );
 
         // Migrate and clean up any legacy Notch artifacts before checking mutex
