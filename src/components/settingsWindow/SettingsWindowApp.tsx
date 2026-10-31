@@ -89,7 +89,7 @@ export const SettingsWindowApp: React.FC = () => {
   const [activeSection, setActiveSection] = useState<SettingsWindowSection>(initialSection);
   const [searchQuery, setSearchQuery] = useState("");
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("4.3.0");
+  const [currentAppVersion, setCurrentAppVersion] = useState("4.3.1");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());

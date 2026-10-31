@@ -18,6 +18,28 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.3.1",
+    date: "1 Nov 2026",
+    highlights: [
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Pintasan Keyboard Beralih Monitor",
+        titleEn: "Display Monitor Switch Shortcut",
+        descId: "Pintasan global baru (default Control+Alt+M) untuk memindai monitor aktif secara otomatis dan memindahkan notch ke layar berikutnya dengan notifikasi HUD.",
+        descEn: "New global shortcut (default Control+Alt+M) to auto-scan active displays and cycle the notch to the next monitor with HUD feedback.",
+        badge: "new",
+      },
+      {
+        icon: <Bug size={14} />,
+        titleId: "Perbaikan Stabilitas Jendela Pengaturan",
+        titleEn: "Settings Window Stability Fixes",
+        descId: "Menghapus batas proses render WebView2 dan memperkuat deteksi rute jendela agar jendela Settings tidak crash atau tertutup mendadak saat dibuka.",
+        descEn: "Eliminated WebView2 renderer process limits and hardened window route detection to prevent the Settings window from crashing or unexpectedly closing.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "4.3.0",
     date: "31 Okt 2026",
     highlights: [

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10" xmlns:desktop7="http://schemas.microsoft.com/appx/manifest/desktop/windows10/7" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap uap10 desktop7 rescap">
+  <!--Package created by MSIX Packaging Tool version: 1.2024.405.0-->
+  <Identity Name="GiliIsland.GiliNotch" Publisher="CN=4D18CDBD-3C41-4AE2-A92F-251D11EA7090" Version="4.3.1.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Gili Notch</DisplayName>
+    <PublisherDisplayName>Gili Island</PublisherDisplayName>
+    <Description>Interactive Dynamic Island notch and productivity HUD for Windows.</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:PackageIntegrity>
+      <uap10:Content Enforcement="on" />
+    </uap10:PackageIntegrity>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22000.1" />
+  <PackageDependency Name="Microsoft.WindowsAppRuntime.1.4" MinVersion="4000.1010.1349.0" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" /></Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+<Applications><Application Id="GILI" Executable="VFS\Local AppData\Gili\gili.exe" EntryPoint="Windows.FullTrustApplication"><uap:VisualElements BackgroundColor="transparent" DisplayName="Gili Notch" Square150x150Logo="Assets\GILI-Square150x150Logo.png" Square44x44Logo="Assets\GILI-Square44x44Logo.png" Description="Gili Notch"><uap:DefaultTile Wide310x150Logo="Assets\GILI-Wide310x150Logo.png" Square310x310Logo="Assets\GILI-Square310x310Logo.png" Square71x71Logo="Assets\GILI-Square71x71Logo.png" /></uap:VisualElements><Extensions><desktop7:Extension Category="windows.shortcut"><desktop7:Shortcut File="[{Programs}]\Gili.lnk" Icon="[{Package}]\VFS\Local AppData\Gili\gili.exe" /></desktop7:Extension></Extensions></Application></Applications></Package>
