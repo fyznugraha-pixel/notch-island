@@ -4181,8 +4181,8 @@ export default function App() {
       x: direction > 0 ? -16 : direction < 0 ? 16 : 0,
       opacity: 0,
       transition: {
-        x: { duration: 0.12, ease: [0.22, 1, 0.36, 1] },
-        opacity: { duration: 0.1, ease: "easeIn" },
+        x: { duration: 0.08, ease: [0.22, 1, 0.36, 1] },
+        opacity: { duration: 0.08, ease: "easeIn" },
       },
     }),
   };
@@ -5031,7 +5031,7 @@ export default function App() {
                 key="expanded_panel"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+                exit={{ opacity: 0, transition: { duration: 0.1, ease: "easeIn" } }}
                 transition={{ duration: 0.16, ease: "easeOut" }}
                 className={`absolute inset-x-0 ${
                   isTopPos ? "top-0" : isBot ? "bottom-0" : "inset-y-0 items-center"
@@ -5055,11 +5055,7 @@ export default function App() {
                     y: 0,
                     transitionEnd: { transform: "none" },
                   }}
-                  exit={{
-                    scale: 0.92,
-                    x: isLeftPos ? -8 : isRightPos ? 8 : 0,
-                    y: isSideCenter ? 0 : isBot ? 8 : -8,
-                  }}
+                  exit={{ opacity: 0, transition: { duration: 0.1, ease: "easeIn" } }}
                   transition={{
                     scale: smoothSpring,
                     x: smoothSpring,
@@ -5123,7 +5119,7 @@ export default function App() {
                     themeMode={activeEffectiveThemeMode}
                   >
                     <div className="relative w-full h-full min-w-0 overflow-hidden">
-                      <AnimatePresence custom={slideDirection} initial={false}>
+                      <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
                         {currentTab === "quick_control" && (
                           <motion.div
                             key="quick_control"
@@ -5790,7 +5786,7 @@ export default function App() {
                 onClick={handleNotifClick}
                 initial={{ opacity: 0, y: isBot ? -8 : 8, scale: 0.92, filter: "blur(6px)" }}
                 animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none", transform: "none" } }}
-                exit={{ opacity: 0, y: isBot ? 8 : -8, scale: 0.92, filter: "blur(6px)" }}
+                exit={{ opacity: 0, transition: { duration: 0.1, ease: "easeIn" } }}
                 transition={iosSpring.snappy}
                 className="absolute inset-0 flex items-center gap-2.5 px-3.5 cursor-pointer justify-center select-none"
               >
