@@ -147,6 +147,8 @@ pub fn sync_navbar_bounds(
     position: String,
     distance_from_edge: f64,
     is_anchored: Option<bool>,
+    overhead: Option<f64>,
+    extra_width: Option<f64>,
 ) {
     if let Some(win) = app.get_webview_window("navbar") {
         if let Ok(Some(monitor)) = win.current_monitor() {
@@ -155,52 +157,147 @@ pub fn sync_navbar_bounds(
             let mon_width = mon_size.width as f64 / scale_factor;
             let mon_height = mon_size.height as f64 / scale_factor;
 
+            let overhead_h = overhead.unwrap_or(40.0);
+            let extra_w = extra_width.unwrap_or(80.0);
+
             let safe_w = width.clamp(120.0, mon_width);
             let dock_h = height.clamp(40.0, 90.0);
 
-            // Overhead space (100px) above the dock for hover tooltips and window preview popups
-            let overhead_h = 100.0;
             let total_window_h = dock_h + overhead_h;
+            let window_w = (safe_w + extra_w).clamp(safe_w + 40.0, mon_width);
+
+            let is_anchored_bool = is_anchored.unwrap_or(distance_from_edge == 0.0);
 
             let (target_x, target_y) = match position.as_str() {
                 "top" => {
-                    let x = (mon_width - safe_w) / 2.0;
-                    let y = distance_from_edge;
+                    let x = (mon_width - window_w) / 2.0;
+                    let y = if is_anchored_bool { 0.0 } else { distance_from_edge };
                     (x, y)
                 }
                 "left" => {
-                    let x = distance_from_edge;
+                    let x = if is_anchored_bool { 0.0 } else { distance_from_edge };
                     let y = (mon_height - total_window_h) / 2.0;
                     (x, y)
                 }
                 "right" => {
-                    let x = mon_width - safe_w - distance_from_edge;
+                    let x = mon_width - window_w - if is_anchored_bool { 0.0 } else { distance_from_edge };
                     let y = (mon_height - total_window_h) / 2.0;
                     (x, y)
                 }
                 _ => {
-                    // bottom: flush at bottom edge without clipping
-                    let x = (mon_width - safe_w) / 2.0;
-                    let bottom_offset = if is_anchored.unwrap_or(distance_from_edge == 0.0) {
-                        0.0
-                    } else {
-                        distance_from_edge
-                    };
-                    let y = (mon_height - total_window_h - bottom_offset).max(0.0);
+                    // bottom: flush at bottom edge without clipping outer shadows and wings
+                    let x = (mon_width - window_w) / 2.0;
+                    let y = (mon_height - total_window_h).max(0.0);
                     (x, y)
                 }
             };
 
-            let _ = win.set_size(LogicalSize::new(safe_w, total_window_h));
+            let _ = win.set_size(LogicalSize::new(window_w, total_window_h));
             let _ = win.set_position(LogicalPosition::new(target_x.round(), target_y.round()));
 
             #[cfg(windows)]
             if let Ok(raw_hwnd) = win.hwnd() {
                 let hwnd = HWND(raw_hwnd.0);
-                // Ensure no AppBar reservation: navbar overlays on top of windows ("menimpa saja")
                 remove_appbar_if_registered(hwnd);
             }
         }
+    }
+}
+
+#[tauri::command]
+pub fn capture_window_thumbnail(hwnd: isize) -> Result<String, String> {
+    use base64::Engine;
+    use image::{ImageBuffer, Rgba};
+    use windows::Win32::Foundation::{BOOL, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
+        GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC,
+        SRCCOPY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+    extern "system" {
+        fn PrintWindow(hwnd: HWND, hdcblt: HDC, nflags: u32) -> BOOL;
+    }
+    const PW_RENDERFULLCONTENT: u32 = 0x00000002;
+
+    let target = HWND(hwnd as *mut _);
+    unsafe {
+        let mut rect = RECT::default();
+        if GetWindowRect(target, &mut rect).is_err() {
+            return Err("Failed to get window bounds".into());
+        }
+
+        let width = (rect.right - rect.left).max(1);
+        let height = (rect.bottom - rect.top).max(1);
+
+        let hdc_screen = GetDC(None);
+        let hdc_mem = CreateCompatibleDC(hdc_screen);
+        let hbm = CreateCompatibleBitmap(hdc_screen, width, height);
+        let old_bm = SelectObject(hdc_mem, hbm);
+
+        let printed = PrintWindow(target, hdc_mem, PW_RENDERFULLCONTENT);
+        if !printed.as_bool() {
+            let _ = BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, rect.left, rect.top, SRCCOPY);
+        }
+
+        let thumb_w = 260u32;
+        let aspect = height as f64 / width as f64;
+        let thumb_h = ((260.0 * aspect) as u32).clamp(110, 170);
+
+        let mut bi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let mut raw_pixels = vec![0u8; (width * height * 4) as usize];
+        GetDIBits(
+            hdc_mem,
+            hbm,
+            0,
+            height as u32,
+            Some(raw_pixels.as_mut_ptr() as *mut _),
+            &mut bi,
+            DIB_RGB_COLORS,
+        );
+
+        SelectObject(hdc_mem, old_bm);
+        let _ = DeleteObject(hbm);
+        let _ = DeleteDC(hdc_mem);
+        ReleaseDC(None, hdc_screen);
+
+        if let Some(src_img) = ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, raw_pixels) {
+            let mut rgba_img = ImageBuffer::new(width as u32, height as u32);
+            for (x, y, pixel) in src_img.enumerate_pixels() {
+                rgba_img.put_pixel(x, y, Rgba([pixel[2], pixel[1], pixel[0], 255]));
+            }
+
+            let resized = image::imageops::resize(&rgba_img, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
+            let mut jpeg_bytes = std::io::Cursor::new(Vec::new());
+            if resized.write_to(&mut jpeg_bytes, image::ImageFormat::Jpeg).is_ok() {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(jpeg_bytes.into_inner());
+                return Ok(format!("data:image/jpeg;base64,{}", b64));
+            }
+        }
+
+        Err("Capture processing failed".into())
+    }
+}
+
+#[tauri::command]
+pub fn close_window_by_hwnd(hwnd: isize) {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+    unsafe {
+        let _ = PostMessageW(HWND(hwnd as *mut _), WM_CLOSE, WPARAM(0), LPARAM(0));
     }
 }
 

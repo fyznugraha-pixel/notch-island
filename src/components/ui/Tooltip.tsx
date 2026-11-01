@@ -22,7 +22,11 @@ export const Tooltip: React.FC<TooltipProps> = ({
   wrapperClassName = "",
 }) => {
   const [isVisible, setIsVisible] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const [coords, setCoords] = useState<{
+    top: number;
+    left: number;
+    useTransformCenter?: boolean;
+  } | null>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -53,15 +57,12 @@ export const Tooltip: React.FC<TooltipProps> = ({
       currentSide = "left";
     }
 
-    if (currentSide === "top") {
-      top = triggerRect.top - tipHeight - 8;
-      if (align === "start") {
-        left = triggerRect.left;
-      } else if (align === "end") {
-        left = triggerRect.right - tipWidth;
-      } else {
-        left = triggerRect.left + (triggerRect.width - tipWidth) / 2;
-      }
+    if (currentSide === "top" && align === "center") {
+      return {
+        top: triggerRect.top - 8,
+        left: triggerRect.left + triggerRect.width / 2,
+        useTransformCenter: true,
+      };
     } else if (currentSide === "bottom") {
       top = triggerRect.bottom + 8;
       if (align === "start") {
@@ -175,6 +176,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
                   position: "fixed",
                   top: coords.top,
                   left: coords.left,
+                  transform: coords.useTransformCenter ? "translate(-50%, -100%)" : undefined,
                   zIndex: 99999,
                   pointerEvents: "none",
                 }}

@@ -5,18 +5,30 @@ import { Tooltip } from "../../ui/Tooltip";
 
 interface StartSearchGroupProps {
   iconSize?: number;
+  onStartClick?: () => void;
+  onSearchClick?: () => void;
 }
 
 export const StartSearchGroup: React.FC<StartSearchGroupProps> = ({
   iconSize = 40,
+  onStartClick,
+  onSearchClick,
 }) => {
-  const handleStartClick = async () => {
+  const handleStart = async () => {
+    if (onStartClick) {
+      onStartClick();
+      return;
+    }
     try {
       await invoke("trigger_start_menu");
     } catch {}
   };
 
-  const handleSearchClick = async () => {
+  const handleSearch = async () => {
+    if (onSearchClick) {
+      onSearchClick();
+      return;
+    }
     try {
       await invoke("trigger_windows_search");
     } catch {}
@@ -30,11 +42,11 @@ export const StartSearchGroup: React.FC<StartSearchGroupProps> = ({
   return (
     <div className="flex items-center gap-0.5 shrink-0">
       {/* Start Button */}
-      <Tooltip side="top" delay={150} content="Start">
+      <Tooltip side="top" delay={150} content="Mulai">
         <button
           type="button"
-          onClick={handleStartClick}
-          aria-label="Start"
+          onClick={handleStart}
+          aria-label="Mulai"
           style={btnStyle}
           className="rounded-[12px] bg-transparent flex items-center justify-center p-0 cursor-pointer shrink-0 transition-transform active:scale-95 hover:bg-white/[0.08]"
         >
@@ -48,11 +60,11 @@ export const StartSearchGroup: React.FC<StartSearchGroupProps> = ({
       </Tooltip>
 
       {/* Search Button */}
-      <Tooltip side="top" delay={150} content="Search">
+      <Tooltip side="top" delay={150} content="Cari">
         <button
           type="button"
-          onClick={handleSearchClick}
-          aria-label="Search"
+          onClick={handleSearch}
+          aria-label="Cari"
           style={btnStyle}
           className="rounded-[12px] bg-transparent text-white/60 hover:text-white flex items-center justify-center p-0 cursor-pointer shrink-0 transition-all active:scale-95 hover:bg-white/[0.08]"
         >

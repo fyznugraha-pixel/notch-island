@@ -30,6 +30,7 @@ interface PinnedAppsGroupProps {
   windowPreviews?: boolean;
   accentColor?: string;
   onAppClick?: (app: NavbarAppItem) => void;
+  onPreviewStateChange?: (isShowing: boolean) => void;
 }
 
 // Crisp official logos for Windows applications
@@ -151,6 +152,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   windowPreviews = true,
   accentColor = "#0a84ff",
   onAppClick,
+  onPreviewStateChange,
 }) => {
   const [hoveredAppId, setHoveredAppId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
@@ -178,45 +180,49 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
 
   // Compute live state for pinned apps
   const liveApps = apps.map((app) => {
-    const procMatch = (pattern: string) =>
-      runningWindows.find((w) => w.process_name.toLowerCase().includes(pattern.toLowerCase()));
+    const allMatches = runningWindows.filter((w) => {
+      const p = w.process_name.toLowerCase();
+      switch (app.id) {
+        case "explorer":
+          return p.includes("explorer");
+        case "chrome":
+          return p.includes("chrome");
+        case "vscode":
+          return p.includes("code");
+        case "terminal":
+          return (
+            p.includes("windowsterminal") ||
+            p.includes("cmd") ||
+            p.includes("powershell")
+          );
+        case "settings":
+          return (
+            p.includes("systemsettings") ||
+            p.includes("applicationframehost")
+          );
+        case "spotify":
+          return p.includes("spotify");
+        case "discord":
+          return p.includes("discord");
+        case "whatsapp":
+          return p.includes("whatsapp");
+        default:
+          return p.includes(app.id.toLowerCase());
+      }
+    });
 
-    let matchingWin: RunningWindowInfo | undefined;
-    switch (app.id) {
-      case "explorer":
-        matchingWin = procMatch("explorer");
-        break;
-      case "chrome":
-        matchingWin = procMatch("chrome");
-        break;
-      case "vscode":
-        matchingWin = procMatch("code");
-        break;
-      case "terminal":
-        matchingWin =
-          procMatch("windowsterminal") || procMatch("cmd") || procMatch("powershell");
-        break;
-      case "settings":
-        matchingWin = procMatch("systemsettings") || procMatch("applicationframehost");
-        break;
-      case "spotify":
-        matchingWin = procMatch("spotify");
-        break;
-      case "discord":
-        matchingWin = procMatch("discord");
-        break;
-      default:
-        matchingWin = procMatch(app.id);
-        break;
-    }
+    const isRunning = allMatches.length > 0;
+    const activeWin = allMatches.find((w) => w.is_active);
+    const isActive = activeWin !== undefined;
+    const hwnd = activeWin ? activeWin.hwnd : allMatches[0]?.hwnd;
+    const title = activeWin?.title || allMatches[0]?.title || app.name;
 
-    const isRunning = matchingWin !== undefined;
-    const isActive = matchingWin?.is_active ?? false;
-    const hwnd = matchingWin?.hwnd;
-    const title = matchingWin?.title || app.name;
-
-    const windowsList: WindowPreviewItem[] = isRunning && matchingWin
-      ? [{ id: `win-${matchingWin.hwnd}`, title: matchingWin.title }]
+    const windowsList: WindowPreviewItem[] = isRunning
+      ? allMatches.map((w) => ({
+          id: `win-${w.hwnd}`,
+          hwnd: w.hwnd,
+          title: w.title || app.name,
+        }))
       : app.windows || [];
 
     return {
@@ -304,7 +310,8 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     if (windowPreviews && app.isRunning && (app.windows?.length ?? 0) > 0) {
       hoverTimeoutRef.current = window.setTimeout(() => {
         setHoveredAppId(app.id);
-      }, 250);
+        onPreviewStateChange?.(true);
+      }, 200);
     }
   };
 
@@ -312,6 +319,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = window.setTimeout(() => {
       setHoveredAppId(null);
+      onPreviewStateChange?.(false);
     }, 200);
   };
 
@@ -343,14 +351,23 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
                   appName={app.name}
                   windows={app.windows}
                   accentColor={accentColor}
-                  onSelectWindow={() => {
+                  onSelectWindow={(_winId, hwnd) => {
                     setHoveredAppId(null);
-                    onAppClick?.(app);
+                    onPreviewStateChange?.(false);
+                    if (hwnd) {
+                      invoke("activate_or_toggle_window", { hwnd }).catch(() => {});
+                    } else {
+                      onAppClick?.(app);
+                    }
                   }}
-                  onCloseWindow={(winId) => {
+                  onCloseWindow={(winId, hwnd) => {
+                    if (hwnd) {
+                      invoke("close_window_by_hwnd", { hwnd }).catch(() => {});
+                    }
                     app.windows = app.windows?.filter((w) => w.id !== winId);
                     if (!app.windows || app.windows.length === 0) {
                       setHoveredAppId(null);
+                      onPreviewStateChange?.(false);
                     }
                   }}
                 />

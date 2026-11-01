@@ -1,15 +1,29 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { AnimatePresence } from "framer-motion";
 import { NavbarConfig, DEFAULT_NAVBAR_CONFIG } from "../../types/navbar";
 import { loadNavbarConfig } from "../../services/navbarConfigService";
 import { NavbarDock } from "./NavbarDock";
+import { NavbarControlCenterFlyout } from "./popovers/NavbarControlCenterFlyout";
+import { NavbarNotificationsFlyout } from "./popovers/NavbarNotificationsFlyout";
+import { NavbarCalendarFlyout } from "./popovers/NavbarCalendarFlyout";
+import { NavbarStartLauncherFlyout } from "./popovers/NavbarStartLauncherFlyout";
+
+type ActiveFlyoutType = "control_center" | "notifications" | "calendar" | "start" | null;
 
 export const NavbarApp: React.FC = () => {
   const [config, setConfig] = useState<NavbarConfig>(DEFAULT_NAVBAR_CONFIG);
   const [isDockVisible, setIsDockVisible] = useState(true);
+  const [activeFlyout, setActiveFlyout] = useState<ActiveFlyoutType>(null);
+  const [isPreviewShowing, setIsPreviewShowing] = useState(false);
+
   const dockRef = useRef<HTMLDivElement>(null);
-  const lastSyncSizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const lastSyncRef = useRef<{ w: number; h: number; overhead: number }>({
+    w: 0,
+    h: 0,
+    overhead: 0,
+  });
   const autoHideTimerRef = useRef<number | null>(null);
 
   // 1. Initial config load
@@ -31,15 +45,16 @@ export const NavbarApp: React.FC = () => {
 
   // 2. Report measured bounds to Rust for window centering & positioning
   const syncBounds = useCallback(
-    async (width: number, height: number) => {
+    async (width: number, height: number, overhead: number, extraWidth: number) => {
       if (width <= 0 || height <= 0) return;
       if (
-        Math.abs(width - lastSyncSizeRef.current.w) < 2 &&
-        Math.abs(height - lastSyncSizeRef.current.h) < 2
+        Math.abs(width - lastSyncRef.current.w) < 2 &&
+        Math.abs(height - lastSyncRef.current.h) < 2 &&
+        Math.abs(overhead - lastSyncRef.current.overhead) < 2
       ) {
         return;
       }
-      lastSyncSizeRef.current = { w: width, h: height };
+      lastSyncRef.current = { w: width, h: height, overhead };
 
       try {
         await invoke("sync_navbar_bounds", {
@@ -48,6 +63,8 @@ export const NavbarApp: React.FC = () => {
           position: config.position || "bottom",
           distanceFromEdge: config.shape === "anchored" ? 0 : (config.distanceFromEdge ?? 14),
           isAnchored: config.shape === "anchored",
+          overhead,
+          extraWidth,
         });
       } catch (err) {
         console.error("Failed to sync navbar bounds:", err);
@@ -56,26 +73,48 @@ export const NavbarApp: React.FC = () => {
     [config.position, config.shape, config.distanceFromEdge]
   );
 
-  // 3. ResizeObserver to track dynamic dock content changes (modules added/removed)
+  // 3. Dynamic sizing calculation depending on whether flyouts or previews are open
+  const getOverheadAndExtra = useCallback(() => {
+    if (activeFlyout !== null) {
+      return { overhead: 420, extraWidth: 340 };
+    }
+    if (isPreviewShowing) {
+      return { overhead: 220, extraWidth: 220 };
+    }
+    return { overhead: 42, extraWidth: 80 };
+  }, [activeFlyout, isPreviewShowing]);
+
+  // 4. ResizeObserver to track dynamic dock content changes
   useEffect(() => {
     const el = dockRef.current;
     if (!el) return;
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        // Total physical height includes bottom offset and wings if anchored
-        const isAnchored = config.shape === "anchored";
-        const bottomOffset = isAnchored ? 0 : (config.distanceFromEdge ?? 14);
-        syncBounds(width + (isAnchored ? 32 : 0), height + bottomOffset);
-      }
+    const observer = new ResizeObserver(() => {
+      const { overhead, extraWidth } = getOverheadAndExtra();
+      const elWidth = el.offsetWidth || el.getBoundingClientRect().width;
+      const elHeight = el.offsetHeight || el.getBoundingClientRect().height;
+      const isAnchored = config.shape === "anchored";
+      const bottomOffset = isAnchored ? 0 : (config.distanceFromEdge ?? 14);
+      syncBounds(elWidth, elHeight + bottomOffset, overhead, extraWidth);
     });
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [config.shape, config.distanceFromEdge, syncBounds]);
+  }, [config.shape, config.distanceFromEdge, getOverheadAndExtra, syncBounds]);
 
-  // 4. Power state pacing & Auto-Hide handling
+  // Trigger sync immediately when flyout or preview state changes
+  useEffect(() => {
+    const el = dockRef.current;
+    if (!el) return;
+    const { overhead, extraWidth } = getOverheadAndExtra();
+    const elWidth = el.offsetWidth || el.getBoundingClientRect().width;
+    const elHeight = el.offsetHeight || el.getBoundingClientRect().height;
+    const isAnchored = config.shape === "anchored";
+    const bottomOffset = isAnchored ? 0 : (config.distanceFromEdge ?? 14);
+    syncBounds(elWidth, elHeight + bottomOffset, overhead, extraWidth);
+  }, [activeFlyout, isPreviewShowing, config.shape, config.distanceFromEdge, getOverheadAndExtra, syncBounds]);
+
+  // 5. Power state pacing & Auto-Hide handling
   const handleMouseEnter = () => {
     if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
     setIsDockVisible(true);
@@ -83,7 +122,7 @@ export const NavbarApp: React.FC = () => {
   };
 
   const handleMouseLeave = () => {
-    if (config.autoHide) {
+    if (config.autoHide && !activeFlyout) {
       if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
       autoHideTimerRef.current = window.setTimeout(() => {
         setIsDockVisible(false);
@@ -92,20 +131,7 @@ export const NavbarApp: React.FC = () => {
     invoke("set_metrics_power_state", { state: "Idle" }).catch(() => {});
   };
 
-  // Handlers for Control Center / Notifications / Clock triggers
-  const handleControlCenterClick = async () => {
-    try {
-      await invoke("trigger_quick_settings");
-    } catch {}
-  };
-
-  const handleNotificationsClick = async () => {
-    try {
-      await invoke("trigger_notification_center");
-    } catch {}
-  };
-
-  const shouldSlideDown = config.autoHide && !isDockVisible;
+  const shouldSlideDown = config.autoHide && !isDockVisible && !activeFlyout;
 
   return (
     <div
@@ -122,15 +148,53 @@ export const NavbarApp: React.FC = () => {
       )}
 
       <div
-        className={`pointer-events-auto transition-transform duration-200 ease-out ${
+        className={`relative pointer-events-auto transition-transform duration-200 ease-out ${
           shouldSlideDown ? "translate-y-[calc(100%+20px)]" : "translate-y-0"
         }`}
       >
+        {/* Custom Popovers / Flyouts */}
+        <AnimatePresence>
+          {activeFlyout === "control_center" && (
+            <NavbarControlCenterFlyout
+              onClose={() => setActiveFlyout(null)}
+              accentColor={config.accent}
+            />
+          )}
+          {activeFlyout === "notifications" && (
+            <NavbarNotificationsFlyout
+              onClose={() => setActiveFlyout(null)}
+            />
+          )}
+          {activeFlyout === "calendar" && (
+            <NavbarCalendarFlyout
+              onClose={() => setActiveFlyout(null)}
+              accentColor={config.accent}
+            />
+          )}
+          {activeFlyout === "start" && (
+            <NavbarStartLauncherFlyout
+              onClose={() => setActiveFlyout(null)}
+              accentColor={config.accent}
+            />
+          )}
+        </AnimatePresence>
+
         <NavbarDock
           ref={dockRef}
           config={config}
-          onControlCenterClick={handleControlCenterClick}
-          onNotificationsClick={handleNotificationsClick}
+          onStartClick={() =>
+            setActiveFlyout((prev) => (prev === "start" ? null : "start"))
+          }
+          onControlCenterClick={() =>
+            setActiveFlyout((prev) => (prev === "control_center" ? null : "control_center"))
+          }
+          onNotificationsClick={() =>
+            setActiveFlyout((prev) => (prev === "notifications" ? null : "notifications"))
+          }
+          onClockClick={() =>
+            setActiveFlyout((prev) => (prev === "calendar" ? null : "calendar"))
+          }
+          onPreviewStateChange={(isShowing) => setIsPreviewShowing(isShowing)}
         />
       </div>
     </div>

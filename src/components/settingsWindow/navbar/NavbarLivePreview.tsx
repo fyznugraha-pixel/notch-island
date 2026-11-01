@@ -56,7 +56,9 @@ export const NavbarLivePreview: React.FC<NavbarLivePreviewProps> = ({
 
       {/* Simulated Screen Area */}
       <div
-        className={`relative w-full h-[100px] rounded-[12px] border overflow-hidden flex items-end justify-center pb-2 select-none ${
+        className={`relative w-full h-[110px] rounded-[12px] border overflow-hidden flex items-end justify-center px-4 select-none ${
+          config.shape === "anchored" ? "pb-0" : "pb-1"
+        } ${
           isLightMode
             ? "bg-[#e5e5ea] border-black/[0.06]"
             : "bg-[#0c0c10] border-white/[0.06]"

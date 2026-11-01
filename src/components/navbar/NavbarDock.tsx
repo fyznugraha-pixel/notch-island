@@ -10,9 +10,12 @@ import { NavbarModuleUnifiedPreview } from "../../modules/components/NavbarModul
 interface NavbarDockProps {
   config: NavbarConfig;
   extraModules?: React.ReactNode;
+  onStartClick?: () => void;
+  onSearchClick?: () => void;
   onControlCenterClick?: () => void;
   onNotificationsClick?: () => void;
   onClockClick?: () => void;
+  onPreviewStateChange?: (isShowing: boolean) => void;
 }
 
 export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
@@ -20,9 +23,12 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     {
       config,
       extraModules,
+      onStartClick,
+      onSearchClick,
       onControlCenterClick,
       onNotificationsClick,
       onClockClick,
+      onPreviewStateChange,
     },
     ref
   ) => {
@@ -47,7 +53,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       borderRadius: isAnchored
         ? `${radius}px ${radius}px 0 0`
         : `${radius}px`,
-      bottom: isAnchored ? "0px" : `${config.distanceFromEdge ?? 14}px`,
+      marginBottom: isAnchored ? "0px" : `${config.distanceFromEdge ?? 14}px`,
       boxShadow: isAnchored
         ? "inset 0 1px 0 rgba(255,255,255,0.07)"
         : "inset 0 1px 0 rgba(255,255,255,0.07), 0 14px 34px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.09)",
@@ -116,7 +122,11 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         {/* Grup 1: Start & Search */}
         {hasModule("startSearch") && (
           <>
-            <StartSearchGroup iconSize={iconSize} />
+            <StartSearchGroup
+              iconSize={iconSize}
+              onStartClick={onStartClick}
+              onSearchClick={onSearchClick}
+            />
             <Separator />
           </>
         )}
@@ -128,6 +138,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             magnifyOnHover={config.magnify}
             windowPreviews={config.windowPreviews}
             accentColor={config.accent}
+            onPreviewStateChange={onPreviewStateChange}
             onAppClick={async (app) => {
               if (app.hwnd) {
                 try {
