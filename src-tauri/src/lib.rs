@@ -7,6 +7,8 @@ mod audio_endpoints;
 mod migration;
 mod windows_dnd;
 mod toast_banners;
+pub mod shelf_server;
+pub mod shared_sampler;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -809,6 +811,9 @@ pub struct PillState {
     pub is_island: bool,
     pub dpr: f32,
     pub target_monitor: Option<String>,
+    pub secondary_width: f32,
+    pub secondary_height: f32,
+    pub secondary_dpr: f32,
 }
 
 impl Default for PillState {
@@ -822,6 +827,9 @@ impl Default for PillState {
             is_island: false,
             dpr: 1.0,
             target_monitor: None,
+            secondary_width: 120.0,
+            secondary_height: 35.0,
+            secondary_dpr: 1.0,
         }
     }
 }
@@ -851,6 +859,23 @@ fn resolve_target_monitor(
     if let Some(target) = target_id {
         let trimmed_target = target.trim();
         if !trimmed_target.is_empty() && !trimmed_target.eq_ignore_ascii_case("primary") {
+            if trimmed_target.eq_ignore_ascii_case("secondary") {
+                let primary_name = window
+                    .primary_monitor()
+                    .ok()
+                    .flatten()
+                    .and_then(|m| m.name().map(|s| s.to_string()));
+                if let Some(sec) = monitors.iter().find(|m| {
+                    if let Some(ref p_name) = primary_name {
+                        m.name().map(|s| s.to_string()).as_ref() != Some(p_name)
+                    } else {
+                        m.position().x != 0 || m.position().y != 0
+                    }
+                }) {
+                    return Some(sec.clone());
+                }
+            }
+
             if let Some(found) = monitors.iter().find(|m| {
                 if let Some(name) = m.name() {
                     let clean_m = name.trim_start_matches(r"\\.\");
@@ -966,6 +991,91 @@ fn get_available_monitors(app: tauri::AppHandle, window: tauri::WebviewWindow) -
         .collect()
 }
 
+fn ensure_secondary_notch_window(app: &tauri::AppHandle, show: bool) -> Option<tauri::WebviewWindow> {
+    if let Some(sec_win) = app.get_webview_window("notch_secondary") {
+        if show {
+            let _ = sec_win.unminimize();
+            let _ = sec_win.show();
+            if let Ok(size) = app.state::<PillSize>().0.lock() {
+                let sf = sec_win.scale_factor().unwrap_or(1.0);
+                let effective_sf = if size.secondary_dpr > 0.0 { (size.secondary_dpr as f64).max(sf) } else { sf * get_system_text_scale() };
+                let phys_offset = if size.is_island { (size.top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+                position_notch_window(&sec_win, size.pos, phys_offset, Some("secondary"));
+            }
+        } else {
+            let _ = sec_win.hide();
+        }
+        return Some(sec_win);
+    }
+
+    if !show {
+        return None;
+    }
+
+    let app_handle = app.clone();
+    match tauri::WebviewWindowBuilder::new(
+        app,
+        "notch_secondary",
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("Gili Notch 2")
+    .inner_size(820.0, 460.0)
+    .transparent(true)
+    .decorations(false)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .visible(true)
+    .focused(false)
+    .initialization_script("window.__IS_SECONDARY_NOTCH__ = true;")
+    .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
+    .build()
+    {
+        Ok(win) => {
+            let _ = win.set_ignore_cursor_events(true);
+            let _ = win.set_shadow(false);
+
+            let win_for_events = win.clone();
+            let app_for_events = app_handle.clone();
+            win.on_window_event(move |event| {
+                use tauri::Emitter;
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = win_for_events.emit("click-outside", ());
+                    }
+                    tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Resized(_) => {
+                        if win_for_events.is_minimized().unwrap_or(false) {
+                            let _ = win_for_events.unminimize();
+                        }
+                        if let Ok(size) = app_for_events.state::<PillSize>().0.lock() {
+                            let sf = win_for_events.scale_factor().unwrap_or(1.0);
+                            let effective_sf = if size.secondary_dpr > 0.0 { (size.secondary_dpr as f64).max(sf) } else { sf * get_system_text_scale() };
+                            let phys_offset = if size.is_island { (size.top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+                            position_notch_window(&win_for_events, size.pos, phys_offset, Some("secondary"));
+                        }
+                    }
+                    _ => {}
+                }
+            });
+
+            if let Ok(size) = app.state::<PillSize>().0.lock() {
+                let sf = win.scale_factor().unwrap_or(1.0);
+                let effective_sf = if size.secondary_dpr > 0.0 { (size.secondary_dpr as f64).max(sf) } else { sf * get_system_text_scale() };
+                let phys_offset = if size.is_island { (size.top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+                position_notch_window(&win, size.pos, phys_offset, Some("secondary"));
+            }
+
+            Some(win)
+        }
+        Err(e) => {
+            eprintln!("Failed to create secondary notch window: {:?}", e);
+            None
+        }
+    }
+}
+
 #[tauri::command]
 fn set_target_monitor(
     target_monitor: Option<String>,
@@ -981,6 +1091,8 @@ fn set_target_monitor(
         return;
     };
 
+    let is_all = target_monitor.as_deref().map(|s| s.eq_ignore_ascii_case("all")).unwrap_or(false);
+
     let (pos, top_offset, is_island, dpr) = if let Ok(mut size) = state.0.lock() {
         size.target_monitor = target_monitor.clone();
         (size.pos, size.top_offset, size.is_island, size.dpr)
@@ -991,7 +1103,14 @@ fn set_target_monitor(
     let sf = main_win.scale_factor().unwrap_or(1.0);
     let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
     let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-    position_notch_window(&main_win, pos, phys_offset, target_monitor.as_deref());
+
+    if is_all {
+        position_notch_window(&main_win, pos, phys_offset, Some("primary"));
+        let _ = ensure_secondary_notch_window(&app, true);
+    } else {
+        let _ = ensure_secondary_notch_window(&app, false);
+        position_notch_window(&main_win, pos, phys_offset, target_monitor.as_deref());
+    }
 }
 
 #[tauri::command]
@@ -1016,7 +1135,7 @@ fn set_window_position(
     let pos = NotchPos::from_str_or_bottom(position.as_deref(), is_bottom);
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
-    let (dpr, chosen_monitor) = if let Ok(mut size) = state.0.lock() {
+    let (dpr, sec_dpr, chosen_monitor) = if let Ok(mut size) = state.0.lock() {
         size.is_bottom = pos.is_bottom();
         size.pos = pos;
         size.top_offset = top_offset;
@@ -1024,14 +1143,28 @@ fn set_window_position(
         if target_monitor.is_some() {
             size.target_monitor = target_monitor.clone();
         }
-        (size.dpr, size.target_monitor.clone())
+        (size.dpr, size.secondary_dpr, size.target_monitor.clone())
     } else {
-        (1.0, target_monitor)
+        (1.0, 1.0, target_monitor)
     };
+
+    let is_all = chosen_monitor.as_deref().map(|s| s.eq_ignore_ascii_case("all")).unwrap_or(false);
+
     let sf = target_win.scale_factor().unwrap_or(1.0);
     let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
     let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-    position_notch_window(&target_win, pos, phys_offset, chosen_monitor.as_deref());
+
+    if is_all {
+        position_notch_window(&target_win, pos, phys_offset, Some("primary"));
+        if let Some(sec_win) = app.get_webview_window("notch_secondary") {
+            let sec_sf = sec_win.scale_factor().unwrap_or(1.0);
+            let sec_eff_sf = if sec_dpr > 0.0 { (sec_dpr as f64).max(sec_sf) } else { sec_sf * get_system_text_scale() };
+            let sec_offset = if is_island { (top_offset as f64 * sec_eff_sf).round() as i32 } else { 0 };
+            position_notch_window(&sec_win, pos, sec_offset, Some("secondary"));
+        }
+    } else {
+        position_notch_window(&target_win, pos, phys_offset, chosen_monitor.as_deref());
+    }
 }
 
 static IS_TRIM_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1122,35 +1255,59 @@ fn update_pill_size(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PillSize>,
 ) {
-    if window.label() != "main" {
+    let label = window.label().to_string();
+    if label != "main" && label != "notch_secondary" {
         return;
     }
+    let is_secondary = label == "notch_secondary";
     let pos = NotchPos::from_str_or_bottom(position.as_deref(), is_bottom);
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
     let dpr = dpr.unwrap_or(0.0);
     if let Ok(mut size) = state.0.lock() {
-        let was_expanded = size.width > 95.0 && size.height > 95.0;
-        let now_expanded = width > 95.0 && height > 95.0;
+        let (was_expanded, now_expanded) = if is_secondary {
+            let was = size.secondary_width > 95.0 && size.secondary_height > 95.0;
+            let now = width > 95.0 && height > 95.0;
+            size.secondary_width = width;
+            size.secondary_height = height;
+            if dpr > 0.0 {
+                size.secondary_dpr = dpr;
+            }
+            (was, now)
+        } else {
+            let was = size.width > 95.0 && size.height > 95.0;
+            let now = width > 95.0 && height > 95.0;
+            size.width = width;
+            size.height = height;
+            if dpr > 0.0 {
+                size.dpr = dpr;
+            }
+            (was, now)
+        };
+
         let should_reposition = size.top_offset != top_offset
             || size.is_island != is_island
             || size.is_bottom != pos.is_bottom()
             || size.pos != pos;
-        size.width = width;
-        size.height = height;
+
         size.is_bottom = pos.is_bottom();
         size.pos = pos;
         size.top_offset = top_offset;
         size.is_island = is_island;
-        if dpr > 0.0 {
-            size.dpr = dpr;
-        }
 
         if should_reposition {
+            let cur_dpr = if is_secondary { size.secondary_dpr } else { size.dpr };
             let sf = window.scale_factor().unwrap_or(1.0);
-            let effective_sf = if size.dpr > 0.0 { (size.dpr as f64).max(sf) } else { sf * get_system_text_scale() };
+            let effective_sf = if cur_dpr > 0.0 { (cur_dpr as f64).max(sf) } else { sf * get_system_text_scale() };
             let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-            position_notch_window(&window, pos, phys_offset, size.target_monitor.as_deref());
+            let target_mon = if is_secondary {
+                Some("secondary")
+            } else if size.target_monitor.as_deref().map(|s| s.eq_ignore_ascii_case("all")).unwrap_or(false) {
+                Some("primary")
+            } else {
+                size.target_monitor.as_deref()
+            };
+            position_notch_window(&window, pos, phys_offset, target_mon);
         }
 
         if was_expanded && !now_expanded {
@@ -1275,6 +1432,7 @@ fn set_shelf_drag(active: bool, window: tauri::WebviewWindow) {
     if active {
         let _ = window.set_ignore_cursor_events(true);
     } else {
+        let _ = window.set_ignore_cursor_events(false);
         ensure_window_topmost(&window);
     }
 }
@@ -2301,26 +2459,117 @@ fn check_foreground_browser() -> bool {
     is_foreground_window_browser().unwrap_or(false)
 }
 
+fn is_foreground_window_maximized() -> Option<bool> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, IsZoomed, IsWindowVisible, GetWindowRect,
+    };
+    use windows::Win32::Graphics::Gdi::{
+        MonitorFromWindow, GetMonitorInfoW, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::Foundation::RECT;
+
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() { return None; }
+        if !IsWindowVisible(hwnd).as_bool() { return Some(false); }
+
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 || pid == std::process::id() { return None; }
+
+        if IsZoomed(hwnd).as_bool() {
+            return Some(true);
+        }
+
+        let mut win_rect = RECT::default();
+        if GetWindowRect(hwnd, &mut win_rect).is_ok() {
+            let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut mon_info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(hmon, &mut mon_info).as_bool() {
+                let mon_rect = mon_info.rcMonitor;
+                let work_rect = mon_info.rcWork;
+                let covers_monitor = win_rect.left <= mon_rect.left + 10
+                    && win_rect.top <= mon_rect.top + 10
+                    && win_rect.right >= mon_rect.right - 10
+                    && win_rect.bottom >= mon_rect.bottom - 10;
+                let covers_work = win_rect.left <= work_rect.left + 10
+                    && win_rect.top <= work_rect.top + 10
+                    && win_rect.right >= work_rect.right - 10
+                    && win_rect.bottom >= work_rect.bottom - 10;
+                if covers_monitor || covers_work {
+                    let mut class_buf = [0u16; 64];
+                    let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buf);
+                    if class_len > 0 {
+                        let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+                        if class_name == "Progman" || class_name == "WorkerW" || class_name == "Shell_TrayWnd" {
+                            return Some(false);
+                        }
+                    }
+                    return Some(true);
+                }
+            }
+        }
+
+        Some(false)
+    }
+}
+
+#[tauri::command]
+fn check_foreground_maximized() -> bool {
+    is_foreground_window_maximized().unwrap_or(false)
+}
+
 #[tauri::command]
 fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, PillSize>) -> bool {
     use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
     use windows::Win32::Foundation::POINT;
     use tauri::Manager;
 
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let mut pt = POINT { x: 0, y: 0 };
-        if unsafe { GetCursorPos(&mut pt) }.is_ok() {
-            if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (window.outer_position(), window.outer_size(), window.scale_factor()) {
-                let pill = if let Ok(size) = state.0.lock() {
-                    size.clone()
-                } else {
-                    PillState::default()
-                };
+    let mut pt = POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut pt) }.is_err() {
+        return false;
+    }
 
-                return calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
+    let pill = if let Ok(size) = state.0.lock() {
+        size.clone()
+    } else {
+        PillState::default()
+    };
+
+    if let Some(window) = app_handle.get_webview_window("main") {
+        if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (window.outer_position(), window.outer_size(), window.scale_factor()) {
+            if calculate_notch_hit(pt, win_pos, win_size, sf, &pill) {
+                return true;
             }
         }
     }
+
+    if let Some(sec_win) = app_handle.get_webview_window("notch_secondary") {
+        if sec_win.is_visible().unwrap_or(false) {
+            if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (sec_win.outer_position(), sec_win.outer_size(), sec_win.scale_factor()) {
+                let pill_sec = PillState {
+                    width: pill.secondary_width,
+                    height: pill.secondary_height,
+                    dpr: pill.secondary_dpr,
+                    is_bottom: pill.is_bottom,
+                    pos: pill.pos,
+                    top_offset: pill.top_offset,
+                    is_island: pill.is_island,
+                    target_monitor: Some("secondary".to_string()),
+                    secondary_width: 120.0,
+                    secondary_height: 35.0,
+                    secondary_dpr: 1.0,
+                };
+                if calculate_notch_hit(pt, win_pos, win_size, sf, &pill_sec) {
+                    return true;
+                }
+            }
+        }
+    }
+
     false
 }
 
@@ -2690,6 +2939,7 @@ pub fn run() {
             get_file_preview,
             set_shelf_drag,
             check_foreground_browser,
+            check_foreground_maximized,
             is_cursor_in_notch,
             save_previous_foreground_window,
             restore_previous_foreground_window,
@@ -2707,7 +2957,10 @@ pub fn run() {
             connectivity::toggle_bluetooth,
             connectivity::get_hotspot_status,
             connectivity::toggle_hotspot,
-            system_monitor::get_system_metrics,
+            shared_sampler::get_system_metrics,
+            shared_sampler::subscribe_system_metrics,
+            shared_sampler::unsubscribe_system_metrics,
+            shared_sampler::set_metrics_power_state,
             system_monitor::clear_temp_files,
             windows_dnd::set_windows_dnd,
             windows_dnd::get_windows_dnd,
@@ -2717,9 +2970,14 @@ pub fn run() {
             take_pending_settings_section,
             broadcast_settings_sync,
             trigger_notch_action,
-            restart_app
+            restart_app,
+            shelf_server::start_shelf_send,
+            shelf_server::start_shelf_receive,
+            shelf_server::stop_shelf_transfer,
+            shelf_server::get_shelf_transfer_status
         ])
         .setup(|app| {
+            shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
             use tauri::tray::TrayIconBuilder;
             use tauri::Emitter;
@@ -2818,10 +3076,18 @@ pub fn run() {
                 let mut loop_count: u32 = 0;
                 let mut last_is_browser = false;
                 let mut browser_false_count: u32 = 0;
+                let mut last_is_maximized = false;
+                let mut maximized_false_count: u32 = 0;
                 let mut click_outside_emitted = false;
                 let mut pending_cursor_nudge = false;
                 let mut cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
                 let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
+
+                let mut was_in_pill_sec = false;
+                let mut time_since_left_pill_sec = std::time::Instant::now();
+                let mut click_outside_emitted_sec = false;
+                let mut pending_cursor_nudge_sec = false;
+                let mut cached_geom_sec: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     
@@ -2841,6 +3107,24 @@ pub fn run() {
                                     last_is_browser = false;
                                     use tauri::Emitter;
                                     let _ = win_clone.emit("foreground-app-browser", false);
+                                }
+                            }
+                        }
+
+                        if let Some(is_max) = is_foreground_window_maximized() {
+                            if is_max {
+                                maximized_false_count = 0;
+                                if !last_is_maximized {
+                                    last_is_maximized = true;
+                                    use tauri::Emitter;
+                                    let _ = win_clone.emit("foreground-app-maximized", true);
+                                }
+                            } else {
+                                maximized_false_count += 1;
+                                if maximized_false_count >= 2 && last_is_maximized {
+                                    last_is_maximized = false;
+                                    use tauri::Emitter;
+                                    let _ = win_clone.emit("foreground-app-maximized", false);
                                 }
                             }
                         }
@@ -2943,6 +3227,104 @@ pub fn run() {
                                 }
                             } else {
                                 click_outside_emitted = false;
+                            }
+                        }
+
+                        if let Some(sec_win) = app_handle_poll.get_webview_window("notch_secondary") {
+                            if sec_win.is_visible().unwrap_or(false) {
+                                let need_geom_sec = cached_geom_sec.is_none()
+                                    || loop_count.is_multiple_of(15)
+                                    || last_pos_state != Some(cur_pos_state);
+                                if need_geom_sec {
+                                    if let (Ok(wp), Ok(ws), Ok(s)) = (
+                                        sec_win.outer_position(),
+                                        sec_win.outer_size(),
+                                        sec_win.scale_factor(),
+                                    ) {
+                                        cached_geom_sec = Some((wp, ws, s));
+                                    }
+                                }
+
+                                if let Some((sec_pos, sec_size, sec_sf)) = cached_geom_sec {
+                                    let pill_sec = PillState {
+                                        width: pill.secondary_width,
+                                        height: pill.secondary_height,
+                                        dpr: pill.secondary_dpr,
+                                        is_bottom: pill.is_bottom,
+                                        pos: pill.pos,
+                                        top_offset: pill.top_offset,
+                                        is_island: pill.is_island,
+                                        target_monitor: Some("secondary".to_string()),
+                                        secondary_width: 120.0,
+                                        secondary_height: 35.0,
+                                        secondary_dpr: 1.0,
+                                    };
+                                    let in_pill_sec = calculate_notch_hit(pt, sec_pos, sec_size, sec_sf, &pill_sec);
+
+                                    if IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed) {
+                                        let _ = sec_win.set_ignore_cursor_events(true);
+                                        was_in_pill_sec = false;
+                                        click_outside_emitted_sec = false;
+                                        time_since_left_pill_sec = std::time::Instant::now();
+                                    } else if IS_INTERACTIVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+                                        let _ = sec_win.set_ignore_cursor_events(false);
+                                        was_in_pill_sec = true;
+                                        if !in_pill_sec {
+                                            use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+                                            use tauri::Emitter;
+                                            let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                            let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                            if l_down || r_down {
+                                                if !click_outside_emitted_sec {
+                                                    click_outside_emitted_sec = true;
+                                                    let _ = sec_win.emit("click-outside", ());
+                                                }
+                                            } else {
+                                                click_outside_emitted_sec = false;
+                                            }
+                                        } else {
+                                            click_outside_emitted_sec = false;
+                                        }
+                                    } else if in_pill_sec != was_in_pill_sec {
+                                        was_in_pill_sec = in_pill_sec;
+                                        pending_cursor_nudge_sec = in_pill_sec;
+                                        let _ = sec_win.set_ignore_cursor_events(!in_pill_sec);
+                                        use tauri::Emitter;
+                                        if !in_pill_sec {
+                                            time_since_left_pill_sec = std::time::Instant::now();
+                                            let _ = sec_win.emit("notch-mouse-leave", ());
+                                        } else {
+                                            let _ = sec_win.emit("notch-mouse-enter", ());
+                                        }
+                                    } else if is_window_click_through(&sec_win) == Some(in_pill_sec) {
+                                        let _ = sec_win.set_ignore_cursor_events(!in_pill_sec);
+                                    }
+
+                                    if pending_cursor_nudge_sec && is_window_click_through(&sec_win) == Some(false) {
+                                        pending_cursor_nudge_sec = false;
+                                        nudge_cursor();
+                                    }
+
+                                    if in_pill_sec {
+                                        time_since_left_pill_sec = std::time::Instant::now();
+                                        click_outside_emitted_sec = false;
+                                    } else if pill_sec.height > 50.0 && time_since_left_pill_sec.elapsed().as_millis() >= 400 {
+                                        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+                                        use tauri::Emitter;
+                                        let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                        let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                        if l_down || r_down {
+                                            if !click_outside_emitted_sec {
+                                                click_outside_emitted_sec = true;
+                                                let _ = sec_win.emit("click-outside", ());
+                                            }
+                                        } else {
+                                            click_outside_emitted_sec = false;
+                                        }
+                                    } else {
+                                        click_outside_emitted_sec = false;
+                                    }
+                                }
                             }
                         }
                     }
@@ -3934,6 +4316,7 @@ mod hit_test {
             is_island: false,
             dpr: 1.0,
             target_monitor: None,
+            ..Default::default()
         };
 
         // Center is at 360 + (1200 - 120) / 2 = 900.
@@ -3962,6 +4345,7 @@ mod hit_test {
             is_island: false,
             dpr: 1.25,
             target_monitor: None,
+            ..Default::default()
         };
 
         // With 125% text scale:
@@ -4001,6 +4385,7 @@ mod hit_test {
             is_island: true,
             dpr: 1.0,
             target_monitor: None,
+            ..Default::default()
         };
 
         // phys_offset = 10, min_y = 10 - 10 = 0 (physical screen edge)
@@ -4029,6 +4414,7 @@ mod hit_test {
             is_island: false,
             dpr: 1.0,
             target_monitor: None,
+            ..Default::default()
         };
 
         // pill_y = 320 + 760 - 35 = 1045
@@ -4053,6 +4439,7 @@ mod hit_test {
             is_island: true,
             dpr: 1.0,
             target_monitor: None,
+            ..Default::default()
         };
 
         // Point inside the 12px floating gap above the notch (y = 6)
@@ -4152,6 +4539,7 @@ mod hit_test {
             is_island: false,
             dpr: 1.0,
             target_monitor: Some(r"\\.\DISPLAY2".to_string()),
+            ..Default::default()
         };
 
         // Pill center on Monitor 2: 2086 + (820 - 120)/2 + 60 = 2086 + 350 + 60 = 2496

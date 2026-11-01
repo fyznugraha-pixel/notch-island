@@ -9,6 +9,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, ShortcutActionId, ShortcutStatus, shortcutManager, formatShortcutForBadge } from "./services/shortcuts";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Bell,
   BellOff,
@@ -45,6 +46,7 @@ import { getTextWidth } from "./utils/text";
 import { LyricsData, LyricsProviderId, fetchLyrics, clearLyricsCacheForTrack } from "./services/lyricsService";
 import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
 import { fetchCurrentWeather, subscribeWeatherChange, getCachedWeather } from "./services/weatherService";
+import { subscribeToSystemMetrics } from "./services/systemMetricsService";
 import { checkForAppUpdate } from "./services/updateService";
 import type { ClipboardItem } from "./components/ui/ClipboardPanel";
 import {
@@ -158,6 +160,17 @@ import { getWheelVerticalDirection } from "./utils/gesture";
 import { iosSpring } from "./utils/iosMotion";
 import { t, getLanguage, setLanguage, Language } from "./services/i18n";
 import { GreetingNotification } from "./components/ui/GreetingNotification";
+
+const isSecondaryWindow = typeof window !== "undefined" && (
+  (window as any).__IS_SECONDARY_NOTCH__ === true ||
+  (() => {
+    try {
+      return getCurrentWindow().label === "notch_secondary";
+    } catch {
+      return false;
+    }
+  })()
+);
 
 export default function App() {
   const [media, setMedia] = useState<MediaPayload | null>(null);
@@ -1028,11 +1041,20 @@ export default function App() {
   const outgoingShelfPathsRef = useRef<Set<string>>(new Set());
 
   const [isBrowserActive, setIsBrowserActive] = useState(false);
+  const [isAppMaximized, setIsAppMaximized] = useState(false);
   const [optAutoCompact, setOptAutoCompact] = useState(true);
+  const [optAutoCompactMode, setOptAutoCompactMode] = useState<"browser" | "maximized">(() => {
+    try {
+      const v = localStorage.getItem("island_auto_compact_mode");
+      if (v === "browser" || v === "maximized") return v;
+    } catch {}
+    return "browser";
+  });
 
-  const lastDropTimeRef = useRef<number>(0);
-
-  const addStashedFiles = async (paths: string[]) => {
+  const addStashedFiles = async (
+    paths: string[],
+    meta?: { source?: "local" | "phone"; deviceName?: string; isNew?: boolean; thumbnail?: string }
+  ) => {
     if (isShelfDraggingRef.current) return;
     if (!paths || paths.length === 0) return;
 
@@ -1042,67 +1064,73 @@ export default function App() {
       .filter((p) => Boolean(p) && (p.includes("\\") || p.includes("/")));
     if (cleaned.length === 0) return;
 
-    // Guard against rapid duplicate drop events (e.g. OS drop + DOM onDrop within 250ms)
-    const now = Date.now();
-    if (now - lastDropTimeRef.current < 250) {
-      return;
-    }
-    lastDropTimeRef.current = now;
-
     const uniqueIncoming = Array.from(new Set(cleaned));
 
-    // Don't duplicate paths that are already in the shelf
-    const existingPaths = new Set(stashedFiles.map((f) => f.path.toLowerCase()));
-    const finalPaths = uniqueIncoming.filter((p) => !existingPaths.has(p.toLowerCase()));
-
-    if (finalPaths.length === 0) {
-      goToTab("drop_shelf");
-      return;
-    }
-
-    const newItems: StashedFile[] = finalPaths.map((cleanPath) => {
-      const name = cleanPath.split(/[\\/]/).pop() || "File";
-      const ext = name.includes(".") ? name.split(".").pop() || "" : "";
-      return {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name,
-        path: cleanPath,
-        ext,
-        addedAt: Date.now(),
-      };
-    });
-
     setStashedFiles((prev) => {
+      const existingPaths = new Set(prev.map((f) => f.path.toLowerCase()));
+      const finalPaths = uniqueIncoming.filter((p) => !existingPaths.has(p.toLowerCase()));
+
+      if (finalPaths.length === 0) {
+        return prev;
+      }
+
+      const newItems: StashedFile[] = finalPaths.map((cleanPath) => {
+        const name = cleanPath.split(/[\\/]/).pop() || "File";
+        const ext = name.includes(".") ? name.split(".").pop() || "" : "";
+        return {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          name,
+          path: cleanPath,
+          ext,
+          addedAt: Date.now(),
+          thumbnail: meta?.thumbnail,
+          source: meta?.source || "local",
+          deviceName: meta?.deviceName,
+          isNew: meta?.isNew,
+        };
+      });
+
       const updated = [...newItems, ...prev].slice(0, 50);
       persistShelfFiles(updated, true);
+
+      // Pre-resolve previews & metadata through the controlled concurrency queue
+      queueFilePreviews(newItems, (batch) => {
+        setStashedFiles((current) => {
+          let hasChanges = false;
+          const updatedWithBatch = current.map((f) => {
+            const res = batch[f.id];
+            if (res) {
+              const nextSize = f.sizeFormatted || res.sizeFormatted;
+              const nextThumb = f.thumbnail || res.thumbnail;
+              if (nextSize !== f.sizeFormatted || nextThumb !== f.thumbnail) {
+                hasChanges = true;
+                return {
+                  ...f,
+                  sizeFormatted: nextSize,
+                  thumbnail: nextThumb,
+                };
+              }
+            }
+            return f;
+          });
+          if (hasChanges) {
+            persistShelfFiles(updatedWithBatch, false);
+            return updatedWithBatch;
+          }
+          return current;
+        });
+      });
+
       return updated;
     });
 
-    goToTab("drop_shelf");
-
-    // Pre-resolve previews & metadata through the controlled concurrency queue
-    queueFilePreviews(newItems, (batch) => {
-      setStashedFiles((prev) => {
-        let hasChanges = false;
-        const updated = prev.map((f) => {
-          const res = batch[f.id];
-          if (res && !f.sizeFormatted) {
-            hasChanges = true;
-            return {
-              ...f,
-              sizeFormatted: res.sizeFormatted,
-            };
-          }
-          return f;
-        });
-        if (hasChanges) {
-          persistShelfFiles(updated, false);
-          return updated;
-        }
-        return prev;
-      });
-    });
+    goToTab("drop_shelf", 0);
   };
+
+  const addStashedFilesRef = useRef(addStashedFiles);
+  useEffect(() => {
+    addStashedFilesRef.current = addStashedFiles;
+  });
 
 
   const removeStashedFile = (id: string) => {
@@ -2229,17 +2257,20 @@ export default function App() {
       }
 
       const currentTarget = optTargetMonitorRef.current || "primary";
-      let currentIndex = monitors.findIndex(
-        (m) => m.id === currentTarget || (currentTarget === "primary" && m.is_primary)
-      );
+      const targetOptions = [...monitors.map((m) => m.id), "all"];
+      let currentIndex = targetOptions.indexOf(currentTarget);
       if (currentIndex === -1) {
-        currentIndex = monitors.findIndex((m) => m.is_current);
+        if (currentTarget === "primary") {
+          const primIdx = monitors.findIndex((m) => m.is_primary);
+          currentIndex = primIdx !== -1 ? primIdx : 0;
+        } else {
+          currentIndex = 0;
+        }
       }
-      if (currentIndex === -1) currentIndex = 0;
 
-      const nextIndex = (currentIndex + 1) % monitors.length;
-      const targetMon = monitors[nextIndex];
-      const nextId = targetMon.id;
+      const nextIndex = (currentIndex + 1) % targetOptions.length;
+      const nextId = targetOptions[nextIndex];
+      const isAll = nextId === "all";
 
       setOptTargetMonitor(nextId);
       optTargetMonitorRef.current = nextId;
@@ -2262,9 +2293,12 @@ export default function App() {
         payload: { type: "opt_target_monitor", value: nextId },
       }).catch(() => {});
 
-      const label = targetMon.name
-        ? `${targetMon.name} (${targetMon.width}x${targetMon.height})`
-        : `Monitor ${nextIndex + 1} (${targetMon.width}x${targetMon.height})`;
+      const label = isAll
+        ? t("settings_monitor_all")
+        : (() => {
+            const m = monitors.find((mon) => mon.id === nextId);
+            return m?.name ? `${m.name} (${m.width}x${m.height})` : `Monitor (${nextId})`;
+          })();
 
       showNotif({
         title: "Gili Notch",
@@ -2312,6 +2346,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (isSecondaryWindow) return;
     let isCancelled = false;
     const applyShortcuts = async () => {
       const statuses = await shortcutManager.applyAll(
@@ -2481,6 +2516,8 @@ export default function App() {
         }
         const ears = await s.get('opt_ears'); if (typeof ears === 'boolean') setOptEars(ears);
         const ac = await s.get('opt_auto_compact'); if (typeof ac === 'boolean') setOptAutoCompact(ac);
+        const acm = await s.get('opt_auto_compact_mode');
+        if (acm === 'browser' || acm === 'maximized') setOptAutoCompactMode(acm);
         const lang = await s.get('opt_language');
         if (lang === 'en' || lang === 'id') {
           setLanguage(lang as Language, false);
@@ -2757,6 +2794,11 @@ export default function App() {
       setIsBrowserActive(Boolean(event.payload));
     });
     invoke<boolean>("check_foreground_browser").then(setIsBrowserActive).catch(console.error);
+
+    const unlistenMaximized = listen<boolean>("foreground-app-maximized", (event) => {
+      setIsAppMaximized(Boolean(event.payload));
+    });
+    invoke<boolean>("check_foreground_maximized").then(setIsAppMaximized).catch(console.error);
     invoke<boolean>("request_notification_access").catch(() => {});
 
     let unlistenDragDrop: (() => void) | undefined;
@@ -2773,7 +2815,7 @@ export default function App() {
           if (paths && paths.length > 0) {
             const valid = paths.filter((p) => !outgoingShelfPathsRef.current.has(p.toLowerCase()));
             if (valid.length > 0) {
-              addStashedFiles(valid);
+              addStashedFilesRef.current(valid);
               goToTab("drop_shelf", 0);
             }
           }
@@ -2791,9 +2833,12 @@ export default function App() {
       unlistenMouseLeave.then(unlisten => unlisten());
       unlistenMouseEnter.then(unlisten => unlisten());
       unlistenBrowser.then(unlisten => unlisten());
+      unlistenMaximized.then(unlisten => unlisten());
       if (unlistenDragDrop) unlistenDragDrop();
       clearTimeout(updateCheckTimeout);
-      shortcutManager.destroy().catch(() => {});
+      if (!isSecondaryWindow) {
+        shortcutManager.destroy().catch(() => {});
+      }
     };
   }, []);
 
@@ -2867,8 +2912,13 @@ export default function App() {
     let dndPollTimer: number | undefined;
     const pollWindowsDnd = async () => {
       try {
+        const currentMode = focusModeRef.current;
+        // Never override explicit specialized modes like Gaming or Sleep!
+        if (currentMode === "Gaming" || currentMode === "Sleep") {
+          return;
+        }
         const isWinDnd = await invoke<boolean>("get_windows_dnd");
-        const giliDnd = focusModeRef.current === "DND";
+        const giliDnd = currentMode === "DND";
         if (isWinDnd && !giliDnd) {
           setFocusMode("DND");
           focusModeRef.current = "DND";
@@ -3409,6 +3459,11 @@ export default function App() {
           case "opt_auto_compact":
             setOptAutoCompact(Boolean(value));
             break;
+          case "opt_auto_compact_mode":
+            if (value === "browser" || value === "maximized") {
+              setOptAutoCompactMode(value);
+            }
+            break;
           case "opt_close_delay":
             optCloseDelayRef.current = Number(value);
             setOptCloseDelay(Number(value));
@@ -3783,31 +3838,11 @@ export default function App() {
 
   useEffect(() => {
     if (!needsSystemMetrics) return;
-    let mounted = true;
 
-    const fetchMetrics = async () => {
-      try {
-        const res = await invoke<{
-          cpu_usage: number;
-          mem_usage: number;
-          mem_used_gb: number;
-          mem_total_gb: number;
-          wifi_down_mbps: number;
-          wifi_up_mbps: number;
-        }>("get_system_metrics");
-        if (!mounted) return;
-        setSysMetrics(res);
-      } catch {
-        // ignore
-      }
-    };
-
-    fetchMetrics();
-    const id = window.setInterval(fetchMetrics, 1500);
-    return () => {
-      mounted = false;
-      window.clearInterval(id);
-    };
+    const unsubscribe = subscribeToSystemMetrics((res) => {
+      setSysMetrics(res);
+    });
+    return unsubscribe;
   }, [needsSystemMetrics]);
 
   const idleRuntimeData: IdleRuntimeData = useMemo(() => ({
@@ -3836,14 +3871,21 @@ export default function App() {
   const isSmallNotif = notif?.icon === "battery" || notif?.icon === "volume" || notif?.icon === "capslock";
   const isMediumNotif = notif?.title === t("notif_on_battery") || notif?.title === "On Battery" || (notif?.icon === "clipboard" && !notif?.body) || isSingleLine;
 
+  const cleanedNotifBody = (notif?.body || "").trim();
+  const substantiveBodyLines = cleanedNotifBody
+    ? cleanedNotifBody.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    : [];
+  const hasMultipleParagraphs = substantiveBodyLines.length >= 2 && cleanedNotifBody.length > 55;
   const bodyTextFont = optFontSize === "small" ? "500 11px 'Inter', sans-serif" : optFontSize === "large" ? "500 13.5px 'Inter', sans-serif" : "500 12.5px 'Inter', sans-serif";
-  const bodyTextWidth = notif?.body ? getTextWidth(notif.body, bodyTextFont) : 0;
+  const bodyTextWidth = cleanedNotifBody ? getTextWidth(cleanedNotifBody, bodyTextFont) : 0;
+  const isReallyLongText = bodyTextWidth > 380 && cleanedNotifBody.length > 60;
+
   const isMultilineBody = Boolean(
     notif &&
       !isSmallNotif &&
       !isMediumNotif &&
-      notif.body &&
-      (notif.body.includes("\n") || bodyTextWidth > 320)
+      cleanedNotifBody &&
+      (hasMultipleParagraphs || isReallyLongText)
   );
 
   const effectiveIdleSize = optIdleSize;
@@ -3907,15 +3949,15 @@ export default function App() {
       const titleFont = optFontSize === "small" ? "600 12px 'Inter', sans-serif" : optFontSize === "large" ? "600 14.5px 'Inter', sans-serif" : "600 13px 'Inter', sans-serif";
       const bodyFont = optFontSize === "small" ? "500 11px 'Inter', sans-serif" : optFontSize === "large" ? "500 13.5px 'Inter', sans-serif" : "500 12.5px 'Inter', sans-serif";
       const titleWidth = getTextWidth(notif.title || "", titleFont);
-      const bodyWidth = notif.body ? getTextWidth(notif.body, bodyFont) : 0;
+      const bodyWidth = cleanedNotifBody ? getTextWidth(cleanedNotifBody, bodyFont) : 0;
 
       const overhead = 92;
       const minTitleNeeded = Math.ceil(titleWidth + overhead);
 
       let contentNeeded = minTitleNeeded;
-      if (notif.body) {
+      if (cleanedNotifBody) {
         if (isMultilineBody) {
-          const multilineLineWidth = Math.ceil(bodyWidth / 1.85);
+          const multilineLineWidth = Math.min(bodyWidth, 380);
           contentNeeded = Math.max(minTitleNeeded, Math.ceil(multilineLineWidth + overhead));
         } else {
           contentNeeded = Math.max(minTitleNeeded, Math.ceil(bodyWidth + overhead));
@@ -3923,7 +3965,7 @@ export default function App() {
       }
 
       const targetWidth = Math.max(minTitleNeeded, contentNeeded);
-      return Math.min(460, Math.max(160, targetWidth));
+      return Math.min(480, Math.max(160, targetWidth));
     }
 
     if (notif) {
@@ -4074,7 +4116,11 @@ export default function App() {
     else variant = "notif";
   } else if (pomodoro.completeAlert) {
     variant = "pomo_complete_alert";
-  } else if (optAutoCompact && isBrowserActive) {
+  } else if (
+    optAutoCompact &&
+    ((optAutoCompactMode === "browser" && isBrowserActive) ||
+      (optAutoCompactMode === "maximized" && isAppMaximized))
+  ) {
     variant = "compact";
   } else if (pomodoro.isRunning && pomodoro.settings.showIdleTimer) {
     variant = "pomo_idle";
@@ -4686,45 +4732,6 @@ export default function App() {
           startCollapseTimer(350);
           if (!isPlayingRef.current && mediaRef.current && !isPausedMediaCollapsedRef.current) {
             startPausedMediaCollapseTimer(3000);
-          }
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!isDragOver) setIsDragOver(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          const rect = e.currentTarget.getBoundingClientRect();
-          if (
-            e.clientX <= rect.left ||
-            e.clientX >= rect.right ||
-            e.clientY <= rect.top ||
-            e.clientY >= rect.bottom
-          ) {
-            setIsDragOver(false);
-          }
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setIsDragOver(false);
-          if (isShelfDraggingRef.current) return;
-          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            const paths: string[] = [];
-            for (let i = 0; i < e.dataTransfer.files.length; i++) {
-              const file = e.dataTransfer.files[i];
-              const p = (file as any).path;
-              if (typeof p === "string" && (p.includes("\\") || p.includes("/"))) {
-                if (!outgoingShelfPathsRef.current.has(p.toLowerCase())) {
-                  paths.push(p);
-                }
-              }
-            }
-            if (paths.length > 0) {
-              addStashedFiles(paths);
-              goToTab("drop_shelf", 0);
-            }
           }
         }}
         onContextMenu={(e) => {
@@ -5384,6 +5391,7 @@ export default function App() {
                             <React.Suspense fallback={null}>
                               <DropShelfPanel
                                 files={stashedFiles}
+                                isDragOver={isDragOver}
                                 onRemoveFile={removeStashedFile}
                                 onRemoveFiles={removeStashedFiles}
                                 onClearAll={clearAllStashedFiles}
@@ -5507,6 +5515,15 @@ export default function App() {
                                   const next = !optAutoCompact;
                                   setOptAutoCompact(next);
                                   if (store) await store.set("opt_auto_compact", next);
+                                }}
+                                optAutoCompactMode={optAutoCompactMode}
+                                onChangeAutoCompactMode={async (mode) => {
+                                  setOptAutoCompactMode(mode);
+                                  try { localStorage.setItem("island_auto_compact_mode", mode); } catch {}
+                                  if (store) {
+                                    await store.set("opt_auto_compact_mode", mode);
+                                    await store.save();
+                                  }
                                 }}
                             isAutostart={isAutostart}
                             onToggleAutostart={async () => {
@@ -5923,10 +5940,10 @@ export default function App() {
                 ) : (
                   <div className="flex flex-col justify-center overflow-hidden min-w-0 flex-1">
                     <ScrollingText text={notif.title} className={`text-[13px] font-semibold tracking-tight leading-tight w-full ${isLightMode ? 'text-[#1d1d1f]' : 'text-white'}`} />
-                    {notif.body && (
+                    {cleanedNotifBody && (
                       <AnimatePresence mode="popLayout">
                         <motion.div 
-                          key={notif.body}
+                          key={cleanedNotifBody}
                           initial={{ opacity: 0, y: 6, scale: 0.96 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: -6, scale: 0.96 }}
@@ -5935,10 +5952,10 @@ export default function App() {
                         >
                           {isMultilineBody ? (
                             <p className={`text-[12px] leading-snug tracking-tight line-clamp-2 break-words font-medium ${isLightMode ? 'text-neutral-600' : 'text-ios-secondary'}`}>
-                              {notif.body}
+                              {cleanedNotifBody}
                             </p>
                           ) : (
-                            <ScrollingText text={notif.body} className={`text-[12.5px] leading-tight tracking-tight ${isLightMode ? 'text-neutral-500 font-medium' : 'text-ios-secondary font-medium'}`} />
+                            <ScrollingText text={cleanedNotifBody.replace(/[\r\n]+/g, " ")} className={`text-[12.5px] leading-tight tracking-tight ${isLightMode ? 'text-neutral-500 font-medium' : 'text-ios-secondary font-medium'}`} />
                           )}
                         </motion.div>
                       </AnimatePresence>
