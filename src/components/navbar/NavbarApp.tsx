@@ -7,8 +7,10 @@ import { NavbarDock } from "./NavbarDock";
 
 export const NavbarApp: React.FC = () => {
   const [config, setConfig] = useState<NavbarConfig>(DEFAULT_NAVBAR_CONFIG);
+  const [isDockVisible, setIsDockVisible] = useState(true);
   const dockRef = useRef<HTMLDivElement>(null);
   const lastSyncSizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const autoHideTimerRef = useRef<number | null>(null);
 
   // 1. Initial config load
   useEffect(() => {
@@ -72,12 +74,20 @@ export const NavbarApp: React.FC = () => {
     return () => observer.disconnect();
   }, [config.shape, config.distanceFromEdge, syncBounds]);
 
-  // 4. Power state pacing: Active on hover, Idle on leave
+  // 4. Power state pacing & Auto-Hide handling
   const handleMouseEnter = () => {
+    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+    setIsDockVisible(true);
     invoke("set_metrics_power_state", { state: "Active" }).catch(() => {});
   };
 
   const handleMouseLeave = () => {
+    if (config.autoHide) {
+      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+      autoHideTimerRef.current = window.setTimeout(() => {
+        setIsDockVisible(false);
+      }, 400);
+    }
     invoke("set_metrics_power_state", { state: "Idle" }).catch(() => {});
   };
 
@@ -90,10 +100,11 @@ export const NavbarApp: React.FC = () => {
 
   const handleNotificationsClick = async () => {
     try {
-      // Toggle Action Center in Windows: Win + N
       await invoke("trigger_start_menu");
     } catch {}
   };
+
+  const shouldSlideDown = config.autoHide && !isDockVisible;
 
   return (
     <div
@@ -101,7 +112,19 @@ export const NavbarApp: React.FC = () => {
       onMouseLeave={handleMouseLeave}
       className="fixed inset-0 w-screen h-screen flex items-end justify-center select-none overflow-hidden bg-transparent pointer-events-none"
     >
-      <div className="pointer-events-auto">
+      {/* Auto-hide trigger edge hotzone at screen bottom */}
+      {config.autoHide && (
+        <div
+          onMouseEnter={handleMouseEnter}
+          className="absolute bottom-0 left-0 right-0 h-2 bg-transparent pointer-events-auto z-10"
+        />
+      )}
+
+      <div
+        className={`pointer-events-auto transition-transform duration-200 ease-out ${
+          shouldSlideDown ? "translate-y-[calc(100%+20px)]" : "translate-y-0"
+        }`}
+      >
         <NavbarDock
           ref={dockRef}
           config={config}

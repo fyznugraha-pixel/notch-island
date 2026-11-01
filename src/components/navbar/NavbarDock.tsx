@@ -123,6 +123,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           <PinnedAppsGroup
             iconSize={iconSize}
             magnifyOnHover={config.magnify}
+            windowPreviews={config.windowPreviews}
             accentColor={config.accent}
           />
         )}
