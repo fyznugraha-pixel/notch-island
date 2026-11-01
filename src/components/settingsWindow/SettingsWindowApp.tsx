@@ -1010,7 +1010,11 @@ export const SettingsWindowApp: React.FC = () => {
             isLightMode ? "bg-[#f5f5f7]" : "bg-[#0c0c10]"
           }`}
         >
-          <div className="max-w-[640px] mx-auto w-full flex flex-col gap-5">
+          <div
+            className={`w-full flex flex-col gap-5 transition-all duration-200 ease-in-out ${
+              isSidebarCollapsed ? "max-w-none" : "max-w-[640px] mx-auto"
+            }`}
+          >
             {/* Section Title Header */}
             {!searchQuery.trim() && (
               <div className="flex items-center justify-between pb-1 border-b border-white/[0.06] [html.light_&]:border-black/[0.07]">

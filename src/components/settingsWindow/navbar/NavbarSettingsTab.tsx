@@ -106,7 +106,7 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
   }
 
   return (
-    <div className="flex flex-col gap-4 pb-12 w-full max-w-[720px] mx-auto select-none">
+    <div className="flex flex-col gap-4 pb-12 w-full select-none">
       {/* 1. Header with Presets button */}
       <div className="flex items-center justify-between pb-1 gap-4">
         <div className="flex flex-col gap-1">
