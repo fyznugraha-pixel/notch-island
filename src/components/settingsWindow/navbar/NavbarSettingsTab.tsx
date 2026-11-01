@@ -13,7 +13,9 @@ import { NavbarLookCard } from "./NavbarLookCard";
 import { NavbarBehaviorCard } from "./NavbarBehaviorCard";
 import { NavbarModulesOrderCard } from "./NavbarModulesOrderCard";
 import { AddModuleDialog } from "./AddModuleDialog";
+import { NavbarPresetsModal } from "./NavbarPresetsModal";
 import { getNavbarModuleById } from "../../../modules/registry";
+import { Sparkles } from "lucide-react";
 
 interface NavbarSettingsTabProps {
   isLightMode?: boolean;
@@ -25,6 +27,7 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
   const [config, setConfig] = useState<NavbarConfig>(DEFAULT_NAVBAR_CONFIG);
   const [isLoading, setIsLoading] = useState(true);
   const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
+  const [isPresetsOpen, setIsPresetsOpen] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -104,23 +107,33 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
 
   return (
     <div className="flex flex-col gap-4 pb-12 w-full max-w-[720px] mx-auto select-none">
-      {/* 1. Header */}
-      <div className="flex flex-col gap-1 pb-1">
-        <h1
-          className={`text-[20px] font-bold tracking-tight ${
-            isLightMode ? "text-neutral-900" : "text-white"
-          }`}
+      {/* 1. Header with Presets button */}
+      <div className="flex items-center justify-between pb-1 gap-4">
+        <div className="flex flex-col gap-1">
+          <h1
+            className={`text-[20px] font-bold tracking-tight ${
+              isLightMode ? "text-neutral-900" : "text-white"
+            }`}
+          >
+            Navbar Gili
+          </h1>
+          <p
+            className={`text-[12.5px] leading-relaxed ${
+              isLightMode ? "text-neutral-500" : "text-zinc-400"
+            }`}
+          >
+            Pengganti taskbar Windows dengan auto-layout, sayap lekukan terbalik,
+            dan 40 modul interaktif.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsPresetsOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border border-purple-500/20 text-[11.5px] font-semibold transition-all cursor-pointer shrink-0"
         >
-          Navbar Gili
-        </h1>
-        <p
-          className={`text-[12.5px] leading-relaxed ${
-            isLightMode ? "text-neutral-500" : "text-zinc-400"
-          }`}
-        >
-          Pengganti taskbar Windows dengan auto-layout, sayap lekukan terbalik,
-          dan 40 modul interaktif.
-        </p>
+          <Sparkles size={14} />
+          <span>Preset Populer</span>
+        </button>
       </div>
 
       {/* 2. Sticky Live Preview */}
@@ -170,6 +183,14 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
         config={config}
         onAddModule={handleAddModule}
         onRemoveModule={handleRemoveModule}
+        isLightMode={isLightMode}
+      />
+
+      {/* 9. Presets Modal */}
+      <NavbarPresetsModal
+        isOpen={isPresetsOpen}
+        onClose={() => setIsPresetsOpen(false)}
+        onApplyPreset={handlePatch}
         isLightMode={isLightMode}
       />
     </div>
