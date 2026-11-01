@@ -3,6 +3,7 @@ import { NavbarConfig } from "../../types/navbar";
 import { StartSearchGroup } from "./groups/StartSearchGroup";
 import { PinnedAppsGroup } from "./groups/PinnedAppsGroup";
 import { SystemTrayGroup } from "./groups/SystemTrayGroup";
+import { getNavbarModuleById } from "../../modules/registry";
 
 interface NavbarDockProps {
   config: NavbarConfig;
@@ -128,15 +129,51 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           />
         )}
 
-        {/* Extra Active Modules Slot (Catalog) */}
-        {extraModules && (
-          <>
-            <Separator />
-            <div className="flex items-center gap-1 shrink-0">
-              {extraModules}
-            </div>
-          </>
-        )}
+        {/* Dynamic Catalog Modules Slot */}
+        {(() => {
+          const customModules = config.modules.filter(
+            (m) =>
+              m.enabled &&
+              ![
+                "startSearch",
+                "pinnedApps",
+                "runningApps",
+                "systemIcons",
+                "notifications",
+                "clockDate",
+              ].includes(m.id)
+          );
+
+          if (!customModules.length && !extraModules) return null;
+
+          return (
+            <>
+              <Separator />
+              <div className="flex items-center gap-1.5 shrink-0">
+                {customModules.map((m) => {
+                  const def = getNavbarModuleById(m.id);
+                  if (!def) return null;
+                  const Component = def.component;
+                  return Component ? (
+                    <Component key={m.id} view={m.view} config={config} />
+                  ) : (
+                    <div
+                      key={m.id}
+                      className="h-8 px-2.5 rounded-[10px] bg-white/[0.08] hover:bg-white/[0.14] transition-colors flex items-center gap-1.5 text-[11px] font-semibold text-white cursor-pointer select-none"
+                    >
+                      <span
+                        style={{ backgroundColor: def.accentColor }}
+                        className="w-1.5 h-1.5 rounded-full"
+                      />
+                      <span>{def.chipLabel}</span>
+                    </div>
+                  );
+                })}
+                {extraModules}
+              </div>
+            </>
+          );
+        })()}
 
         {/* Grup 3: System Icons, Notifications, Clock/Date */}
         {(hasModule("systemIcons") ||

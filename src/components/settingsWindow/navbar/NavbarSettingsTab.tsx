@@ -12,6 +12,8 @@ import { NavbarPositionCard } from "./NavbarPositionCard";
 import { NavbarLookCard } from "./NavbarLookCard";
 import { NavbarBehaviorCard } from "./NavbarBehaviorCard";
 import { NavbarModulesOrderCard } from "./NavbarModulesOrderCard";
+import { AddModuleDialog } from "./AddModuleDialog";
+import { getNavbarModuleById } from "../../../modules/registry";
 
 interface NavbarSettingsTabProps {
   isLightMode?: boolean;
@@ -22,6 +24,7 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
 }) => {
   const [config, setConfig] = useState<NavbarConfig>(DEFAULT_NAVBAR_CONFIG);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
 
   // Load config on mount
   useEffect(() => {
@@ -30,6 +33,24 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
       setIsLoading(false);
     });
   }, []);
+
+  const handleAddModule = (moduleId: string) => {
+    if (config.modules.some((m) => m.id === moduleId)) return;
+    const def = getNavbarModuleById(moduleId);
+    const newModule = {
+      id: moduleId,
+      group: def?.group || (2 as const),
+      enabled: true,
+      view: def?.defaultView || ("compact" as const),
+    };
+    handlePatch({ modules: [...config.modules, newModule] });
+  };
+
+  const handleRemoveModule = (moduleId: string) => {
+    handlePatch({
+      modules: config.modules.filter((m) => m.id !== moduleId),
+    });
+  };
 
   // Patch and synchronize configuration
   const handlePatch = async (patch: Partial<NavbarConfig>) => {
@@ -130,9 +151,7 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
       <NavbarModulesOrderCard
         config={config}
         onChange={handlePatch}
-        onOpenAddModule={() => {
-          // Will open AddModuleDialog in Fase 6
-        }}
+        onOpenAddModule={() => setIsAddModuleOpen(true)}
         isLightMode={isLightMode}
       />
 
@@ -141,6 +160,16 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
         config={config}
         onChange={handlePatch}
         onReset={handleReset}
+        isLightMode={isLightMode}
+      />
+
+      {/* 8. Add Module Gallery Modal */}
+      <AddModuleDialog
+        isOpen={isAddModuleOpen}
+        onClose={() => setIsAddModuleOpen(false)}
+        config={config}
+        onAddModule={handleAddModule}
+        onRemoveModule={handleRemoveModule}
         isLightMode={isLightMode}
       />
     </div>
