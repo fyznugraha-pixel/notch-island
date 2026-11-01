@@ -2,10 +2,11 @@ import React from "react";
 import { NavbarConfig, NavbarModuleView } from "../types/navbar";
 
 export type NavbarModuleCategory =
-  | "produktif"
-  | "sistem"
-  | "media"
-  | "gayahidup";
+  | "all"
+  | "Produktif"
+  | "Sistem"
+  | "Media & estetika"
+  | "Gaya hidup";
 
 export interface NavbarModuleContext {
   view: NavbarModuleView;

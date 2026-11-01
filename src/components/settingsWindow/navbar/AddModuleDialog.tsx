@@ -1,11 +1,10 @@
-import React, { useState } from "react";
-import {
-  NAVBAR_MODULE_CATALOG,
-} from "../../../modules/registry";
+import React, { useState, useMemo } from "react";
 import { NavbarConfig } from "../../../types/navbar";
-import { NavbarModuleCategory } from "../../../modules/types";
-import { Search, X, Plus, Check } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import {
+  MODULE_CATALOG,
+  NavbarModuleUnifiedPreview,
+  CatalogModuleItem,
+} from "../../../modules/components/NavbarModuleUnifiedPreview";
 
 interface AddModuleDialogProps {
   isOpen: boolean;
@@ -16,207 +15,237 @@ interface AddModuleDialogProps {
   isLightMode?: boolean;
 }
 
+type CategoryFilter =
+  | "Semua"
+  | "Produktif"
+  | "Sistem"
+  | "Media & estetika"
+  | "Gaya hidup";
+
 export const AddModuleDialog: React.FC<AddModuleDialogProps> = ({
   isOpen,
   onClose,
   config,
   onAddModule,
   onRemoveModule,
-  isLightMode = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<
-    "all" | NavbarModuleCategory
-  >("all");
+  const [activeCategory, setActiveCategory] = useState<CategoryFilter>("Semua");
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<CategoryFilter, number> = {
+      Semua: MODULE_CATALOG.length,
+      Produktif: 0,
+      Sistem: 0,
+      "Media & estetika": 0,
+      "Gaya hidup": 0,
+    };
+    for (const m of MODULE_CATALOG) {
+      if (counts[m.category] !== undefined) {
+        counts[m.category]++;
+      }
+    }
+    return counts;
+  }, []);
+
+  const filteredModules = useMemo(() => {
+    return MODULE_CATALOG.filter((m) => {
+      const matchCat =
+        activeCategory === "Semua" || m.category === activeCategory;
+      const q = searchQuery.toLowerCase().trim();
+      const matchSearch =
+        !q ||
+        m.name.toLowerCase().includes(q) ||
+        m.description.toLowerCase().includes(q);
+      return matchCat && matchSearch;
+    });
+  }, [activeCategory, searchQuery]);
 
   if (!isOpen) return null;
 
-  const categories: { id: "all" | NavbarModuleCategory; label: string }[] = [
-    { id: "all", label: "Semua" },
-    { id: "produktif", label: "Produktif" },
-    { id: "sistem", label: "Sistem" },
-    { id: "media", label: "Media & estetika" },
-    { id: "gayahidup", label: "Gaya hidup" },
+  const isAdded = (id: string) => config.modules.some((m) => m.id === id);
+
+  const categories: { id: CategoryFilter; label: string; count: number }[] = [
+    { id: "Semua", label: "Semua", count: categoryCounts.Semua },
+    { id: "Produktif", label: "Produktif", count: categoryCounts.Produktif },
+    { id: "Sistem", label: "Sistem", count: categoryCounts.Sistem },
+    {
+      id: "Media & estetika",
+      label: "Media & estetika",
+      count: categoryCounts["Media & estetika"],
+    },
+    { id: "Gaya hidup", label: "Gaya hidup", count: categoryCounts["Gaya hidup"] },
   ];
 
-  const filteredModules = NAVBAR_MODULE_CATALOG.filter((m) => {
-    const matchesCat =
-      selectedCategory === "all" || m.category === selectedCategory;
-    const matchesSearch =
-      !searchQuery.trim() ||
-      m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.desc.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
-
-  const isModuleAdded = (id: string) =>
-    config.modules.some((m) => m.id === id);
-
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm select-none">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          transition={{ duration: 0.18 }}
-          className={`relative w-full max-w-[680px] h-[600px] flex flex-col rounded-[20px] border shadow-2xl overflow-hidden ${
-            isLightMode
-              ? "bg-[#f5f5f7] border-black/10 text-neutral-900"
-              : "bg-[#18181d] border-white/10 text-white"
-          }`}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 pt-5 pb-3">
-            <h2 className="text-[17px] font-bold tracking-tight">
-              Tambah Modul Navbar
-            </h2>
-            <button
-              type="button"
-              onClick={onClose}
-              className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-                isLightMode ? "hover:bg-black/10" : "hover:bg-white/10 text-white"
-              }`}
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          {/* Search bar & Category filters */}
-          <div className="px-6 flex flex-col gap-3 pb-3">
-            {/* Search Input */}
-            <div
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-[10px] border ${
-                isLightMode
-                  ? "bg-white border-black/10"
-                  : "bg-[#202026] border-white/10"
-              }`}
-            >
-              <Search size={14} className="text-zinc-400 shrink-0" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari modul..."
-                className="w-full bg-transparent text-[12.5px] outline-none placeholder-zinc-500"
-              />
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 select-none"
+      onClick={onClose}
+    >
+      <div
+        className="w-[1140px] max-w-[96vw] max-h-[88vh] rounded-[14px] bg-[#1d1d23] border border-white/[0.11] shadow-[0_24px_70px_rgba(0,0,0,0.55)] p-[22px_24px] flex flex-col gap-[14px] overflow-hidden text-[#e4e4e7]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Section 1: Header (Title, Subtitle, Search bar, Close button) */}
+        <div className="flex items-center gap-[14px] shrink-0">
+          <div className="flex-1 min-w-0">
+            <div className="text-[20px] font-semibold tracking-[-0.01em] text-[#f4f4f5]">
+              Tambah modul
             </div>
-
-            {/* Category tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-              {categories.map((cat) => {
-                const isSelected = selectedCategory === cat.id;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setSelectedCategory(cat.id)}
-                    className={`px-3 py-1 rounded-full text-[11.5px] font-medium transition-all cursor-pointer whitespace-nowrap ${
-                      isSelected
-                        ? "bg-[#0a84ff] text-white shadow-sm"
-                        : isLightMode
-                        ? "bg-black/5 hover:bg-black/10 text-neutral-600"
-                        : "bg-white/5 hover:bg-white/10 text-zinc-400"
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                );
-              })}
+            <div className="text-[13px] text-[#a1a1aa] mt-1">
+              Pilih modul untuk navbar. Tiap modul punya tampilan ringkas (ikon) dan lengkap (info).
             </div>
           </div>
 
-          {/* Modules Grid */}
-          <div className="flex-1 overflow-y-auto px-6 py-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {filteredModules.map((module) => {
-              const added = isModuleAdded(module.id);
+          {/* Search Input Box */}
+          <div className="w-[230px] h-[34px] rounded-[9px] bg-[#232329] flex items-center gap-2 px-[11px] text-[12px] text-[#8b8b95] shrink-0">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0"
+              aria-hidden="true"
+            >
+              <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari modul"
+              className="bg-transparent border-0 outline-none text-[#e4e4e7] placeholder-[#8b8b95] text-[12px] w-full"
+            />
+          </div>
+
+          {/* Close X Button */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-[34px] h-[34px] rounded-[9px] bg-[#232329] flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors cursor-pointer shrink-0"
+            aria-label="Tutup"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Section 2: Category Chips Row */}
+        <div className="flex gap-2 shrink-0 overflow-x-auto no-scrollbar">
+          {categories.map((cat) => {
+            const isActive = activeCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setActiveCategory(cat.id)}
+                className={`h-[30px] rounded-[15px] px-[14px] flex items-center gap-[7px] text-[12px] font-medium transition-colors cursor-pointer shrink-0 ${
+                  isActive
+                    ? "bg-[#3882F6] text-white"
+                    : "bg-[#232329] text-[#c4c4cc] hover:text-white"
+                }`}
+              >
+                <span>{cat.label}</span>
+                <span className="text-[10px] opacity-70 font-normal">
+                  {cat.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Section 3: 4-Column Module Cards Grid */}
+        <div className="flex-1 min-h-0 overflow-y-auto settings-scroll pr-1">
+          <div className="grid grid-cols-4 gap-3 align-start">
+            {filteredModules.map((item: CatalogModuleItem) => {
+              const added = isAdded(item.id);
+
               return (
                 <div
-                  key={module.id}
-                  className={`p-3 rounded-[14px] border flex flex-col justify-between transition-all ${
-                    isLightMode
-                      ? "bg-white border-black/8 hover:border-black/20"
-                      : "bg-[#202026] border-white/6 hover:border-white/15"
-                  }`}
+                  key={item.id}
+                  className="bg-[#232329] rounded-[12px] p-[10px] flex flex-col gap-2 box-border overflow-hidden select-none"
                 >
-                  <div>
-                    {/* Live Preview Chip at top of card */}
-                    <div className="w-full p-2 rounded-[9px] bg-black/40 border border-white/5 mb-2.5 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span
-                          style={{ backgroundColor: module.accentColor }}
-                          className="w-2 h-2 rounded-full"
-                        />
-                        <span className="text-[12px] font-semibold text-white">
-                          {module.chipLabel}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-zinc-400">
-                        {module.chipSub}
-                      </span>
+                  {/* Unified Live/Static Preview matching HTML */}
+                  <NavbarModuleUnifiedPreview
+                    moduleId={item.id}
+                    variant="full"
+                    className="w-full flex justify-center"
+                  />
+
+                  {/* Title row with Category color dot & Action button */}
+                  <div className="flex items-center gap-[7px]">
+                    <i
+                      className="w-[7px] h-[7px] rounded-[4px] shrink-0"
+                      style={{ background: item.categoryColor }}
+                    />
+                    <div className="text-[13px] font-semibold flex-1 text-[#f4f4f5] truncate">
+                      {item.name}
                     </div>
 
-                    {/* Title row */}
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-[13px] font-semibold truncate">
-                        {module.name}
-                      </span>
+                    {/* Button: + Tambah or ✓ Ditambah */}
+                    {added ? (
                       <button
                         type="button"
-                        onClick={() =>
-                          added
-                            ? onRemoveModule(module.id)
-                            : onAddModule(module.id)
-                        }
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-[7px] text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
-                          added
-                            ? "bg-white/10 text-zinc-300 hover:bg-red-500/20 hover:text-red-400"
-                            : "bg-[#0a84ff] text-white hover:bg-[#0071e3] shadow-sm"
-                        }`}
+                        onClick={() => onRemoveModule(item.id)}
+                        className="h-6 rounded-[7px] px-[9px] flex items-center gap-1 text-[11px] font-semibold bg-[#2c2c33] text-[#8b8b95] hover:text-rose-400 hover:bg-[#34343d] transition-colors cursor-pointer shrink-0"
                       >
-                        {added ? (
-                          <>
-                            <Check size={11} strokeWidth={2.5} />
-                            <span>Ditambah</span>
-                          </>
-                        ) : (
-                          <>
-                            <Plus size={11} strokeWidth={2.5} />
-                            <span>Tambah</span>
-                          </>
-                        )}
+                        ✓ Ditambah
                       </button>
-                    </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onAddModule(item.id)}
+                        className="h-6 rounded-[7px] px-[9px] flex items-center gap-1 text-[11px] font-semibold bg-[#3882F6] text-white hover:bg-[#2563eb] transition-colors cursor-pointer shrink-0"
+                      >
+                        <svg
+                          width="11"
+                          height="11"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#fff"
+                          strokeWidth="2.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 5v14M5 12h14" />
+                        </svg>
+                        Tambah
+                      </button>
+                    )}
+                  </div>
 
-                    {/* Description */}
-                    <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2">
-                      {module.desc}
-                    </p>
+                  {/* Description row (exact 11px, height 30px, line-height 1.4) */}
+                  <div className="text-[11px] leading-[1.4] text-[#8b8b95] h-[30px] overflow-hidden">
+                    {item.description}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Footer */}
-          <div
-            className={`px-6 py-3 border-t flex items-center justify-between ${
-              isLightMode ? "border-black/8 bg-black/[0.02]" : "border-white/8 bg-black/20"
-            }`}
-          >
-            <span className="text-[11.5px] text-zinc-400">
-              Menampilkan {filteredModules.length} dari {NAVBAR_MODULE_CATALOG.length} modul
-            </span>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-1.5 rounded-[9px] bg-[#0a84ff] text-white text-[12px] font-semibold hover:bg-[#0071e3] transition-colors cursor-pointer"
-            >
-              Selesai
-            </button>
-          </div>
-        </motion.div>
+          {filteredModules.length === 0 && (
+            <div className="py-16 text-center text-zinc-500 text-[13px]">
+              Tidak ada modul yang cocok dengan pencarian "{searchQuery}".
+            </div>
+          )}
+        </div>
       </div>
-    </AnimatePresence>
+    </div>
   );
 };

@@ -4,6 +4,7 @@ import { StartSearchGroup } from "./groups/StartSearchGroup";
 import { PinnedAppsGroup } from "./groups/PinnedAppsGroup";
 import { SystemTrayGroup } from "./groups/SystemTrayGroup";
 import { getNavbarModuleById } from "../../modules/registry";
+import { NavbarModuleUnifiedPreview } from "../../modules/components/NavbarModuleUnifiedPreview";
 
 interface NavbarDockProps {
   config: NavbarConfig;
@@ -157,16 +158,12 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
                   return Component ? (
                     <Component key={m.id} view={m.view} config={config} />
                   ) : (
-                    <div
+                    <NavbarModuleUnifiedPreview
                       key={m.id}
-                      className="h-8 px-2.5 rounded-[10px] bg-white/[0.08] hover:bg-white/[0.14] transition-colors flex items-center gap-1.5 text-[11px] font-semibold text-white cursor-pointer select-none"
-                    >
-                      <span
-                        style={{ backgroundColor: def.accentColor }}
-                        className="w-1.5 h-1.5 rounded-full"
-                      />
-                      <span>{def.chipLabel}</span>
-                    </div>
+                      moduleId={m.id}
+                      variant={m.view === "full" ? "pill" : "compact"}
+                      className="cursor-pointer hover:opacity-90 transition-opacity"
+                    />
                   );
                 })}
                 {extraModules}

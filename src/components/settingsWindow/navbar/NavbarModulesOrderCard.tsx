@@ -1,7 +1,11 @@
 import React from "react";
 import { NavbarConfig } from "../../../types/navbar";
-import { GripVertical, Plus, Trash2, Box } from "lucide-react";
+import { GripVertical, Plus, X, Box, ArrowUp, ArrowDown } from "lucide-react";
 import { Tooltip } from "../../ui/Tooltip";
+import {
+  getCatalogModule,
+  NavbarModuleUnifiedPreview,
+} from "../../../modules/components/NavbarModuleUnifiedPreview";
 
 interface NavbarModulesOrderCardProps {
   config: NavbarConfig;
@@ -10,7 +14,8 @@ interface NavbarModulesOrderCardProps {
   isLightMode?: boolean;
 }
 
-const MODULE_META: Record<string, { title: string; desc: string }> = {
+// Built-in core system modules info for ones not in catalog
+const CORE_MODULE_META: Record<string, { title: string; desc: string }> = {
   startSearch: {
     title: "Start & Search",
     desc: "Tombol Windows dan pencarian cepat",
@@ -34,30 +39,6 @@ const MODULE_META: Record<string, { title: string; desc: string }> = {
   clockDate: {
     title: "Clock & Date",
     desc: "Jam presisi, tanggal hari dan kalender",
-  },
-  pomodoro: {
-    title: "Pomodoro Timer",
-    desc: "Timer fokus dan istirahat kerja",
-  },
-  todo: {
-    title: "Quick Tasks",
-    desc: "Daftar tugas harian ringkas",
-  },
-  event: {
-    title: "Upcoming Event",
-    desc: "Pengingat jadwal dan kalender mendatang",
-  },
-  system: {
-    title: "System Metrics",
-    desc: "Pengukur beban CPU, RAM dan GPU",
-  },
-  net: {
-    title: "Network Monitor",
-    desc: "Kecepatan unduh dan unggah internet",
-  },
-  weather: {
-    title: "Weather Widget",
-    desc: "Suhu dan prakiraan cuaca terkini",
   },
 };
 
@@ -96,7 +77,7 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
 
   return (
     <div className={`flex flex-col gap-4 p-4 rounded-[16px] border ${cardBg}`}>
-      {/* Title */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-[10px] bg-sky-500/10 text-sky-500 flex items-center justify-center shrink-0">
@@ -112,59 +93,82 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
           </div>
         </div>
 
-        {/* Add Module Button */}
+        {/* Top button to open modal */}
         <button
           type="button"
           onClick={onOpenAddModule}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] bg-[#0a84ff] text-white text-[11.5px] font-medium shadow-sm hover:bg-[#0071e3] transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] bg-[#3882F6] text-white text-[11.5px] font-semibold shadow-sm hover:bg-[#2563eb] transition-colors cursor-pointer"
         >
-          <Plus size={14} strokeWidth={2.2} />
-          <span>Tambah Modul</span>
+          <Plus size={14} strokeWidth={2.4} />
+          <span>Tambah modul</span>
         </button>
       </div>
 
-      {/* Module List */}
+      {/* Module Rows List */}
       <div className="flex flex-col gap-2">
         {config.modules.map((m, idx) => {
-          const meta = MODULE_META[m.id] || {
-            title: m.id,
-            desc: "Modul kustom navbar",
-          };
+          const catalogItem = getCatalogModule(m.id);
+          const title =
+            catalogItem?.name || CORE_MODULE_META[m.id]?.title || m.id;
+          const desc =
+            catalogItem?.description ||
+            CORE_MODULE_META[m.id]?.desc ||
+            "Modul kustom navbar";
+
+          const isCore = [
+            "startSearch",
+            "pinnedApps",
+            "runningApps",
+            "systemIcons",
+            "notifications",
+            "clockDate",
+          ].includes(m.id);
 
           return (
             <div
               key={m.id}
-              className={`flex items-center justify-between p-2.5 rounded-[12px] border transition-colors ${
+              className={`flex items-center justify-between gap-3 min-h-[56px] px-3.5 py-2 rounded-[14px] border transition-colors select-none ${
                 isLightMode
-                  ? "bg-black/[0.02] border-black/[0.06] hover:bg-black/[0.04]"
-                  : "bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]"
+                  ? "bg-[#fafafa] border-black/[0.07] hover:bg-black/[0.02]"
+                  : "bg-[#0a0d13] border-[#171b26] hover:bg-[#0f131a]"
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                <div
-                  className={`flex flex-col gap-0.5 text-zinc-500 select-none ${
-                    isLightMode ? "text-neutral-400" : "text-zinc-500"
-                  }`}
-                >
-                  <GripVertical size={14} />
+              {/* Left Section: Drag handle + Preview baru + Title & Desc */}
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="text-zinc-500 cursor-grab shrink-0">
+                  <GripVertical size={16} />
                 </div>
-                <div className="flex flex-col min-w-0">
+
+                {/* Unified compact preview (40x40 icon tile) */}
+                <div className="shrink-0 flex items-center justify-center">
+                  <NavbarModuleUnifiedPreview
+                    moduleId={m.id}
+                    variant="compact"
+                  />
+                </div>
+
+                {/* Name & description */}
+                <div className="flex flex-col min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`text-[12.5px] font-semibold ${textTitle} truncate`}>
-                      {meta.title}
+                    <span
+                      className={`text-[13px] font-semibold truncate ${
+                        isLightMode ? "text-neutral-900" : "text-[#f2f3f7]"
+                      }`}
+                    >
+                      {title}
                     </span>
-                    <span className="text-[9.5px] font-medium px-1.5 py-0.2 rounded bg-white/10 text-zinc-400 shrink-0">
+                    <span className="font-semibold text-[11px] text-[#8db8ff] px-2 py-0.5 rounded-[7px] bg-[#111829] border border-[#1c2438] shrink-0">
                       Group {m.group}
                     </span>
                   </div>
-                  <span className={`text-[10.5px] ${textSub} truncate`}>
-                    {meta.desc}
+                  <span className="text-[11px] text-[#8a8fa0] truncate mt-0.5">
+                    {desc}
                   </span>
                 </div>
               </div>
 
-              {/* Controls */}
-              <div className="flex items-center gap-2 shrink-0">
+              {/* Right Section: Move arrows + Remove button X + Toggle switch */}
+              <div className="flex items-center gap-2.5 shrink-0">
                 {/* Reorder Buttons */}
                 <div className="flex items-center gap-0.5 opacity-60 hover:opacity-100 transition-opacity">
                   <Tooltip side="top" delay={200} content="Geser ke atas">
@@ -172,11 +176,9 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
                       type="button"
                       disabled={idx === 0}
                       onClick={() => handleMoveModule(idx, -1)}
-                      className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold disabled:opacity-20 cursor-pointer ${
-                        isLightMode ? "hover:bg-black/10" : "hover:bg-white/10 text-white"
-                      }`}
+                      className="w-6 h-6 rounded flex items-center justify-center text-[10px] disabled:opacity-20 hover:bg-white/10 text-zinc-400 hover:text-white cursor-pointer"
                     >
-                      ▲
+                      <ArrowUp size={13} />
                     </button>
                   </Tooltip>
                   <Tooltip side="top" delay={200} content="Geser ke bawah">
@@ -184,44 +186,56 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
                       type="button"
                       disabled={idx === config.modules.length - 1}
                       onClick={() => handleMoveModule(idx, 1)}
-                      className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold disabled:opacity-20 cursor-pointer ${
-                        isLightMode ? "hover:bg-black/10" : "hover:bg-white/10 text-white"
-                      }`}
+                      className="w-6 h-6 rounded flex items-center justify-center text-[10px] disabled:opacity-20 hover:bg-white/10 text-zinc-400 hover:text-white cursor-pointer"
                     >
-                      ▼
+                      <ArrowDown size={13} />
                     </button>
                   </Tooltip>
                 </div>
 
-                {/* Enable/Disable Toggle */}
+                {/* Remove button X */}
+                {!isCore && (
+                  <Tooltip side="top" delay={200} content="Hapus modul dari bar">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveModule(m.id)}
+                      className="w-7 h-7 rounded-[8px] flex items-center justify-center text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                    >
+                      <X size={15} />
+                    </button>
+                  </Tooltip>
+                )}
+
+                {/* Toggle switch di paling kanan */}
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={m.enabled}
                   onClick={() => handleToggleModule(m.id)}
-                  className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${
-                    m.enabled ? "bg-[#0a84ff]" : isLightMode ? "bg-black/20" : "bg-white/20"
+                  className={`relative w-[42px] h-[24px] rounded-[12px] transition-colors cursor-pointer shrink-0 border-0 p-0 ${
+                    m.enabled ? "bg-[#3882F6]" : "bg-[#232733]"
                   }`}
                 >
                   <span
-                    className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
-                      m.enabled ? "translate-x-4" : "translate-x-0"
+                    className={`absolute top-[2px] w-[20px] h-[20px] rounded-full bg-white shadow-sm transition-transform duration-150 ${
+                      m.enabled ? "left-[20px]" : "left-[2px]"
                     }`}
                   />
                 </button>
-
-                {/* Delete button (if not built-in) */}
-                {!["startSearch", "pinnedApps", "runningApps", "systemIcons", "notifications", "clockDate"].includes(m.id) && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveModule(m.id)}
-                    className="p-1 rounded text-red-400 hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
               </div>
             </div>
           );
         })}
+
+        {/* Dashed "+ Add module" button from Artboard 86 */}
+        <button
+          type="button"
+          onClick={onOpenAddModule}
+          className="mt-1 h-11 rounded-[12px] border border-dashed border-[#262c3b] hover:border-blue-500/50 bg-transparent text-[#9aa0b0] hover:text-white text-[13px] font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+        >
+          <Plus size={15} strokeWidth={2.2} />
+          <span>Tambah modul</span>
+        </button>
       </div>
     </div>
   );
