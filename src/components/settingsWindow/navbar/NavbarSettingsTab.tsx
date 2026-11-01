@@ -63,21 +63,26 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
     // Save persisted config
     await saveNavbarConfig(nextConfig);
 
-    // If master enable changed, toggle backend navbar window
+    // If master enable changed, toggle backend navbar window and synchronize taskbar
     if (patch.enabled !== undefined) {
       try {
         await invoke("toggle_navbar", { enabled: patch.enabled });
+        if (patch.enabled && nextConfig.hideWindowsTaskbar) {
+          await invoke("set_windows_taskbar_visible", { visible: false });
+        }
       } catch (err) {
         console.error("Failed to toggle navbar:", err);
       }
     }
 
-    // If taskbar hide setting changed, call taskbar manager
+    // If taskbar hide setting changed, call taskbar manager (only if navbar is currently enabled)
     if (patch.hideWindowsTaskbar !== undefined) {
       try {
-        await invoke("set_windows_taskbar_visible", {
-          visible: !patch.hideWindowsTaskbar,
-        });
+        if (nextConfig.enabled) {
+          await invoke("set_windows_taskbar_visible", {
+            visible: !patch.hideWindowsTaskbar,
+          });
+        }
       } catch (err) {
         console.error("Failed to toggle taskbar visibility:", err);
       }

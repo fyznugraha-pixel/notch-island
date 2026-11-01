@@ -1,4 +1,5 @@
 import React from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { NavbarConfig } from "../../types/navbar";
 import { StartSearchGroup } from "./groups/StartSearchGroup";
 import { PinnedAppsGroup } from "./groups/PinnedAppsGroup";
@@ -127,6 +128,32 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             magnifyOnHover={config.magnify}
             windowPreviews={config.windowPreviews}
             accentColor={config.accent}
+            onAppClick={async (app) => {
+              try {
+                switch (app.id) {
+                  case "explorer":
+                    await invoke("trigger_file_explorer");
+                    break;
+                  case "chrome":
+                    await invoke("launch_target", { target: "chrome" });
+                    break;
+                  case "vscode":
+                    await invoke("launch_target", { target: "code" });
+                    break;
+                  case "terminal":
+                    await invoke("launch_target", { target: "wt" });
+                    break;
+                  case "settings":
+                    await invoke("launch_target", { target: "ms-settings:" });
+                    break;
+                  default:
+                    await invoke("launch_target", { target: app.id });
+                    break;
+                }
+              } catch (err) {
+                console.error("Failed to launch app:", err);
+              }
+            }}
           />
         )}
 

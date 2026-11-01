@@ -2864,6 +2864,20 @@ fn restart_app(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if std::env::args().any(|arg| arg == "--restore-taskbar") {
+        taskbar_manager::set_taskbar_visible(true);
+        println!("Windows Taskbar has been restored.");
+        return;
+    }
+
+    taskbar_manager::check_and_recover_on_startup();
+
+    let default_panic_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        taskbar_manager::restore_taskbar_on_exit();
+        default_panic_hook(panic_info);
+    }));
+
     #[cfg(windows)]
     {
         // Migrate and clean up any legacy Notch artifacts before checking mutex
@@ -2978,12 +2992,19 @@ pub fn run() {
             shelf_server::stop_shelf_transfer,
             shelf_server::get_shelf_transfer_status,
             taskbar_manager::set_windows_taskbar_hidden,
+            taskbar_manager::set_windows_taskbar_visible,
             taskbar_manager::get_windows_taskbar_hidden,
+            navbar_window::toggle_navbar,
             navbar_window::open_navbar_window,
             navbar_window::close_navbar_window,
             navbar_window::sync_navbar_bounds,
             navbar_window::trigger_start_menu,
-            navbar_window::trigger_windows_search
+            navbar_window::trigger_windows_search,
+            navbar_window::trigger_quick_settings,
+            navbar_window::trigger_notification_center,
+            navbar_window::trigger_file_explorer,
+            navbar_window::trigger_task_manager,
+            navbar_window::launch_target
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -2994,9 +3015,10 @@ pub fn run() {
             let toggle_i = MenuItem::with_id(app, "toggle_visibility", "Show / Hide Gili (Ctrl+Shift+D)", true, None::<&str>)?;
             let cc_i = MenuItem::with_id(app, "open_control_center", "Open Control Center", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
+            let restore_tb_i = MenuItem::with_id(app, "restore_taskbar", "Restore Windows Taskbar", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Gili", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &settings_i, &sep, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &settings_i, &restore_tb_i, &sep, &quit_i])?;
 
             let mut tray_builder = TrayIconBuilder::new()
                 .tooltip("Gili (Running in Background)")
@@ -3020,6 +3042,9 @@ pub fn run() {
                         }
                         "open_settings" => {
                             show_or_create_settings_window(app, None);
+                        }
+                        "restore_taskbar" => {
+                            taskbar_manager::set_taskbar_visible(true);
                         }
                         "quit" => {
                             taskbar_manager::restore_taskbar_on_exit();

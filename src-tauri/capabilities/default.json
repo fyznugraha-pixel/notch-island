@@ -4,7 +4,8 @@
   "description": "Capability for the main and settings windows",
   "windows": [
     "main",
-    "settings"
+    "settings",
+    "navbar"
   ],
   "permissions": [
     "core:default",

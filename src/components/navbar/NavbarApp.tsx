@@ -47,6 +47,7 @@ export const NavbarApp: React.FC = () => {
           height: Math.ceil(height),
           position: config.position || "bottom",
           distanceFromEdge: config.shape === "anchored" ? 0 : (config.distanceFromEdge ?? 14),
+          isAnchored: config.shape === "anchored",
         });
       } catch (err) {
         console.error("Failed to sync navbar bounds:", err);
@@ -94,13 +95,13 @@ export const NavbarApp: React.FC = () => {
   // Handlers for Control Center / Notifications / Clock triggers
   const handleControlCenterClick = async () => {
     try {
-      await invoke("trigger_windows_search");
+      await invoke("trigger_quick_settings");
     } catch {}
   };
 
   const handleNotificationsClick = async () => {
     try {
-      await invoke("trigger_start_menu");
+      await invoke("trigger_notification_center");
     } catch {}
   };
 

@@ -80,6 +80,7 @@ import { PrayerNotchToast } from "./components/ui/prayer/PrayerNotchToast";
 import { PrayerToastPayload, togglePrayerCompleted, getPrayerDisplayName } from "./services/prayerService";
 import { usePrayerReminder } from "./hooks/usePrayerReminder";
 import { fetchHotspotStatus, toggleHotspotState } from "./services/connectivityService";
+import { loadNavbarConfig } from "./services/navbarConfigService";
 import { usePomodoro } from "./hooks/usePomodoro";
 import { useTodoReminders } from "./hooks/useTodoReminders";
 import {
@@ -190,6 +191,18 @@ export default function App() {
   );
   useEffect(() => {
     setNotificationsHistory(loadNotificationHistory());
+  }, []);
+
+  // Restore Gili Navbar & Windows Taskbar state on startup if previously enabled
+  useEffect(() => {
+    loadNavbarConfig().then((cfg) => {
+      if (cfg.enabled) {
+        invoke("toggle_navbar", { enabled: true }).catch(() => {});
+        if (cfg.hideWindowsTaskbar) {
+          invoke("set_windows_taskbar_visible", { visible: false }).catch(() => {});
+        }
+      }
+    });
   }, []);
   const unreadNotifCount = useMemo(
     () => notificationsHistory.filter((item) => !item.read).length,
