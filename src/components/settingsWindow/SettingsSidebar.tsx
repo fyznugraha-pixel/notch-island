@@ -13,6 +13,7 @@ import {
   Info,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelBottom,
 } from "lucide-react";
 import { Language } from "../../services/i18n";
 import { Tooltip } from "../ui/Tooltip";
@@ -22,6 +23,7 @@ export type SettingsWindowSection =
   | "tabs"
   | "general"
   | "appearance"
+  | "navbar"
   | "idle"
   | "notifications"
   | "shortcuts"
@@ -79,6 +81,15 @@ export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
     subEn: "Shape, theme & sizing",
     icon: <Palette size={15} strokeWidth={2.2} />,
     bgClass: "bg-[#5e5ce6]",
+  },
+  {
+    id: "navbar",
+    labelId: "Navbar Gili",
+    labelEn: "Navbar",
+    subId: "Pengganti taskbar: bentuk & modul",
+    subEn: "Taskbar replacement dock",
+    icon: <PanelBottom size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#0a84ff]",
   },
   {
     id: "idle",

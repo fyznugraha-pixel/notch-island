@@ -53,6 +53,7 @@ import {
 import { TabsManagerView } from "./TabsManagerView";
 import { SupportView } from "./SupportView";
 import { AboutView } from "./AboutView";
+import { NavbarSettingsTab } from "./navbar/NavbarSettingsTab";
 import { AppearanceTab } from "../ui/settings/AppearanceTab";
 import { IdleTab } from "../ui/settings/IdleTab";
 import { GeneralTab } from "../ui/settings/GeneralTab";
@@ -1175,6 +1176,10 @@ export const SettingsWindowApp: React.FC = () => {
                       optAnimSpeed={optAnimSpeed}
                       onChangeAnimSpeed={handleChangeAnimSpeed}
                     />
+                  )}
+
+                  {activeSection === "navbar" && (
+                    <NavbarSettingsTab isLightMode={isLightMode} />
                   )}
 
                   {activeSection === "idle" && (
