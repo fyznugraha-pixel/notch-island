@@ -9,7 +9,40 @@ import "./App.css";
 import "./index.css";
 import App from "./App";
 import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
+import { NavbarApp } from "./components/navbar/NavbarApp";
 import { getLanguage } from "./services/i18n";
+
+const isNavbarWindow = (() => {
+  if (typeof window === "undefined") return false;
+  let result = false;
+  if ((window as any).__IS_NAVBAR_WINDOW__ === true) {
+    result = true;
+  } else {
+    try {
+      if (getCurrentWindow().label === "navbar") {
+        result = true;
+      }
+    } catch {}
+    if (!result) {
+      result =
+        new URLSearchParams(window.location.search).get("window") === "navbar" ||
+        window.location.search.includes("window=navbar") ||
+        window.location.href.includes("window=navbar");
+    }
+  }
+
+  if (result) {
+    document.documentElement.classList.add("navbar-window");
+    if (document.body) {
+      document.body.classList.add("navbar-window");
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add("navbar-window");
+      });
+    }
+  }
+  return result;
+})();
 
 const isSettingsWindow = (() => {
   if (typeof window === "undefined") return false;
@@ -81,6 +114,12 @@ class RootErrorBoundary extends Component<Props, State> {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RootErrorBoundary>
-    {isSettingsWindow ? <SettingsWindowApp /> : <App />}
+    {isNavbarWindow ? (
+      <NavbarApp />
+    ) : isSettingsWindow ? (
+      <SettingsWindowApp />
+    ) : (
+      <App />
+    )}
   </RootErrorBoundary>
 );

@@ -32,6 +32,7 @@ import {
 import { IosSwitch } from "../ios/IosSwitch";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { Language } from "../../services/i18n";
+import { Tooltip } from "../ui/Tooltip";
 
 interface TabsManagerViewProps {
   prefs: NotchTabsPreferences;
@@ -232,7 +233,6 @@ const SortableTabRow: React.FC<SortableTabRowProps> = ({
               ? "text-neutral-400 group-hover:text-neutral-700 group-hover:bg-black/5"
               : "text-zinc-500 group-hover:text-zinc-200 group-hover:bg-white/5"
           }`}
-          title={isId ? "Tarik untuk geser urutan" : "Drag to reorder"}
         >
           <GripVertical size={16} />
         </div>
@@ -288,32 +288,34 @@ const SortableTabRow: React.FC<SortableTabRowProps> = ({
       {/* Right: Up/Down Buttons + Switch */}
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex items-center gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            disabled={idx === 0}
-            onClick={() => onMoveStep(idx, -1)}
-            title={isId ? "Geser ke atas" : "Move up"}
-            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
-              isLightMode
-                ? "hover:bg-black/5 text-neutral-600"
-                : "hover:bg-white/10 text-zinc-300"
-            }`}
-          >
-            <ArrowUp size={13.5} />
-          </button>
-          <button
-            type="button"
-            disabled={idx === totalItems - 1}
-            onClick={() => onMoveStep(idx, 1)}
-            title={isId ? "Geser ke bawah" : "Move down"}
-            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
-              isLightMode
-                ? "hover:bg-black/5 text-neutral-600"
-                : "hover:bg-white/10 text-zinc-300"
-            }`}
-          >
-            <ArrowDown size={13.5} />
-          </button>
+          <Tooltip side="top" delay={250} content={isId ? "Geser ke atas" : "Move up"}>
+            <button
+              type="button"
+              disabled={idx === 0}
+              onClick={() => onMoveStep(idx, -1)}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
+                isLightMode
+                  ? "hover:bg-black/5 text-neutral-600"
+                  : "hover:bg-white/10 text-zinc-300"
+              }`}
+            >
+              <ArrowUp size={13.5} />
+            </button>
+          </Tooltip>
+          <Tooltip side="top" delay={250} content={isId ? "Geser ke bawah" : "Move down"}>
+            <button
+              type="button"
+              disabled={idx === totalItems - 1}
+              onClick={() => onMoveStep(idx, 1)}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
+                isLightMode
+                  ? "hover:bg-black/5 text-neutral-600"
+                  : "hover:bg-white/10 text-zinc-300"
+              }`}
+            >
+              <ArrowDown size={13.5} />
+            </button>
+          </Tooltip>
         </div>
 
         <IosSwitch
@@ -470,28 +472,28 @@ export const TabsManagerView: React.FC<TabsManagerViewProps> = ({
                 : (isId ? meta?.titleId : meta?.titleEn)?.replace(/\s*\(.*?\)/, "") || tabKey;
 
               return (
-                <motion.button
-                  type="button"
-                  key={tabKey}
-                  layout
-                  onClick={() => setPreviewIdx(idx)}
-                  transition={{ type: "spring", stiffness: 380, damping: 28 }}
-                  title={rawTitle}
-                  className={`flex items-center justify-center gap-1.5 rounded-full text-[11px] font-medium transition-colors shrink-0 cursor-pointer ${
-                    isSelected
-                      ? "px-2.5 h-7 bg-[#0a84ff] text-white shadow-[0_2px_10px_rgba(10,132,255,0.45)]"
-                      : isLightMode
-                      ? "w-7 h-7 text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.06]"
-                      : "w-7 h-7 text-zinc-300 hover:text-white hover:bg-white/[0.12]"
-                  }`}
-                >
-                  {isSettingsTab ? <Settings size={13} strokeWidth={2.2} /> : meta?.smallIcon}
-                  {isSelected && (
-                    <span className="max-w-[115px] truncate leading-none">
-                      {rawTitle}
-                    </span>
-                  )}
-                </motion.button>
+                <Tooltip key={tabKey} side="bottom" delay={200} content={rawTitle}>
+                  <motion.button
+                    type="button"
+                    layout
+                    onClick={() => setPreviewIdx(idx)}
+                    transition={{ type: "spring", stiffness: 380, damping: 28 }}
+                    className={`flex items-center justify-center gap-1.5 rounded-full text-[11px] font-medium transition-colors shrink-0 cursor-pointer ${
+                      isSelected
+                        ? "px-2.5 h-7 bg-[#0a84ff] text-white shadow-[0_2px_10px_rgba(10,132,255,0.45)]"
+                        : isLightMode
+                        ? "w-7 h-7 text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.06]"
+                        : "w-7 h-7 text-zinc-300 hover:text-white hover:bg-white/[0.12]"
+                    }`}
+                  >
+                    {isSettingsTab ? <Settings size={13} strokeWidth={2.2} /> : meta?.smallIcon}
+                    {isSelected && (
+                      <span className="max-w-[115px] truncate leading-none">
+                        {rawTitle}
+                      </span>
+                    )}
+                  </motion.button>
+                </Tooltip>
               );
             })}
           </div>

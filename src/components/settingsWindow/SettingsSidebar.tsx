@@ -11,8 +11,11 @@ import {
   Search,
   X,
   Info,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { Language } from "../../services/i18n";
+import { Tooltip } from "../ui/Tooltip";
 
 export type SettingsWindowSection =
   | "about"
@@ -35,6 +38,8 @@ interface SettingsSidebarProps {
   appVersion: string;
   hasUpdate?: boolean;
   updateVersion?: string;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 interface SidebarItemMeta {
@@ -141,61 +146,210 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   appVersion,
   hasUpdate = false,
   updateVersion,
+  isCollapsed = false,
+  onToggleCollapse,
 }) => {
   const isId = optLanguage === "id";
 
   return (
     <aside
-      className={`w-[244px] shrink-0 h-full flex flex-col justify-between border-r select-none px-3 pb-3 pt-2 ${
+      className={`shrink-0 h-full flex flex-col justify-between border-r select-none transition-all duration-200 ease-in-out ${
+        isCollapsed ? "w-[64px] px-2 pb-3 pt-2" : "w-[244px] px-3 pb-3 pt-2"
+      } ${
         isLightMode
           ? "bg-[#f2f2f7]/90 border-black/[0.08]"
           : "bg-[#121216]/95 border-white/[0.07]"
       }`}
     >
       <div className="flex flex-col gap-3">
-        {/* Search Input */}
-        <div
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-[10px] border transition-colors ${
-            isLightMode
-              ? "bg-black/[0.05] border-black/[0.08] focus-within:border-[#0a84ff] focus-within:bg-white"
-              : "bg-white/[0.06] border-white/[0.08] focus-within:border-[#0a84ff] focus-within:bg-white/[0.09]"
-          }`}
-        >
-          <Search
-            size={14}
-            className={isLightMode ? "text-neutral-500 shrink-0" : "text-zinc-400 shrink-0"}
-          />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={isId ? "Cari pengaturan..." : "Search settings..."}
-            className={`w-full bg-transparent text-[12.5px] outline-none ${
-              isLightMode
-                ? "text-neutral-900 placeholder-neutral-400"
-                : "text-white placeholder-zinc-500"
-            }`}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => onSearchChange("")}
-              className={`rounded-full p-0.5 cursor-pointer ${
+        {/* Top Control Bar: Search & Collapse Button */}
+        {isCollapsed ? (
+          <div className="flex flex-col items-center gap-1.5 w-full">
+            {onToggleCollapse && (
+              <Tooltip
+                side="right"
+                delay={120}
+                wrapperClassName="w-full"
+                content={isId ? "Tampilkan menu lengkap" : "Expand sidebar"}
+              >
+                <button
+                  type="button"
+                  onClick={onToggleCollapse}
+                  className={`w-full h-8 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                    isLightMode
+                      ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.06]"
+                      : "text-zinc-400 hover:text-white hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <PanelLeftOpen size={16} strokeWidth={2} />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip
+              side="right"
+              delay={120}
+              wrapperClassName="w-full"
+              content={isId ? "Cari pengaturan" : "Search settings"}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleCollapse?.();
+                }}
+                className={`w-full h-8 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                  searchQuery
+                    ? "bg-[#0a84ff] text-white shadow-sm"
+                    : isLightMode
+                    ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.06]"
+                    : "text-zinc-400 hover:text-white hover:bg-white/[0.06]"
+                }`}
+              >
+                <Search size={15} strokeWidth={2} />
+              </button>
+            </Tooltip>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 w-full">
+            <div
+              className={`flex-1 flex items-center gap-2 px-3 py-1.5 rounded-[10px] border transition-colors ${
                 isLightMode
-                  ? "text-neutral-400 hover:text-neutral-700"
-                  : "text-zinc-400 hover:text-white"
+                  ? "bg-black/[0.05] border-black/[0.08] focus-within:border-[#0a84ff] focus-within:bg-white"
+                  : "bg-white/[0.06] border-white/[0.08] focus-within:border-[#0a84ff] focus-within:bg-white/[0.09]"
               }`}
             >
-              <X size={12} />
-            </button>
-          )}
-        </div>
+              <Search
+                size={14}
+                className={isLightMode ? "text-neutral-500 shrink-0" : "text-zinc-400 shrink-0"}
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder={isId ? "Cari pengaturan..." : "Search settings..."}
+                className={`w-full bg-transparent text-[12.5px] outline-none ${
+                  isLightMode
+                    ? "text-neutral-900 placeholder-neutral-400"
+                    : "text-white placeholder-zinc-500"
+                }`}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => onSearchChange("")}
+                  className={`rounded-full p-0.5 cursor-pointer ${
+                    isLightMode
+                      ? "text-neutral-400 hover:text-neutral-700"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {onToggleCollapse && (
+              <Tooltip
+                side="bottom"
+                delay={200}
+                content={isId ? "Sembunyikan menu navigasi" : "Collapse sidebar"}
+              >
+                <button
+                  type="button"
+                  onClick={onToggleCollapse}
+                  className={`w-8 h-8 rounded-[8px] flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                    isLightMode
+                      ? "text-neutral-500 hover:text-neutral-900 hover:bg-black/[0.06]"
+                      : "text-zinc-400 hover:text-white hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <PanelLeftClose size={15} strokeWidth={2} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        )}
 
         {/* Navigation Items */}
-        <nav className="flex flex-col gap-1">
+        <nav className="flex flex-col gap-1 w-full">
           {SIDEBAR_SECTIONS.map((item) => {
             const isActive = activeSection === item.id && !searchQuery.trim();
             const showUpdateDot = item.id === "system" && hasUpdate;
+
+            if (isCollapsed) {
+              const tooltipContent = (
+                <div className="flex flex-col gap-0.5 text-left py-0.5 px-0.5 whitespace-normal max-w-[210px]">
+                  <div className="flex items-center gap-1.5 font-semibold text-[12px]">
+                    <span className={isLightMode ? "text-neutral-900" : "text-white"}>
+                      {isId ? item.labelId : item.labelEn}
+                    </span>
+                    {showUpdateDot && (
+                      <span className="text-[9.5px] font-semibold px-1.5 py-0.2 rounded-full bg-[#ffd60a] text-black shrink-0">
+                        Update
+                      </span>
+                    )}
+                  </div>
+                  <span
+                    className={`text-[10.5px] leading-tight font-normal ${
+                      isLightMode ? "text-neutral-500" : "text-zinc-400"
+                    }`}
+                  >
+                    {showUpdateDot && updateVersion
+                      ? isId
+                        ? `Update v${updateVersion} tersedia`
+                        : `Update v${updateVersion} available`
+                      : isId
+                      ? item.subId
+                      : item.subEn}
+                  </span>
+                </div>
+              );
+
+              return (
+                <Tooltip
+                  key={item.id}
+                  side="right"
+                  delay={80}
+                  wrapperClassName="w-full"
+                  content={tooltipContent}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSearchChange("");
+                      onSelectSection(item.id);
+                    }}
+                    className={`w-full flex items-center justify-center py-1.5 rounded-[10px] transition-all cursor-pointer ${
+                      isActive
+                        ? isLightMode
+                          ? "bg-[#0a84ff] text-white shadow-[0_2px_10px_rgba(10,132,255,0.28)]"
+                          : "bg-[#0a84ff] text-white shadow-[0_4px_14px_rgba(10,132,255,0.35)]"
+                        : isLightMode
+                        ? "text-neutral-800 hover:bg-black/[0.05]"
+                        : "text-zinc-200 hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    <div
+                      className={`relative w-8 h-8 rounded-[9px] flex items-center justify-center shrink-0 text-white shadow-sm transition-transform ${
+                        isActive ? "bg-white/20 scale-105" : item.bgClass
+                      }`}
+                    >
+                      {item.icon}
+                      {showUpdateDot && (
+                        <span
+                          className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#ffd60a] ring-2 ${
+                            isActive
+                              ? "ring-[#0a84ff]"
+                              : isLightMode
+                              ? "ring-[#f2f2f7]"
+                              : "ring-[#121216]"
+                          }`}
+                        />
+                      )}
+                    </div>
+                  </button>
+                </Tooltip>
+              );
+            }
+
             return (
               <button
                 key={item.id}
@@ -204,13 +358,6 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                   onSearchChange("");
                   onSelectSection(item.id);
                 }}
-                title={
-                  showUpdateDot
-                    ? isId
-                      ? `Update terbaru tersedia${updateVersion ? ` (v${updateVersion})` : ""}`
-                      : `New update available${updateVersion ? ` (v${updateVersion})` : ""}`
-                    : undefined
-                }
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[11px] text-left transition-all cursor-pointer ${
                   isActive
                     ? isLightMode
@@ -280,47 +427,83 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
       </div>
 
       {/* Footer App Profile Card */}
-      <div
-        className={`flex items-center justify-between px-3 py-2.5 rounded-[12px] border ${
-          isLightMode
-            ? "bg-white/75 border-black/[0.06]"
-            : "bg-white/[0.03] border-white/[0.06]"
-        }`}
-      >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <img
-            src="/logo/LOGO-GILI.png"
-            alt="Gili"
-            draggable={false}
-            className="w-8 h-8 rounded-[9px] object-contain shadow-sm shrink-0"
-          />
-          <div className="flex flex-col min-w-0">
-            <span
-              className={`text-[12px] font-semibold leading-tight truncate ${
-                isLightMode ? "text-neutral-900" : "text-white"
-              }`}
-            >
-              Gili Island
-            </span>
-            <span
-              className={`text-[10.5px] leading-tight ${
-                isLightMode ? "text-neutral-500" : "text-zinc-400"
-              }`}
-            >
-              v{appVersion}
-            </span>
+      {isCollapsed ? (
+        <Tooltip
+          side="right"
+          delay={120}
+          wrapperClassName="w-full"
+          content={
+            <div className="flex flex-col gap-0.5 text-left py-0.5 px-0.5 whitespace-normal">
+              <span className={`text-[11.5px] font-semibold ${isLightMode ? "text-neutral-900" : "text-white"}`}>
+                Gili Island v{appVersion}
+              </span>
+              <span className="text-[10px] font-medium text-emerald-400">
+                {isId ? "Status: Aktif" : "Status: Active"}
+              </span>
+            </div>
+          }
+        >
+          <div
+            className={`w-full flex items-center justify-center p-2 rounded-[12px] border transition-colors ${
+              isLightMode
+                ? "bg-white/75 border-black/[0.06]"
+                : "bg-white/[0.03] border-white/[0.06]"
+            }`}
+          >
+            <div className="relative">
+              <img
+                src="/logo/LOGO-GILI.png"
+                alt="Gili"
+                draggable={false}
+                className="w-7 h-7 rounded-[8px] object-contain shadow-sm shrink-0"
+              />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-[#121216]" />
+            </div>
           </div>
-        </div>
-        <span
-          className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+        </Tooltip>
+      ) : (
+        <div
+          className={`flex items-center justify-between px-3 py-2.5 rounded-[12px] border ${
             isLightMode
-              ? "bg-emerald-500/10 text-emerald-700"
-              : "bg-emerald-500/15 text-emerald-400"
+              ? "bg-white/75 border-black/[0.06]"
+              : "bg-white/[0.03] border-white/[0.06]"
           }`}
         >
-          {isId ? "Aktif" : "Active"}
-        </span>
-      </div>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <img
+              src="/logo/LOGO-GILI.png"
+              alt="Gili"
+              draggable={false}
+              className="w-8 h-8 rounded-[9px] object-contain shadow-sm shrink-0"
+            />
+            <div className="flex flex-col min-w-0">
+              <span
+                className={`text-[12px] font-semibold leading-tight truncate ${
+                  isLightMode ? "text-neutral-900" : "text-white"
+                }`}
+              >
+                Gili Island
+              </span>
+              <span
+                className={`text-[10.5px] leading-tight ${
+                  isLightMode ? "text-neutral-500" : "text-zinc-400"
+                }`}
+              >
+                v{appVersion}
+              </span>
+            </div>
+          </div>
+          <span
+            className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+              isLightMode
+                ? "bg-emerald-500/10 text-emerald-700"
+                : "bg-emerald-500/15 text-emerald-400"
+            }`}
+          >
+            {isId ? "Aktif" : "Active"}
+          </span>
+        </div>
+      )}
     </aside>
   );
 };

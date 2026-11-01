@@ -9,6 +9,8 @@ mod windows_dnd;
 mod toast_banners;
 pub mod shelf_server;
 pub mod shared_sampler;
+pub mod taskbar_manager;
+pub mod navbar_window;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -2974,7 +2976,14 @@ pub fn run() {
             shelf_server::start_shelf_send,
             shelf_server::start_shelf_receive,
             shelf_server::stop_shelf_transfer,
-            shelf_server::get_shelf_transfer_status
+            shelf_server::get_shelf_transfer_status,
+            taskbar_manager::set_windows_taskbar_hidden,
+            taskbar_manager::get_windows_taskbar_hidden,
+            navbar_window::open_navbar_window,
+            navbar_window::close_navbar_window,
+            navbar_window::sync_navbar_bounds,
+            navbar_window::trigger_start_menu,
+            navbar_window::trigger_windows_search
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -3013,6 +3022,7 @@ pub fn run() {
                             show_or_create_settings_window(app, None);
                         }
                         "quit" => {
+                            taskbar_manager::restore_taskbar_on_exit();
                             app.exit(0);
                         }
                         _ => {}

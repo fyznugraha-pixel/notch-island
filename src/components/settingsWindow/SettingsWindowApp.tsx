@@ -6,7 +6,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load, Store } from "@tauri-apps/plugin-store";
-import { Minus, X, Clock, Volume2, Send } from "lucide-react";
+import { Minus, X, Clock, Volume2, Send, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 import { Language, getLanguage, setLanguage, t } from "../../services/i18n";
 import {
@@ -64,6 +64,7 @@ import { SettingRow } from "../ui/settings/SettingRow";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { NotifSoundPicker } from "../ui/settings/NotifSoundPicker";
 import { WindowsBannerRow } from "../ui/settings/WindowsBannerRow";
+import { Tooltip } from "../ui/Tooltip";
 
 const sectionVariants = {
   initial: { opacity: 0 },
@@ -88,6 +89,24 @@ export const SettingsWindowApp: React.FC = () => {
 
   const [activeSection, setActiveSection] = useState<SettingsWindowSection>(initialSection);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("island_settings_sidebar_collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleSidebarCollapse = useCallback(() => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("island_settings_sidebar_collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
   const [store, setStore] = useState<Store | null>(null);
   const [currentAppVersion, setCurrentAppVersion] = useState("4.3.2");
 
@@ -118,6 +137,13 @@ export const SettingsWindowApp: React.FC = () => {
     }
   });
   const [optAutoCompact, setOptAutoCompact] = useState(true);
+  const [optAutoCompactMode, setOptAutoCompactMode] = useState<"browser" | "maximized">(() => {
+    try {
+      const v = localStorage.getItem("island_auto_compact_mode");
+      if (v === "browser" || v === "maximized") return v;
+    } catch {}
+    return "browser";
+  });
   const [optCloseDelay, setOptCloseDelay] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("island_close_delay");
@@ -364,6 +390,9 @@ export const SettingsWindowApp: React.FC = () => {
         const ac = await s.get("opt_auto_compact");
         if (typeof ac === "boolean") setOptAutoCompact(ac);
 
+        const acm = await s.get("opt_auto_compact_mode");
+        if (acm === "browser" || acm === "maximized") setOptAutoCompactMode(acm);
+
         const lang = await s.get("opt_language");
         if (lang === "en" || lang === "id") {
           setLanguage(lang, false);
@@ -469,6 +498,11 @@ export const SettingsWindowApp: React.FC = () => {
           case "opt_auto_compact":
             setOptAutoCompact(Boolean(value));
             break;
+          case "opt_auto_compact_mode":
+            if (value === "browser" || value === "maximized") {
+              setOptAutoCompactMode(value);
+            }
+            break;
           case "opt_sound_fx":
             setOptSoundFx(Boolean(value));
             break;
@@ -552,6 +586,18 @@ export const SettingsWindowApp: React.FC = () => {
     setOptAutoCompact(next);
     if (store) await store.set("opt_auto_compact", next);
     broadcastSetting("opt_auto_compact", next);
+  };
+
+  const handleChangeAutoCompactMode = async (mode: "browser" | "maximized") => {
+    setOptAutoCompactMode(mode);
+    try {
+      localStorage.setItem("island_auto_compact_mode", mode);
+    } catch {}
+    if (store) {
+      await store.set("opt_auto_compact_mode", mode);
+      await store.save();
+    }
+    broadcastSetting("opt_auto_compact_mode", mode);
   };
 
   const handleChangeCloseDelay = async (sec: number) => {
@@ -867,45 +913,78 @@ export const SettingsWindowApp: React.FC = () => {
             : "bg-[#141419]/95 border-white/[0.07]"
         }`}
       >
-        {/* Left: Gili Logo + Window Title */}
-        <div className="flex items-center gap-2.5 pointer-events-none">
-          <img
-            src="/logo/LOGO-GILI.png"
-            alt="Gili"
-            draggable={false}
-            className="w-5 h-5 rounded-[5px] object-contain shrink-0"
-          />
-          <span className={`text-[13px] font-semibold tracking-tight ${isLightMode ? "text-neutral-800" : "text-zinc-100"}`}>
-            {isId ? "Pengaturan Gili" : "Gili Settings"}
-          </span>
+        {/* Left: Sidebar Toggle + Gili Logo + Window Title */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <Tooltip
+            side="bottom"
+            delay={200}
+            content={
+              isSidebarCollapsed
+                ? isId
+                  ? "Tampilkan menu navigasi"
+                  : "Show navigation menu"
+                : isId
+                ? "Sembunyikan menu navigasi"
+                : "Hide navigation menu"
+            }
+          >
+            <button
+              type="button"
+              onClick={handleToggleSidebarCollapse}
+              className={`w-7 h-7 rounded-[7px] flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.07]"
+                  : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
+              }`}
+            >
+              {isSidebarCollapsed ? (
+                <PanelLeftOpen size={16} strokeWidth={2} />
+              ) : (
+                <PanelLeftClose size={16} strokeWidth={2} />
+              )}
+            </button>
+          </Tooltip>
+          <div className="flex items-center gap-2 pointer-events-none">
+            <img
+              src="/logo/LOGO-GILI.png"
+              alt="Gili"
+              draggable={false}
+              className="w-5 h-5 rounded-[5px] object-contain shrink-0"
+            />
+            <span className={`text-[13px] font-semibold tracking-tight ${isLightMode ? "text-neutral-800" : "text-zinc-100"}`}>
+              {isId ? "Pengaturan Gili" : "Gili Settings"}
+            </span>
+          </div>
         </div>
 
         {/* Right: Minimize & Close Buttons */}
         <div className="flex items-center gap-1 pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => getCurrentWindow().minimize()}
-            title={isId ? "Minimalkan" : "Minimize"}
-            className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
-              isLightMode
-                ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.07]"
-                : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
-            }`}
-          >
-            <Minus size={15} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            onClick={handleCloseWindow}
-            title={isId ? "Tutup" : "Close"}
-            className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
-              isLightMode
-                ? "text-neutral-600 hover:bg-[#e81123] hover:text-white"
-                : "text-zinc-400 hover:bg-[#e81123] hover:text-white"
-            }`}
-          >
-            <X size={15} strokeWidth={2} />
-          </button>
+          <Tooltip side="bottom" delay={300} content={isId ? "Minimalkan" : "Minimize"}>
+            <button
+              type="button"
+              onClick={() => getCurrentWindow().minimize()}
+              className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.07]"
+                  : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
+              }`}
+            >
+              <Minus size={15} strokeWidth={2} />
+            </button>
+          </Tooltip>
+          <Tooltip side="bottom" delay={300} content={isId ? "Tutup" : "Close"}>
+            <button
+              type="button"
+              onClick={handleCloseWindow}
+              className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "text-neutral-600 hover:bg-[#e81123] hover:text-white"
+                  : "text-zinc-400 hover:bg-[#e81123] hover:text-white"
+              }`}
+            >
+              <X size={15} strokeWidth={2} />
+            </button>
+          </Tooltip>
         </div>
       </header>
 
@@ -921,6 +1000,8 @@ export const SettingsWindowApp: React.FC = () => {
           appVersion={currentAppVersion}
           hasUpdate={Boolean(updateInfo?.available) || updateStatus === "available"}
           updateVersion={updateInfo?.version}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleSidebarCollapse}
         />
 
         <main
@@ -991,6 +1072,8 @@ export const SettingsWindowApp: React.FC = () => {
                     onChangeCustomGreetingName={handleChangeCustomGreetingName}
                     optAutoCompact={optAutoCompact}
                     onToggleAutoCompact={handleToggleAutoCompact}
+                    optAutoCompactMode={optAutoCompactMode}
+                    onChangeAutoCompactMode={handleChangeAutoCompactMode}
                     optNotifTime={optNotifTime}
                     onChangeNotifTime={handleChangeNotifTime}
                     optNotifSound={optNotifSound}
@@ -1119,6 +1202,8 @@ export const SettingsWindowApp: React.FC = () => {
                       }}
                       optAutoCompact={optAutoCompact}
                       onToggleAutoCompact={handleToggleAutoCompact}
+                      optAutoCompactMode={optAutoCompactMode}
+                      onChangeAutoCompactMode={handleChangeAutoCompactMode}
                       optNotifTime={optNotifTime}
                       onChangeNotifTime={handleChangeNotifTime}
                       optNotifSound={optNotifSound}
