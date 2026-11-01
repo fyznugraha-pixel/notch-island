@@ -197,3 +197,4 @@ export const NavbarPresetsModal: React.FC<NavbarPresetsModalProps> = ({
     </AnimatePresence>
   );
 };
+

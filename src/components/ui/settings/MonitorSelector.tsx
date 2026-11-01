@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Monitor, RefreshCw, Check } from "lucide-react";
+import { Monitor, RefreshCw, Check, Layers } from "lucide-react";
 import { t } from "../../../services/i18n";
 
 export interface MonitorInfo {
@@ -50,6 +50,7 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
   };
 
   const isMonitorSelected = (m: MonitorInfo) => {
+    if (value === "all") return false;
     if (!value || value === "primary" || value === "auto") {
       return m.is_primary;
     }
@@ -136,7 +137,64 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
           </span>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2 mt-1">
+        <div className="flex flex-col gap-2 mt-1">
+          <button
+            type="button"
+            onClick={() => handleSelectMonitor("all")}
+            className={`relative flex items-center justify-between p-2.5 rounded-[10px] border text-left transition-all cursor-pointer ${
+              value === "all"
+                ? isLightMode
+                  ? "bg-blue-50/80 border-[#0a84ff] shadow-sm ring-1 ring-[#0a84ff]/30"
+                  : "bg-[#0a84ff]/10 border-[#0a84ff] shadow-[0_0_12px_rgba(10,132,255,0.2)] ring-1 ring-[#0a84ff]/30"
+                : isLightMode
+                ? "bg-black/[0.02] border-black/10 hover:bg-black/[0.04] hover:border-black/20"
+                : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10"
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-7 h-7 rounded-[7px] flex items-center justify-center shrink-0 ${
+                  value === "all"
+                    ? "bg-[#0a84ff] text-white"
+                    : isLightMode
+                    ? "bg-black/5 text-neutral-600"
+                    : "bg-white/[0.06] text-[#a1a1aa]"
+                }`}
+              >
+                <Layers size={14} />
+              </div>
+              <div className="flex flex-col">
+                <span
+                  className={`text-[12px] font-semibold leading-tight ${
+                    value === "all"
+                      ? isLightMode
+                        ? "text-blue-900"
+                        : "text-white"
+                      : isLightMode
+                      ? "text-neutral-800"
+                      : "text-[#d4d4d8]"
+                  }`}
+                >
+                  {t("settings_monitor_all")}
+                </span>
+                <span
+                  className={`text-[10px] leading-tight mt-0.5 ${
+                    isLightMode ? "text-neutral-500" : "text-[#71717a]"
+                  }`}
+                >
+                  {t("settings_monitor_all_desc")}
+                </span>
+              </div>
+            </div>
+
+            {value === "all" && (
+              <div className="w-4 h-4 rounded-full bg-[#0a84ff] flex items-center justify-center shrink-0 shadow-sm ml-2">
+                <Check size={10} className="text-white stroke-[2.5]" />
+              </div>
+            )}
+          </button>
+
+          <div className="grid grid-cols-2 gap-2">
           {monitors.map((m, index) => {
             const isSelected = isMonitorSelected(m);
             return (
@@ -205,6 +263,7 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
               </button>
             );
           })}
+          </div>
         </div>
       )}
     </div>

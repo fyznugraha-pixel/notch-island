@@ -87,3 +87,4 @@ export const NAVBAR_ACCENT_COLORS = [
   "#f59e0b", // Amber
   "#22c55e", // Emerald
 ] as const;
+

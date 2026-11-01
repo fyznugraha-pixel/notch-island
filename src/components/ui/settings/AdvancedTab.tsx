@@ -56,6 +56,7 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
       localStorage.removeItem("island_ears");
       localStorage.removeItem("island_transparency");
       localStorage.removeItem("island_auto_compact");
+      localStorage.removeItem("island_auto_compact_mode");
       localStorage.removeItem("island_show_greeting");
       localStorage.removeItem("island_close_delay");
     } catch {}

@@ -84,3 +84,4 @@ export const NavbarPositionCard: React.FC<NavbarPositionCardProps> = ({
     </div>
   );
 };
+

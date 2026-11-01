@@ -205,3 +205,4 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
     </div>
   );
 };
+

@@ -94,3 +94,4 @@ export const WindowPreviewCard: React.FC<WindowPreviewCardProps> = ({
     </motion.div>
   );
 };
+

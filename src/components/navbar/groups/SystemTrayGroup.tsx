@@ -140,3 +140,4 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
     </div>
   );
 };
+

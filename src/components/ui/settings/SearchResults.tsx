@@ -56,6 +56,8 @@ export interface SearchResultsProps {
   onChangeCustomGreetingName?: (name: string) => void;
   optAutoCompact: boolean;
   onToggleAutoCompact: () => void;
+  optAutoCompactMode?: "browser" | "maximized";
+  onChangeAutoCompactMode?: (mode: "browser" | "maximized") => void;
   optNotifTime: number;
   onChangeNotifTime: (sec: number) => void;
   optNotifSound: string;
@@ -143,6 +145,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onChangeCustomGreetingName,
   optAutoCompact,
   onToggleAutoCompact,
+  optAutoCompactMode = "browser",
+  onChangeAutoCompactMode,
   optNotifTime,
   onChangeNotifTime,
   optNotifSound,
@@ -359,17 +363,33 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
       tab: "general",
       tabLabel: t("settings_subtab_general"),
       title: t("settings_auto_compact"),
-      subtitle: t("settings_auto_compact_desc"),
-      keywords: ["compact", "ringkas", "browser", "peramban", "shrink", "otomatis", "mini"],
+      subtitle: optAutoCompact
+        ? optAutoCompactMode === "maximized"
+          ? t("settings_auto_compact_desc_maximized")
+          : t("settings_auto_compact_desc_browser")
+        : t("settings_auto_compact_desc"),
+      keywords: ["compact", "ringkas", "browser", "peramban", "shrink", "otomatis", "mini", "maxsize", "maximize", "layar penuh"],
       icon: <AppWindow size={18} />,
       iconBgClass: "bg-[#142333]",
       iconColorClass: "text-[#0a84ff]",
       control: (
-        <IosSwitch
-          checked={optAutoCompact}
-          onChange={onToggleAutoCompact}
-          activeColor="blue"
-        />
+        <div className="flex items-center gap-2">
+          <IosSwitch
+            checked={optAutoCompact}
+            onChange={onToggleAutoCompact}
+            activeColor="blue"
+          />
+          {optAutoCompact && onChangeAutoCompactMode && (
+            <IosSegmentedControl
+              value={optAutoCompactMode}
+              onChange={(val) => onChangeAutoCompactMode(val as "browser" | "maximized")}
+              options={[
+                { value: "browser", label: t("settings_auto_compact_browser") },
+                { value: "maximized", label: t("settings_auto_compact_maximized") },
+              ]}
+            />
+          )}
+        </div>
       ),
     },
     {

@@ -17,8 +17,17 @@ export interface FilePreview {
 const previewCache = new Map<string, FilePreview>();
 const inFlightRequests = new Set<string>();
 
-export function getCachedPreview(id: string): FilePreview | undefined {
-  return previewCache.get(id);
+export function getCachedPreview(idOrPath: string): FilePreview | undefined {
+  if (!idOrPath) return undefined;
+  return previewCache.get(idOrPath) || previewCache.get(idOrPath.toLowerCase());
+}
+
+export function setCachedPreview(id: string, path: string, preview: FilePreview): void {
+  if (id) previewCache.set(id, preview);
+  if (path) {
+    previewCache.set(path, preview);
+    previewCache.set(path.toLowerCase(), preview);
+  }
 }
 
 export function clearShelfPreviewCache(): void {
@@ -67,7 +76,7 @@ function processQueue() {
     const file = pendingQueue.shift();
     if (!file) break;
 
-    if (previewCache.has(file.id)) {
+    if (previewCache.has(file.id) || previewCache.has(file.path)) {
       continue;
     }
 
@@ -76,19 +85,23 @@ function processQueue() {
 
     invoke<{ size_formatted: string; thumbnail?: string }>("get_file_preview", { path: file.path })
       .then((res) => {
+        const existing = getCachedPreview(file.id) || getCachedPreview(file.path);
+        const resolvedThumb = res?.thumbnail || existing?.thumbnail || file.thumbnail;
         const preview: FilePreview = {
-          sizeFormatted: res?.size_formatted || "--",
-          thumbnail: res?.thumbnail || undefined,
+          sizeFormatted: res?.size_formatted || file.sizeFormatted || "--",
+          thumbnail: resolvedThumb,
         };
-        previewCache.set(file.id, preview);
+        setCachedPreview(file.id, file.path, preview);
         pendingBatch[file.id] = preview;
         scheduleFlush();
       })
       .catch(() => {
+        const existing = getCachedPreview(file.id) || getCachedPreview(file.path);
         const fallback: FilePreview = {
           sizeFormatted: file.sizeFormatted || "--",
+          thumbnail: existing?.thumbnail || file.thumbnail,
         };
-        previewCache.set(file.id, fallback);
+        setCachedPreview(file.id, file.path, fallback);
         pendingBatch[file.id] = fallback;
         scheduleFlush();
       })
@@ -115,23 +128,24 @@ export function queueFilePreviews(
   // Pre-seed cache with any files that already have sizeFormatted or thumbnail
   for (const f of files) {
     if (f.thumbnail || f.sizeFormatted) {
-      if (!previewCache.has(f.id)) {
-        previewCache.set(f.id, {
-          sizeFormatted: f.sizeFormatted || "--",
-          thumbnail: f.thumbnail,
+      const existing = getCachedPreview(f.id) || getCachedPreview(f.path);
+      if (!existing || (!existing.thumbnail && f.thumbnail)) {
+        setCachedPreview(f.id, f.path, {
+          sizeFormatted: f.sizeFormatted || existing?.sizeFormatted || "--",
+          thumbnail: f.thumbnail || existing?.thumbnail,
         });
       }
     }
   }
 
   const isImageExt = (ext: string) =>
-    ["png", "jpg", "jpeg", "webp", "gif", "bmp", "ico", "svg"].includes(
-      ext.toLowerCase().replace(/^\./, "")
+    ["png", "jpg", "jpeg", "webp", "gif", "bmp", "ico", "svg", "heic", "heif", "avif"].includes(
+      ext.toLowerCase().replace(/^\./, "").trim()
     );
 
   const needed = files.filter((f) => {
     if (inFlightRequests.has(f.id)) return false;
-    const cached = previewCache.get(f.id);
+    const cached = getCachedPreview(f.id) || getCachedPreview(f.path);
     if (!cached) return true;
     if (isImageExt(f.ext) && !cached.thumbnail) return true;
     return false;

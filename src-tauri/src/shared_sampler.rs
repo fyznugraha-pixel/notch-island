@@ -196,3 +196,4 @@ pub async fn get_system_metrics() -> SystemMetrics {
         .await
         .unwrap_or_else(|_| get_system_metrics_internal())
 }
+

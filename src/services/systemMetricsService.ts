@@ -94,3 +94,4 @@ export async function setMetricsPowerState(
     await invoke("set_metrics_power_state", { state });
   } catch {}
 }
+

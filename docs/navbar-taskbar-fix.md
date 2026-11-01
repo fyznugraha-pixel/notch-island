@@ -83,3 +83,32 @@ Hasil visual:
 - Matikan toggle di Settings -> Taskbar Windows langsung muncul kembali (`SW_SHOW`), flag disk dihapus.
 - Tray icon -> Klik *"Restore Windows Taskbar"* -> Taskbar langsung pulih seketika.
 - Command line -> Jalankan `gili.exe --restore-taskbar` -> Taskbar langsung pulih seketika.
+
+
+---
+
+## 3. Laporan Penyempurnaan Tambahan (Overlay, Posisi Tooltip & Logo Asli Aplikasi)
+
+Tanggal: 2 November 2026 (03:59 WIB)  
+Status: **TERIMPLEMENTASI & TERVERIFIKASI**
+
+### A. Perubahan yang Dilakukan
+1. **Navbar Menimpa Layar Penuh (Overlay Mode)**:
+   - Menghapus reservasi `AppBar` (`SHAppBarMessage` `ABM_NEW`), sehingga jendela aplikasi yang di-maximize (seperti VS Code, Chrome) tetap memanfaatkan ruang layar penuh hingga ke tepi bawah monitor, dan Gili Navbar mengambang/menimpa secara halus di atasnya (*overlay*) tanpa memotong work area atau mendorong jendela ke atas.
+   - Memperbaiki pembagian tinggi jendela agar tepi bawah dock tidak terpotong oleh batas monitor maupun window canvas.
+2. **Hover Deskripsi (Tooltip) Tepat di Atas Ikon**:
+   - Menambahkan ruang kanvas vertikal transparan (`overhead_h = 100px`) di atas dock pada jendela webview navbar, dengan `pointer-events-none` agar klik di luar dock tetap tembus ke aplikasi di belakangnya.
+   - Memperbarui perhitungan kalkulasi koordinat di [`Tooltip.tsx`](file:///d:/kerjaan/projek-ndiri/island/src/components/ui/Tooltip.tsx): memastikan tooltip selalu berada di posisi atas (`top`) dengan jarak aman minimal 6px di atas elemen pemicu, sehingga secara matematis tidak akan pernah menimpa atau menutupi ikon tombol.
+3. **Logo Aplikasi Nyata (Sesuai Aplikasi Berjalan & Disematkan)**:
+   - Menggantikan ikon garis generik Lucide dengan logo asli/resmi aplikasi:
+     - **File Explorer**: Ikon resmi Fluent Windows 11 (folder emas dengan klip dokumen biru).
+     - **Google Chrome**: Logo resmi berwarna Google Chrome (`/logo/chrome.png`).
+     - **Visual Studio Code**: Logo resmi pita lipat biru Microsoft VS Code.
+     - **Windows Terminal**: Logo resmi Windows Terminal gelap dengan prompt hijau `>_`.
+     - **Windows Settings**: Logo resmi roda gigi Fluent biru Windows 11.
+     - Aplikasi lainnya (Spotify, Discord, WhatsApp, Brave, dsb.).
+   - Menghubungkan ke API backend Win32 `get_running_windows` dan `activate_or_toggle_window` untuk mendeteksi aplikasi yang sedang berjalan, status aktif (highlight glow), dan kemampuan klik untuk fokus / minimize layaknya taskbar Windows asli.
+
+### B. Bukti Tangkapan Layar Langsung
+- [evidence_dock_new_logos_live.png](file:///C:/Users/faiz/.gemini/antigravity/brain/fbe57b88-3cd4-4567-b0bc-ee9a91cc2fdf/evidence_dock_new_logos_live.png): Menampilkan dock yang menimpa di atas VS Code dengan logo asli dan indikator aplikasi aktif/berjalan.
+- [evidence_tooltip_hover_real.png](file:///C:/Users/faiz/.gemini/antigravity/brain/fbe57b88-3cd4-4567-b0bc-ee9a91cc2fdf/evidence_tooltip_hover_real.png): Menampilkan hover tooltip `"Google Chrome"` yang melayang rapi tepat di atas ikon Chrome tanpa menutupinya.

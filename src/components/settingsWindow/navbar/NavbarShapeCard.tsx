@@ -8,146 +8,6 @@ interface NavbarShapeCardProps {
   isLightMode?: boolean;
 }
 
-const AnchoredPreviewSvg: React.FC<{ isSelected: boolean; accentColor: string }> = ({
-  isSelected,
-  accentColor,
-}) => (
-  <div className="w-full h-[60px] mb-2.5 rounded-[9px] bg-black/40 border border-white/[0.06] overflow-hidden flex items-end justify-center select-none">
-    <svg viewBox="0 0 160 56" className="w-full h-full" fill="none">
-      {/* Monitor Screen Frame & Dot Grid */}
-      <rect x="0.5" y="0.5" width="159" height="55" rx="7.5" fill="#0d0e12" />
-      <circle cx="24" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-      <circle cx="52" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-      <circle cx="80" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-      <circle cx="108" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-      <circle cx="136" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-
-      {/* Screen bottom edge line */}
-      <line
-        x1="0"
-        y1="55.5"
-        x2="160"
-        y2="55.5"
-        stroke={isSelected ? accentColor : "rgba(255,255,255,0.2)"}
-        strokeWidth="1.5"
-        strokeOpacity={isSelected ? 0.8 : 0.3}
-      />
-
-      {/* Anchored dock with iconic flared inverted wings */}
-      <path
-        d="M 24 56 C 32 56, 36 50, 36 44 L 36 42 C 36 38, 39 35, 43 35 L 117 35 C 121 35, 124 38, 124 42 L 124 44 C 124 50, 128 56, 136 56 Z"
-        fill={isSelected ? "rgba(56,130,246,0.18)" : "#18181d"}
-        stroke={isSelected ? accentColor : "rgba(255,255,255,0.22)"}
-        strokeWidth="1.2"
-      />
-
-      {/* Start button */}
-      <rect
-        x="42"
-        y="40"
-        width="8"
-        height="8"
-        rx="2"
-        fill={isSelected ? accentColor : "rgba(255,255,255,0.85)"}
-      />
-
-      {/* Separator */}
-      <line x1="54" y1="40" x2="54" y2="48" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-
-      {/* Apps */}
-      <circle cx="62" cy="44" r="3" fill="#ffffff" fillOpacity="0.4" />
-      <circle cx="72" cy="44" r="3" fill="#ffffff" fillOpacity="0.9" />
-      <rect x="70" y="49" width="4" height="1.5" rx="0.75" fill={accentColor} />
-      <circle cx="82" cy="44" r="3" fill="#ffffff" fillOpacity="0.4" />
-
-      {/* Separator */}
-      <line x1="90" y1="40" x2="90" y2="48" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-
-      {/* Tray */}
-      <circle cx="97" cy="44" r="2" fill="#ffffff" fillOpacity="0.4" />
-      <circle cx="103" cy="44" r="2" fill="#ffffff" fillOpacity="0.4" />
-      <rect x="108" y="42" width="10" height="4" rx="1.5" fill="#ffffff" fillOpacity="0.7" />
-    </svg>
-  </div>
-);
-
-const FloatingPreviewSvg: React.FC<{ isSelected: boolean; accentColor: string }> = ({
-  isSelected,
-  accentColor,
-}) => (
-  <div className="w-full h-[60px] mb-2.5 rounded-[9px] bg-black/40 border border-white/[0.06] overflow-hidden flex items-end justify-center select-none">
-    <svg viewBox="0 0 160 56" className="w-full h-full" fill="none">
-      {/* Monitor Screen Frame & Dot Grid */}
-      <rect x="0.5" y="0.5" width="159" height="55" rx="7.5" fill="#0d0e12" />
-      <circle cx="24" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-      <circle cx="52" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-      <circle cx="80" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-      <circle cx="108" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-      <circle cx="136" cy="16" r="0.8" fill="rgba(255,255,255,0.12)" />
-
-      {/* Screen bottom edge line */}
-      <line
-        x1="0"
-        y1="55.5"
-        x2="160"
-        y2="55.5"
-        stroke="rgba(255,255,255,0.15)"
-        strokeWidth="1"
-      />
-
-      {/* Drop shadow representing elevation */}
-      <rect
-        x="38"
-        y="36"
-        width="84"
-        height="14"
-        rx="7"
-        fill="#000000"
-        fillOpacity="0.65"
-      />
-
-      {/* Floating dock pill */}
-      <rect
-        x="36"
-        y="30"
-        width="88"
-        height="18"
-        rx="9"
-        fill={isSelected ? "rgba(56,130,246,0.18)" : "#18181d"}
-        stroke={isSelected ? accentColor : "rgba(255,255,255,0.22)"}
-        strokeWidth="1.2"
-      />
-
-      {/* Start button */}
-      <rect
-        x="42"
-        y="35"
-        width="8"
-        height="8"
-        rx="2"
-        fill={isSelected ? accentColor : "rgba(255,255,255,0.85)"}
-      />
-
-      {/* Separator */}
-      <line x1="54" y1="35" x2="54" y2="43" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-
-      {/* Apps */}
-      <circle cx="62" cy="39" r="3" fill="#ffffff" fillOpacity="0.4" />
-      <circle cx="72" cy="39" r="3" fill="#ffffff" fillOpacity="0.9" />
-      <rect x="70" y="44" width="4" height="1.5" rx="0.75" fill={accentColor} />
-      <circle cx="82" cy="39" r="3" fill="#ffffff" fillOpacity="0.4" />
-
-      {/* Separator */}
-      <line x1="90" y1="35" x2="90" y2="43" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-
-      {/* Tray */}
-      <circle cx="97" cy="39" r="2" fill="#ffffff" fillOpacity="0.4" />
-      <circle cx="103" cy="39" r="2" fill="#ffffff" fillOpacity="0.4" />
-      <rect x="108" y="37" width="10" height="4" rx="1.5" fill="#ffffff" fillOpacity="0.7" />
-    </svg>
-  </div>
-);
-
 export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
   config,
   onChange,
@@ -204,22 +64,19 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
           <button
             type="button"
             onClick={() => onChange({ shape: "anchored" })}
-            className={`flex flex-col items-start p-3 rounded-[14px] border text-left transition-all cursor-pointer ${
+            className={`flex flex-col items-start p-3 rounded-[12px] border text-left transition-all cursor-pointer ${
               isAnchored
-                ? "bg-blue-500/10 border-blue-500 text-blue-500 shadow-sm"
+                ? "bg-blue-500/10 border-blue-500 text-blue-500"
                 : isLightMode
                 ? "bg-black/[0.03] border-black/[0.06] hover:bg-black/[0.06] text-neutral-700"
                 : "bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.08] text-zinc-300"
             }`}
           >
-            {/* SVG Visual Preview */}
-            <AnchoredPreviewSvg isSelected={isAnchored} accentColor={config.accent} />
-
             <div className="flex items-center gap-2 mb-1">
               <Layers size={15} />
               <span className="text-[12.5px] font-semibold">Nempel (Anchored)</span>
             </div>
-            <span className={`text-[10.5px] leading-snug ${isAnchored ? "text-blue-400" : textSub}`}>
+            <span className={`text-[10.5px] ${isAnchored ? "text-blue-400" : textSub}`}>
               Rapat di tepi layar bawah dengan sayap lekukan estetik
             </span>
           </button>
@@ -228,22 +85,19 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
           <button
             type="button"
             onClick={() => onChange({ shape: "floating" })}
-            className={`flex flex-col items-start p-3 rounded-[14px] border text-left transition-all cursor-pointer ${
+            className={`flex flex-col items-start p-3 rounded-[12px] border text-left transition-all cursor-pointer ${
               !isAnchored
-                ? "bg-blue-500/10 border-blue-500 text-blue-500 shadow-sm"
+                ? "bg-blue-500/10 border-blue-500 text-blue-500"
                 : isLightMode
                 ? "bg-black/[0.03] border-black/[0.06] hover:bg-black/[0.06] text-neutral-700"
                 : "bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.08] text-zinc-300"
             }`}
           >
-            {/* SVG Visual Preview */}
-            <FloatingPreviewSvg isSelected={!isAnchored} accentColor={config.accent} />
-
             <div className="flex items-center gap-2 mb-1">
               <Maximize2 size={15} />
               <span className="text-[12.5px] font-semibold">Melayang (Floating)</span>
             </div>
-            <span className={`text-[10.5px] leading-snug ${!isAnchored ? "text-blue-400" : textSub}`}>
+            <span className={`text-[10.5px] ${!isAnchored ? "text-blue-400" : textSub}`}>
               Satu kapsul melayang dengan elevasi bayangan halus
             </span>
           </button>

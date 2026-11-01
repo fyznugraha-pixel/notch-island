@@ -18,3 +18,4 @@ export const EventNavbarModule: React.FC<NavbarModuleContext> = ({
     </Tooltip>
   );
 };
+

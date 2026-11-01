@@ -24,3 +24,4 @@ export const PomodoroNavbarModule: React.FC<NavbarModuleContext> = ({
     </Tooltip>
   );
 };
+

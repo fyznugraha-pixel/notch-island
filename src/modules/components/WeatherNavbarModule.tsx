@@ -19,3 +19,4 @@ export const WeatherNavbarModule: React.FC<NavbarModuleContext> = ({
     </Tooltip>
   );
 };
+

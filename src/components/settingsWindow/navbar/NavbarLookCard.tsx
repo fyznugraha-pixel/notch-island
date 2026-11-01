@@ -162,3 +162,4 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
     </div>
   );
 };
+
