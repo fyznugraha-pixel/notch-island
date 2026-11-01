@@ -111,7 +111,7 @@ export const NavbarApp: React.FC = () => {
     <div
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className="fixed inset-0 w-screen h-screen flex items-end justify-center select-none overflow-hidden bg-transparent pointer-events-none"
+      className="fixed inset-0 w-screen h-screen flex items-end justify-center select-none overflow-visible bg-transparent pointer-events-none"
     >
       {/* Auto-hide trigger edge hotzone at screen bottom */}
       {config.autoHide && (

@@ -129,6 +129,13 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             windowPreviews={config.windowPreviews}
             accentColor={config.accent}
             onAppClick={async (app) => {
+              if (app.hwnd) {
+                try {
+                  await invoke("activate_or_toggle_window", { hwnd: app.hwnd });
+                  return;
+                } catch {}
+              }
+
               try {
                 switch (app.id) {
                   case "explorer":

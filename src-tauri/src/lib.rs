@@ -3004,7 +3004,9 @@ pub fn run() {
             navbar_window::trigger_notification_center,
             navbar_window::trigger_file_explorer,
             navbar_window::trigger_task_manager,
-            navbar_window::launch_target
+            navbar_window::launch_target,
+            navbar_window::get_running_windows,
+            navbar_window::activate_or_toggle_window
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());

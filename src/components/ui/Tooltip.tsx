@@ -40,7 +40,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
     // Auto-flip vertical if not enough space
     if (currentSide === "top" && triggerRect.top - tipHeight - 8 < 6) {
-      currentSide = "bottom";
+      // Keep strictly on top for docks/toolbars to avoid covering trigger icon
+      currentSide = "top";
     } else if (currentSide === "bottom" && triggerRect.bottom + tipHeight + 8 > window.innerHeight - 6) {
       currentSide = "top";
     }
@@ -91,13 +92,16 @@ export const Tooltip: React.FC<TooltipProps> = ({
       }
     }
 
-    // Viewport boundary clamping (guarantees tooltip is never clipped by window edges)
+    // Viewport boundary clamping (guarantees tooltip is never clipped by window edges and never overlaps icon)
     const padding = 6;
     const maxLeft = Math.max(padding, window.innerWidth - tipWidth - padding);
     const maxTop = Math.max(padding, window.innerHeight - tipHeight - padding);
+    const resolvedTop = currentSide === "top"
+      ? Math.min(top, triggerRect.top - tipHeight - 6)
+      : Math.min(maxTop, top);
 
     return {
-      top: Math.max(padding, Math.min(maxTop, top)),
+      top: Math.max(padding, resolvedTop),
       left: Math.max(padding, Math.min(maxLeft, left)),
     };
   };

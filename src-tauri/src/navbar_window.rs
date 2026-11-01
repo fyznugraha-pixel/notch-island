@@ -1,53 +1,26 @@
 use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{LogicalPosition, LogicalSize, Manager};
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_LWIN, VK_CONTROL, VK_SHIFT, VK_ESCAPE,
+    keybd_event, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_CONTROL, VK_ESCAPE,
+    VK_LWIN, VK_SHIFT,
 };
 use windows::Win32::UI::Shell::{
-    SHAppBarMessage, APPBARDATA, ABM_NEW, ABM_REMOVE, ABM_QUERYPOS, ABM_SETPOS,
-    ABE_BOTTOM, ABE_TOP, ABE_LEFT, ABE_RIGHT,
+    SHAppBarMessage, APPBARDATA, ABM_REMOVE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    EnumWindows, GetForegroundWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId,
+    IsIconic, IsWindowVisible, SetForegroundWindow, SetWindowLongW, ShowWindow,
+    GWL_EXSTYLE, SW_MINIMIZE, SW_RESTORE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+};
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 static APPBAR_REGISTERED: AtomicBool = AtomicBool::new(false);
 
-/// Registers or updates the AppBar reservation for the anchored navbar so maximized windows don't overlap it.
-fn register_or_update_appbar(hwnd: HWND, edge: u32, rect: RECT) {
-    unsafe {
-        let mut abd = APPBARDATA {
-            cbSize: std::mem::size_of::<APPBARDATA>() as u32,
-            hWnd: hwnd,
-            uCallbackMessage: 0,
-            uEdge: edge,
-            rc: rect,
-            ..Default::default()
-        };
-
-        if !APPBAR_REGISTERED.load(Ordering::SeqCst) {
-            let _ = SHAppBarMessage(ABM_NEW, &mut abd);
-            APPBAR_REGISTERED.store(true, Ordering::SeqCst);
-        }
-
-        let _ = SHAppBarMessage(ABM_QUERYPOS, &mut abd);
-        let height = rect.bottom - rect.top;
-        let width = rect.right - rect.left;
-
-        match edge {
-            ABE_BOTTOM => abd.rc.top = abd.rc.bottom - height,
-            ABE_TOP => abd.rc.bottom = abd.rc.top + height,
-            ABE_LEFT => abd.rc.right = abd.rc.left + width,
-            ABE_RIGHT => abd.rc.left = abd.rc.right - width,
-            _ => {}
-        }
-        let _ = SHAppBarMessage(ABM_SETPOS, &mut abd);
-    }
-}
-
-/// Removes the AppBar reservation when floating, hiding, or closing the navbar window.
+/// Deregisters any registered AppBar so the navbar purely overlays on top of windows ("menimpa saja").
 pub fn remove_appbar_if_registered(hwnd: HWND) {
     if APPBAR_REGISTERED.swap(false, Ordering::SeqCst) {
         unsafe {
@@ -68,6 +41,7 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
         #[cfg(windows)]
         if let Ok(raw_hwnd) = w.hwnd() {
             let hwnd = HWND(raw_hwnd.0);
+            remove_appbar_if_registered(hwnd);
             unsafe {
                 let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
                 let _ = SetWindowLongW(
@@ -88,7 +62,7 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
             tauri::WebviewUrl::App("index.html?window=navbar".into()),
         )
         .title("Gili Navbar")
-        .inner_size(800.0, 70.0)
+        .inner_size(800.0, 160.0)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -104,6 +78,7 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
                 #[cfg(windows)]
                 if let Ok(raw_hwnd) = win.hwnd() {
                     let hwnd = HWND(raw_hwnd.0);
+                    remove_appbar_if_registered(hwnd);
                     unsafe {
                         let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
                         let _ = SetWindowLongW(
@@ -181,7 +156,11 @@ pub fn sync_navbar_bounds(
             let mon_height = mon_size.height as f64 / scale_factor;
 
             let safe_w = width.clamp(120.0, mon_width);
-            let safe_h = height.clamp(40.0, 160.0);
+            let dock_h = height.clamp(40.0, 90.0);
+
+            // Overhead space (100px) above the dock for hover tooltips and window preview popups
+            let overhead_h = 100.0;
+            let total_window_h = dock_h + overhead_h;
 
             let (target_x, target_y) = match position.as_str() {
                 "top" => {
@@ -191,71 +170,148 @@ pub fn sync_navbar_bounds(
                 }
                 "left" => {
                     let x = distance_from_edge;
-                    let y = (mon_height - safe_h) / 2.0;
+                    let y = (mon_height - total_window_h) / 2.0;
                     (x, y)
                 }
                 "right" => {
                     let x = mon_width - safe_w - distance_from_edge;
-                    let y = (mon_height - safe_h) / 2.0;
+                    let y = (mon_height - total_window_h) / 2.0;
                     (x, y)
                 }
                 _ => {
-                    // bottom
+                    // bottom: flush at bottom edge without clipping
                     let x = (mon_width - safe_w) / 2.0;
-                    let y = mon_height - safe_h - distance_from_edge;
+                    let bottom_offset = if is_anchored.unwrap_or(distance_from_edge == 0.0) {
+                        0.0
+                    } else {
+                        distance_from_edge
+                    };
+                    let y = (mon_height - total_window_h - bottom_offset).max(0.0);
                     (x, y)
                 }
             };
 
-            let _ = win.set_size(LogicalSize::new(safe_w, safe_h));
-            let _ = win.set_position(LogicalPosition::new(target_x, target_y));
+            let _ = win.set_size(LogicalSize::new(safe_w, total_window_h));
+            let _ = win.set_position(LogicalPosition::new(target_x.round(), target_y.round()));
 
             #[cfg(windows)]
             if let Ok(raw_hwnd) = win.hwnd() {
                 let hwnd = HWND(raw_hwnd.0);
-                let anchored = is_anchored.unwrap_or(distance_from_edge == 0.0);
-                if anchored {
-                    let mon_pos = monitor.position();
-                    let edge = match position.as_str() {
-                        "top" => ABE_TOP,
-                        "left" => ABE_LEFT,
-                        "right" => ABE_RIGHT,
-                        _ => ABE_BOTTOM,
-                    };
-                    let phys_h = (safe_h * scale_factor).round() as i32;
-                    let phys_w = (safe_w * scale_factor).round() as i32;
-
-                    let rect = match edge {
-                        ABE_TOP => RECT {
-                            left: mon_pos.x,
-                            top: mon_pos.y,
-                            right: mon_pos.x + mon_size.width as i32,
-                            bottom: mon_pos.y + phys_h,
-                        },
-                        ABE_LEFT => RECT {
-                            left: mon_pos.x,
-                            top: mon_pos.y,
-                            right: mon_pos.x + phys_w,
-                            bottom: mon_pos.y + mon_size.height as i32,
-                        },
-                        ABE_RIGHT => RECT {
-                            left: mon_pos.x + mon_size.width as i32 - phys_w,
-                            top: mon_pos.y,
-                            right: mon_pos.x + mon_size.width as i32,
-                            bottom: mon_pos.y + mon_size.height as i32,
-                        },
-                        _ => RECT {
-                            left: mon_pos.x,
-                            top: mon_pos.y + mon_size.height as i32 - phys_h,
-                            right: mon_pos.x + mon_size.width as i32,
-                            bottom: mon_pos.y + mon_size.height as i32,
-                        },
-                    };
-                    register_or_update_appbar(hwnd, edge, rect);
-                } else {
-                    remove_appbar_if_registered(hwnd);
-                }
+                // Ensure no AppBar reservation: navbar overlays on top of windows ("menimpa saja")
+                remove_appbar_if_registered(hwnd);
             }
+        }
+    }
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct RunningAppInfo {
+    pub hwnd: isize,
+    pub title: String,
+    pub process_name: String,
+    pub is_active: bool,
+    pub is_minimized: bool,
+}
+
+#[tauri::command]
+pub fn get_running_windows() -> Vec<RunningAppInfo> {
+    struct EnumCtx {
+        active_hwnd: HWND,
+        windows: Vec<RunningAppInfo>,
+    }
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam.0 as *mut EnumCtx);
+
+        if !IsWindowVisible(hwnd).as_bool() {
+            return BOOL(1);
+        }
+
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+        if (ex_style & WS_EX_TOOLWINDOW.0) != 0 {
+            return BOOL(1);
+        }
+
+        let mut title_buf = [0u16; 512];
+        let len = GetWindowTextW(hwnd, &mut title_buf);
+        if len == 0 {
+            return BOOL(1);
+        }
+
+        let title = String::from_utf16_lossy(&title_buf[..len as usize]);
+        // Filter out system windows, shell surfaces, or Gili itself
+        if title == "Gili"
+            || title == "Gili Navbar"
+            || title == "Gili Settings"
+            || title == "Program Manager"
+            || title == "Windows Input Experience"
+            || title == "PopupHost"
+        {
+            return BOOL(1);
+        }
+
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let mut process_name = String::new();
+        if pid != 0 {
+            if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                let mut buf = [0u16; 1024];
+                let mut len = buf.len() as u32;
+                if QueryFullProcessImageNameW(
+                    handle,
+                    PROCESS_NAME_FORMAT(0),
+                    windows::core::PWSTR(buf.as_mut_ptr()),
+                    &mut len,
+                )
+                .is_ok()
+                    && len > 0
+                {
+                    let full_path = String::from_utf16_lossy(&buf[..len as usize]);
+                    if let Some(name) = std::path::Path::new(&full_path).file_name() {
+                        process_name = name.to_string_lossy().to_string();
+                    }
+                }
+                let _ = windows::Win32::Foundation::CloseHandle(handle);
+            }
+        }
+
+        let is_active = hwnd == ctx.active_hwnd;
+        let is_minimized = IsIconic(hwnd).as_bool();
+
+        ctx.windows.push(RunningAppInfo {
+            hwnd: hwnd.0 as isize,
+            title,
+            process_name,
+            is_active,
+            is_minimized,
+        });
+
+        BOOL(1)
+    }
+
+    unsafe {
+        let active_hwnd = GetForegroundWindow();
+        let mut ctx = EnumCtx {
+            active_hwnd,
+            windows: Vec::new(),
+        };
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut ctx as *mut EnumCtx as isize));
+        ctx.windows
+    }
+}
+
+#[tauri::command]
+pub fn activate_or_toggle_window(hwnd: isize) {
+    let target = HWND(hwnd as *mut _);
+    unsafe {
+        let active = GetForegroundWindow();
+        if active == target {
+            // Already active -> minimize like Windows taskbar
+            let _ = ShowWindow(target, SW_MINIMIZE);
+        } else {
+            // Restore and bring to front
+            let _ = ShowWindow(target, SW_RESTORE);
+            let _ = SetForegroundWindow(target);
         }
     }
 }
@@ -282,7 +338,7 @@ pub fn trigger_windows_search() {
 #[tauri::command]
 pub fn trigger_quick_settings() {
     unsafe {
-        // Win + A (Windows 11 Quick Settings / Action Center flyout: Wi-Fi, Volume, Battery)
+        // Win + A (Windows 11 Quick Settings / Action Center: Wi-Fi, Volume, Battery)
         keybd_event(VK_LWIN.0 as u8, 0, KEYEVENTF_EXTENDEDKEY, 0);
         keybd_event(b'A', 0, KEYBD_EVENT_FLAGS(0), 0);
         keybd_event(b'A', 0, KEYEVENTF_KEYUP, 0);
@@ -293,7 +349,7 @@ pub fn trigger_quick_settings() {
 #[tauri::command]
 pub fn trigger_notification_center() {
     unsafe {
-        // Win + N (Windows 11 Notifications & Calendar flyout)
+        // Win + N (Windows 11 Notifications & Calendar)
         keybd_event(VK_LWIN.0 as u8, 0, KEYEVENTF_EXTENDEDKEY, 0);
         keybd_event(b'N', 0, KEYBD_EVENT_FLAGS(0), 0);
         keybd_event(b'N', 0, KEYEVENTF_KEYUP, 0);
