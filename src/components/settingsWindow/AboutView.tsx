@@ -18,7 +18,7 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "5.0.0",
+    version: "4.4.0",
     date: "2 Nov 2026",
     highlights: [
       {
