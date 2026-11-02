@@ -2933,7 +2933,7 @@ pub fn run() {
                             if in_pill {
                                 time_since_left_pill = std::time::Instant::now();
                                 click_outside_emitted = false;
-                            } else if pill.height > 50.0 && time_since_left_pill.elapsed().as_millis() >= 400 {
+                            } else if pill.height >= 120.0 && time_since_left_pill.elapsed().as_millis() >= 400 {
                                 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
                                 use tauri::Emitter;
                                 let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;

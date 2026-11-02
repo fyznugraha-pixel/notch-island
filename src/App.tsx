@@ -237,7 +237,14 @@ export default function App() {
     playNotificationSound();
   };
 
+  const lastDismissedNotifRef = useRef<{ key: string; time: number }>({ key: "", time: 0 });
+
   const showNotif = (newNotif: NotifPayload) => {
+    cancelCollapseTimer();
+    cancelCompactHoverTimer();
+    isClosingRef.current = false;
+    closeGraceUntilRef.current = 0;
+
     // Record only real app/reminder notifications to history (ignore transient hardware/system status HUDs like CapsLock, battery, volume, brightness, Wi-Fi/Hotspot, Bluetooth/USB/Audio connect, greetings, and clipboard copy toasts)
     const isGreeting = newNotif.type === "greeting" || newNotif.icon === "sun" || newNotif.icon === "moon";
     const isHardwareHud = newNotif.icon === "volume" || newNotif.icon === "brightness";
@@ -283,17 +290,24 @@ export default function App() {
       setIsPausedMediaCollapsed(true);
     }
 
+    const notifKey = `${newNotif.appName || ""}|${newNotif.title || ""}|${newNotif.body || ""}`;
+    const now = Date.now();
     const active = currentNotifRef.current;
+    const isTestNotif = newNotif.icon === "coffee" || (newNotif as any).forceShow;
 
-    // Drop exact duplicate notifications already displaying
+    // Drop exact duplicate notifications already displaying or recently shown within 2.5s
     if (
-      active &&
-      active.title === newNotif.title &&
-      active.body === newNotif.body &&
-      active.appName === newNotif.appName
+      !isTestNotif &&
+      ((active &&
+        active.title === newNotif.title &&
+        active.body === newNotif.body &&
+        active.appName === newNotif.appName) ||
+        (lastDismissedNotifRef.current.key === notifKey && now - lastDismissedNotifRef.current.time < 2500))
     ) {
       return;
     }
+
+    lastDismissedNotifRef.current = { key: notifKey, time: now };
 
     if (isHardwareHud) {
       if (active && active.icon !== newNotif.icon) {
@@ -1456,16 +1470,18 @@ export default function App() {
     }).catch(() => {});
 
     if (hadOpenPanel) {
-      const idleSize = variantsRef.current?.idle || { width: 120, height: 35 };
-      invoke("update_pill_size", {
-        width: idleSize.width,
-        height: idleSize.height,
-        isBottom: isBottomNotchPosition(optPositionRef.current),
-        position: optPositionRef.current,
-        topOffset: islandTopOffsetRef.current,
-        isIsland: isIslandRef.current,
-        dpr: window.devicePixelRatio || 1.0,
-      }).catch(() => {});
+      if (!currentNotifRef.current) {
+        const idleSize = variantsRef.current?.idle || { width: 120, height: 35 };
+        invoke("update_pill_size", {
+          width: idleSize.width,
+          height: idleSize.height,
+          isBottom: isBottomNotchPosition(optPositionRef.current),
+          position: optPositionRef.current,
+          topOffset: islandTopOffsetRef.current,
+          isIsland: isIslandRef.current,
+          dpr: window.devicePixelRatio || 1.0,
+        }).catch(() => {});
+      }
     }
   }, [clearPausedMediaTimer]);
 
@@ -2650,7 +2666,7 @@ export default function App() {
     }, 12000);
 
     const unlistenClickOutside = listen("click-outside", () => {
-      if (isSwitchingTabRef.current || isShelfDraggingRef.current || isShortcutPinnedRef.current) return;
+      if (isSwitchingTabRef.current || isShelfDraggingRef.current || isShortcutPinnedRef.current || currentNotifRef.current) return;
       isCursorInsideNotchRef.current = false;
       handleCloseImmediate();
     });
@@ -3586,7 +3602,8 @@ export default function App() {
           subtitle: "Gili Island",
           headline: isId ? "Uji Notifikasi Berhasil" : "Notification Test Passed",
           icon: "coffee",
-        });
+          forceShow: true,
+        } as any);
       } else if (act === "restart_onboarding") {
         window.dispatchEvent(new CustomEvent("island_trigger_onboarding"));
       } else if (act === "close_preview_tab" || act === "close_tab") {
@@ -3667,7 +3684,9 @@ export default function App() {
       setNotifQueue(q => q.slice(1));
       triggerNotificationAudio(nextNotif);
     } else if (notif) {
-      let duration = optNotifTimeRef.current * 1000;
+      const rawSec = Number(optNotifTimeRef.current);
+      const safeSec = (!isNaN(rawSec) && rawSec >= 1 && rawSec <= 30) ? rawSec : 4;
+      let duration = Math.max(3000, safeSec * 1000);
       const shortIcons = ["volume", "brightness", "battery", "bluetooth"];
       if (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon") {
         duration = 6000;
@@ -3680,6 +3699,13 @@ export default function App() {
       }
       
       const timer = setTimeout(() => {
+        if (isCursorInsideNotchRef.current) {
+          return;
+        }
+        if (currentNotifRef.current) {
+          const k = `${currentNotifRef.current.appName || ""}|${currentNotifRef.current.title || ""}|${currentNotifRef.current.body || ""}`;
+          lastDismissedNotifRef.current = { key: k, time: Date.now() };
+        }
         currentNotifRef.current = null;
         setNotif(null);
       }, duration);
@@ -4619,7 +4645,7 @@ export default function App() {
     : resolveNotchThemeMode(Number(optOpacity), Number(optBlur));
   const activeEffectiveOpacity = isMusicExpandedTab ? 1.0 : Number(optOpacity);
   const activeEffectiveBlur = isMusicExpandedTab ? 0 : Number(optBlur);
-  const isIdleLightContrast = optIdleColorEnabled && !isExpandedPanel && getPerceivedLuminance(optIdleColor) >= 0.55;
+  const isIdleLightContrast = optIdleColorEnabled && isIdle && getPerceivedLuminance(optIdleColor) >= 0.55;
   const effectiveIsLight = isLightMode || isIdleLightContrast;
 
   return (
@@ -4767,6 +4793,17 @@ export default function App() {
           cancelCompactHoverTimer();
           if (isSwitchingTabRef.current) return;
           isCursorInsideNotchRef.current = false;
+          if (notif) {
+            window.setTimeout(() => {
+              if (!isCursorInsideNotchRef.current && currentNotifRef.current) {
+                const k = `${currentNotifRef.current.appName || ""}|${currentNotifRef.current.title || ""}|${currentNotifRef.current.body || ""}`;
+                lastDismissedNotifRef.current = { key: k, time: Date.now() };
+                currentNotifRef.current = null;
+                setNotif(null);
+              }
+            }, 1800);
+            return;
+          }
           startCollapseTimer(350);
           if (!isPlayingRef.current && mediaRef.current && !isPausedMediaCollapsedRef.current) {
             startPausedMediaCollapseTimer(3000);
@@ -4869,7 +4906,7 @@ export default function App() {
           opacity={activeEffectiveOpacity}
           blur={activeEffectiveBlur}
           isLightMode={effectiveIsLight}
-          customColor={optIdleColorEnabled && !isExpandedPanel ? optIdleColor : null}
+          customColor={optIdleColorEnabled && isIdle ? optIdleColor : null}
         />
 
         <div className="absolute inset-0 z-10 overflow-hidden rounded-[inherit] pointer-events-auto">
@@ -5716,8 +5753,8 @@ export default function App() {
                                       },
                                     ];
                                 const randomSample = samples[Math.floor(Math.random() * samples.length)];
-                                showNotif(randomSample);
-                              }, 400);
+                                showNotif({ ...randomSample, forceShow: true } as any);
+                              }, 500);
                             }}
                             optCloseDelay={optCloseDelay}
                             onChangeCloseDelay={async (sec) => {
