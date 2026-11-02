@@ -1,12 +1,13 @@
 import React from "react";
-import { Moon, Type, Layout, Smile, Scaling, Activity, Sliders, MoveVertical } from "lucide-react";
+import { Moon, Type, Layout, Smile, Scaling, Activity, Sliders, MoveVertical, Palette } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { NotchPositionPreviewSelector } from "./NotchPositionPreviewSelector";
 import { MonitorSelector } from "./MonitorSelector";
 import { TransparencyControlSection } from "./TransparencyControlSection";
+import { CustomColorPicker } from "./CustomColorPicker";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
-import { t } from "../../../services/i18n";
+import { t, Language } from "../../../services/i18n";
 import { NotchPosition } from "../../../utils/notchGeometry";
 
 export interface AppearanceTabProps {
@@ -22,6 +23,7 @@ export interface AppearanceTabProps {
   onChangeTargetMonitor?: (id: string) => void;
   showPositionSetting?: boolean;
   isLightMode?: boolean;
+  optLanguage?: Language;
   optFontSize: "small" | "default" | "large";
   onChangeFontSize: (size: "small" | "default" | "large") => void;
   optIdleSize: "compact" | "default" | "large";
@@ -34,6 +36,10 @@ export interface AppearanceTabProps {
   onChangeOpacity: (val: number) => void;
   optBlur?: number;
   onChangeBlur?: (val: number) => void;
+  optIdleColorEnabled?: boolean;
+  onChangeIdleColorEnabled?: (val: boolean) => void;
+  optIdleColor?: string;
+  onChangeIdleColor?: (color: string) => void;
   optAnimSpeed: "snappy" | "smooth" | "bouncy";
   onChangeAnimSpeed: (speed: "snappy" | "smooth" | "bouncy") => void;
 }
@@ -51,6 +57,7 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onChangeTargetMonitor,
   showPositionSetting = false,
   isLightMode = false,
+  optLanguage = "id",
   optFontSize,
   onChangeFontSize,
   optIdleSize,
@@ -63,6 +70,10 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onChangeOpacity,
   optBlur,
   onChangeBlur,
+  optIdleColorEnabled = false,
+  onChangeIdleColorEnabled,
+  optIdleColor = "#0f172a",
+  onChangeIdleColor,
   optAnimSpeed,
   onChangeAnimSpeed,
 }) => {
@@ -436,7 +447,35 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
         isLightMode={isLightMode}
       />
 
-      {/* 9. Animasi */}
+      {/* 9. Warna Idle Kustom */}
+      <div className="flex flex-col gap-1 rounded-[12px] transition-colors">
+        <SettingRow
+          icon={<Palette size={18} />}
+          iconBgClass="bg-[#241538]"
+          iconColorClass="text-[#c084fc]"
+          title={t("settings_custom_idle_color")}
+          subtitle={t("settings_custom_idle_color_desc")}
+          control={
+            <IosSwitch
+              checked={optIdleColorEnabled}
+              onChange={() => onChangeIdleColorEnabled?.(!optIdleColorEnabled)}
+              activeColor="blue"
+            />
+          }
+        />
+        {optIdleColorEnabled && onChangeIdleColor && (
+          <div className="pt-1.5 pb-2 px-1">
+            <CustomColorPicker
+              value={optIdleColor}
+              onChange={onChangeIdleColor}
+              isLightMode={isLightMode}
+              isId={optLanguage !== "en"}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 10. Animasi */}
       <SettingRow
         icon={<Activity size={18} />}
         iconBgClass="bg-[#2c2010]"

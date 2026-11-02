@@ -8,6 +8,7 @@ import {
   NotchPosition,
   snapToPhysicalPixel,
 } from "../../utils/notchGeometry";
+import { hexToRgba, getPerceivedLuminance } from "../../utils/colorUtils";
 
 export type NotchSurfaceTone = "default" | "drag_over";
 
@@ -23,6 +24,7 @@ interface NotchSurfaceProps {
   opacity?: number;
   blur?: number;
   isLightMode?: boolean;
+  customColor?: string | null;
 }
 
 /**
@@ -45,6 +47,7 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
   opacity,
   blur = 0,
   isLightMode = false,
+  customColor = null,
 }) => {
   const isBottom = isBottomNotchPosition(position);
   const isSideCenter = isSideCenterNotchPosition(position);
@@ -376,9 +379,17 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
     }
   }, [needsClipGroup]);
 
+  const isCustomLight = customColor
+    ? getPerceivedLuminance(customColor) >= 0.55
+    : isLightMode;
+
   const baseFill =
     surfaceTone === "drag_over"
       ? "url(#notch-drag-over-grad)"
+      : customColor
+      ? isTranslucent
+        ? hexToRgba(customColor, effectiveOpacity)
+        : customColor
       : isGlass
       ? isLightMode
         ? "url(#notch-glass-fill-light)"
@@ -393,17 +404,19 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
     surfaceTone === "drag_over"
       ? "rgba(34, 211, 238, 0.75)"
       : isGlass
-      ? isLightMode
+      ? isCustomLight
         ? "url(#notch-glass-bevel-stroke-light)"
         : "url(#notch-glass-bevel-stroke-dark)"
       : isClear
-      ? isLightMode
+      ? isCustomLight
         ? "url(#notch-glass-stroke-light)"
         : "url(#notch-glass-stroke-dark)"
       : isIsland
-      ? isLightMode
-        ? "rgba(0, 0, 0, 0.08)"
+      ? isCustomLight
+        ? "rgba(0, 0, 0, 0.12)"
         : "rgba(255, 255, 255, 0.08)"
+      : isCustomLight
+      ? "rgba(0, 0, 0, 0.12)"
       : "var(--notch-stroke)";
 
   return (

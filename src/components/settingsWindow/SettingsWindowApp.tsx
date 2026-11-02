@@ -39,6 +39,7 @@ import {
   UpdateInfo,
   UpdateStatus,
 } from "../../services/updateService";
+import { isValidHex, normalizeHex } from "../../utils/colorUtils";
 import { clearAllLyricsCache } from "../../services/lyricsService";
 import { clearArtworkCache } from "../../services/artworkService";
 import { clearShelfPreviewCache } from "../../services/shelfService";
@@ -198,6 +199,20 @@ export const SettingsWindowApp: React.FC = () => {
     return 0;
   });
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy" | "smooth" | "bouncy">("smooth");
+  const [optIdleColorEnabled, setOptIdleColorEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("island_idle_color_enabled") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [optIdleColor, setOptIdleColor] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("island_idle_color");
+      if (saved && isValidHex(saved)) return normalizeHex(saved);
+    } catch {}
+    return "#0f172a";
+  });
 
   // Idle Layout State
   const [idleLayout, setIdleLayout] = useState<IdleLayoutConfig>(() => getSavedIdleLayout());
@@ -364,6 +379,12 @@ export const SettingsWindowApp: React.FC = () => {
         const ac = await s.get("opt_auto_compact");
         if (typeof ac === "boolean") setOptAutoCompact(ac);
 
+        const idleColEnabled = await s.get("opt_idle_color_enabled");
+        if (typeof idleColEnabled === "boolean") setOptIdleColorEnabled(idleColEnabled);
+
+        const idleCol = await s.get("opt_idle_color");
+        if (typeof idleCol === "string" && isValidHex(idleCol)) setOptIdleColor(normalizeHex(idleCol));
+
         const lang = await s.get("opt_language");
         if (lang === "en" || lang === "id") {
           setLanguage(lang, false);
@@ -450,6 +471,12 @@ export const SettingsWindowApp: React.FC = () => {
             break;
           case "opt_opacity":
             setOptOpacity(Number(value));
+            break;
+          case "opt_idle_color_enabled":
+            setOptIdleColorEnabled(Boolean(value));
+            break;
+          case "opt_idle_color":
+            if (typeof value === "string" && isValidHex(value)) setOptIdleColor(normalizeHex(value));
             break;
           case "opt_anim_speed":
             setOptAnimSpeed(value);
@@ -662,6 +689,31 @@ export const SettingsWindowApp: React.FC = () => {
       } catch {}
     }
     broadcastSetting("opt_blur", val);
+  };
+
+  const handleChangeIdleColorEnabled = async (val: boolean) => {
+    setOptIdleColorEnabled(val);
+    try { localStorage.setItem("island_idle_color_enabled", String(val)); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_idle_color_enabled", val);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_idle_color_enabled", val);
+  };
+
+  const handleChangeIdleColor = async (color: string) => {
+    const normalized = normalizeHex(color);
+    setOptIdleColor(normalized);
+    try { localStorage.setItem("island_idle_color", normalized); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_idle_color", normalized);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_idle_color", normalized);
   };
 
   const handleChangeAnimSpeed = async (speed: "snappy" | "smooth" | "bouncy") => {
@@ -1089,6 +1141,11 @@ export const SettingsWindowApp: React.FC = () => {
                       onChangeOpacity={handleChangeOpacity}
                       optBlur={optBlur}
                       onChangeBlur={handleChangeBlur}
+                      optIdleColorEnabled={optIdleColorEnabled}
+                      onChangeIdleColorEnabled={handleChangeIdleColorEnabled}
+                      optIdleColor={optIdleColor}
+                      onChangeIdleColor={handleChangeIdleColor}
+                      optLanguage={optLanguage}
                       optAnimSpeed={optAnimSpeed}
                       onChangeAnimSpeed={handleChangeAnimSpeed}
                     />

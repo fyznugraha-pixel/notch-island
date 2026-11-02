@@ -39,6 +39,7 @@ import {
   isRightNotchPosition,
   isSideCenterNotchPosition,
 } from "./utils/notchGeometry";
+import { isValidHex, normalizeHex, getPerceivedLuminance } from "./utils/colorUtils";
 import { PanelFrame } from "./components/ui/PanelNavHeader";
 import type { MonitorInfo } from "./components/ui/settings/MonitorSelector";
 import { getTextWidth } from "./utils/text";
@@ -1907,6 +1908,20 @@ export default function App() {
     } catch {}
     return 0;
   });
+  const [optIdleColorEnabled, setOptIdleColorEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("island_idle_color_enabled") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [optIdleColor, setOptIdleColor] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("island_idle_color");
+      if (saved && isValidHex(saved)) return normalizeHex(saved);
+    } catch {}
+    return "#0f172a";
+  });
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy"|"smooth"|"bouncy">("smooth");
   const [optAccent, setOptAccent] = useState<"default"|"pink"|"blue"|"green">("default");
   const [optNotifTime, setOptNotifTime] = useState<number>(3);
@@ -2481,6 +2496,17 @@ export default function App() {
         }
         const ears = await s.get('opt_ears'); if (typeof ears === 'boolean') setOptEars(ears);
         const ac = await s.get('opt_auto_compact'); if (typeof ac === 'boolean') setOptAutoCompact(ac);
+        const idleColEnabled = await s.get('opt_idle_color_enabled');
+        if (typeof idleColEnabled === 'boolean') {
+          setOptIdleColorEnabled(idleColEnabled);
+          try { localStorage.setItem("island_idle_color_enabled", String(idleColEnabled)); } catch {}
+        }
+        const idleCol = await s.get('opt_idle_color');
+        if (typeof idleCol === 'string' && isValidHex(idleCol)) {
+          const norm = normalizeHex(idleCol);
+          setOptIdleColor(norm);
+          try { localStorage.setItem("island_idle_color", norm); } catch {}
+        }
         const lang = await s.get('opt_language');
         if (lang === 'en' || lang === 'id') {
           setLanguage(lang as Language, false);
@@ -3460,6 +3486,17 @@ export default function App() {
           case "opt_blur":
             setOptBlur(Number(value));
             break;
+          case "opt_idle_color_enabled":
+            setOptIdleColorEnabled(Boolean(value));
+            try { localStorage.setItem("island_idle_color_enabled", String(value)); } catch {}
+            break;
+          case "opt_idle_color":
+            if (typeof value === "string" && isValidHex(value)) {
+              const norm = normalizeHex(value);
+              setOptIdleColor(norm);
+              try { localStorage.setItem("island_idle_color", norm); } catch {}
+            }
+            break;
           case "opt_anim_speed":
             setOptAnimSpeed(value);
             break;
@@ -3828,9 +3865,9 @@ export default function App() {
     netUpMbps: sysMetrics?.wifi_up_mbps,
     focusMode,
     optLanguage,
-    isLightMode,
+    isLightMode: isLightMode || (optIdleColorEnabled && getPerceivedLuminance(optIdleColor) >= 0.55),
     onOpenTab: (tab) => goToTab(tab),
-  }), [battery, time, dateDisplay, fullDateTitle, weather, networkPing, pendingTodos.length, stashedFiles.length, fps, sysMetrics, focusMode, optLanguage, isLightMode]);
+  }), [battery, time, dateDisplay, fullDateTitle, weather, networkPing, pendingTodos.length, stashedFiles.length, fps, sysMetrics, focusMode, optLanguage, isLightMode, optIdleColorEnabled, optIdleColor]);
 
   const isSingleLine = notif && (!notif.body || notif.body.trim() === "");
   const isSmallNotif = notif?.icon === "battery" || notif?.icon === "volume" || notif?.icon === "capslock";
@@ -4537,6 +4574,8 @@ export default function App() {
     : resolveNotchThemeMode(Number(optOpacity), Number(optBlur));
   const activeEffectiveOpacity = isMusicExpandedTab ? 1.0 : Number(optOpacity);
   const activeEffectiveBlur = isMusicExpandedTab ? 0 : Number(optBlur);
+  const isIdleLightContrast = optIdleColorEnabled && !isExpandedPanel && getPerceivedLuminance(optIdleColor) >= 0.55;
+  const effectiveIsLight = isLightMode || isIdleLightContrast;
 
   return (
     <div
@@ -4745,7 +4784,7 @@ export default function App() {
             openLastOrPreferredTab();
           }
         }}
-        className={`${isLightMode ? "light" : "text-white"} ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 bg-transparent`}
+        className={`${effectiveIsLight ? "light" : "text-white"} ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 bg-transparent`}
       >
         <NotchSurface
           containerRef={notchPillRef}
@@ -4784,7 +4823,8 @@ export default function App() {
           themeMode={activeEffectiveThemeMode}
           opacity={activeEffectiveOpacity}
           blur={activeEffectiveBlur}
-          isLightMode={isLightMode}
+          isLightMode={effectiveIsLight}
+          customColor={optIdleColorEnabled && !isExpandedPanel ? optIdleColor : null}
         />
 
         <div className="absolute inset-0 z-10 overflow-hidden rounded-[inherit] pointer-events-auto">
@@ -4830,7 +4870,7 @@ export default function App() {
                 <div
                   className={`${
                     isSideCenter ? "w-[2px] h-6" : "w-6 h-[2px]"
-                  } rounded-full bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]`}
+                  } rounded-full ${effectiveIsLight ? "bg-black/70 shadow-[0_0_3px_rgba(0,0,0,0.3)]" : "bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]"}`}
                 />
               </motion.div>
             )}
@@ -4842,7 +4882,7 @@ export default function App() {
                 totalSec={pomodoro.totalSec}
                 isRunning={pomodoro.isRunning}
                 taskTitle={focusedTaskTitle}
-                isLightMode={isLightMode}
+                isLightMode={effectiveIsLight}
                 onClick={() => goToTab("pomodoro", 0)}
               />
             )}
@@ -5084,7 +5124,7 @@ export default function App() {
                           ? "text-[14.5px]"
                           : "text-[13px]"
                       } font-semibold tracking-tight leading-[1.2] translate-y-[3.5px] ${
-                        isLightMode ? "text-[#1d1d1f]" : "text-white"
+                        effectiveIsLight ? "text-[#1d1d1f]" : "text-white"
                       }`}
                     />
                     <ScrollingText
@@ -5096,7 +5136,7 @@ export default function App() {
                           ? "text-[11.5px]"
                           : "text-[10.5px]"
                       } font-medium leading-[1.2] mt-[1px] ${
-                        isLightMode ? "text-neutral-500" : "text-white/55"
+                        effectiveIsLight ? "text-neutral-600" : "text-white/55"
                       }`}
                     />
                   </div>
@@ -5735,6 +5775,35 @@ export default function App() {
                               }
                               invoke("broadcast_settings_sync", {
                                 payload: { type: "setting_key", key: "opt_blur", value: val },
+                              }).catch(() => {});
+                            }}
+                            optIdleColorEnabled={optIdleColorEnabled}
+                            onChangeIdleColorEnabled={async (val) => {
+                              setOptIdleColorEnabled(val);
+                              try { localStorage.setItem("island_idle_color_enabled", String(val)); } catch {}
+                              if (store) {
+                                try {
+                                  await store.set("opt_idle_color_enabled", val);
+                                  await store.save();
+                                } catch {}
+                              }
+                              invoke("broadcast_settings_sync", {
+                                payload: { type: "setting_key", key: "opt_idle_color_enabled", value: val },
+                              }).catch(() => {});
+                            }}
+                            optIdleColor={optIdleColor}
+                            onChangeIdleColor={async (color) => {
+                              const norm = normalizeHex(color);
+                              setOptIdleColor(norm);
+                              try { localStorage.setItem("island_idle_color", norm); } catch {}
+                              if (store) {
+                                try {
+                                  await store.set("opt_idle_color", norm);
+                                  await store.save();
+                                } catch {}
+                              }
+                              invoke("broadcast_settings_sync", {
+                                payload: { type: "setting_key", key: "opt_idle_color", value: norm },
                               }).catch(() => {});
                             }}
                             optAnimSpeed={optAnimSpeed}

@@ -231,6 +231,8 @@ export const translations = {
   settings_ears: { en: "Gili Ears", id: "Telinga Gili" },
   settings_ears_desc: { en: "Concave curve at top corners of notch", id: "Lengkung cekung di sudut atas notch" },
   settings_ears_disabled_island: { en: "Not available in Island mode", id: "Tidak tersedia di mode Island" },
+  settings_custom_idle_color: { en: "Custom Idle Color", id: "Warna Idle Kustom" },
+  settings_custom_idle_color_desc: { en: "Personalize the notch surface color with custom tints & templates", id: "Kustomisasi warna permukaan notch dengan palet & template elegan" },
   settings_weather_anim: { en: "Weather Animation", id: "Animasi Cuaca" },
   settings_weather_anim_desc: { en: "Rain, snow & lightning effects", id: "Efek hujan, salju & petir di Gili" },
   settings_monitor: { en: "Display Monitor", id: "Pilih Monitor" },
