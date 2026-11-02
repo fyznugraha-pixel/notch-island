@@ -372,7 +372,6 @@ export const NotchPositionPreviewSelector: React.FC<NotchPositionPreviewSelector
                   ? "bg-black/[0.04] hover:bg-black/[0.08] text-neutral-700 border border-black/[0.06]"
                   : "bg-[#17171d] hover:bg-[#1f1f27] text-white/75 border border-white/[0.05]"
               }`}
-              title={t(item.labelKey)}
             >
               <span className="opacity-75 text-[10px] leading-none">{item.shortLabel}</span>
               <span className="truncate">{t(item.labelKey)}</span>

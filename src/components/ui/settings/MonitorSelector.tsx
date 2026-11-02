@@ -94,7 +94,6 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
           type="button"
           onClick={fetchMonitors}
           disabled={isScanning}
-          title={tr("settings_monitor_rescan")}
           aria-label={tr("settings_monitor_rescan")}
           className={`flex items-center gap-1.5 px-2 py-1 rounded-[6px] text-[11px] font-medium transition-all ${
             isLightMode

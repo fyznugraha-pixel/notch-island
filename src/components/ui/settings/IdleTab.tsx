@@ -27,6 +27,7 @@ import {
   getItemLabel,
   formatNetSpeed,
 } from "../IdleLayoutSetting";
+import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
 
 export interface IdleTabProps {
@@ -504,18 +505,19 @@ export const IdleTab: React.FC<IdleTabProps> = ({
             <ArrowLeftRight size={11} />
             <span>{t("settings_idle_swap_lr")}</span>
           </button>
-          <button
-            type="button"
-            onClick={handleReset}
-            title={t("settings_idle_reset")}
-            className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-              isLightMode
-                ? "bg-black/5 hover:bg-black/10 text-neutral-600 hover:text-black"
-                : "bg-[#18181c] hover:bg-[#222228] text-[#a1a1aa] hover:text-white"
-            }`}
-          >
-            <RotateCcw size={11} />
-          </button>
+          <Tooltip content={t("settings_idle_reset")} side="top">
+            <button
+              type="button"
+              onClick={handleReset}
+              className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "bg-black/5 hover:bg-black/10 text-neutral-600 hover:text-black"
+                  : "bg-[#18181c] hover:bg-[#222228] text-[#a1a1aa] hover:text-white"
+              }`}
+            >
+              <RotateCcw size={11} />
+            </button>
+          </Tooltip>
         </div>
       </div>
 

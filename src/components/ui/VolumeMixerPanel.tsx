@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { AudioOutputPanel, AudioEndpoint } from "./AudioOutputPanel";
+import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
 
 export interface AudioSession {
@@ -316,12 +317,12 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
               <span>{t("mixer_output") || "Output"}</span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setActiveView("output")}
-              title={t("audio_select_device") || (getLanguage() === "id" ? "Pilih perangkat audio output" : "Select audio output device")}
-              className="bg-[#1c1c1e]/90 hover:bg-white/[0.08] active:scale-[0.99] border border-white/10 rounded-[12px] w-full h-[38px] flex items-center gap-2.5 px-2.5 text-white cursor-pointer transition-all shadow-sm text-left"
-            >
+            <Tooltip content={t("audio_select_device") || (getLanguage() === "id" ? "Pilih perangkat audio output" : "Select audio output device")} side="top" wrapperClassName="w-full">
+              <button
+                type="button"
+                onClick={() => setActiveView("output")}
+                className="bg-[#1c1c1e]/90 hover:bg-white/[0.08] active:scale-[0.99] border border-white/10 rounded-[12px] w-full h-[38px] flex items-center gap-2.5 px-2.5 text-white cursor-pointer transition-all shadow-sm text-left"
+              >
               <span className="w-[26px] h-[26px] rounded-[7px] bg-[#0a84ff] text-white flex items-center justify-center shrink-0 shadow-sm">
                 {getOutputIcon(activeOutputDevice?.device_type)}
               </span>
@@ -334,6 +335,7 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                 <ChevronRight size={15} strokeWidth={2.2} />
               </span>
             </button>
+            </Tooltip>
           </div>
 
           {/* 2. Apps Section Header & Scrollable List */}

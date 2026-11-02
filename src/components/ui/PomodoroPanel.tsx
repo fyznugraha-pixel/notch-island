@@ -18,6 +18,7 @@ import {
   formatPomodoroTime,
 } from "../../services/pomodoroService";
 import { TodoItem } from "./TodoListPanel";
+import { Tooltip } from "./Tooltip";
 import { t } from "../../services/i18n";
 
 export interface PomodoroPanelProps {
@@ -311,14 +312,15 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowSettings(true)}
-            title={t("pomo_settings_title")}
-            className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-          >
-            <SlidersHorizontal size={13} />
-          </button>
+          <Tooltip content={t("pomo_settings_title")} side="top">
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+            >
+              <SlidersHorizontal size={13} />
+            </button>
+          </Tooltip>
         </div>
 
         {/* Task Selector (FOKUS PADA) */}

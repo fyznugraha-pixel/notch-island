@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload } from "../../types";
+import { Tooltip } from "./Tooltip";
 import { t } from "../../services/i18n";
 import {
   fetchHighResArtwork,
@@ -311,7 +312,6 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
             onClick={handleOpenApp}
             disabled={isOpeningApp}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/15 text-white text-[11px] font-semibold transition-all shrink-0 cursor-pointer border border-white/5 shadow-sm disabled:opacity-50"
-            title={t("media_open_app", { app: appMeta.name })}
           >
             <span>{t("media_open_action")}</span>
             <ExternalLink size={11.5} />
@@ -338,7 +338,6 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
                     whileTap={{ scale: 0.98 }}
                     onClick={() => handleTrackClick(item, idx)}
                     className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-white/[0.07] active:bg-white/[0.12] transition-colors cursor-pointer group select-none"
-                    title={t("media_queue_play_track", { title: item.title })}
                   >
                     <div className="w-8 h-8 rounded-lg bg-neutral-800/80 shrink-0 overflow-hidden relative flex items-center justify-center shadow-sm">
                       <QueueTrackThumbnail
@@ -368,14 +367,15 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
                         #{idx + 1}
                       </span>
                       <span className="text-[10px] text-white/70 hidden group-hover:inline-flex items-center gap-1.5 font-semibold">
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenTrackInApp(e, item)}
-                          title={t("media_open_app", { app: appMeta.name }) || "Buka di aplikasi"}
-                          className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors"
-                        >
-                          <ExternalLink size={11} />
-                        </button>
+                        <Tooltip content={t("media_open_app", { app: appMeta.name }) || "Buka di aplikasi"} side="top">
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenTrackInApp(e, item)}
+                            className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+                          >
+                            <ExternalLink size={11} />
+                          </button>
+                        </Tooltip>
                         <Play size={9} fill="currentColor" />
                       </span>
                     </div>

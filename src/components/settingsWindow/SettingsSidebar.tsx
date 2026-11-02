@@ -12,6 +12,7 @@ import {
   X,
   Info,
 } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 import { Language } from "../../services/i18n";
 
 export type SettingsWindowSection =
@@ -196,22 +197,21 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
           {SIDEBAR_SECTIONS.map((item) => {
             const isActive = activeSection === item.id && !searchQuery.trim();
             const showUpdateDot = item.id === "system" && hasUpdate;
+            const tip = showUpdateDot
+              ? isId
+                ? `Update terbaru tersedia${updateVersion ? ` (v${updateVersion})` : ""}`
+                : `New update available${updateVersion ? ` (v${updateVersion})` : ""}`
+              : undefined;
+
             return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  onSearchChange("");
-                  onSelectSection(item.id);
-                }}
-                title={
-                  showUpdateDot
-                    ? isId
-                      ? `Update terbaru tersedia${updateVersion ? ` (v${updateVersion})` : ""}`
-                      : `New update available${updateVersion ? ` (v${updateVersion})` : ""}`
-                    : undefined
-                }
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[11px] text-left transition-all cursor-pointer ${
+              <Tooltip key={item.id} content={tip} side="right" disabled={!showUpdateDot} wrapperClassName="w-full">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSearchChange("");
+                    onSelectSection(item.id);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[11px] text-left transition-all cursor-pointer ${
                   isActive
                     ? isLightMode
                       ? "bg-[#0a84ff] text-white shadow-[0_2px_10px_rgba(10,132,255,0.28)]"
@@ -274,8 +274,9 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                   </span>
                 </div>
               </button>
-            );
-          })}
+            </Tooltip>
+          );
+        })}
         </nav>
       </div>
 

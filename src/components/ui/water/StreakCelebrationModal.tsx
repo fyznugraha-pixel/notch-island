@@ -36,7 +36,6 @@ export const StreakCelebrationModal: React.FC<StreakCelebrationModalProps> = ({
         transition={{ duration: 0.22 }}
         onClick={onClose}
         className="absolute inset-0 z-50 flex flex-col items-center justify-center p-3 bg-black/60 backdrop-blur-md select-none rounded-[inherit] cursor-pointer"
-        title={isEn ? "Tap to close" : "Ketuk untuk menutup"}
       >
         <motion.div
           key="frameless-streak-content"

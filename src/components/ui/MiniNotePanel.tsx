@@ -16,6 +16,7 @@ import {
   Link2,
   StickyNote,
 } from "lucide-react";
+import { Tooltip } from "./Tooltip";
 import { t, getLanguage, Language } from "../../services/i18n";
 import {
   type NoteColor,
@@ -363,41 +364,44 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
           </button>
 
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => handleTogglePin(activeNote.id)}
-              title={t("note_pin_btn")}
-              className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-                activeNote.pinned
-                  ? "bg-[#3882F6]/20 text-[#3882F6] border border-[#3882F6]/40"
-                  : "bg-[#17171c] hover:bg-[#23232a] text-[#a1a1aa] hover:text-white"
-              }`}
-            >
-              <Pin size={13} />
-            </button>
+            <Tooltip content={t("note_pin_btn")} side="top">
+              <button
+                type="button"
+                onClick={() => handleTogglePin(activeNote.id)}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                  activeNote.pinned
+                    ? "bg-[#3882F6]/20 text-[#3882F6] border border-[#3882F6]/40"
+                    : "bg-[#17171c] hover:bg-[#23232a] text-[#a1a1aa] hover:text-white"
+                }`}
+              >
+                <Pin size={13} />
+              </button>
+            </Tooltip>
 
-            <button
-              type="button"
-              onClick={handleCopyActiveNote}
-              title={isEn ? "Copy" : "Salin"}
-              className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-            >
-              {copied ? <Check size={13} className="text-[#34c3a0]" /> : <Copy size={13} />}
-            </button>
+            <Tooltip content={isEn ? "Copy" : "Salin"} side="top">
+              <button
+                type="button"
+                onClick={handleCopyActiveNote}
+                className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              >
+                {copied ? <Check size={13} className="text-[#34c3a0]" /> : <Copy size={13} />}
+              </button>
+            </Tooltip>
 
-            <button
-              type="button"
-              onClick={() => handleDeleteNote(activeNote.id)}
-              title={armedDeleteId === activeNote.id ? (isEn ? "Click again to confirm delete" : "Klik lagi untuk konfirmasi hapus") : t("action_delete") || (isEn ? "Delete" : "Hapus")}
-              aria-label={t("action_delete") || "Delete"}
-              className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-                armedDeleteId === activeNote.id
-                  ? "bg-rose-600 text-white ring-2 ring-rose-400/50"
-                  : "bg-[#17171c] hover:bg-rose-500/20 text-[#ff7b72]"
-              }`}
-            >
-              <Trash2 size={13} />
-            </button>
+            <Tooltip content={armedDeleteId === activeNote.id ? (isEn ? "Click again to confirm delete" : "Klik lagi untuk konfirmasi hapus") : t("action_delete") || (isEn ? "Delete" : "Hapus")} side="top">
+              <button
+                type="button"
+                onClick={() => handleDeleteNote(activeNote.id)}
+                aria-label={t("action_delete") || "Delete"}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                  armedDeleteId === activeNote.id
+                    ? "bg-rose-600 text-white ring-2 ring-rose-400/50"
+                    : "bg-[#17171c] hover:bg-rose-500/20 text-[#ff7b72]"
+                }`}
+              >
+                <Trash2 size={13} />
+              </button>
+            </Tooltip>
 
             <button
               type="button"
@@ -518,53 +522,57 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
           <div className="flex items-center gap-2.5">
             {/* Formatting Group */}
             <div className="h-[28px] px-1 rounded-[9px] bg-[#121216] border border-[#1e1e25] flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={handleToggleChecklistMode}
-                className={`w-7 h-6 rounded-[7px] flex items-center justify-center transition-colors cursor-pointer ${
-                  activeNote.isChecklist
-                    ? "bg-[#23232a] text-white"
-                    : "text-[#a1a1aa] hover:text-white"
-                }`}
-                title={isEn ? "Checklist" : "Daftar centang"}
-              >
-                <ListTodo size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={handleInsertBullet}
-                className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title={isEn ? "Bullet list" : "Daftar poin"}
-              >
-                <List size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const boldSnippet = (optLanguage || getLanguage()) === "en" ? "**text**" : "**teks**";
-                  updateActiveNote((n) => ({
-                    ...n,
-                    content: n.content ? `${n.content} ${boldSnippet}` : boldSnippet,
-                  }));
-                }}
-                className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title={isEn ? "Bold" : "Tebal"}
-              >
-                <Bold size={13.5} />
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  updateActiveNote((n) => ({
-                    ...n,
-                    content: n.content ? `${n.content} https://` : "https://",
-                  }))
-                }
-                className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                title={isEn ? "Link" : "Tautan"}
-              >
-                <Link2 size={13.5} />
-              </button>
+              <Tooltip content={isEn ? "Checklist" : "Daftar centang"} side="top">
+                <button
+                  type="button"
+                  onClick={handleToggleChecklistMode}
+                  className={`w-7 h-6 rounded-[7px] flex items-center justify-center transition-colors cursor-pointer ${
+                    activeNote.isChecklist
+                      ? "bg-[#23232a] text-white"
+                      : "text-[#a1a1aa] hover:text-white"
+                  }`}
+                >
+                  <ListTodo size={14} />
+                </button>
+              </Tooltip>
+              <Tooltip content={isEn ? "Bullet list" : "Daftar poin"} side="top">
+                <button
+                  type="button"
+                  onClick={handleInsertBullet}
+                  className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <List size={14} />
+                </button>
+              </Tooltip>
+              <Tooltip content={isEn ? "Bold" : "Tebal"} side="top">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const boldSnippet = (optLanguage || getLanguage()) === "en" ? "**text**" : "**teks**";
+                    updateActiveNote((n) => ({
+                      ...n,
+                      content: n.content ? `${n.content} ${boldSnippet}` : boldSnippet,
+                    }));
+                  }}
+                  className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <Bold size={13.5} />
+                </button>
+              </Tooltip>
+              <Tooltip content={isEn ? "Link" : "Tautan"} side="top">
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateActiveNote((n) => ({
+                      ...n,
+                      content: n.content ? `${n.content} https://` : "https://",
+                    }))
+                  }
+                  className="w-7 h-6 rounded-[7px] text-[#a1a1aa] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <Link2 size={13.5} />
+                </button>
+              </Tooltip>
             </div>
 
             {/* 4 Color Dots */}
@@ -620,24 +628,26 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
           {/* Toolbar Navigation Chevrons if horizontal overflow exists */}
           {(canScrollLeft || canScrollRight) && (
             <div className="flex items-center gap-1 shrink-0">
-              <button
-                type="button"
-                onClick={() => scrollByAmount(-210)}
-                disabled={!canScrollLeft}
-                title={t("note_prev")}
-                className="w-[28px] h-[28px] rounded-[8px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
-              >
-                <ChevronLeft size={13.5} />
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollByAmount(210)}
-                disabled={!canScrollRight}
-                title={t("note_next")}
-                className="w-[28px] h-[28px] rounded-[8px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
-              >
-                <ChevronRight size={13.5} />
-              </button>
+              <Tooltip content={t("note_prev")} side="top" disabled={!canScrollLeft}>
+                <button
+                  type="button"
+                  onClick={() => scrollByAmount(-210)}
+                  disabled={!canScrollLeft}
+                  className="w-[28px] h-[28px] rounded-[8px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+                >
+                  <ChevronLeft size={13.5} />
+                </button>
+              </Tooltip>
+              <Tooltip content={t("note_next")} side="top" disabled={!canScrollRight}>
+                <button
+                  type="button"
+                  onClick={() => scrollByAmount(210)}
+                  disabled={!canScrollRight}
+                  className="w-[28px] h-[28px] rounded-[8px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+                >
+                  <ChevronRight size={13.5} />
+                </button>
+              </Tooltip>
             </div>
           )}
 
@@ -676,32 +686,34 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
       <div className="relative w-full shrink-0">
         {/* Floating Left Scroll Chevron */}
         {canScrollLeft && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              scrollByAmount(-210);
-            }}
-            title={t("note_prev")}
-            className="absolute left-1.5 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
-          >
-            <ChevronLeft size={15} />
-          </button>
+          <Tooltip content={t("note_prev")} side="right" wrapperClassName="absolute left-1.5 top-1/2 -translate-y-1/2 z-20">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                scrollByAmount(-210);
+              }}
+              className="w-7 h-7 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
+            >
+              <ChevronLeft size={15} />
+            </button>
+          </Tooltip>
         )}
 
         {/* Floating Right Scroll Chevron */}
         {canScrollRight && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              scrollByAmount(210);
-            }}
-            title={t("note_next")}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
-          >
-            <ChevronRight size={15} />
-          </button>
+          <Tooltip content={t("note_next")} side="left" wrapperClassName="absolute right-1.5 top-1/2 -translate-y-1/2 z-20">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                scrollByAmount(210);
+              }}
+              className="w-7 h-7 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
+            >
+              <ChevronRight size={15} />
+            </button>
+          </Tooltip>
         )}
 
         <div
@@ -789,19 +801,20 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                       >
                         <Pin size={11.5} />
                       </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteNote(note.id, e)}
-                        title={armedDeleteId === note.id ? (isEn ? "Click again to confirm delete" : "Klik lagi untuk konfirmasi hapus") : t("action_delete") || "Hapus"}
-                        aria-label={t("action_delete") || "Delete"}
-                        className={`w-[22px] h-[22px] rounded-[6px] flex items-center justify-center transition-colors cursor-pointer ${
-                          armedDeleteId === note.id
-                            ? "bg-rose-600 text-white ring-2 ring-rose-400/50"
-                            : "bg-[#1d1d25] hover:bg-rose-500/20 text-[#ff7b72]"
-                        }`}
-                      >
-                        <Trash2 size={11.5} />
-                      </button>
+                      <Tooltip content={armedDeleteId === note.id ? (isEn ? "Click again to confirm delete" : "Klik lagi untuk konfirmasi hapus") : t("action_delete") || "Hapus"} side="top">
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteNote(note.id, e)}
+                          aria-label={t("action_delete") || "Delete"}
+                          className={`w-[22px] h-[22px] rounded-[6px] flex items-center justify-center transition-colors cursor-pointer ${
+                            armedDeleteId === note.id
+                              ? "bg-rose-600 text-white ring-2 ring-rose-400/50"
+                              : "bg-[#1d1d25] hover:bg-rose-500/20 text-[#ff7b72]"
+                          }`}
+                        >
+                          <Trash2 size={11.5} />
+                        </button>
+                      </Tooltip>
                     </div>
                   </div>
 

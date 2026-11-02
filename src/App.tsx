@@ -24,6 +24,7 @@ import { MediaThumbnail, useResolvedThumbnail } from "./components/ui/MediaThumb
 import { prefetchArtwork, getResolvedArtworkUrl } from "./services/artworkService";
 import { AudioVisualizer } from "./components/ui/AudioVisualizer";
 import { ScrollingText } from "./components/ui/ScrollingText";
+import { Tooltip } from "./components/ui/Tooltip";
 import { NotchSurface } from "./components/ui/NotchSurface";
 import {
   getDefaultBlurForOpacity,
@@ -5133,16 +5134,14 @@ export default function App() {
                       className="flex items-center gap-1.5 shrink-0 ml-0.5"
                     >
                       {camActive && (
-                        <div
-                          className="w-2 h-2 rounded-full bg-[#30d158] shadow-[0_0_8px_rgba(48,209,88,0.9)] animate-pulse shrink-0"
-                          title={optLanguage === "id" ? "Kamera sedang digunakan" : "Camera in use"}
-                        />
+                        <Tooltip content={optLanguage === "id" ? "Kamera sedang digunakan" : "Camera in use"} side="bottom">
+                          <div className="w-2 h-2 rounded-full bg-[#30d158] shadow-[0_0_8px_rgba(48,209,88,0.9)] animate-pulse shrink-0" />
+                        </Tooltip>
                       )}
                       {micActive && (
-                        <div
-                          className="w-2 h-2 rounded-full bg-[#ff9f0a] shadow-[0_0_8px_rgba(255,159,10,0.9)] animate-pulse shrink-0"
-                          title={optLanguage === "id" ? "Mikrofon sedang digunakan" : "Microphone in use"}
-                        />
+                        <Tooltip content={optLanguage === "id" ? "Mikrofon sedang digunakan" : "Microphone in use"} side="bottom">
+                          <div className="w-2 h-2 rounded-full bg-[#ff9f0a] shadow-[0_0_8px_rgba(255,159,10,0.9)] animate-pulse shrink-0" />
+                        </Tooltip>
                       )}
                     </motion.div>
                   )}

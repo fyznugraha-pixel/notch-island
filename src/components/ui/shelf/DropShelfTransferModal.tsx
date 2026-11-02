@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, Copy, Check } from "lucide-react";
 import QRCode from "qrcode";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { Tooltip } from "../Tooltip";
 import { t, getLanguage } from "../../../services/i18n";
 import {
   ShelfSessionInfo,
@@ -106,14 +107,15 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
     <div className="absolute inset-0 z-30 bg-[#000000]/95 backdrop-blur-xl flex flex-col px-4 py-1.5 select-none text-white animate-in fade-in duration-150">
       {/* Top Header */}
       <div className="flex items-center gap-2 shrink-0 h-7 border-b border-white/[0.08] pb-1">
-        <button
-          onClick={onClose}
-          className="w-6 h-6 rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-zinc-200 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-          title={isEn ? "Back" : "Kembali"}
-          type="button"
-        >
-          <ChevronLeft size={14} strokeWidth={2.4} />
-        </button>
+        <Tooltip content={isEn ? "Back" : "Kembali"} side="bottom">
+          <button
+            onClick={onClose}
+            className="w-6 h-6 rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-zinc-200 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            type="button"
+          >
+            <ChevronLeft size={14} strokeWidth={2.4} />
+          </button>
+        </Tooltip>
 
         <div className="font-semibold text-[13.5px] tracking-tight flex-1">
           {isSend && (isEn ? "Send to Phone" : "Kirim ke HP")}

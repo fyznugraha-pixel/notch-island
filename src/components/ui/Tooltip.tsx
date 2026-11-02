@@ -3,13 +3,14 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
 export interface TooltipProps {
-  content: string | React.ReactNode;
+  content?: string | React.ReactNode;
   children: React.ReactNode;
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
   delay?: number;
   className?: string;
   wrapperClassName?: string;
+  disabled?: boolean;
 }
 
 export const Tooltip: React.FC<TooltipProps> = ({
@@ -20,6 +21,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   delay = 300,
   className = "",
   wrapperClassName = "",
+  disabled = false,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [coords, setCoords] = useState<{
@@ -113,6 +115,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   };
 
   const handleMouseEnter = () => {
+    if (disabled || !content) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = window.setTimeout(() => {
       const initialCoords = calculateCoords();
@@ -133,7 +136,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   }, []);
 
   useLayoutEffect(() => {
-    if (!isVisible) return;
+    if (!isVisible || disabled || !content) return;
     const fresh = calculateCoords();
     if (fresh) setCoords(fresh);
 
@@ -174,7 +177,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       {typeof document !== "undefined" &&
         createPortal(
           <AnimatePresence>
-            {isVisible && content && coords && (
+            {isVisible && !disabled && content && coords && (
               <div
                 ref={tooltipRef}
                 style={{

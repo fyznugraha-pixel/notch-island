@@ -69,7 +69,6 @@ class RootErrorBoundary extends Component<Props, State> {
         <div
           onClick={() => this.setState({ hasError: false })}
           className="fixed top-0 left-1/2 -translate-x-1/2 bg-black/90 text-white/80 text-[11px] px-3 py-1 rounded-b-lg border border-red-500/30 cursor-pointer shadow-lg select-none"
-          title={getLanguage() === "id" ? "Klik untuk memulihkan" : "Click to recover"}
         >
           {getLanguage() === "id" ? "Notch Error (klik untuk memulihkan)" : "Notch Error (click to recover)"}
         </div>

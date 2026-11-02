@@ -994,7 +994,6 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
                     type="button"
                     onClick={() => onNavigateTab(item.tab)}
                     className="text-[10px] text-white/40 hover:text-white/80 bg-white/[0.04] hover:bg-white/[0.08] px-1.5 py-0.5 rounded-[5px] transition-colors cursor-pointer shrink-0"
-                    title={`Go to ${item.tabLabel}`}
                   >
                     {item.tabLabel}
                   </button>

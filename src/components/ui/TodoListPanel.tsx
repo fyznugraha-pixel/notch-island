@@ -14,6 +14,7 @@ import {
   Repeat,
 } from "lucide-react";
 import { t, getLanguage, Language } from "../../services/i18n";
+import { Tooltip } from "./Tooltip";
 import { TodoCalendarView } from "./todo/TodoCalendarView";
 import {
   type TodoRepeatRule,
@@ -442,23 +443,25 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
           />
           <div className="flex items-center gap-1 shrink-0">
             {(isComposerOpen || inputText.trim().length > 0) && (
+              <Tooltip content={t("todo_cancel_esc")} side="top">
+                <button
+                  type="button"
+                  onClick={handleCancelComposer}
+                  className={`text-[10px] font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer flex items-center gap-1 shadow-sm border ${chipBtn}`}
+                >
+                  <span>Esc</span>
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip content={t("todo_add_task_enter")} side="top">
               <button
-                type="button"
-                onClick={handleCancelComposer}
-                title={t("todo_cancel_esc")}
+                type="submit"
                 className={`text-[10px] font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer flex items-center gap-1 shadow-sm border ${chipBtn}`}
               >
-                <span>Esc</span>
+                <CornerDownLeft size={10} className="text-zinc-400" />
+                <span>Enter</span>
               </button>
-            )}
-            <button
-              type="submit"
-              title={t("todo_add_task_enter")}
-              className={`text-[10px] font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer flex items-center gap-1 shadow-sm border ${chipBtn}`}
-            >
-              <CornerDownLeft size={10} className="text-zinc-400" />
-              <span>Enter</span>
-            </button>
+            </Tooltip>
           </div>
         </form>
 
@@ -543,19 +546,19 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                const seq: TodoRepeatRule[] = ["none", "daily", "weekdays", "weekly", "monthly"];
-                const nextIdx = (seq.indexOf(newRepeat) + 1) % seq.length;
-                setNewRepeat(seq[nextIdx]);
-              }}
+            <Tooltip content={t("todo_repeat_cycle_tip")} side="top">
+              <button
+                type="button"
+                onClick={() => {
+                  const seq: TodoRepeatRule[] = ["none", "daily", "weekdays", "weekly", "monthly"];
+                  const nextIdx = (seq.indexOf(newRepeat) + 1) % seq.length;
+                  setNewRepeat(seq[nextIdx]);
+                }}
               style={
                 newRepeat !== "none"
                   ? { borderColor: optAccent, backgroundColor: "rgba(56,130,246,0.16)" }
                   : undefined
               }
-              title={t("todo_repeat_cycle_tip")}
               className={`h-6 px-2.5 rounded-full border text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors ${
                 newRepeat !== "none"
                   ? (isLightMode ? "text-[#1d4ed8]" : "text-[#8db8ff]")
@@ -571,6 +574,7 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
                   : getRepeatBadgeText(newRepeat)}
               </span>
             </button>
+            </Tooltip>
           </div>
         )}
       </div>
@@ -640,90 +644,97 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
                     />
                   </form>
                 ) : (
-                  <div
-                    onDoubleClick={() => {
-                      setEditingId(task.id);
-                      setEditingText(task.text);
-                    }}
-                    title={task.text}
-                    className={`flex-1 text-[13px] font-medium truncate min-w-0 ${textMain}`}
-                  >
-                    {task.text}
-                  </div>
+                  <Tooltip content={task.text} side="bottom" delay={400} wrapperClassName="flex-1 min-w-0 block">
+                    <div
+                      onDoubleClick={() => {
+                        setEditingId(task.id);
+                        setEditingText(task.text);
+                      }}
+                      className={`w-full text-[13px] font-medium truncate min-w-0 ${textMain}`}
+                    >
+                      {task.text}
+                    </div>
+                  </Tooltip>
                 )}
 
                 {task.repeat && task.repeat !== "none" && (
-                  <button
-                    type="button"
-                    onClick={() => setCalendarTargetId(task.id)}
-                    title={getRepeatLabel(task.repeat)}
-                    className={`flex items-center gap-1 text-[10.5px] font-medium px-1.5 py-0.5 rounded-lg tabular-nums cursor-pointer transition-colors shrink-0 ${
-                      isLightMode
-                        ? "text-[#1d4ed8] bg-[#3882F6]/10 hover:bg-[#3882F6]/20"
-                        : "text-[#8db8ff] bg-[#3882F6]/15 hover:bg-[#3882F6]/25"
-                    }`}
-                  >
-                    <Repeat size={10} strokeWidth={2.4} />
-                    <span>{getRepeatBadgeText(task.repeat)}</span>
-                  </button>
+                  <Tooltip content={getRepeatLabel(task.repeat)} side="top">
+                    <button
+                      type="button"
+                      onClick={() => setCalendarTargetId(task.id)}
+                      className={`flex items-center gap-1 text-[10.5px] font-medium px-1.5 py-0.5 rounded-lg tabular-nums cursor-pointer transition-colors shrink-0 ${
+                        isLightMode
+                          ? "text-[#1d4ed8] bg-[#3882F6]/10 hover:bg-[#3882F6]/20"
+                          : "text-[#8db8ff] bg-[#3882F6]/15 hover:bg-[#3882F6]/25"
+                      }`}
+                    >
+                      <Repeat size={10} strokeWidth={2.4} />
+                      <span>{getRepeatBadgeText(task.repeat)}</span>
+                    </button>
+                  </Tooltip>
                 )}
 
                 {/* Hover Action Buttons: Timer (Pomodoro), Reminder/Calendar, Snooze +1h, Edit, Delete */}
                 <div className="hidden group-hover:flex group-focus-within:flex items-center gap-1 shrink-0">
                   {onStartPomodoroForTask && (
+                    <Tooltip content={t("todo_start_focus")} side="top">
+                      <button
+                        type="button"
+                        onClick={() => onStartPomodoroForTask(task)}
+                        aria-label={t("todo_start_focus")}
+                        className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${actionBtn} ${isLightMode ? "hover:text-[#d92d20]" : "hover:bg-[#ff8a7a]/20 hover:text-[#ff9b8f]"}`}
+                      >
+                        <Timer size={12} />
+                      </button>
+                    </Tooltip>
+                  )}
+                  <Tooltip content={t("todo_set_reminder")} side="top">
                     <button
                       type="button"
-                      onClick={() => onStartPomodoroForTask(task)}
-                      title={t("todo_start_focus")}
-                      aria-label={t("todo_start_focus")}
-                      className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${actionBtn} ${isLightMode ? "hover:text-[#d92d20]" : "hover:bg-[#ff8a7a]/20 hover:text-[#ff9b8f]"}`}
+                      onClick={() => setCalendarTargetId(task.id)}
+                      aria-label={t("todo_set_reminder")}
+                      className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${actionBtn} ${isLightMode ? "hover:text-[#1d4ed8]" : "hover:bg-[#3882F6]/20 hover:text-[#8db8ff]"}`}
                     >
-                      <Timer size={12} />
+                      <Bell size={12} />
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setCalendarTargetId(task.id)}
-                    title={t("todo_set_reminder")}
-                    aria-label={t("todo_set_reminder")}
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${actionBtn} ${isLightMode ? "hover:text-[#1d4ed8]" : "hover:bg-[#3882F6]/20 hover:text-[#8db8ff]"}`}
-                  >
-                    <Bell size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSnoozeOneHour(task)}
-                    title={t("todo_snooze_1h")}
-                    aria-label={t("todo_snooze_1h")}
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${actionBtn}`}
-                  >
-                    <Clock size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingId(task.id);
-                      setEditingText(task.text);
-                    }}
-                    title={t("todo_edit_tip")}
-                    aria-label={t("todo_edit_tip")}
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${actionBtn}`}
-                  >
-                    <Pencil size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => requestDeleteTask(task.id)}
-                    title={armedDeleteId === task.id ? (getLanguage() === "id" ? "Klik lagi untuk konfirmasi hapus" : "Click again to confirm delete") : t("todo_delete_tip")}
-                    aria-label={t("todo_delete_tip")}
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      armedDeleteId === task.id
-                        ? "bg-red-600 text-white ring-2 ring-red-400/40"
-                        : isLightMode ? "bg-black/[0.05] text-[#d92d20] hover:bg-[#ff6b5a]/15" : "bg-[#23232a] hover:bg-[#ff6b5a]/20 text-[#ff9b8f]"
-                    }`}
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                  </Tooltip>
+                  <Tooltip content={t("todo_snooze_1h")} side="top">
+                    <button
+                      type="button"
+                      onClick={() => handleSnoozeOneHour(task)}
+                      aria-label={t("todo_snooze_1h")}
+                      className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${actionBtn}`}
+                    >
+                      <Clock size={12} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content={t("todo_edit_tip")} side="top">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(task.id);
+                        setEditingText(task.text);
+                      }}
+                      aria-label={t("todo_edit_tip")}
+                      className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${actionBtn}`}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content={armedDeleteId === task.id ? (getLanguage() === "id" ? "Klik lagi untuk konfirmasi hapus" : "Click again to confirm delete") : t("todo_delete_tip")} side="top">
+                    <button
+                      type="button"
+                      onClick={() => requestDeleteTask(task.id)}
+                      aria-label={t("todo_delete_tip")}
+                      className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                        armedDeleteId === task.id
+                          ? "bg-red-600 text-white ring-2 ring-red-400/40"
+                          : isLightMode ? "bg-black/[0.05] text-[#d92d20] hover:bg-[#ff6b5a]/15" : "bg-[#23232a] hover:bg-[#ff6b5a]/20 text-[#ff9b8f]"
+                      }`}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </Tooltip>
                 </div>
 
                 {/* Deadline & Overdue Badges */}
@@ -791,19 +802,20 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
                   <span className="flex-1 text-[12.5px] line-through truncate min-w-0">
                     {task.text}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => requestDeleteTask(task.id)}
-                    aria-label={t("todo_delete_tip")}
-                    title={armedDeleteId === task.id ? (getLanguage() === "id" ? "Klik lagi untuk konfirmasi hapus" : "Click again to confirm delete") : t("todo_delete_tip")}
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center cursor-pointer transition-opacity ${
-                      armedDeleteId === task.id
-                        ? "bg-red-600 text-white ring-2 ring-red-400/40 opacity-100"
-                        : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${isLightMode ? "hover:bg-black/[0.08] text-[#667085] hover:text-[#d92d20]" : "hover:bg-white/10 text-zinc-400 hover:text-[#ff9b8f]"}`
-                    }`}
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                  <Tooltip content={armedDeleteId === task.id ? (getLanguage() === "id" ? "Klik lagi untuk konfirmasi hapus" : "Click again to confirm delete") : t("todo_delete_tip")} side="top">
+                    <button
+                      type="button"
+                      onClick={() => requestDeleteTask(task.id)}
+                      aria-label={t("todo_delete_tip")}
+                      className={`w-6 h-6 rounded-lg flex items-center justify-center cursor-pointer transition-opacity ${
+                        armedDeleteId === task.id
+                          ? "bg-red-600 text-white ring-2 ring-red-400/40 opacity-100"
+                          : `opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${isLightMode ? "hover:bg-black/[0.08] text-[#667085] hover:text-[#d92d20]" : "hover:bg-white/10 text-zinc-400 hover:text-[#ff9b8f]"}`
+                      }`}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </Tooltip>
                 </div>
               ))}
           </div>

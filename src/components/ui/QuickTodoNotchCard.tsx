@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { TodoItem, TodoRepeatRule } from "../../services/todoUtils";
 import { parseDateNlp, formatNlpDateBadge, NlpDateResult } from "../../utils/dateNlpParser";
 import { formatShortcutForBadge } from "../../services/shortcuts";
+import { Tooltip } from "./Tooltip";
 import { t, Language, getLanguage } from "../../services/i18n";
 
 export { formatShortcutForBadge };
@@ -384,40 +385,41 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
             {effectiveDueAt && activeDateBadge ? (
               // State 2: Time detected or manually selected chip
               <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (nlpResult.hasDate && nlpResult.rawMatched) {
-                      setInputText(nlpResult.cleanText);
-                    }
-                    setManualPreset(null);
-                    setManualDueAt(null);
-                    setManualHasTime(false);
-                  }}
-                  className="h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
-                  style={{
-                    background: "rgba(56, 130, 246, 0.18)",
-                    color: "#8db8ff",
-                    boxShadow: "inset 0 0 0 1px rgba(56, 130, 246, 0.5)",
-                  }}
-                  title={t("quick_todo_remove_date_tip")}
-                >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
+                <Tooltip content={t("quick_todo_remove_date_tip")} side="top">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (nlpResult.hasDate && nlpResult.rawMatched) {
+                        setInputText(nlpResult.cleanText);
+                      }
+                      setManualPreset(null);
+                      setManualDueAt(null);
+                      setManualHasTime(false);
+                    }}
+                    className="h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                    style={{
+                      background: "rgba(56, 130, 246, 0.18)",
+                      color: "#8db8ff",
+                      boxShadow: "inset 0 0 0 1px rgba(56, 130, 246, 0.5)",
+                    }}
                   >
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 6v6l4 2" />
-                  </svg>
-                  {activeDateBadge.chipLabel}
-                </button>
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 6v6l4 2" />
+                    </svg>
+                    {activeDateBadge.chipLabel}
+                  </button>
+                </Tooltip>
 
                 <button
                   type="button"

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Music, RotateCw, ChevronDown, Check } from "lucide-react";
 import { LyricsData, LyricsProviderId, LYRICS_PROVIDERS_META } from "../../services/lyricsService";
+import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
 
 export interface LyricsViewProps {
@@ -194,41 +195,44 @@ export const LyricsView = React.memo<LyricsViewProps>(({
         <div className="flex items-center gap-1.5 shrink-0">
           {lyrics?.synced && (
             <div className="flex items-center gap-0.5 bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 rounded-full px-1.5 py-0.5 text-[9.5px] text-white/70 transition-colors shrink-0">
-              <button
-                type="button"
-                onClick={() => handleOffsetChange(-0.2)}
-                title={t("lyrics_advance")}
-                className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
-              >
-                -
-              </button>
-              <button
-                type="button"
-                onClick={handleResetOffset}
-                title={t("lyrics_reset_offset")}
-                className="px-0.5 font-mono text-[9px] font-medium text-white/80 hover:text-blue-300 transition-colors cursor-pointer"
-              >
-                {offset === 0 ? "0.0s" : `${offset > 0 ? "+" : ""}${offset.toFixed(1)}s`}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleOffsetChange(0.2)}
-                title={t("lyrics_delay")}
-                className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
-              >
-                +
-              </button>
+              <Tooltip content={t("lyrics_advance")} side="top">
+                <button
+                  type="button"
+                  onClick={() => handleOffsetChange(-0.2)}
+                  className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
+                >
+                  -
+                </button>
+              </Tooltip>
+              <Tooltip content={t("lyrics_reset_offset")} side="top">
+                <button
+                  type="button"
+                  onClick={handleResetOffset}
+                  className="px-0.5 font-mono text-[9px] font-medium text-white/80 hover:text-blue-300 transition-colors cursor-pointer"
+                >
+                  {offset === 0 ? "0.0s" : `${offset > 0 ? "+" : ""}${offset.toFixed(1)}s`}
+                </button>
+              </Tooltip>
+              <Tooltip content={t("lyrics_delay")} side="top">
+                <button
+                  type="button"
+                  onClick={() => handleOffsetChange(0.2)}
+                  className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
+                >
+                  +
+                </button>
+              </Tooltip>
             </div>
           )}
 
           {/* Lyrics Provider Selector Dropdown (to the left of refresh button) */}
           <div className="relative shrink-0" ref={dropdownRef}>
-            <button
-              type="button"
-              onClick={() => setIsProviderDropdownOpen((prev) => !prev)}
-              title={isEn ? "Change lyrics library" : "Ganti library lirik"}
-              className="h-6 flex items-center gap-1 bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/[0.16] border border-white/10 rounded-full px-2 text-[10px] text-white/75 hover:text-white transition-all cursor-pointer font-medium select-none shrink-0"
-            >
+            <Tooltip content={isEn ? "Change lyrics library" : "Ganti library lirik"} side="top">
+              <button
+                type="button"
+                onClick={() => setIsProviderDropdownOpen((prev) => !prev)}
+                className="h-6 flex items-center gap-1 bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/[0.16] border border-white/10 rounded-full px-2 text-[10px] text-white/75 hover:text-white transition-all cursor-pointer font-medium select-none shrink-0"
+              >
               <span className="truncate max-w-[70px]">{activeProviderBadge}</span>
               <ChevronDown
                 size={10}
@@ -237,6 +241,7 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                 }`}
               />
             </button>
+            </Tooltip>
 
             {isProviderDropdownOpen && (
               <div
@@ -263,7 +268,9 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                     >
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         {isDeliveredByThis ? (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title={isEn ? "Currently active" : "Aktif saat ini"} />
+                          <Tooltip content={isEn ? "Currently active" : "Aktif saat ini"} side="left">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          </Tooltip>
                         ) : (
                           <span className="w-1.5 h-1.5 rounded-full bg-transparent shrink-0" />
                         )}
@@ -281,17 +288,18 @@ export const LyricsView = React.memo<LyricsViewProps>(({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={handleRefreshClick}
-            title={t("lyrics_refresh") || "Refresh Lyrics"}
-            className="w-6 h-6 flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-full text-white/75 hover:text-white transition-colors cursor-pointer shrink-0"
-          >
+          <Tooltip content={t("lyrics_refresh") || "Refresh Lyrics"} side="top">
+            <button
+              type="button"
+              onClick={handleRefreshClick}
+              className="w-6 h-6 flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-full text-white/75 hover:text-white transition-colors cursor-pointer shrink-0"
+            >
             <RotateCw
               size={11}
               className={`transition-transform duration-500 ${isRefreshing || isLoading ? "animate-spin text-blue-300" : ""}`}
             />
           </button>
+          </Tooltip>
         </div>
       </div>
 

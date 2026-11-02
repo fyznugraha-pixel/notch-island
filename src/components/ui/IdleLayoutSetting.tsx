@@ -12,6 +12,7 @@ import {
   Bell,
   FolderDown,
 } from "lucide-react";
+import { Tooltip } from "./Tooltip";
 import { t, Language } from "../../services/i18n";
 import { getWeatherIcon } from "./NotifIcon";
 import { getTextWidth } from "../../utils/text";
@@ -339,9 +340,11 @@ export const IdleSlotView: React.FC<{
         );
       }
       return (
-        <span style={customStyle} className={baseTextClass} title={data.fullDateTitle}>
-          {isPreview ? "85%" : data.dateDisplay}
-        </span>
+        <Tooltip content={data.fullDateTitle} side="bottom">
+          <span style={customStyle} className={baseTextClass}>
+            {isPreview ? "85%" : data.dateDisplay}
+          </span>
+        </Tooltip>
       );
     }
 
@@ -354,24 +357,26 @@ export const IdleSlotView: React.FC<{
 
     case "date":
       return (
-        <span style={customStyle} className={baseTextClass} title={data.fullDateTitle}>
-          {data.dateDisplay}
-        </span>
+        <Tooltip content={data.fullDateTitle} side="bottom">
+          <span style={customStyle} className={baseTextClass}>
+            {data.dateDisplay}
+          </span>
+        </Tooltip>
       );
 
     case "smart": {
       if (data.focusMode !== "Normal") {
         return (
-          <div
-            onClick={(e) => {
-              if (!isPreview && data.onOpenTab) {
-                e.stopPropagation();
-                data.onOpenTab("quick_control");
-              }
-            }}
-            className="flex items-center gap-1 shrink-0 cursor-pointer"
-            title={`Focus: ${data.focusMode}`}
-          >
+          <Tooltip content={`Focus: ${data.focusMode}`} side="bottom">
+            <div
+              onClick={(e) => {
+                if (!isPreview && data.onOpenTab) {
+                  e.stopPropagation();
+                  data.onOpenTab("quick_control");
+                }
+              }}
+              className="flex items-center gap-1 shrink-0 cursor-pointer"
+            >
             {data.focusMode === "DND" && <BellOff size={10} className="text-indigo-400 shrink-0" />}
             {data.focusMode === "Gaming" && <Gamepad2 size={10.5} className="text-rose-400 shrink-0" />}
             {data.focusMode === "Sleep" && <BedDouble size={10.5} className="text-teal-400 shrink-0" />}
@@ -387,59 +392,62 @@ export const IdleSlotView: React.FC<{
               {data.focusMode === "Gaming" ? "Game" : data.focusMode}
             </span>
           </div>
+          </Tooltip>
         );
       }
       if (data.pendingTodosCount > 0) {
         return (
-          <div
-            onClick={(e) => {
-              if (!isPreview && data.onOpenTab) {
-                e.stopPropagation();
-                data.onOpenTab("todo");
-              }
-            }}
-            className="flex items-center gap-1 shrink-0 cursor-pointer"
-            title={`${data.pendingTodosCount} ${t("todo_badge")}`}
-          >
+          <Tooltip content={`${data.pendingTodosCount} ${t("todo_badge")}`} side="bottom">
+            <div
+              onClick={(e) => {
+                if (!isPreview && data.onOpenTab) {
+                  e.stopPropagation();
+                  data.onOpenTab("todo");
+                }
+              }}
+              className="flex items-center gap-1 shrink-0 cursor-pointer"
+            >
             <ListTodo size={10.5} className="text-amber-400 shrink-0" />
             <span className="text-[10px] font-bold leading-none tabular-nums text-amber-300 idle-stat-number">
               {data.pendingTodosCount}
             </span>
           </div>
+          </Tooltip>
         );
       }
       if (data.stashedFilesCount > 0) {
         return (
-          <div
-            onClick={(e) => {
-              if (!isPreview && data.onOpenTab) {
-                e.stopPropagation();
-                data.onOpenTab("drop_shelf");
-              }
-            }}
-            className="flex items-center gap-1 shrink-0 cursor-pointer"
-            title={t("shelf_files_count", { count: data.stashedFilesCount })}
-          >
+          <Tooltip content={t("shelf_files_count", { count: data.stashedFilesCount })} side="bottom">
+            <div
+              onClick={(e) => {
+                if (!isPreview && data.onOpenTab) {
+                  e.stopPropagation();
+                  data.onOpenTab("drop_shelf");
+                }
+              }}
+              className="flex items-center gap-1 shrink-0 cursor-pointer"
+            >
             <FolderSync size={10.5} className="text-cyan-400 shrink-0" />
             <span className="text-[10px] font-bold leading-none tabular-nums text-cyan-300 idle-stat-number">
               {data.stashedFilesCount}
             </span>
           </div>
+          </Tooltip>
         );
       }
       return (
-        <span className={baseTextClass} title={data.fullDateTitle}>
-          {data.dateDisplay}
-        </span>
+        <Tooltip content={data.fullDateTitle} side="bottom">
+          <span className={baseTextClass}>
+            {data.dateDisplay}
+          </span>
+        </Tooltip>
       );
     }
 
     case "ping":
       return (
-        <div
-          className="flex items-center gap-1 shrink-0"
-          title={data.networkPing !== null ? `Ping: ${data.networkPing}ms` : "Offline"}
-        >
+        <Tooltip content={data.networkPing !== null ? `Ping: ${data.networkPing}ms` : "Offline"} side="bottom">
+          <div className="flex items-center gap-1 shrink-0">
           <span
             className={`w-1.5 h-1.5 rounded-full shrink-0 ${
               data.networkPing === null
@@ -455,31 +463,31 @@ export const IdleSlotView: React.FC<{
             {data.networkPing !== null ? `${data.networkPing}ms` : "Off"}
           </span>
         </div>
+        </Tooltip>
       );
 
     case "weather":
       return (
-        <div
-          className="flex items-center gap-1 shrink-0"
-          title={data.weather?.locationName || undefined}
-        >
-          {getWeatherIcon(data.weather?.code ?? 0)}
-          <span style={customStyle} className={baseTextClass}>{data.weather?.temp || "28°"}</span>
-        </div>
+        <Tooltip content={data.weather?.locationName || undefined} side="bottom" disabled={!data.weather?.locationName}>
+          <div className="flex items-center gap-1 shrink-0">
+            {getWeatherIcon(data.weather?.code ?? 0)}
+            <span style={customStyle} className={baseTextClass}>{data.weather?.temp || "28°"}</span>
+          </div>
+        </Tooltip>
       );
 
     case "todo":
       return (
-        <div
-          onClick={(e) => {
-            if (!isPreview && data.onOpenTab) {
-              e.stopPropagation();
-              data.onOpenTab("todo");
-            }
-          }}
-          className="flex items-center gap-1 shrink-0 cursor-pointer"
-          title={`${data.pendingTodosCount} ${t("todo_badge")}`}
-        >
+        <Tooltip content={`${data.pendingTodosCount} ${t("todo_badge")}`} side="bottom">
+          <div
+            onClick={(e) => {
+              if (!isPreview && data.onOpenTab) {
+                e.stopPropagation();
+                data.onOpenTab("todo");
+              }
+            }}
+            className="flex items-center gap-1 shrink-0 cursor-pointer"
+          >
           <ListTodo size={10.5} className="text-amber-400 shrink-0" />
           <span
             style={customColor ? customStyle : undefined}
@@ -488,6 +496,7 @@ export const IdleSlotView: React.FC<{
             {data.pendingTodosCount}
           </span>
         </div>
+        </Tooltip>
       );
 
     case "prayer": {
@@ -495,50 +504,52 @@ export const IdleSlotView: React.FC<{
       const next = getNextPrayerStatus(sched, data.time);
       const shortName = getPrayerShortName(next.nextPrayer, data.optLanguage);
       return (
-        <div
-          onClick={(e) => {
-            if (!isPreview && data.onOpenTab) {
-              e.stopPropagation();
-              data.onOpenTab("prayer_reminder");
-            }
-          }}
-          className="flex items-center gap-1 shrink-0 cursor-pointer"
-          title={`${shortName} ${next.nextPrayerTime} (-${next.countdownText})`}
-        >
+        <Tooltip content={`${shortName} ${next.nextPrayerTime} (-${next.countdownText})`} side="bottom">
+          <div
+            onClick={(e) => {
+              if (!isPreview && data.onOpenTab) {
+                e.stopPropagation();
+                data.onOpenTab("prayer_reminder");
+              }
+            }}
+            className="flex items-center gap-1 shrink-0 cursor-pointer"
+          >
           <Moon size={10} className="text-emerald-400 shrink-0" />
           <span style={customStyle} className={`${baseTextClass} tabular-nums`}>
             {shortName} {next.nextPrayerTime}
           </span>
         </div>
+        </Tooltip>
       );
     }
 
     case "fps": {
       const currentFps = data.fps || 60;
       return (
-        <span
-          style={customStyle}
-          className={`${baseTextClass} tabular-nums`}
-          title={`Frame Rate: ${currentFps} FPS`}
-        >
-          {currentFps} FPS
-        </span>
+        <Tooltip content={`Frame Rate: ${currentFps} FPS`} side="bottom">
+          <span
+            style={customStyle}
+            className={`${baseTextClass} tabular-nums`}
+          >
+            {currentFps} FPS
+          </span>
+        </Tooltip>
       );
     }
 
     case "notifications": {
       const count = isPreview ? 3 : data.unreadNotifCount ?? 0;
       return (
-        <div
-          onClick={(e) => {
-            if (!isPreview && data.onOpenTab) {
-              e.stopPropagation();
-              data.onOpenTab("notif_center");
-            }
-          }}
-          className="flex items-center gap-1 shrink-0 cursor-pointer"
-          title={`${count} ${data.optLanguage === "id" ? "Notifikasi" : "Notifications"}`}
-        >
+        <Tooltip content={`${count} ${data.optLanguage === "id" ? "Notifikasi" : "Notifications"}`} side="bottom">
+          <div
+            onClick={(e) => {
+              if (!isPreview && data.onOpenTab) {
+                e.stopPropagation();
+                data.onOpenTab("notif_center");
+              }
+            }}
+            className="flex items-center gap-1 shrink-0 cursor-pointer"
+          >
           <Bell size={10.5} className="text-indigo-400 shrink-0" />
           <span
             style={customColor ? customStyle : undefined}
@@ -547,22 +558,23 @@ export const IdleSlotView: React.FC<{
             {count}
           </span>
         </div>
+        </Tooltip>
       );
     }
 
     case "shelf": {
       const count = isPreview ? 2 : data.stashedFilesCount ?? 0;
       return (
-        <div
-          onClick={(e) => {
-            if (!isPreview && data.onOpenTab) {
-              e.stopPropagation();
-              data.onOpenTab("drop_shelf");
-            }
-          }}
-          className="flex items-center gap-1 shrink-0 cursor-pointer"
-          title={t("shelf_files_count", { count })}
-        >
+        <Tooltip content={t("shelf_files_count", { count })} side="bottom">
+          <div
+            onClick={(e) => {
+              if (!isPreview && data.onOpenTab) {
+                e.stopPropagation();
+                data.onOpenTab("drop_shelf");
+              }
+            }}
+            className="flex items-center gap-1 shrink-0 cursor-pointer"
+          >
           <FolderDown size={10.5} className="text-cyan-400 shrink-0" />
           <span
             style={customColor ? customStyle : undefined}
@@ -571,22 +583,23 @@ export const IdleSlotView: React.FC<{
             {count}
           </span>
         </div>
+        </Tooltip>
       );
     }
 
     case "cpu": {
       const cpuVal = data.cpuUsage !== undefined ? Math.round(data.cpuUsage) : isPreview ? 24 : 0;
       return (
-        <div
-          onClick={(e) => {
-            if (!isPreview && data.onOpenTab) {
-              e.stopPropagation();
-              data.onOpenTab("sys_monitor");
-            }
-          }}
-          className="flex items-center gap-1 shrink-0 cursor-pointer"
-          title={`CPU: ${cpuVal}%`}
-        >
+        <Tooltip content={`CPU: ${cpuVal}%`} side="bottom">
+          <div
+            onClick={(e) => {
+              if (!isPreview && data.onOpenTab) {
+                e.stopPropagation();
+                data.onOpenTab("sys_monitor");
+              }
+            }}
+            className="flex items-center gap-1 shrink-0 cursor-pointer"
+          >
           <Cpu
             size={10.5}
             className={`shrink-0 ${
@@ -597,6 +610,7 @@ export const IdleSlotView: React.FC<{
             {cpuVal}%
           </span>
         </div>
+        </Tooltip>
       );
     }
 
@@ -606,16 +620,16 @@ export const IdleSlotView: React.FC<{
       const totalGb = data.ramTotalGb?.toFixed(1);
       const tip = usedGb && totalGb ? `RAM: ${ramVal}% (${usedGb}/${totalGb} GB)` : `RAM: ${ramVal}%`;
       return (
-        <div
-          onClick={(e) => {
-            if (!isPreview && data.onOpenTab) {
-              e.stopPropagation();
-              data.onOpenTab("sys_monitor");
-            }
-          }}
-          className="flex items-center gap-1 shrink-0 cursor-pointer"
-          title={tip}
-        >
+        <Tooltip content={tip} side="bottom">
+          <div
+            onClick={(e) => {
+              if (!isPreview && data.onOpenTab) {
+                e.stopPropagation();
+                data.onOpenTab("sys_monitor");
+              }
+            }}
+            className="flex items-center gap-1 shrink-0 cursor-pointer"
+          >
           <MemoryStick
             size={10.5}
             className={`shrink-0 ${
@@ -626,6 +640,7 @@ export const IdleSlotView: React.FC<{
             {ramVal}%
           </span>
         </div>
+        </Tooltip>
       );
     }
 
@@ -634,16 +649,16 @@ export const IdleSlotView: React.FC<{
       const downM = data.netDownMbps ? (data.netDownMbps / 8).toFixed(2) : "0.00";
       const upM = data.netUpMbps ? (data.netUpMbps / 8).toFixed(2) : "0.00";
       return (
-        <div
-          onClick={(e) => {
-            if (!isPreview && data.onOpenTab) {
-              e.stopPropagation();
-              data.onOpenTab("sys_monitor");
-            }
-          }}
-          className="flex items-center gap-0.5 shrink-0 cursor-pointer"
-          title={`↓ ${downM} MB/s · ↑ ${upM} MB/s`}
-        >
+        <Tooltip content={`↓ ${downM} MB/s · ↑ ${upM} MB/s`} side="bottom">
+          <div
+            onClick={(e) => {
+              if (!isPreview && data.onOpenTab) {
+                e.stopPropagation();
+                data.onOpenTab("sys_monitor");
+              }
+            }}
+            className="flex items-center gap-0.5 shrink-0 cursor-pointer"
+          >
           <ArrowDown
             size={10}
             className={`shrink-0 ${
@@ -654,6 +669,7 @@ export const IdleSlotView: React.FC<{
             {speedStr}
           </span>
         </div>
+        </Tooltip>
       );
     }
   }

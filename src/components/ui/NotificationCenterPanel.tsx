@@ -21,6 +21,7 @@ import {
   setDndStatus,
 } from "../../services/notificationHistoryService";
 import { t, getLanguage } from "../../services/i18n";
+import { Tooltip } from "./Tooltip";
 import { NotifIcon } from "./NotifIcon";
 import { resolveAppLogo } from "../../utils/appLogoResolver";
 
@@ -440,56 +441,59 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
           </button>
 
           {selectedApp && (
-            <button
-              type="button"
-              onClick={() => setSelectedApp(null)}
-              className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-500/20 text-blue-300 border border-blue-400/35 hover:bg-blue-500/30 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
-              title={isEn ? "Remove app filter" : "Hapus filter aplikasi"}
-            >
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ backgroundColor: getAppDotColor(selectedApp, undefined, isLightMode) }}
-              />
-              <span>{formatAppName(selectedApp)}</span>
-              <span className="text-[10px] text-blue-300/80 font-bold ml-0.5">✕</span>
-            </button>
+            <Tooltip content={isEn ? "Remove app filter" : "Hapus filter aplikasi"} side="bottom">
+              <button
+                type="button"
+                onClick={() => setSelectedApp(null)}
+                className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-500/20 text-blue-300 border border-blue-400/35 hover:bg-blue-500/30 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: getAppDotColor(selectedApp, undefined, isLightMode) }}
+                />
+                <span>{formatAppName(selectedApp)}</span>
+                <span className="text-[10px] text-blue-300/80 font-bold ml-0.5">✕</span>
+              </button>
+            </Tooltip>
           )}
         </div>
 
         {/* Global Actions */}
         <div className="flex items-center gap-1.5 shrink-0">
           {counts.unread > 0 && (
-            <button
-              type="button"
-              onClick={handleMarkAllAsRead}
-              title={t("notif_mark_all_read") || "Tandai semua dibaca"}
-              className={`h-6 px-2 flex items-center gap-1 border rounded-full text-[10px] transition-colors cursor-pointer ${
-                isLightMode
-                  ? "bg-black/[0.04] hover:bg-black/[0.08] border-black/[0.08] text-neutral-700 hover:text-black"
-                  : "bg-white/[0.06] hover:bg-white/[0.12] border-white/10 text-white/70 hover:text-white"
-              }`}
-            >
-              <CheckCheck size={11} className="text-blue-400" />
-              <span>{t("notif_mark_all_read") || "Tandai dibaca"}</span>
-            </button>
+            <Tooltip content={t("notif_mark_all_read") || "Tandai semua dibaca"} side="bottom">
+              <button
+                type="button"
+                onClick={handleMarkAllAsRead}
+                className={`h-6 px-2 flex items-center gap-1 border rounded-full text-[10px] transition-colors cursor-pointer ${
+                  isLightMode
+                    ? "bg-black/[0.04] hover:bg-black/[0.08] border-black/[0.08] text-neutral-700 hover:text-black"
+                    : "bg-white/[0.06] hover:bg-white/[0.12] border-white/10 text-white/70 hover:text-white"
+                }`}
+              >
+                <CheckCheck size={11} className="text-blue-400" />
+                <span>{t("notif_mark_all_read") || "Tandai dibaca"}</span>
+              </button>
+            </Tooltip>
           )}
 
           {notifications.length > 0 && (
-            <button
-              type="button"
-              onClick={handleClearAll}
-              aria-label={armedClearAll ? (isEn ? "Click again to confirm clearing all notifications" : "Klik lagi untuk konfirmasi hapus semua") : t("notif_clear_all") || "Hapus semua"}
-              title={armedClearAll ? (isEn ? "Confirm?" : "Yakin?") : t("notif_clear_all") || "Hapus semua"}
-              className={`w-6 h-6 flex items-center justify-center border rounded-full transition-colors cursor-pointer ${
-                armedClearAll
-                  ? "bg-red-600 border-red-500 text-white ring-2 ring-red-400/40"
-                  : isLightMode
-                  ? "bg-black/[0.04] hover:bg-red-500/15 border-black/[0.08] hover:border-red-500/25 text-neutral-600 hover:text-red-500"
-                  : "bg-white/[0.06] hover:bg-red-500/20 border border-white/10 hover:border-red-500/30 text-white/60 hover:text-red-400"
-              }`}
-            >
+            <Tooltip content={armedClearAll ? (isEn ? "Confirm?" : "Yakin?") : t("notif_clear_all") || "Hapus semua"} side="bottom">
+              <button
+                type="button"
+                onClick={handleClearAll}
+                aria-label={armedClearAll ? (isEn ? "Click again to confirm clearing all notifications" : "Klik lagi untuk konfirmasi hapus semua") : t("notif_clear_all") || "Hapus semua"}
+                className={`w-6 h-6 flex items-center justify-center border rounded-full transition-colors cursor-pointer ${
+                  armedClearAll
+                    ? "bg-red-600 border-red-500 text-white ring-2 ring-red-400/40"
+                    : isLightMode
+                    ? "bg-black/[0.04] hover:bg-red-500/15 border-black/[0.08] hover:border-red-500/25 text-neutral-600 hover:text-red-500"
+                    : "bg-white/[0.06] hover:bg-red-500/20 border border-white/10 hover:border-red-500/30 text-white/60 hover:text-red-400"
+                }`}
+              >
               <Trash2 size={11} />
             </button>
+          </Tooltip>
           )}
         </div>
       </div>
@@ -525,7 +529,6 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                     <div
                       key={item.id}
                       onClick={() => handleItemClick(item)}
-                      title={isEn ? `Open ${formatAppName(item.appName || item.title)}` : `Buka ${formatAppName(item.appName || item.title)}`}
                       className={`group relative flex items-start gap-3 p-2.5 rounded-2xl border transition-all duration-200 ease-out cursor-pointer ${
                         isLightMode
                           ? item.read
@@ -554,10 +557,11 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                               {item.title}
                             </span>
                             {!item.read && (
-                              <span
-                                className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6] shrink-0 mt-1"
-                                title={t("notif_filter_unread") || (isEn ? "Unread" : "Belum dibaca")}
-                              />
+                              <Tooltip content={t("notif_filter_unread") || (isEn ? "Unread" : "Belum dibaca")} side="top">
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6] shrink-0 mt-1 block"
+                                />
+                              </Tooltip>
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0 pl-1 pt-0.5">
@@ -566,18 +570,19 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                             }`}>
                               {formatTime(item.timestamp)}
                             </span>
-                            <button
-                              type="button"
-                              onClick={(e) => handleDeleteItem(item.id, e)}
-                              title={isEn ? "Delete this notification" : "Hapus notifikasi ini"}
-                              className={`opacity-0 group-hover:opacity-100 w-5 h-5 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
-                                isLightMode
-                                  ? "bg-black/[0.06] hover:bg-red-500/15 text-neutral-500 hover:text-red-500"
-                                  : "bg-white/10 hover:bg-red-500/25 text-white/50 hover:text-red-400"
-                              }`}
-                            >
-                              <Trash2 size={10} />
-                            </button>
+                            <Tooltip content={isEn ? "Delete this notification" : "Hapus notifikasi ini"} side="left">
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteItem(item.id, e)}
+                                className={`opacity-0 group-hover:opacity-100 w-5 h-5 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                                  isLightMode
+                                    ? "bg-black/[0.06] hover:bg-red-500/15 text-neutral-500 hover:text-red-500"
+                                    : "bg-white/10 hover:bg-red-500/25 text-white/50 hover:text-red-400"
+                                }`}
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            </Tooltip>
                           </div>
                         </div>
 
@@ -683,7 +688,6 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                     <div
                       key={app.name}
                       onClick={() => setSelectedApp(isSelected ? null : app.name)}
-                      title={isEn ? `Filter ${formatAppName(app.name)} notifications` : `Filter notifikasi ${app.name}`}
                       className={`group flex items-center justify-between py-1 px-2 rounded-xl text-[11px] transition-all cursor-pointer select-none ${
                         isSelected
                           ? isLightMode
@@ -710,24 +714,25 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                         }`}>
                           {app.count}
                         </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleMute(app.name);
-                          }}
-                          aria-label={isEn ? `Unmute ${app.name} notifications` : `${isMuted ? "Bunyikan" : "Bisukan"} notifikasi ${app.name}`}
-                          title={isMuted ? `Bunyikan notifikasi ${app.name}` : `Bisukan notifikasi ${app.name}`}
-                          className={`w-5 h-5 flex items-center justify-center rounded transition-colors cursor-pointer ${
-                            isMuted
-                              ? "text-red-500 bg-red-500/15"
-                              : isLightMode
-                              ? "text-neutral-400 hover:text-black hover:bg-black/[0.06]"
-                              : "text-white/40 hover:text-white hover:bg-white/10"
-                          }`}
-                        >
-                          {isMuted ? <BellOff size={11} /> : <Bell size={11} />}
-                        </button>
+                        <Tooltip content={isMuted ? `Bunyikan notifikasi ${app.name}` : `Bisukan notifikasi ${app.name}`} side="left">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleMute(app.name);
+                            }}
+                            aria-label={isEn ? `Unmute ${app.name} notifications` : `${isMuted ? "Bunyikan" : "Bisukan"} notifikasi ${app.name}`}
+                            className={`w-5 h-5 flex items-center justify-center rounded transition-colors cursor-pointer ${
+                              isMuted
+                                ? "text-red-500 bg-red-500/15"
+                                : isLightMode
+                                ? "text-neutral-400 hover:text-black hover:bg-black/[0.06]"
+                                : "text-white/40 hover:text-white hover:bg-white/10"
+                            }`}
+                          >
+                            {isMuted ? <BellOff size={11} /> : <Bell size={11} />}
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
                   );

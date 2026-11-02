@@ -8,6 +8,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
 
 export type SettingsSubtab = "general" | "appearance" | "idle" | "modules" | "advanced";
@@ -112,14 +113,15 @@ export const SettingsSubnav: React.FC<SettingsSubnavProps> = ({
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={onToggleSearch}
-            title={t("settings_search_tooltip")}
-            className="w-8 h-8 rounded-full bg-[#18181c] hover:bg-[#23232a] text-[#a1a1aa] hover:text-white flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-          >
-            <Search size={14} />
-          </button>
+          <Tooltip content={t("settings_search_tooltip")} side="top">
+            <button
+              type="button"
+              onClick={onToggleSearch}
+              className="w-8 h-8 rounded-full bg-[#18181c] hover:bg-[#23232a] text-[#a1a1aa] hover:text-white flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+            >
+              <Search size={14} />
+            </button>
+          </Tooltip>
         </>
       )}
     </div>

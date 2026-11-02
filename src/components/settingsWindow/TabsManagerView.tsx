@@ -31,6 +31,7 @@ import {
 } from "../../services/tabConfigService";
 import { IosSwitch } from "../ios/IosSwitch";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
+import { Tooltip } from "../ui/Tooltip";
 import { Language } from "../../services/i18n";
 
 interface TabsManagerViewProps {
@@ -226,16 +227,17 @@ const SortableTabRow: React.FC<SortableTabRowProps> = ({
         }}
         className="flex items-center gap-3 min-w-0 flex-1 cursor-grab active:cursor-grabbing touch-none"
       >
-        <div
-          className={`p-1 -ml-1 rounded-md transition-colors ${
-            isLightMode
-              ? "text-neutral-400 group-hover:text-neutral-700 group-hover:bg-black/5"
-              : "text-zinc-500 group-hover:text-zinc-200 group-hover:bg-white/5"
-          }`}
-          title={isId ? "Tarik untuk geser urutan" : "Drag to reorder"}
-        >
-          <GripVertical size={16} />
-        </div>
+        <Tooltip content={isId ? "Tarik untuk geser urutan" : "Drag to reorder"} side="top">
+          <div
+            className={`p-1 -ml-1 rounded-md transition-colors ${
+              isLightMode
+                ? "text-neutral-400 group-hover:text-neutral-700 group-hover:bg-black/5"
+                : "text-zinc-500 group-hover:text-zinc-200 group-hover:bg-white/5"
+            }`}
+          >
+            <GripVertical size={16} />
+          </div>
+        </Tooltip>
 
         <div
           className={`w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0 shadow-sm ${meta.bgClass} ${meta.colorClass}`}
@@ -288,32 +290,34 @@ const SortableTabRow: React.FC<SortableTabRowProps> = ({
       {/* Right: Up/Down Buttons + Switch */}
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex items-center gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            disabled={idx === 0}
-            onClick={() => onMoveStep(idx, -1)}
-            title={isId ? "Geser ke atas" : "Move up"}
-            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
-              isLightMode
-                ? "hover:bg-black/5 text-neutral-600"
-                : "hover:bg-white/10 text-zinc-300"
-            }`}
-          >
-            <ArrowUp size={13.5} />
-          </button>
-          <button
-            type="button"
-            disabled={idx === totalItems - 1}
-            onClick={() => onMoveStep(idx, 1)}
-            title={isId ? "Geser ke bawah" : "Move down"}
-            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
-              isLightMode
-                ? "hover:bg-black/5 text-neutral-600"
-                : "hover:bg-white/10 text-zinc-300"
-            }`}
-          >
-            <ArrowDown size={13.5} />
-          </button>
+          <Tooltip content={isId ? "Geser ke atas" : "Move up"} side="top" disabled={idx === 0}>
+            <button
+              type="button"
+              disabled={idx === 0}
+              onClick={() => onMoveStep(idx, -1)}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
+                isLightMode
+                  ? "hover:bg-black/5 text-neutral-600"
+                  : "hover:bg-white/10 text-zinc-300"
+              }`}
+            >
+              <ArrowUp size={13.5} />
+            </button>
+          </Tooltip>
+          <Tooltip content={isId ? "Geser ke bawah" : "Move down"} side="top" disabled={idx === totalItems - 1}>
+            <button
+              type="button"
+              disabled={idx === totalItems - 1}
+              onClick={() => onMoveStep(idx, 1)}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
+                isLightMode
+                  ? "hover:bg-black/5 text-neutral-600"
+                  : "hover:bg-white/10 text-zinc-300"
+              }`}
+            >
+              <ArrowDown size={13.5} />
+            </button>
+          </Tooltip>
         </div>
 
         <IosSwitch

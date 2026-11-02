@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { Minus, X, Clock, Volume2, Send } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 
 import { Language, getLanguage, setLanguage, t } from "../../services/i18n";
 import {
@@ -986,30 +987,32 @@ export const SettingsWindowApp: React.FC = () => {
 
         {/* Right: Minimize & Close Buttons */}
         <div className="flex items-center gap-1 pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => getCurrentWindow().minimize()}
-            title={isId ? "Minimalkan" : "Minimize"}
-            className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
-              isLightMode
-                ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.07]"
-                : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
-            }`}
-          >
-            <Minus size={15} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            onClick={handleCloseWindow}
-            title={isId ? "Tutup" : "Close"}
-            className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
-              isLightMode
-                ? "text-neutral-600 hover:bg-[#e81123] hover:text-white"
-                : "text-zinc-400 hover:bg-[#e81123] hover:text-white"
-            }`}
-          >
-            <X size={15} strokeWidth={2} />
-          </button>
+          <Tooltip content={isId ? "Minimalkan" : "Minimize"} side="bottom">
+            <button
+              type="button"
+              onClick={() => getCurrentWindow().minimize()}
+              className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.07]"
+                  : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
+              }`}
+            >
+              <Minus size={15} strokeWidth={2} />
+            </button>
+          </Tooltip>
+          <Tooltip content={isId ? "Tutup" : "Close"} side="bottom">
+            <button
+              type="button"
+              onClick={handleCloseWindow}
+              className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "text-neutral-600 hover:bg-[#e81123] hover:text-white"
+                  : "text-zinc-400 hover:bg-[#e81123] hover:text-white"
+              }`}
+            >
+              <X size={15} strokeWidth={2} />
+            </button>
+          </Tooltip>
         </div>
       </header>
 

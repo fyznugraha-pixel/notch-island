@@ -416,11 +416,8 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={handleQuickToggleDnd}
-                    aria-label={isEn ? "Toggle Do Not Disturb" : "Alihkan Jangan Ganggu"}
-                    title={
+                  <Tooltip
+                    content={
                       focusMode === "DND"
                         ? getLanguage() === "id"
                           ? "Nonaktifkan Mode Jangan Ganggu"
@@ -429,18 +426,25 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                         ? "Aktifkan Mode Jangan Ganggu"
                         : "Enable Do Not Disturb"
                     }
-                    className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
-                      focusMode === "DND"
-                        ? "bg-[#6366f1] text-white shadow-sm"
+                    side="top"
+                  >
+                    <button
+                      type="button"
+                      onClick={handleQuickToggleDnd}
+                      aria-label={isEn ? "Toggle Do Not Disturb" : "Alihkan Jangan Ganggu"}
+                      className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                        focusMode === "DND"
+                          ? "bg-[#6366f1] text-white shadow-sm"
                         : focusMode === "Gaming"
                         ? "bg-rose-500 text-white shadow-sm"
                         : focusMode === "Sleep"
                         ? "bg-teal-500 text-white shadow-sm"
                         : "bg-[#1d1d25] text-[#fbbf24] hover:bg-[#252530]"
-                    }`}
-                  >
-                    {renderFocusGlyph(focusMode, 16)}
-                  </button>
+                      }`}
+                    >
+                      {renderFocusGlyph(focusMode, 16)}
+                    </button>
+                  </Tooltip>
                   <div className="flex-1 min-w-0">
                     <div className="text-[12.5px] font-semibold text-white leading-tight truncate">
                       {t("cc_mode_title")}

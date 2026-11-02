@@ -505,23 +505,23 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                   type="button"
                   onClick={handleStartReceive}
                   className="h-7 px-3 rounded-full border border-[#3882F6]/30 hover:border-[#3882F6]/60 bg-[#3882F6]/10 hover:bg-[#3882F6]/20 text-[#8db8ff] hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
-                  title={t("shelf_receive_from_phone")}
                 >
                   <Smartphone size={12} />
                   <span>{t("shelf_receive_from_phone")}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onToggleSettings) onToggleSettings();
-                    else setInternalShowSettings(true);
-                  }}
-                  className="h-7 w-7 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                  title={t("shelf_settings_title")}
-                  aria-label={t("shelf_settings_title")}
-                >
-                  <Settings size={12.5} />
-                </button>
+                <Tooltip content={t("shelf_settings_title")} side="top">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onToggleSettings) onToggleSettings();
+                      else setInternalShowSettings(true);
+                    }}
+                    className="h-7 w-7 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    aria-label={t("shelf_settings_title")}
+                  >
+                    <Settings size={12.5} />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </div>
@@ -566,7 +566,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 type="button"
                 onClick={handleStartSend}
                 className="h-[26px] px-2.5 rounded-lg bg-[#3882F6] hover:bg-[#2563eb] text-white text-[11px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm shadow-[#3882F6]/30"
-                title={selectedIds.size > 0 ? t("shelf_send_to_phone") : "Kirim file ke HP"}
               >
                 <Smartphone size={12.5} strokeWidth={2.2} />
                 <span>
@@ -580,7 +579,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 type="button"
                 onClick={handleStartReceive}
                 className="h-[26px] px-2.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/8 text-zinc-200 hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
-                title={t("shelf_receive_from_phone")}
               >
                 <Smartphone size={12.5} strokeWidth={2} />
                 <span>{t("shelf_receive_from_phone")}</span>
@@ -607,18 +605,19 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 </span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (onToggleSettings) onToggleSettings();
-                  else setInternalShowSettings(true);
-                }}
-                className="h-[26px] w-[26px] rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
-                title={t("shelf_settings_title")}
-                aria-label={t("shelf_settings_title")}
-              >
-                <Settings size={12.5} />
-              </button>
+              <Tooltip content={t("shelf_settings_title")} side="top">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onToggleSettings) onToggleSettings();
+                    else setInternalShowSettings(true);
+                  }}
+                  className="h-[26px] w-[26px] rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  aria-label={t("shelf_settings_title")}
+                >
+                  <Settings size={12.5} />
+                </button>
+              </Tooltip>
             </div>
 
             {/* File Row */}
@@ -801,12 +800,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                         </div>
 
                         <div className="px-0.5 min-w-0">
-                          <div
-                            className="text-[11.5px] font-medium text-white/90 group-hover:text-white truncate transition-colors leading-tight"
-                            title={file.name}
-                          >
-                            {file.name}
-                          </div>
+                          <Tooltip content={file.name} side="bottom" delay={400} wrapperClassName="w-full max-w-full block">
+                            <div className="text-[11.5px] font-medium text-white/90 group-hover:text-white truncate transition-colors leading-tight">
+                              {file.name}
+                            </div>
+                          </Tooltip>
                           <div className="text-[10px] text-zinc-400 mt-0.5 truncate flex items-center gap-1.5">
                             <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[8.5px] bg-white/[0.08] px-1 py-0.5 rounded leading-none">
                               {extBadge}

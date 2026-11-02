@@ -262,21 +262,24 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
           {/* Right: Weather & Privacy Indicators */}
           <div className="flex items-center justify-end gap-1.5 min-w-[64px] shrink-0">
             {weather && (
-              <div
-                className="flex items-center gap-1 text-[11px] text-[#a1a1aa] tabular-nums cursor-default"
-                title={weather.locationName || undefined}
-              >
-                {getWeatherIcon(weather.code)}
-                <span>{weather.temp}</span>
-              </div>
+              <Tooltip content={weather.locationName || undefined} side="bottom" disabled={!weather.locationName}>
+                <div className="flex items-center gap-1 text-[11px] text-[#a1a1aa] tabular-nums cursor-default">
+                  {getWeatherIcon(weather.code)}
+                  <span>{weather.temp}</span>
+                </div>
+              </Tooltip>
             )}
             {(camActive || micActive) && (
               <div className="flex items-center gap-1 ml-0.5">
                 {camActive && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#34c759] shadow-[0_0_6px_#34c759]" />
+                  <Tooltip content={getLanguage() === "id" ? "Kamera sedang digunakan" : "Camera in use"} side="bottom">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#34c759] shadow-[0_0_6px_#34c759]" />
+                  </Tooltip>
                 )}
                 {micActive && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#ff9f0a] shadow-[0_0_6px_#ff9f0a]" />
+                  <Tooltip content={getLanguage() === "id" ? "Mikrofon sedang digunakan" : "Microphone in use"} side="bottom">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#ff9f0a] shadow-[0_0_6px_#ff9f0a]" />
+                  </Tooltip>
                 )}
               </div>
             )}

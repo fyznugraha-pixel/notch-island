@@ -367,7 +367,6 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
                   ? "bg-black/[0.05] hover:bg-black/[0.09] active:bg-black/[0.14] text-neutral-800 border-black/10"
                   : "bg-white/[0.07] hover:bg-white/[0.12] active:bg-white/[0.18] text-white border-white/10"
               }`}
-              title={isId ? "Buka Control Center di Notch" : "Open Control Center on Notch"}
             >
               <SlidersHorizontal size={11} className={activePreviewTab === "quick_control" ? "text-white" : "text-[#3882F6]"} />
               <span>
@@ -387,7 +386,6 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
                   ? "bg-black/[0.05] hover:bg-black/[0.09] active:bg-black/[0.14] text-neutral-800 border-black/10"
                   : "bg-white/[0.07] hover:bg-white/[0.12] active:bg-white/[0.18] text-zinc-200 border-white/10"
               }`}
-              title={isId ? "Buka Monitor Sistem di Notch" : "Open System Monitor on Notch"}
             >
               <Activity size={11} className={activePreviewTab === "sys_monitor" ? "text-white" : "text-[#ff9f0a]"} />
               <span>{t("settings_preview_monitor")}</span>
@@ -403,7 +401,6 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
                   ? "bg-black/[0.05] hover:bg-black/[0.09] active:bg-black/[0.14] text-neutral-800 border-black/10"
                   : "bg-white/[0.07] hover:bg-white/[0.12] active:bg-white/[0.18] text-zinc-200 border-white/10"
               }`}
-              title={isId ? "Buka Tab Musik di Notch" : "Open Music Tab on Notch"}
             >
               <Music size={11} className={activePreviewTab === "media_expanded" ? "text-white" : "text-[#fc3c44]"} />
               <span>{t("settings_preview_music")}</span>
@@ -418,7 +415,6 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
                     ? "bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100"
                     : "bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25"
                 }`}
-                title={isId ? "Tutup Tab Notch" : "Close Notch Tab"}
               >
                 <X size={11} />
                 <span>{t("settings_preview_close")}</span>

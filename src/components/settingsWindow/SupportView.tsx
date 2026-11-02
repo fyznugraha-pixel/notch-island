@@ -9,6 +9,7 @@ import {
   Maximize2,
   X,
 } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 import { Language } from "../../services/i18n";
 
 interface SupportViewProps {
@@ -230,18 +231,19 @@ export const SupportView: React.FC<SupportViewProps> = ({
         </div>
 
         <div className="w-full flex flex-col items-center justify-center py-2">
-          <div
-            onClick={() => setIsZoomed(true)}
-            title={isId ? "Klik untuk memperbesar QRIS" : "Click to enlarge QRIS"}
-            className="bg-white rounded-[18px] p-2.5 shadow-[0_8px_28px_rgba(0,0,0,0.25)] border border-black/10 cursor-zoom-in transition-transform hover:scale-[1.01]"
-          >
-            <img
-              src="/qris-support.png"
-              alt="QRIS FYURL"
-              draggable={false}
-              className="w-[270px] h-auto rounded-[12px] object-contain select-none"
-            />
-          </div>
+          <Tooltip content={isId ? "Klik untuk memperbesar QRIS" : "Click to enlarge QRIS"} side="top">
+            <div
+              onClick={() => setIsZoomed(true)}
+              className="bg-white rounded-[18px] p-2.5 shadow-[0_8px_28px_rgba(0,0,0,0.25)] border border-black/10 cursor-zoom-in transition-transform hover:scale-[1.01]"
+            >
+              <img
+                src="/qris-support.png"
+                alt="QRIS FYURL"
+                draggable={false}
+                className="w-[270px] h-auto rounded-[12px] object-contain select-none"
+              />
+            </div>
+          </Tooltip>
           <span
             className={`text-[11px] mt-2.5 ${
               isLightMode ? "text-neutral-500" : "text-zinc-400"

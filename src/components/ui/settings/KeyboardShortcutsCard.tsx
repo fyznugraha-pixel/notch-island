@@ -13,6 +13,7 @@ import {
   Monitor,
 } from "lucide-react";
 import { IosSwitch } from "../../ios/IosSwitch";
+import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
 import {
   SHORTCUT_ACTIONS,
@@ -349,12 +350,11 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
                   {/* Conflict / Inactive indicator */}
                   {!isRecording && shortcut && status === "conflict" && (
-                    <div
-                      className="text-amber-400 p-1"
-                      title={t("shortcut_err_conflict")}
-                    >
-                      <AlertCircle size={14} />
-                    </div>
+                    <Tooltip content={t("shortcut_err_conflict")} side="top">
+                      <div className="text-amber-400 p-1">
+                        <AlertCircle size={14} />
+                      </div>
+                    </Tooltip>
                   )}
 
                   {/* Change button */}
@@ -382,19 +382,20 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
                   {/* Reset to default button */}
                   {!isDefault && (
-                    <button
-                      type="button"
-                      onClick={() => onResetShortcut(action.id)}
-                      className={`p-1.5 rounded-lg transition-colors ${
-                        isLight
-                          ? "text-neutral-500 hover:text-black hover:bg-black/[0.06]"
-                          : "text-white/40 hover:text-white hover:bg-white/[0.08]"
-                      }`}
-                      title={t("settings_shortcuts_reset_default")}
-                      aria-label={t("settings_shortcuts_reset_default")}
-                    >
-                      <RotateCcw size={12} strokeWidth={2} />
-                    </button>
+                    <Tooltip content={t("settings_shortcuts_reset_default")} side="top">
+                      <button
+                        type="button"
+                        onClick={() => onResetShortcut(action.id)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          isLight
+                            ? "text-neutral-500 hover:text-black hover:bg-black/[0.06]"
+                            : "text-white/40 hover:text-white hover:bg-white/[0.08]"
+                        }`}
+                        aria-label={t("settings_shortcuts_reset_default")}
+                      >
+                        <RotateCcw size={12} strokeWidth={2} />
+                      </button>
+                    </Tooltip>
                   )}
                 </div>
               </div>

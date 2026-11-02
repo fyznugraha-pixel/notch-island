@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Tooltip } from "../Tooltip";
 import { getLanguage } from "../../../services/i18n";
 
 export interface WaterHourPickerProps {
@@ -79,18 +80,19 @@ export const WaterHourPicker: React.FC<WaterHourPickerProps> = ({
       >
         <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2" />
       </svg>
-      <input
-        type="text"
-        value={inputText}
-        onChange={(e) => setInputText(e.target.value)}
-        onBlur={() => commitValue(inputText)}
-        onKeyDown={handleKeyDown}
-        onFocus={(e) => e.target.select()}
-        aria-label={defaultAriaLabel}
-        title={isEn ? "Type hour directly (e.g. 03:00, 3, 21)" : "Ketik jam langsung (contoh: 03.00, 3, 21)"}
-        className="w-[44px] bg-transparent text-center font-bold text-[13px] border-0 outline-none tabular-nums p-0 cursor-text"
-        style={{ color: isLightMode ? "#101828" : "#ffffff" }}
-      />
+      <Tooltip content={isEn ? "Type hour directly (e.g. 03:00, 3, 21)" : "Ketik jam langsung (contoh: 03.00, 3, 21)"} side="top">
+        <input
+          type="text"
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onBlur={() => commitValue(inputText)}
+          onKeyDown={handleKeyDown}
+          onFocus={(e) => e.target.select()}
+          aria-label={defaultAriaLabel}
+          className="w-[44px] bg-transparent text-center font-bold text-[13px] border-0 outline-none tabular-nums p-0 cursor-text"
+          style={{ color: isLightMode ? "#101828" : "#ffffff" }}
+        />
+      </Tooltip>
     </div>
   );
 };

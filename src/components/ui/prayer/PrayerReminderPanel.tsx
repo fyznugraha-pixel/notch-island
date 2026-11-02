@@ -33,6 +33,7 @@ import {
   clearCustomCity,
   getSavedCustomCity,
 } from "../../../services/weatherService";
+import { Tooltip } from "../Tooltip";
 import { Language } from "../../../services/i18n";
 import { IosSwitch } from "../../ios/IosSwitch";
 
@@ -450,16 +451,16 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
       {/* 1. Top Header Bar */}
       <div className="flex items-center justify-between gap-2.5 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
-            onClick={() => setSubView("location")}
-            title={isId ? "Klik untuk ubah kota/lokasi" : "Click to change city/location"}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors cursor-pointer truncate max-w-[220px] ${
-              isLightMode
-                ? "bg-black/[0.06] hover:bg-black/[0.1] text-neutral-800"
-                : "bg-white/[0.08] hover:bg-white/[0.14] text-zinc-100"
-            }`}
-          >
+          <Tooltip content={isId ? "Klik untuk ubah kota/lokasi" : "Click to change city/location"} side="bottom">
+            <button
+              type="button"
+              onClick={() => setSubView("location")}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors cursor-pointer truncate max-w-[220px] ${
+                isLightMode
+                  ? "bg-black/[0.06] hover:bg-black/[0.1] text-neutral-800"
+                  : "bg-white/[0.08] hover:bg-white/[0.14] text-zinc-100"
+              }`}
+            >
             <MapPin size={11.5} className="text-[#10b981] shrink-0" />
             <span className="truncate">{schedule.locationName}</span>
             {customCity && (
@@ -468,6 +469,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               </span>
             )}
           </button>
+          </Tooltip>
 
           {schedule.hijriDate && (
             <span
@@ -497,7 +499,6 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
           <button
             type="button"
             onClick={() => setSubView("settings")}
-            title={isId ? "Pengaturan pengingat sholat" : "Prayer reminder settings"}
             className={`flex items-center gap-1 px-2.5 h-6 rounded-full text-[10.5px] font-semibold transition-colors cursor-pointer ${
               settings.reminderEnabled
                 ? "bg-[#10b981] text-white"
@@ -620,10 +621,8 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                 >
                   {pName}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => handleToggleSinglePrayerNotif(prayerId)}
-                  title={
+                <Tooltip
+                  content={
                     isNotifOn
                       ? isId
                         ? `Notifikasi ${pName} aktif`
@@ -632,16 +631,22 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                       ? `Notifikasi ${pName} nonaktif`
                       : `${pName} notification off`
                   }
-                  className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
-                    isNotifOn
-                      ? "text-[#10b981] hover:bg-[#10b981]/15"
-                      : isLightMode
-                      ? "text-neutral-400 hover:bg-black/5"
-                      : "text-zinc-500 hover:bg-white/5"
-                  }`}
+                  side="top"
                 >
-                  {isNotifOn ? <Bell size={11} /> : <BellOff size={11} />}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSinglePrayerNotif(prayerId)}
+                    className={`w-4.5 h-4.5 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                      isNotifOn
+                        ? "text-[#10b981] hover:bg-[#10b981]/15"
+                        : isLightMode
+                        ? "text-neutral-400 hover:bg-black/5"
+                        : "text-zinc-500 hover:bg-white/5"
+                    }`}
+                  >
+                    {isNotifOn ? <Bell size={11} /> : <BellOff size={11} />}
+                  </button>
+                </Tooltip>
               </div>
 
               {/* Middle: Time */}

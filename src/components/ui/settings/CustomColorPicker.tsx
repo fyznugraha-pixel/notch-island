@@ -8,6 +8,7 @@ import {
   Moon,
   Battery,
 } from "lucide-react";
+import { Tooltip } from "../Tooltip";
 import {
   hexToHsl,
   hslToHex,
@@ -399,53 +400,56 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
             placeholder={mode === "text" ? "ffffff" : "0f172a"}
             className="w-full bg-transparent text-[12.5px] font-mono font-semibold text-white outline-none uppercase"
           />
-          <button
-            type="button"
-            title={copied ? "Tersalin!" : isId ? "Salin Kode HEX" : "Copy HEX code"}
-            onClick={handleCopyHex}
-            className="text-zinc-400 hover:text-white p-1 rounded transition-colors shrink-0"
-          >
+          <Tooltip content={copied ? "Tersalin!" : isId ? "Salin Kode HEX" : "Copy HEX code"} side="top">
+            <button
+              type="button"
+              onClick={handleCopyHex}
+              className="text-zinc-400 hover:text-white p-1 rounded transition-colors shrink-0"
+            >
             {copied ? (
               <Check size={14} className="text-emerald-400" />
             ) : (
               <Copy size={14} />
             )}
           </button>
+          </Tooltip>
         </div>
 
         {/* Eyedropper */}
         {supportsEyeDropper && (
+          <Tooltip content={isId ? "Ambil warna dari layar (Eyedropper)" : "Sample color from screen"} side="top">
+            <button
+              type="button"
+              onClick={handleEyeDropper}
+              className={`w-10 h-10 rounded-[10px] border flex items-center justify-center transition-all ${
+                isLightMode
+                  ? "bg-white/80 hover:bg-white text-neutral-700 border-black/10"
+                  : "bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border-white/10"
+              }`}
+            >
+              <Pipette size={15} />
+            </button>
+          </Tooltip>
+        )}
+
+        {/* Reset to Default */}
+        <Tooltip content={isId ? `Kembalikan ke warna default (${defaultFallback})` : `Reset to default (${defaultFallback})`} side="top">
           <button
             type="button"
-            title={isId ? "Ambil warna dari layar (Eyedropper)" : "Sample color from screen"}
-            onClick={handleEyeDropper}
+            onClick={() => {
+              setHexInput(defaultFallback);
+              setHsl(hexToHsl(defaultFallback));
+              onChange(defaultFallback);
+            }}
             className={`w-10 h-10 rounded-[10px] border flex items-center justify-center transition-all ${
               isLightMode
                 ? "bg-white/80 hover:bg-white text-neutral-700 border-black/10"
                 : "bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border-white/10"
             }`}
           >
-            <Pipette size={15} />
+            <RotateCcw size={14} />
           </button>
-        )}
-
-        {/* Reset to Default */}
-        <button
-          type="button"
-          title={isId ? `Kembalikan ke warna default (${defaultFallback})` : `Reset to default (${defaultFallback})`}
-          onClick={() => {
-            setHexInput(defaultFallback);
-            setHsl(hexToHsl(defaultFallback));
-            onChange(defaultFallback);
-          }}
-          className={`w-10 h-10 rounded-[10px] border flex items-center justify-center transition-all ${
-            isLightMode
-              ? "bg-white/80 hover:bg-white text-neutral-700 border-black/10"
-              : "bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border-white/10"
-          }`}
-        >
-          <RotateCcw size={14} />
-        </button>
+        </Tooltip>
       </div>
 
       {/* 3. Interactive HSL Sliders */}
@@ -555,23 +559,22 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
             const title = isId ? item.nameId : item.nameEn;
             const itemLuminance = getPerceivedLuminance(item.hex);
             return (
-              <button
-                key={item.hex}
-                type="button"
-                title={`${title} (${item.hex})`}
-                onClick={() => {
-                  const next = normalizeHex(item.hex);
-                  setHexInput(next);
-                  setHsl(hexToHsl(next));
-                  onChange(next);
-                }}
-                style={{ backgroundColor: item.hex }}
-                className={`group relative h-[32px] rounded-[9px] border border-white/20 flex flex-col items-center justify-center transition-all cursor-pointer ${
-                  isSelected
-                    ? "scale-105 ring-2 ring-blue-400 ring-offset-2 ring-offset-[#121216] shadow-lg z-10"
-                    : "hover:scale-105 opacity-90 hover:opacity-100 shadow-sm"
-                }`}
-              >
+              <Tooltip key={item.hex} content={`${title} (${item.hex})`} side="top">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = normalizeHex(item.hex);
+                    setHexInput(next);
+                    setHsl(hexToHsl(next));
+                    onChange(next);
+                  }}
+                  style={{ backgroundColor: item.hex }}
+                  className={`group relative h-[32px] w-full rounded-[9px] border border-white/20 flex flex-col items-center justify-center transition-all cursor-pointer ${
+                    isSelected
+                      ? "scale-105 ring-2 ring-blue-400 ring-offset-2 ring-offset-[#121216] shadow-lg z-10"
+                      : "hover:scale-105 opacity-90 hover:opacity-100 shadow-sm"
+                  }`}
+                >
                 {isSelected ? (
                   <Check
                     size={14}
@@ -591,7 +594,8 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
                     Aa
                   </span>
                 )}
-              </button>
+                </button>
+              </Tooltip>
             );
           })}
         </div>
