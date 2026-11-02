@@ -22,7 +22,11 @@ export const Tooltip: React.FC<TooltipProps> = ({
   wrapperClassName = "",
 }) => {
   const [isVisible, setIsVisible] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const [coords, setCoords] = useState<{
+    top: number;
+    left: number;
+    useTransformCenter?: boolean;
+  } | null>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -40,7 +44,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
     // Auto-flip vertical if not enough space
     if (currentSide === "top" && triggerRect.top - tipHeight - 8 < 6) {
-      currentSide = "bottom";
+      // Keep strictly on top for docks/toolbars to avoid covering trigger icon
+      currentSide = "top";
     } else if (currentSide === "bottom" && triggerRect.bottom + tipHeight + 8 > window.innerHeight - 6) {
       currentSide = "top";
     }
@@ -52,15 +57,17 @@ export const Tooltip: React.FC<TooltipProps> = ({
       currentSide = "left";
     }
 
-    if (currentSide === "top") {
-      top = triggerRect.top - tipHeight - 8;
-      if (align === "start") {
-        left = triggerRect.left;
-      } else if (align === "end") {
-        left = triggerRect.right - tipWidth;
-      } else {
-        left = triggerRect.left + (triggerRect.width - tipWidth) / 2;
-      }
+    if (currentSide === "top" && align === "center") {
+      const safeTop = Math.max(tipHeight + 4, triggerRect.top - 8);
+      const safeLeft = Math.max(
+        tipWidth / 2 + 6,
+        Math.min(window.innerWidth - tipWidth / 2 - 6, triggerRect.left + triggerRect.width / 2)
+      );
+      return {
+        top: safeTop,
+        left: safeLeft,
+        useTransformCenter: true,
+      };
     } else if (currentSide === "bottom") {
       top = triggerRect.bottom + 8;
       if (align === "start") {
@@ -91,13 +98,16 @@ export const Tooltip: React.FC<TooltipProps> = ({
       }
     }
 
-    // Viewport boundary clamping (guarantees tooltip is never clipped by window edges)
+    // Viewport boundary clamping (guarantees tooltip is never clipped by window edges and never overlaps icon)
     const padding = 6;
     const maxLeft = Math.max(padding, window.innerWidth - tipWidth - padding);
     const maxTop = Math.max(padding, window.innerHeight - tipHeight - padding);
+    const resolvedTop = currentSide === "top"
+      ? Math.min(top, triggerRect.top - tipHeight - 6)
+      : Math.min(maxTop, top);
 
     return {
-      top: Math.max(padding, Math.min(maxTop, top)),
+      top: Math.max(padding, resolvedTop),
       left: Math.max(padding, Math.min(maxLeft, left)),
     };
   };
@@ -171,6 +181,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
                   position: "fixed",
                   top: coords.top,
                   left: coords.left,
+                  transform: coords.useTransformCenter ? "translate(-50%, -100%)" : undefined,
                   zIndex: 99999,
                   pointerEvents: "none",
                 }}

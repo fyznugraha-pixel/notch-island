@@ -7,6 +7,7 @@ mod audio_endpoints;
 mod migration;
 mod windows_dnd;
 mod toast_banners;
+pub mod shelf_server;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -2717,7 +2718,11 @@ pub fn run() {
             take_pending_settings_section,
             broadcast_settings_sync,
             trigger_notch_action,
-            restart_app
+            restart_app,
+            shelf_server::start_shelf_send,
+            shelf_server::start_shelf_receive,
+            shelf_server::stop_shelf_transfer,
+            shelf_server::get_shelf_transfer_status
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};

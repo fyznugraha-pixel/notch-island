@@ -23,6 +23,8 @@ export interface SettingsPanelProps {
   onChangeLanguage: (lang: Language) => void;
   optAutoCompact: boolean;
   onToggleAutoCompact: () => void;
+  optAutoCompactMode?: "browser" | "maximized";
+  onChangeAutoCompactMode?: (mode: "browser" | "maximized") => void;
   isAutostart: boolean;
   onToggleAutostart: () => void;
   showGreeting: boolean;
@@ -89,6 +91,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   optLanguage,
   optAutoCompact,
   onToggleAutoCompact,
+  optAutoCompactMode = "browser",
+  onChangeAutoCompactMode,
   optCloseDelay,
   onChangeCloseDelay,
   optTheme,
@@ -247,7 +251,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               iconBgClass="bg-[#142333]"
               iconColorClass="text-[#0a84ff]"
               title={t("settings_auto_compact")}
-              subtitle={t("settings_auto_compact_desc")}
+              subtitle={
+                optAutoCompact
+                  ? optAutoCompactMode === "maximized"
+                    ? t("settings_auto_compact_desc_maximized")
+                    : t("settings_auto_compact_desc_browser")
+                  : t("settings_auto_compact_desc")
+              }
               control={
                 <IosSwitch
                   checked={optAutoCompact}
@@ -256,6 +266,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 />
               }
             />
+
+            {optAutoCompact && onChangeAutoCompactMode && (
+              <div className="flex items-center justify-between px-3 py-1.5 -mt-1 mb-1 rounded-xl bg-white/[0.03] border border-white/[0.05]">
+                <span className="text-[12px] text-white/70 font-medium">
+                  {t("settings_auto_compact_target")}
+                </span>
+                <IosSegmentedControl
+                  value={optAutoCompactMode}
+                  onChange={(val) => onChangeAutoCompactMode(val as "browser" | "maximized")}
+                  options={[
+                    { value: "browser", label: t("settings_auto_compact_browser") },
+                    { value: "maximized", label: t("settings_auto_compact_maximized") },
+                  ]}
+                />
+              </div>
+            )}
 
             {/* Sound FX */}
             <SettingRow

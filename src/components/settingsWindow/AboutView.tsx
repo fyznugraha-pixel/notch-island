@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -17,6 +17,28 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "5.0.0",
+    date: "2 Nov 2026",
+    highlights: [
+      {
+        icon: <Smartphone size={14} />,
+        titleId: "Transfer File Shelf ke Ponsel & HP",
+        titleEn: "Phone File Shelf Transfer",
+        descId: "Kirim dan terima file antara PC dan ponsel via QR code secara instan melalui jaringan Wi-Fi lokal tanpa internet.",
+        descEn: "Instantly send and receive files between PC and mobile phones via QR code over local Wi-Fi without internet.",
+        badge: "new",
+      },
+      {
+        icon: <Bug size={14} />,
+        titleId: "Perbaikan Menu Dropdown Mode Notch",
+        titleEn: "Notch Mode Dropdown Fix",
+        descId: "Memperbaiki menu dropdown Mode di Control Center Notch agar tidak tenggelam atau terpotong di tepi bawah notch.",
+        descEn: "Fixed the Mode dropdown menu in Notch Control Center so it stays fully visible and no longer gets clipped.",
+        badge: "fix",
+      },
+    ],
+  },
   {
     version: "4.3.2",
     date: "1 Nov 2026",

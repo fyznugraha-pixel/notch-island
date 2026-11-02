@@ -17,13 +17,30 @@ import {
   ChevronLeft,
   ChevronRight,
   GripHorizontal,
+  Smartphone,
 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { Tooltip } from "./Tooltip";
 import { getWheelVerticalDirection, getNormalizedHorizontalDelta } from "../../utils/gesture";
 import { t, getLanguage } from "../../services/i18n";
 import { FilePreview, queueFilePreviews, getCachedPreview } from "../../services/shelfService";
+import { DropShelfTransferModal } from "./shelf/DropShelfTransferModal";
+import { DropShelfReceivedBanner } from "./shelf/DropShelfReceivedBanner";
+import {
+  startShelfSend,
+  startShelfReceive,
+  stopShelfTransfer,
+  onShelfTransferProgress,
+  onShelfFileReceived,
+  onShelfTransferCompleted,
+} from "../../services/shelfTransferService";
+import {
+  ShelfSessionInfo,
+  ShelfTransferMode,
+  ShelfTransferProgressPayload,
+} from "../../types/shelfTransfer";
+
 
 export interface StashedFile {
   id: string;
@@ -33,6 +50,9 @@ export interface StashedFile {
   addedAt: number;
   sizeFormatted?: string;
   thumbnail?: string;
+  source?: "local" | "phone";
+  deviceName?: string;
+  isNew?: boolean;
 }
 
 export interface DropShelfPanelProps {
@@ -42,8 +62,12 @@ export interface DropShelfPanelProps {
   onClearAll: () => void;
   onFileTransferred?: (id: string) => void;
   onFilesTransferred?: (ids: string[]) => void;
-  onAddFiles?: (paths: string[]) => void;
+  onAddFiles?: (
+    paths: string[],
+    meta?: { source?: "local" | "phone"; deviceName?: string; isNew?: boolean; thumbnail?: string }
+  ) => void;
   onDragStateChange?: (active: boolean, paths?: string[]) => void;
+  isDragOver?: boolean;
 }
 
 function getFileIcon(ext: string) {
@@ -126,14 +150,125 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     onFilesTransferred,
     onAddFiles,
     onDragStateChange,
+    isDragOver = false,
   }) => {
     const isEn = getLanguage() === "en";
     const [copiedId, setCopiedId] = useState<string | null>(null);
-    const [previews, setPreviews] = useState<Record<string, FilePreview>>({});
+    const [previews, setPreviews] = useState<Record<string, FilePreview>>(() => {
+      const initial: Record<string, FilePreview> = {};
+      for (const f of files) {
+        const cached = getCachedPreview(f.id) || getCachedPreview(f.path);
+        if (cached) {
+          initial[f.id] = cached;
+        } else if (f.thumbnail || f.sizeFormatted) {
+          initial[f.id] = {
+            thumbnail: f.thumbnail,
+            sizeFormatted: f.sizeFormatted || "--",
+          };
+        }
+      }
+      return initial;
+    });
+    const [failedThumbIds, setFailedThumbIds] = useState<Set<string>>(new Set());
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [isHoveringDrop, setIsHoveringDrop] = useState(false);
     const isDraggingRef = useRef(false);
     const isMountedRef = useRef(true);
+    const [transferMode, setTransferMode] = useState<ShelfTransferMode>("idle");
+    const [sessionInfo, setSessionInfo] = useState<ShelfSessionInfo | null>(null);
+    const [incomingProgress, setIncomingProgress] = useState<Record<string, ShelfTransferProgressPayload>>({});
+    const [activeDeviceName, setActiveDeviceName] = useState<string>("");
+    const [receivedBanner, setReceivedBanner] = useState<{ count: number; deviceName: string } | null>(null);
+
+    useEffect(() => {
+      let unlistenProgress: (() => void) | undefined;
+      let unlistenFile: (() => void) | undefined;
+      let unlistenComplete: (() => void) | undefined;
+
+      const initListeners = async () => {
+        unlistenProgress = await onShelfTransferProgress((payload) => {
+          setTransferMode("receiving");
+          setActiveDeviceName(payload.device_name);
+          setIncomingProgress((prev) => ({
+            ...prev,
+            [payload.id]: payload,
+          }));
+        });
+
+        unlistenFile = await onShelfFileReceived((payload) => {
+          if (onAddFiles) {
+            onAddFiles([payload.path], {
+              source: "phone",
+              deviceName: payload.device_name,
+              isNew: true,
+              thumbnail: payload.thumbnail,
+            });
+          }
+        });
+
+        unlistenComplete = await onShelfTransferCompleted((payload) => {
+          setReceivedBanner({
+            count: payload.total_files,
+            deviceName: payload.device_name,
+          });
+          setIncomingProgress({});
+          setTransferMode("idle");
+        });
+      };
+
+      initListeners();
+
+      return () => {
+        unlistenProgress?.();
+        unlistenFile?.();
+        unlistenComplete?.();
+      };
+    }, [onAddFiles]);
+
+    const handleSendSingleFile = async (targetFile: StashedFile) => {
+      try {
+        const session = await startShelfSend([targetFile.path]);
+        setSessionInfo(session);
+        setTransferMode("send");
+      } catch (err) {
+        console.error("Failed to start shelf send for file:", err);
+      }
+    };
+
+    const handleStartSend = async () => {
+      const targetFiles = selectedIds.size > 0
+        ? files.filter((f) => selectedIds.has(f.id))
+        : files;
+      if (targetFiles.length === 0) return;
+      try {
+        const session = await startShelfSend(targetFiles.map((f) => f.path));
+        setSessionInfo(session);
+        setTransferMode("send");
+      } catch (err) {
+        console.error("Failed to start shelf send:", err);
+      }
+    };
+
+    const handleStartReceive = async () => {
+      try {
+        const session = await startShelfReceive();
+        setSessionInfo(session);
+        setTransferMode("receive");
+      } catch (err) {
+        console.error("Failed to start shelf receive:", err);
+      }
+    };
+
+    const handleCloseTransfer = async () => {
+      try {
+        await stopShelfTransfer();
+      } catch (err) {
+        console.error("Error stopping transfer:", err);
+      }
+      setTransferMode("idle");
+      setSessionInfo(null);
+      setIncomingProgress({});
+    };
+
 
     const handleChooseFiles = async () => {
       if (!onAddFiles) return;
@@ -300,51 +435,26 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
       executeNativeDrag(targetFiles);
     };
 
+    const isDropActive = isDragOver;
+
     return (
       <div
         data-scrollable="true"
         data-no-swipe="true"
-        className="flex flex-col w-full h-full min-h-0 select-none overflow-hidden px-6 pb-1"
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!isDraggingRef.current) {
-            setIsHoveringDrop(true);
-          }
-        }}
-        onDragLeave={() => setIsHoveringDrop(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setIsHoveringDrop(false);
-          if (isDraggingRef.current) return;
-          if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && onAddFiles) {
-            const paths: string[] = [];
-            for (let i = 0; i < e.dataTransfer.files.length; i++) {
-              const file = e.dataTransfer.files[i];
-              const p = (file as any).path;
-              if (typeof p === "string" && (p.includes("\\") || p.includes("/"))) {
-                paths.push(p);
-              }
-            }
-            if (paths.length > 0) {
-              onAddFiles(paths);
-            }
-          }
-        }}
+        className="relative flex flex-col w-full h-full min-h-0 select-none overflow-hidden px-6 pb-1"
       >
         {files.length === 0 ? (
           /* Empty / Active Drop Zone */
           <div
             className={`flex-1 my-1.5 rounded-[20px] flex flex-col items-center justify-center gap-1.5 px-6 text-center transition-all ${
-              isHoveringDrop
+              isDropActive
                 ? "border-2 border-[#3882F6] bg-[rgba(56,130,246,0.08)] shadow-[0_0_24px_rgba(56,130,246,0.2)]"
                 : "border-[1.5px] border-dashed border-white/10 hover:border-white/20 bg-[#0d0d12]"
             }`}
           >
             <div
               className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
-                isHoveringDrop
+                isDropActive
                   ? "bg-[#3882F6] text-white scale-110 shadow-lg shadow-[#3882F6]/30"
                   : "bg-white/[0.06] border border-white/8 text-zinc-300"
               }`}
@@ -352,24 +462,43 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               <Upload size={19} strokeWidth={2} />
             </div>
             <div className="text-[14px] font-semibold text-white tracking-tight">
-              {isHoveringDrop ? t("drag_drop_title") : t("shelf_drop_here")}
+              {isDropActive ? t("drag_drop_title") : t("shelf_drop_here")}
             </div>
             <div className="text-[11px] leading-relaxed text-zinc-400 max-w-[340px]">
               {t("shelf_drop_desc")}
             </div>
-            {!isHoveringDrop && (
-              <button
-                type="button"
-                onClick={handleChooseFiles}
-                className="mt-1 h-7 px-3.5 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 text-[11px] font-medium transition-colors cursor-pointer"
-              >
-                {t("shelf_choose_files")}
-              </button>
+            {!isDropActive && (
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={handleChooseFiles}
+                  className="h-7 px-3.5 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 text-[11px] font-medium transition-colors cursor-pointer"
+                >
+                  {t("shelf_choose_files")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartReceive}
+                  className="h-7 px-3 rounded-full border border-[#3882F6]/30 hover:border-[#3882F6]/60 bg-[#3882F6]/10 hover:bg-[#3882F6]/20 text-[#8db8ff] hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title={t("shelf_receive_from_phone")}
+                >
+                  <Smartphone size={12} />
+                  <span>{t("shelf_receive_from_phone")}</span>
+                </button>
+              </div>
             )}
           </div>
         ) : (
           /* Filled State */
           <>
+            {receivedBanner && (
+              <DropShelfReceivedBanner
+                count={receivedBanner.count}
+                deviceName={receivedBanner.deviceName}
+                onReceiveAgain={handleStartReceive}
+                onDismiss={() => setReceivedBanner(null)}
+              />
+            )}
             {/* Toolbar: summary left, clean actions right */}
             <div className="flex items-center gap-2 mt-0.5 mb-1.5 h-[28px] shrink-0">
               <div className="flex items-center gap-2">
@@ -398,12 +527,26 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
 
               <button
                 type="button"
-                onClick={handleChooseFiles}
-                className="h-[26px] px-2.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/8 text-zinc-200 hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
-                title={t("shelf_choose_files")}
+                onClick={handleStartSend}
+                className="h-[26px] px-2.5 rounded-lg bg-[#3882F6] hover:bg-[#2563eb] text-white text-[11px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm shadow-[#3882F6]/30"
+                title={selectedIds.size > 0 ? t("shelf_send_to_phone") : "Kirim file ke HP"}
               >
-                <Plus size={12.5} strokeWidth={2.2} />
-                <span>{t("shelf_choose_files")?.replace(/\.\.\.$/, "") || t("shelf_add")}</span>
+                <Smartphone size={12.5} strokeWidth={2.2} />
+                <span>
+                  {selectedIds.size > 0
+                    ? `${t("shelf_send_to_phone")} (${selectedIds.size})`
+                    : t("shelf_send_to_phone")}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleStartReceive}
+                className="h-[26px] px-2.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/8 text-zinc-200 hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+                title={t("shelf_receive_from_phone")}
+              >
+                <Smartphone size={12.5} strokeWidth={2} />
+                <span>{t("shelf_receive_from_phone")}</span>
               </button>
 
               <button
@@ -461,16 +604,29 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               >
                 <AnimatePresence initial={false}>
                   {files.map((file) => {
-                    const preview = previews[file.id] || getCachedPreview(file.id);
-                    const thumb = file.thumbnail || preview?.thumbnail;
+                    const cleanExt = (file.ext || "").toLowerCase().replace(/^\./, "").trim();
+                    const isImg = [
+                      "png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "ico", "heic", "heif", "avif", "jfif"
+                    ].includes(cleanExt);
+                    const isVid = [
+                      "mp4", "mov", "webm", "mkv", "avi", "m4v"
+                    ].includes(cleanExt);
+
+                    const preview = previews[file.id] || getCachedPreview(file.id) || getCachedPreview(file.path);
+                    const candidateThumb =
+                      file.thumbnail ||
+                      preview?.thumbnail ||
+                      (isImg && file.path ? convertFileSrc(file.path) : undefined);
+                    const thumb = failedThumbIds.has(file.id) ? undefined : candidateThumb;
+
                     const sizeText =
                       file.sizeFormatted ||
                       preview?.sizeFormatted ||
-                      (file.ext ? file.ext.toUpperCase().replace(/^\./, "") : "FILE");
+                      (cleanExt ? cleanExt.toUpperCase() : "FILE");
                     const isCopied = copiedId === file.id;
                     const isSelected = selectedIds.has(file.id);
                     const { icon: IconComponent, color } = getFileIcon(file.ext);
-                    const extBadge = (file.ext || "").replace(/^\./, "").toUpperCase() || "FILE";
+                    const extBadge = cleanExt ? cleanExt.toUpperCase() : "FILE";
 
                     return (
                       <motion.div
@@ -502,8 +658,28 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                             <img
                               src={thumb}
                               alt={file.name}
+                              loading="lazy"
+                              onError={() => {
+                                setFailedThumbIds((prev) => new Set(prev).add(file.id));
+                              }}
                               className="w-full h-full object-contain p-1.5 select-none pointer-events-none"
                             />
+                          ) : isVid ? (
+                            <div className="relative w-full h-full overflow-hidden rounded-[10px] flex items-center justify-center bg-black/40">
+                              <video
+                                key={file.id}
+                                src={convertFileSrc(file.path)}
+                                muted
+                                playsInline
+                                preload="metadata"
+                                className="w-full h-full object-cover select-none pointer-events-none"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                                <div className="w-6 h-6 rounded-full bg-black/60 border border-white/20 flex items-center justify-center text-white shadow-sm">
+                                  <Film size={12} />
+                                </div>
+                              </div>
+                            </div>
                           ) : (
                             <div className="flex flex-col items-center justify-center gap-1">
                               <IconComponent size={28} className={color} strokeWidth={1.8} />
@@ -528,6 +704,18 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
 
                           {/* Top-Right Remove Button + Folder Button */}
                           <div className="absolute right-1.5 top-1.5 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Tooltip content={t("shelf_send_to_phone")} side="top">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSendSingleFile(file);
+                                }}
+                                className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-[#3882F6] text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                              >
+                                <Smartphone size={9.5} />
+                              </button>
+                            </Tooltip>
                             <Tooltip content={t("shelf_explorer")} side="top">
                               <button
                                 type="button"
@@ -574,6 +762,16 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                               {extBadge}
                             </span>
                             <span className="truncate">{sizeText}</span>
+                            {file.source === "phone" && (
+                              <span className="text-[9.5px] text-zinc-400 flex items-center gap-0.5">
+                                · {t("shelf_from_phone")}
+                              </span>
+                            )}
+                            {file.isNew && (
+                              <span className="px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[8.5px] font-semibold">
+                                {t("shelf_new_badge")}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </motion.div>
@@ -607,6 +805,16 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               )}
             </div>
           </>
+        )}
+        {transferMode !== "idle" && (
+          <DropShelfTransferModal
+            mode={transferMode}
+            session={sessionInfo}
+            incomingProgress={incomingProgress}
+            activeDeviceName={activeDeviceName}
+            onClose={handleCloseTransfer}
+            onCancel={handleCloseTransfer}
+          />
         )}
       </div>
     );

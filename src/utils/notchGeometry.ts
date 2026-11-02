@@ -91,7 +91,7 @@ export function getNotchSurfaceMetrics(params: NotchPathParams): NotchSurfaceMet
 
   const isSide = pos === "left" || pos === "right";
   const maxReAlongWall = isSide ? Math.max(0, w - rb) : Math.max(0, h - rb);
-  const maxRe = isSide ? (h > 0 ? 32 : 0) : (w > 0 ? 32 : 0);
+  const maxRe = isSide ? (h > 0 ? 48 : 0) : (w > 0 ? 48 : 0);
   const re = params.isIsland
     ? 0
     : snapToPhysicalPixel(Math.min(rawRe, maxReAlongWall, maxRe), dpr);
