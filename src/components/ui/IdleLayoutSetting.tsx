@@ -9,6 +9,8 @@ import {
   MemoryStick,
   ArrowDown,
   Moon,
+  Bell,
+  FolderDown,
 } from "lucide-react";
 import { t, Language } from "../../services/i18n";
 import { getWeatherIcon } from "./NotifIcon";
@@ -32,6 +34,8 @@ export type IdleSlotItem =
   | "todo"
   | "prayer"
   | "fps"
+  | "notifications"
+  | "shelf"
   | "none";
 
 export type IdleSlotPosition = "left" | "center" | "right";
@@ -61,11 +65,12 @@ const VALID_ITEMS: Set<string> = new Set([
   "todo",
   "prayer",
   "fps",
+  "notifications",
+  "shelf",
   "none",
 ]);
 
 function normalizeItem(val: any, fallback: IdleSlotItem): IdleSlotItem {
-  if (val === "shelf") return "fps";
   return VALID_ITEMS.has(val) ? (val as IdleSlotItem) : fallback;
 }
 
@@ -74,9 +79,6 @@ export function parseIdleLayout(raw: any): IdleLayoutConfig {
     const left = normalizeItem(raw.left, DEFAULT_IDLE_LAYOUT.left);
     const center = normalizeItem(raw.center, DEFAULT_IDLE_LAYOUT.center);
     const right = normalizeItem(raw.right, DEFAULT_IDLE_LAYOUT.right);
-    if (left === "none" && center === "none" && right === "none") {
-      return { left: "none", center: "clock", right: "none" };
-    }
     return { left, center, right };
   }
   return { ...DEFAULT_IDLE_LAYOUT };
@@ -105,6 +107,7 @@ export interface IdleRuntimeData {
   networkPing: number | null;
   pendingTodosCount: number;
   stashedFilesCount: number;
+  unreadNotifCount?: number;
   fps?: number;
   cpuUsage?: number;
   ramUsage?: number;
@@ -116,7 +119,7 @@ export interface IdleRuntimeData {
   optLanguage: Language;
   isLightMode?: boolean;
   customTextColor?: string | null;
-  onOpenTab?: (tab: "quick_control" | "todo" | "drop_shelf" | "sys_monitor" | "prayer_reminder") => void;
+  onOpenTab?: (tab: "quick_control" | "todo" | "drop_shelf" | "sys_monitor" | "prayer_reminder" | "notif_center") => void;
 }
 
 export function formatNetSpeed(mbps?: number): string {
@@ -162,6 +165,10 @@ export function getItemLabel(item: IdleSlotItem): string {
       return t("settings_slot_prayer") || "Sholat";
     case "fps":
       return t("settings_slot_fps");
+    case "notifications":
+      return t("settings_slot_notifications");
+    case "shelf":
+      return t("settings_slot_shelf");
     case "none":
       return t("settings_slot_none");
   }
@@ -234,6 +241,14 @@ export function measureIdleSlotItemWidth(
       const fpsText = `${data.fps || 60} FPS`;
       return Math.ceil(getTextWidth(fpsText, statFont) + 2);
     }
+    case "notifications": {
+      const notifCount = data.unreadNotifCount !== undefined ? data.unreadNotifCount : 0;
+      return Math.ceil(getTextWidth(`${notifCount}`, statFont) + 16);
+    }
+    case "shelf": {
+      const shelfCount = data.stashedFilesCount !== undefined ? data.stashedFilesCount : 0;
+      return Math.ceil(getTextWidth(`${shelfCount}`, statFont) + 16);
+    }
   }
 }
 
@@ -258,9 +273,12 @@ export function measureIdleLayoutWidth(
   });
 
   if (activeCount === 0) {
-    const timeText = data.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    totalWidth = Math.ceil(getTextWidth(timeText, statFont));
-    activeCount = 1;
+    const emptyWidth = idleSize === "compact" ? 36 : idleSize === "large" ? 48 : 42;
+    if (camActive || micActive) {
+      const dotsCount = (camActive ? 1 : 0) + (micActive ? 1 : 0);
+      return emptyWidth + (dotsCount === 2 ? 22 : 14);
+    }
+    return emptyWidth;
   }
 
   // Camera & Mic privacy indicators are displayed alongside the right slot (not replacing it)
@@ -505,6 +523,54 @@ export const IdleSlotView: React.FC<{
         >
           {currentFps} FPS
         </span>
+      );
+    }
+
+    case "notifications": {
+      const count = isPreview ? 3 : data.unreadNotifCount ?? 0;
+      return (
+        <div
+          onClick={(e) => {
+            if (!isPreview && data.onOpenTab) {
+              e.stopPropagation();
+              data.onOpenTab("notif_center");
+            }
+          }}
+          className="flex items-center gap-1 shrink-0 cursor-pointer"
+          title={`${count} ${data.optLanguage === "id" ? "Notifikasi" : "Notifications"}`}
+        >
+          <Bell size={10.5} className="text-indigo-400 shrink-0" />
+          <span
+            style={customColor ? customStyle : undefined}
+            className={`text-[10px] font-bold leading-none tabular-nums ${customColor ? "" : "text-indigo-300"} idle-stat-number`}
+          >
+            {count}
+          </span>
+        </div>
+      );
+    }
+
+    case "shelf": {
+      const count = isPreview ? 2 : data.stashedFilesCount ?? 0;
+      return (
+        <div
+          onClick={(e) => {
+            if (!isPreview && data.onOpenTab) {
+              e.stopPropagation();
+              data.onOpenTab("drop_shelf");
+            }
+          }}
+          className="flex items-center gap-1 shrink-0 cursor-pointer"
+          title={t("shelf_files_count", { count })}
+        >
+          <FolderDown size={10.5} className="text-cyan-400 shrink-0" />
+          <span
+            style={customColor ? customStyle : undefined}
+            className={`text-[10px] font-bold leading-none tabular-nums ${customColor ? "" : "text-cyan-300"} idle-stat-number`}
+          >
+            {count}
+          </span>
+        </div>
       );
     }
 

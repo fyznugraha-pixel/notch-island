@@ -930,6 +930,7 @@ export const SettingsWindowApp: React.FC = () => {
       networkPing: 18,
       pendingTodosCount: 2,
       stashedFilesCount: 1,
+      unreadNotifCount: 3,
       fps: 60,
       cpuUsage: 14,
       ramUsage: 48,

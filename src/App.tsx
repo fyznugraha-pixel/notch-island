@@ -3891,6 +3891,7 @@ export default function App() {
     networkPing,
     pendingTodosCount: pendingTodos.length,
     stashedFilesCount: stashedFiles.length,
+    unreadNotifCount,
     fps,
     cpuUsage: sysMetrics?.cpu_usage,
     ramUsage: sysMetrics?.mem_usage,
@@ -3903,7 +3904,7 @@ export default function App() {
     isLightMode: isLightMode || (optIdleColorEnabled && getPerceivedLuminance(optIdleColor) >= 0.55),
     customTextColor: optIdleTextColorEnabled ? optIdleTextColor : null,
     onOpenTab: (tab) => goToTab(tab),
-  }), [battery, time, dateDisplay, fullDateTitle, weather, networkPing, pendingTodos.length, stashedFiles.length, fps, sysMetrics, focusMode, optLanguage, isLightMode, optIdleColorEnabled, optIdleColor, optIdleTextColorEnabled, optIdleTextColor]);
+  }), [battery, time, dateDisplay, fullDateTitle, weather, networkPing, pendingTodos.length, stashedFiles.length, unreadNotifCount, fps, sysMetrics, focusMode, optLanguage, isLightMode, optIdleColorEnabled, optIdleColor, optIdleTextColorEnabled, optIdleTextColor]);
 
   const isSingleLine = notif && (!notif.body || notif.body.trim() === "");
   const isSmallNotif = notif?.icon === "battery" || notif?.icon === "volume" || notif?.icon === "capslock";

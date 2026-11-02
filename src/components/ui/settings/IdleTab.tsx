@@ -15,6 +15,8 @@ import {
   MemoryStick,
   ArrowDown,
   ArrowDownUp,
+  Bell,
+  FolderDown,
 } from "lucide-react";
 import {
   IdleLayoutConfig,
@@ -44,6 +46,8 @@ const ALL_IDLE_ITEMS: IdleSlotItem[] = [
   "ping",
   "weather",
   "todo",
+  "notifications",
+  "shelf",
   "fps",
   "none",
 ];
@@ -79,6 +83,10 @@ const renderOptionIcon = (
           return <ListTodo size={14} className="!text-[#007aff]" />;
         case "fps":
           return <Gauge size={14} className="!text-[#007aff]" />;
+        case "notifications":
+          return <Bell size={14} className="!text-[#007aff]" />;
+        case "shelf":
+          return <FolderDown size={14} className="!text-[#007aff]" />;
         case "none":
         default:
           return <EyeOff size={14} className="!text-[#007aff]" />;
@@ -109,6 +117,10 @@ const renderOptionIcon = (
         return <ListTodo size={14} className="text-white" />;
       case "fps":
         return <Gauge size={14} className="text-white" />;
+      case "notifications":
+        return <Bell size={14} className="text-white" />;
+      case "shelf":
+        return <FolderDown size={14} className="text-white" />;
       case "none":
       default:
         return <EyeOff size={14} className="text-white" />;
@@ -139,6 +151,10 @@ const renderOptionIcon = (
         return <ListTodo size={14} className="text-orange-600" />;
       case "fps":
         return <Gauge size={14} className="text-teal-700" />;
+      case "notifications":
+        return <Bell size={14} className="text-indigo-700" />;
+      case "shelf":
+        return <FolderDown size={14} className="text-cyan-700" />;
       case "none":
       default:
         return <EyeOff size={14} className="text-neutral-500" />;
@@ -169,6 +185,10 @@ const renderOptionIcon = (
       return <ListTodo size={14} className="text-[#ff9f0a]" />;
     case "fps":
       return <Gauge size={14} className="text-[#40c8ae]" />;
+    case "notifications":
+      return <Bell size={14} className="text-[#818cf8]" />;
+    case "shelf":
+      return <FolderDown size={14} className="text-[#38bdf8]" />;
     case "none":
     default:
       return <EyeOff size={14} className="text-[#71717a]" />;
@@ -208,6 +228,10 @@ const getOptionBgClass = (
         return "bg-orange-100/90";
       case "fps":
         return "bg-teal-100/90";
+      case "notifications":
+        return "bg-indigo-100/90";
+      case "shelf":
+        return "bg-cyan-100/90";
       case "none":
       default:
         return "bg-neutral-200/90";
@@ -238,6 +262,10 @@ const getOptionBgClass = (
       return "bg-[#2c2010]";
     case "fps":
       return "bg-[#132c2c]";
+    case "notifications":
+      return "bg-[#1d1b38]";
+    case "shelf":
+      return "bg-[#102936]";
     case "none":
     default:
       return "bg-[#1c1c20]";
@@ -268,11 +296,6 @@ export const IdleTab: React.FC<IdleTabProps> = ({
     }
 
     next[activeSlot] = item;
-
-    if (next.left === "none" && next.center === "none" && next.right === "none") {
-      next.center = "clock";
-    }
-
     onChangeLayout(next);
   };
 
@@ -417,6 +440,28 @@ export const IdleTab: React.FC<IdleTabProps> = ({
           >
             <ArrowDown size={11} />
             <span>{formatNetSpeed(runtimeData.netDownMbps ?? 1.2 * 8)}</span>
+          </div>
+        );
+      case "notifications":
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-indigo-700" : "text-indigo-300"
+            }`}
+          >
+            <Bell size={11} />
+            <span>{runtimeData.unreadNotifCount ?? 3}</span>
+          </div>
+        );
+      case "shelf":
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-cyan-700" : "text-cyan-300"
+            }`}
+          >
+            <FolderDown size={11} />
+            <span>{runtimeData.stashedFilesCount ?? 2}</span>
           </div>
         );
       case "none":
