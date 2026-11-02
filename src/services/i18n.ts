@@ -479,6 +479,14 @@ export const translations = {
   shelf_files_new_from: { en: "{count} new files from {device}", id: "{count} file baru dari {device}" },
   shelf_local_only: { en: "Local network only.", id: "Hanya lewat jaringan lokal." },
   shelf_can_send_multiple: { en: "Can send multiple times while active.", id: "Bisa kirim berkali-kali selama mode ini aktif." },
+  shelf_settings_title: { en: "Drop Shelf Settings", id: "Pengaturan Rak Berkas" },
+  shelf_settings_auto_remove: { en: "Auto-remove file after drag", id: "Hapus otomatis setelah di-drag" },
+  shelf_settings_auto_remove_desc: { en: "Remove items from shelf when dropped. Disabled by default so files stay safe if dropped nowhere.", id: "Hapus file dari rak setelah di-drop. Dimatikan secara default agar file aman jika kursor meleset." },
+  shelf_settings_open_folder: { en: "Open Received Files Folder", id: "Buka Folder Berkas HP" },
+  shelf_settings_open_folder_desc: { en: "View folder where files received from phones are stored", id: "Buka folder tempat file yang dikirim dari ponsel disimpan" },
+  shelf_settings_clear_cache: { en: "Clear Thumbnail Cache", id: "Bersihkan Cache Thumbnail" },
+  shelf_settings_clear_cache_desc: { en: "Free memory by clearing cached shelf previews", id: "Kosongkan memori dengan membersihkan cache pratinjau" },
+  shelf_settings_cache_cleared: { en: "Cache Cleared!", id: "Cache Berhasil Dibersihkan!" },
 
   // Clipboard
   clipboard_title: { en: "Clipboard History", id: "Riwayat Papan Klip" },

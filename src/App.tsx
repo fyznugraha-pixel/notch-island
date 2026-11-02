@@ -1035,6 +1035,7 @@ export default function App() {
 
   const [stashedFiles, setStashedFiles] = useState<StashedFile[]>(getInitialShelfFiles);
   const [isDropShelf, setIsDropShelf] = useState(false);
+  const [isShelfSettingsOpen, setIsShelfSettingsOpen] = useState(false);
   const isDropShelfRef = useRef(false);
   useEffect(() => { isDropShelfRef.current = isDropShelf; }, [isDropShelf]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -1709,6 +1710,9 @@ export default function App() {
 
     isDropShelfRef.current = targetTab === "drop_shelf";
     setIsDropShelf(targetTab === "drop_shelf");
+    if (targetTab !== "drop_shelf") {
+      setIsShelfSettingsOpen(false);
+    }
 
     isSysMonitorRef.current = targetTab === "sys_monitor";
     setIsSysMonitor(targetTab === "sys_monitor");
@@ -1790,6 +1794,10 @@ export default function App() {
   const tabBeforeSettingsRef = useRef<ExpandedTab | null>(null);
 
   const handleToggleSettings = () => {
+    if (currentTab === "drop_shelf") {
+      setIsShelfSettingsOpen((prev) => !prev);
+      return;
+    }
     if (currentTab === "settings") {
       const fallbackTab: ExpandedTab =
         lastActiveTabRef.current && (lastActiveTabRef.current as string) !== "settings"
@@ -4210,7 +4218,7 @@ export default function App() {
     currentTab === "quick_control" ? t("tab_control_center") :
     currentTab === "todo" ? t("tab_todo_list") :
     currentTab === "pomodoro" ? t("tab_pomodoro") :
-    currentTab === "drop_shelf" ? t("tab_file_shelf") :
+    currentTab === "drop_shelf" ? (isShelfSettingsOpen ? t("shelf_settings_title") : t("tab_file_shelf")) :
     currentTab === "sys_monitor" ? t("tab_sys_monitor") :
     currentTab === "mini_note" ? t("tab_mini_note") :
     currentTab === "water_reminder" ? (t("tab_water_reminder") || "Air") :
@@ -5284,10 +5292,12 @@ export default function App() {
                 >
                   <PanelFrame
                     title={panelTitle}
-                    hasPrev={currentTab === "settings" || isSubPage ? true : currentTabIndex > 0}
-                    hasNext={currentTab === "settings" || isSubPage ? false : currentTabIndex < availableTabs.length - 1}
+                    hasPrev={currentTab === "settings" || isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) ? true : currentTabIndex > 0}
+                    hasNext={currentTab === "settings" || isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) ? false : currentTabIndex < availableTabs.length - 1}
                     onPrev={
-                      currentTab === "settings"
+                      currentTab === "drop_shelf" && isShelfSettingsOpen
+                        ? () => setIsShelfSettingsOpen(false)
+                        : currentTab === "settings"
                         ? handleToggleSettings
                         : currentTab === "notif_center"
                         ? handleToggleNotifications
@@ -5296,22 +5306,22 @@ export default function App() {
                         : handlePrevTab
                     }
                     onNext={handleNextTab}
-                    prevTooltip={currentTab === "settings" || isSubPage ? t("nav_back") : t("nav_prev")}
+                    prevTooltip={currentTab === "settings" || isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) ? t("nav_back") : t("nav_prev")}
                     nextTooltip={t("nav_next")}
                     onToggleSettings={isSubPage ? undefined : handleToggleSettings}
-                    isSettingsActive={currentTab === "settings"}
+                    isSettingsActive={currentTab === "settings" || (currentTab === "drop_shelf" && isShelfSettingsOpen)}
                     onToggleNotifications={handleToggleNotifications}
                     isNotificationsActive={currentTab === "notif_center"}
                     unreadNotificationsCount={unreadNotifCount}
                     hideTitleBar={currentTab === "mini_note" && isNoteEditing}
-                    totalPages={!tabsPrefs.showPageDots || isSubPage || (currentTab === "mini_note" && isNoteEditing) ? 0 : availableTabs.length}
-                    currentPageIndex={isSubPage ? -1 : currentTabIndex}
+                    totalPages={!tabsPrefs.showPageDots || isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) || (currentTab === "mini_note" && isNoteEditing) ? 0 : availableTabs.length}
+                    currentPageIndex={isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) ? -1 : currentTabIndex}
                     onSelectPage={handleSelectTab}
                     hideDotsBg={false}
                     isMusicPage={currentTab === "media_expanded"}
                     tabs={availableTabs}
                     optLanguage={optLanguage}
-                    disableSwipe={isSubPage || Boolean(controlCenterSubmenu)}
+                    disableSwipe={isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) || Boolean(controlCenterSubmenu)}
                     battery={battery}
                     time={time}
                     weather={weather}
@@ -5480,6 +5490,9 @@ export default function App() {
                                 onAddFiles={addStashedFiles}
                                 onFileTransferred={removeStashedFile}
                                 onFilesTransferred={removeStashedFiles}
+                                isLightMode={isLightMode}
+                                showSettings={isShelfSettingsOpen}
+                                onToggleSettings={() => setIsShelfSettingsOpen((prev) => !prev)}
                                 onDragStateChange={(active, paths) => {
                                   isShelfDraggingRef.current = active;
                                   if (active) {

@@ -289,3 +289,30 @@ export async function persistShelfFiles(files: StashedFile[], immediate = false)
     saveDebounceTimer = setTimeout(flushToDisk, 300);
   }
 }
+
+export interface ShelfSettings {
+  autoRemoveOnDrop: boolean;
+}
+
+export const DEFAULT_SHELF_SETTINGS: ShelfSettings = {
+  autoRemoveOnDrop: false,
+};
+
+const SHELF_SETTINGS_KEY = "island_shelf_settings";
+
+export function loadShelfSettings(): ShelfSettings {
+  try {
+    const raw = localStorage.getItem(SHELF_SETTINGS_KEY);
+    if (raw) {
+      return { ...DEFAULT_SHELF_SETTINGS, ...JSON.parse(raw) };
+    }
+  } catch {}
+  return DEFAULT_SHELF_SETTINGS;
+}
+
+export function saveShelfSettings(settings: ShelfSettings): void {
+  try {
+    localStorage.setItem(SHELF_SETTINGS_KEY, JSON.stringify(settings));
+    window.dispatchEvent(new CustomEvent("gili_shelf_settings_changed", { detail: settings }));
+  } catch {}
+}

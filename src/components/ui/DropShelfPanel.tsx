@@ -18,13 +18,15 @@ import {
   ChevronRight,
   GripHorizontal,
   Smartphone,
+  Settings,
 } from "lucide-react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { Tooltip } from "./Tooltip";
 import { getWheelVerticalDirection, getNormalizedHorizontalDelta } from "../../utils/gesture";
 import { t, getLanguage } from "../../services/i18n";
-import { FilePreview, queueFilePreviews, getCachedPreview } from "../../services/shelfService";
+import { FilePreview, queueFilePreviews, getCachedPreview, loadShelfSettings } from "../../services/shelfService";
+import { DropShelfSettingsView } from "./shelf/DropShelfSettingsView";
 import { DropShelfTransferModal } from "./shelf/DropShelfTransferModal";
 import { DropShelfReceivedBanner } from "./shelf/DropShelfReceivedBanner";
 import {
@@ -68,6 +70,9 @@ export interface DropShelfPanelProps {
   ) => void;
   onDragStateChange?: (active: boolean, paths?: string[]) => void;
   isDragOver?: boolean;
+  isLightMode?: boolean;
+  showSettings?: boolean;
+  onToggleSettings?: () => void;
 }
 
 function getFileIcon(ext: string) {
@@ -151,7 +156,12 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     onAddFiles,
     onDragStateChange,
     isDragOver = false,
+    isLightMode = false,
+    showSettings,
+    onToggleSettings,
   }) => {
+    const [internalShowSettings, setInternalShowSettings] = useState(false);
+    const isShowingSettings = showSettings !== undefined ? showSettings : internalShowSettings;
     const isEn = getLanguage() === "en";
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [previews, setPreviews] = useState<Record<string, FilePreview>>(() => {
@@ -396,10 +406,13 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
           },
           (payload) => {
             if (payload.result === "Dropped") {
-              if (onFilesTransferred) {
-                onFilesTransferred(targetFiles.map((f) => f.id));
-              } else if (onFileTransferred) {
-                targetFiles.forEach((f) => onFileTransferred(f.id));
+              const currentSettings = loadShelfSettings();
+              if (currentSettings.autoRemoveOnDrop) {
+                if (onFilesTransferred) {
+                  onFilesTransferred(targetFiles.map((f) => f.id));
+                } else if (onFileTransferred) {
+                  targetFiles.forEach((f) => onFileTransferred(f.id));
+                }
               }
               if (isMountedRef.current) {
                 setSelectedIds(new Set());
@@ -436,6 +449,18 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     };
 
     const isDropActive = isDragOver;
+
+    if (isShowingSettings) {
+      return (
+        <DropShelfSettingsView
+          isLightMode={isLightMode}
+          onBack={() => {
+            if (onToggleSettings) onToggleSettings();
+            else setInternalShowSettings(false);
+          }}
+        />
+      );
+    }
 
     return (
       <div
@@ -484,6 +509,18 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 >
                   <Smartphone size={12} />
                   <span>{t("shelf_receive_from_phone")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onToggleSettings) onToggleSettings();
+                    else setInternalShowSettings(true);
+                  }}
+                  className="h-7 w-7 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  title={t("shelf_settings_title")}
+                  aria-label={t("shelf_settings_title")}
+                >
+                  <Settings size={12.5} />
                 </button>
               </div>
             )}
@@ -568,6 +605,19 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                     ? t("shelf_delete_selected", { count: selectedIds.size })
                     : t("shelf_clear_btn")}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onToggleSettings) onToggleSettings();
+                  else setInternalShowSettings(true);
+                }}
+                className="h-[26px] w-[26px] rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                title={t("shelf_settings_title")}
+                aria-label={t("shelf_settings_title")}
+              >
+                <Settings size={12.5} />
               </button>
             </div>
 

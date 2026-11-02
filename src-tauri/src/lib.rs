@@ -2045,6 +2045,13 @@ fn show_in_folder(path: String) {
     });
 }
 
+#[tauri::command]
+fn open_shelf_received_folder() {
+    let dir = shelf_server::get_shelf_received_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    show_in_folder(dir.to_string_lossy().to_string());
+}
+
 static INTERNAL_CLIPBOARD_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[tauri::command]
@@ -2684,6 +2691,7 @@ pub fn run() {
             get_audio_endpoints,
             set_default_audio_endpoint,
             show_in_folder,
+            open_shelf_received_folder,
             copy_file_to_clipboard,
             copy_files_to_clipboard,
             pick_files_dialog,
