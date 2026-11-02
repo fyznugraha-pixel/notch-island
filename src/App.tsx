@@ -54,7 +54,6 @@ import {
   addNotificationHistoryItem,
   categorizeNotification,
   isAppMuted,
-  getDndStatus,
   setDndStatus,
 } from "./services/notificationHistoryService";
 import { type TodoItem, type TodoRepeatRule, computeNextRepeatDue } from "./services/todoUtils";
@@ -192,7 +191,7 @@ export default function App() {
   const isVolumeMixerRef = useRef(false);
   const isOcrWritingRef = useRef(false);
   type FocusModeType = "Normal" | "DND" | "Gaming" | "Sleep";
-  const initialFocusMode: FocusModeType = getDndStatus() ? "DND" : "Normal";
+  const initialFocusMode: FocusModeType = "Normal";
   const focusModeRef = useRef<FocusModeType>(initialFocusMode);
   const pomoMuteNotifsRef = useRef<boolean>(false);
   const isIdleRef = useRef(true);
@@ -2915,43 +2914,8 @@ export default function App() {
       })
       .catch(console.error);
 
-    invoke<boolean>("get_windows_dnd")
-      .then((isWinDnd) => {
-        if (isWinDnd) {
-          // Windows DND wins on boot: sync Gili into DND.
-          setFocusMode("DND");
-          focusModeRef.current = "DND";
-          setDndStatus(true);
-        } else if (getDndStatus()) {
-          // Reverse path (was missing): local flag says DND but the user turned
-          // Windows DND off externally — reconcile instead of muting forever.
-          setFocusMode("Normal");
-          focusModeRef.current = "Normal";
-          setDndStatus(false);
-        }
-      })
-      .catch(() => {});
-
-    // Keep Gili's DND in sync when Windows Focus Assist is toggled outside Gili.
-    let dndPollTimer: number | undefined;
-    const pollWindowsDnd = async () => {
-      try {
-        const isWinDnd = await invoke<boolean>("get_windows_dnd");
-        const giliDnd = focusModeRef.current === "DND";
-        if (isWinDnd && !giliDnd) {
-          setFocusMode("DND");
-          focusModeRef.current = "DND";
-          setDndStatus(true);
-        } else if (!isWinDnd && giliDnd) {
-          setFocusMode("Normal");
-          focusModeRef.current = "Normal";
-          setDndStatus(false);
-        }
-      } catch {
-        /* ignore transient query failures */
-      }
-    };
-    dndPollTimer = window.setInterval(pollWindowsDnd, 15_000);
+    // Default mode is Normal on boot; clear legacy DND flag so mode is solely user-controlled
+    setDndStatus(false);
 
     const unlistenPrivacy = listen<{cam: boolean, mic: boolean}>("privacy-update", (event) => {
       setCamActive(event.payload.cam);
@@ -2986,7 +2950,6 @@ export default function App() {
 
     return () => {
       clearInterval(timer);
-      if (dndPollTimer !== undefined) window.clearInterval(dndPollTimer);
       unlistenPrivacy.then(f => f());
       unlistenUsb.then(f => f());
       unlistenAudio.then(f => f());
