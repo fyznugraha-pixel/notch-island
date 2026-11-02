@@ -4,7 +4,6 @@ import {
   Copy,
   Check,
   RotateCcw,
-  Sparkles,
   Sun,
   Moon,
   Battery,
@@ -308,8 +307,7 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
       {/* 1. Live Miniature Notch Preview */}
       <div className="relative overflow-hidden rounded-[12px] bg-gradient-to-b from-[#18181f] to-[#0c0c10] border border-white/[0.08] p-3 flex flex-col items-center justify-center gap-2">
         <div className="flex items-center justify-between w-full text-[10px] text-zinc-400 px-0.5">
-          <span className="flex items-center gap-1 font-medium">
-            <Sparkles size={11} className="text-amber-400" />
+          <span className="font-medium text-zinc-400">
             {mode === "text"
               ? isId ? "Pratinjau Teks & Angka Idle" : "Live Idle Text & Numbers Preview"
               : isId ? "Pratinjau Langsung Notch Idle" : "Live Idle Notch Preview"}
