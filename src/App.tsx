@@ -1440,6 +1440,7 @@ export default function App() {
     setIsQuickNoteSaved(false);
     setIsQuickTodoOpen(false);
     setIsQuickTodoSaved(false);
+    setControlCenterSubmenu(null);
     const now = Date.now();
     lastPanelClosedAtRef.current = now;
     try {
@@ -2210,6 +2211,7 @@ export default function App() {
     setIsExpanded(false);
     setIsQuickTodoOpen(false);
     setIsQuickTodoSaved(false);
+    setControlCenterSubmenu(null);
     setIsQuickNoteSaved(false);
     setIsQuickNoteOpen((prev) => !prev);
     invoke("focus_notch_window").catch(() => {});
@@ -4275,6 +4277,12 @@ export default function App() {
   const tabWidth = lyricsExpandedWidth;
   const tabHeightMultiplier = effectiveTabSize === "large" ? 1.06 : 1.0;
   const unifiedTabHeight = Math.round((isBot ? 330 : 292) * tabHeightMultiplier);
+  const isControlCenterSubmenuTall =
+    currentTab === "quick_control" &&
+    (controlCenterSubmenu === "wifi" || controlCenterSubmenu === "bluetooth");
+  const quickControlHeight = isControlCenterSubmenuTall
+    ? Math.round((isBot ? 440 : 406) * tabHeightMultiplier)
+    : unifiedTabHeight;
 
   const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let smoothSpring: any = prefersReducedMotion 
@@ -4334,7 +4342,7 @@ export default function App() {
     notif_volume: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
     notif_clipboard: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
     notif_medium: { width: dynamicWidth, height: Math.round(48 * (idleHeight / 32)), x: 0, y: currentY, opacity: 1, borderRadius: radius("16px", "24px") },
-    quick_control: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
+    quick_control: { width: tabWidth, height: quickControlHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     todo: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     pomodoro: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     drop_shelf: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
@@ -5235,17 +5243,18 @@ export default function App() {
                 <motion.div
                   style={{
                     width: lastExpandedSizeRef.current.width,
-                    height: lastExpandedSizeRef.current.height,
                   }}
                   initial={{
                     scale: 0.90,
                     x: isLeftPos ? -12 : isRightPos ? 12 : 0,
                     y: isSideCenter ? 0 : isBot ? 12 : -12,
+                    height: lastExpandedSizeRef.current.height,
                   }}
                   animate={{
                     scale: 1,
                     x: 0,
                     y: 0,
+                    height: currentVariantSize.height,
                     transitionEnd: { transform: "none" },
                   }}
                   exit={{ opacity: 0, transition: { duration: 0.1, ease: "easeIn" } }}
@@ -5253,6 +5262,7 @@ export default function App() {
                     scale: smoothSpring,
                     x: smoothSpring,
                     y: smoothSpring,
+                    height: smoothSpring,
                   }}
                   className={`flex flex-col overflow-hidden pointer-events-auto shrink-0 gpu-accelerated ${
                     optPosition === "top-left"
@@ -5301,7 +5311,7 @@ export default function App() {
                     isMusicPage={currentTab === "media_expanded"}
                     tabs={availableTabs}
                     optLanguage={optLanguage}
-                    disableSwipe={isSubPage}
+                    disableSwipe={isSubPage || Boolean(controlCenterSubmenu)}
                     battery={battery}
                     time={time}
                     weather={weather}
