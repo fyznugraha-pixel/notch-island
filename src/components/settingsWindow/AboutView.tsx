@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -21,6 +21,30 @@ const CHANGELOG: ChangelogEntry[] = [
     version: "4.4.0",
     date: "2 Nov 2026",
     highlights: [
+      {
+        icon: <Palette size={14} />,
+        titleId: "Kustomisasi Warna Notch & Teks Idle",
+        titleEn: "Custom Idle Notch & Text Colors",
+        descId: "Bebas kustomisasi warna latar notch idle (termasuk palet preset Taskbar Windows) serta warna teks dan angka indikator secara terpisah dengan pratinjau langsung.",
+        descEn: "Freely customize idle notch background color (including Windows Taskbar preset palettes) and separately style text and metric numbers with live preview.",
+        badge: "new",
+      },
+      {
+        icon: <Minimize2 size={14} />,
+        titleId: "Auto-Compact Mode: Pilihan Semua App Max",
+        titleEn: "Auto-Compact Mode: All Max Apps Option",
+        descId: "Mode ringkas otomatis kini dilengkapi pilihan Semua App Max — notch akan otomatis mengecil saat ada jendela aplikasi yang dimaksimalkan agar pandangan layar tetap lapang.",
+        descEn: "Auto-compact mode now features an All Max Apps trigger — the notch automatically shrinks whenever any application window is maximized to keep your view unobstructed.",
+        badge: "new",
+      },
+      {
+        icon: <Layers size={14} />,
+        titleId: "Dukungan Dual Monitor di Semua Layar",
+        titleEn: "Dual Monitor Support on All Displays",
+        descId: "Gili Notch kini dapat aktif dan berjalan di semua layar monitor yang terhubung secara bersamaan lewat opsi Semua Layar (Notch Ganda) pada Pengaturan Monitor.",
+        descEn: "Gili Notch can now run seamlessly across all connected monitors simultaneously via the All Displays (Dual Notch) option in Monitor Settings.",
+        badge: "new",
+      },
       {
         icon: <Smartphone size={14} />,
         titleId: "Transfer File Shelf ke Ponsel & HP",
