@@ -213,6 +213,20 @@ export const SettingsWindowApp: React.FC = () => {
     } catch {}
     return "#0f172a";
   });
+  const [optIdleTextColorEnabled, setOptIdleTextColorEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("island_idle_text_color_enabled") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [optIdleTextColor, setOptIdleTextColor] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("island_idle_text_color");
+      if (saved && isValidHex(saved)) return normalizeHex(saved);
+    } catch {}
+    return "#ffffff";
+  });
 
   // Idle Layout State
   const [idleLayout, setIdleLayout] = useState<IdleLayoutConfig>(() => getSavedIdleLayout());
@@ -385,6 +399,12 @@ export const SettingsWindowApp: React.FC = () => {
         const idleCol = await s.get("opt_idle_color");
         if (typeof idleCol === "string" && isValidHex(idleCol)) setOptIdleColor(normalizeHex(idleCol));
 
+        const idleTextColEnabled = await s.get("opt_idle_text_color_enabled");
+        if (typeof idleTextColEnabled === "boolean") setOptIdleTextColorEnabled(idleTextColEnabled);
+
+        const idleTextCol = await s.get("opt_idle_text_color");
+        if (typeof idleTextCol === "string" && isValidHex(idleTextCol)) setOptIdleTextColor(normalizeHex(idleTextCol));
+
         const lang = await s.get("opt_language");
         if (lang === "en" || lang === "id") {
           setLanguage(lang, false);
@@ -477,6 +497,12 @@ export const SettingsWindowApp: React.FC = () => {
             break;
           case "opt_idle_color":
             if (typeof value === "string" && isValidHex(value)) setOptIdleColor(normalizeHex(value));
+            break;
+          case "opt_idle_text_color_enabled":
+            setOptIdleTextColorEnabled(Boolean(value));
+            break;
+          case "opt_idle_text_color":
+            if (typeof value === "string" && isValidHex(value)) setOptIdleTextColor(normalizeHex(value));
             break;
           case "opt_anim_speed":
             setOptAnimSpeed(value);
@@ -714,6 +740,31 @@ export const SettingsWindowApp: React.FC = () => {
       } catch {}
     }
     broadcastSetting("opt_idle_color", normalized);
+  };
+
+  const handleChangeIdleTextColorEnabled = async (val: boolean) => {
+    setOptIdleTextColorEnabled(val);
+    try { localStorage.setItem("island_idle_text_color_enabled", String(val)); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_idle_text_color_enabled", val);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_idle_text_color_enabled", val);
+  };
+
+  const handleChangeIdleTextColor = async (color: string) => {
+    const normalized = normalizeHex(color);
+    setOptIdleTextColor(normalized);
+    try { localStorage.setItem("island_idle_text_color", normalized); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_idle_text_color", normalized);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_idle_text_color", normalized);
   };
 
   const handleChangeAnimSpeed = async (speed: "snappy" | "smooth" | "bouncy") => {
@@ -1145,6 +1196,10 @@ export const SettingsWindowApp: React.FC = () => {
                       onChangeIdleColorEnabled={handleChangeIdleColorEnabled}
                       optIdleColor={optIdleColor}
                       onChangeIdleColor={handleChangeIdleColor}
+                      optIdleTextColorEnabled={optIdleTextColorEnabled}
+                      onChangeIdleTextColorEnabled={handleChangeIdleTextColorEnabled}
+                      optIdleTextColor={optIdleTextColor}
+                      onChangeIdleTextColor={handleChangeIdleTextColor}
                       optLanguage={optLanguage}
                       optAnimSpeed={optAnimSpeed}
                       onChangeAnimSpeed={handleChangeAnimSpeed}

@@ -233,6 +233,8 @@ export const translations = {
   settings_ears_disabled_island: { en: "Not available in Island mode", id: "Tidak tersedia di mode Island" },
   settings_custom_idle_color: { en: "Custom Idle Color", id: "Warna Idle Kustom" },
   settings_custom_idle_color_desc: { en: "Personalize the notch surface color with custom tints & templates", id: "Kustomisasi warna permukaan notch dengan palet & template elegan" },
+  settings_custom_idle_text_color: { en: "Custom Idle Text & Numbers Color", id: "Warna Teks & Angka Idle" },
+  settings_custom_idle_text_color_desc: { en: "Personalize the color of clock, date, and stats text", id: "Kustomisasi warna teks jam, tanggal, dan angka statistik idle" },
   settings_weather_anim: { en: "Weather Animation", id: "Animasi Cuaca" },
   settings_weather_anim_desc: { en: "Rain, snow & lightning effects", id: "Efek hujan, salju & petir di Gili" },
   settings_monitor: { en: "Display Monitor", id: "Pilih Monitor" },

@@ -4,20 +4,28 @@ export interface HslColor {
   l: number; // 0 - 100
 }
 
-export function isValidHex(hex: string): boolean {
+export function isValidHex(hex?: string | null): boolean {
+  if (!hex || typeof hex !== "string") return false;
   return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(hex.trim());
 }
 
-export function normalizeHex(hex: string): string {
+export function normalizeHex(hex?: string | null): string {
+  if (!hex || typeof hex !== "string") return "#0f172a";
   const clean = hex.trim().replace(/^#/, "");
   if (clean.length === 3) {
     return `#${clean[0]}${clean[0]}${clean[1]}${clean[1]}${clean[2]}${clean[2]}`.toLowerCase();
   }
-  return `#${clean}`.toLowerCase();
+  if (clean.length === 6) {
+    return `#${clean}`.toLowerCase();
+  }
+  return "#0f172a";
 }
 
-export function hexToHsl(hexInput: string): HslColor {
-  let hex = hexInput.replace(/^#/, "");
+export function hexToHsl(hexInput?: string | null): HslColor {
+  if (!hexInput || typeof hexInput !== "string") {
+    return { h: 220, s: 50, l: 15 };
+  }
+  let hex = hexInput.trim().replace(/^#/, "");
   if (hex.length === 3) {
     hex = `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
   }
@@ -92,8 +100,11 @@ export function hslToHex(h: number, s: number, l: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-export function hexToRgba(hexInput: string, alpha: number): string {
-  let hex = hexInput.replace(/^#/, "");
+export function hexToRgba(hexInput?: string | null, alpha: number = 1): string {
+  if (!hexInput || typeof hexInput !== "string") {
+    return `rgba(0, 0, 0, ${alpha})`;
+  }
+  let hex = hexInput.trim().replace(/^#/, "");
   if (hex.length === 3) {
     hex = `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
   }
@@ -106,8 +117,15 @@ export function hexToRgba(hexInput: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export function getPerceivedLuminance(hex: string): number {
-  const clean = hex.replace(/^#/, "");
+export function getPerceivedLuminance(hex?: string | null): number {
+  if (!hex || typeof hex !== "string") return 0.5;
+  const clean = hex.trim().replace(/^#/, "");
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16) / 255;
+    const g = parseInt(clean[1] + clean[1], 16) / 255;
+    const b = parseInt(clean[2] + clean[2], 16) / 255;
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  }
   if (clean.length !== 6) return 0.5;
   const r = parseInt(clean.substring(0, 2), 16) / 255;
   const g = parseInt(clean.substring(2, 4), 16) / 255;

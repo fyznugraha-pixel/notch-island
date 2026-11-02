@@ -3,6 +3,7 @@ import { useRef, useState, useEffect } from "react";
 export interface ScrollingTextProps {
   text: string;
   className?: string;
+  style?: React.CSSProperties;
   speed?: number;
   pauseSeconds?: number;
 }
@@ -10,6 +11,7 @@ export interface ScrollingTextProps {
 export const ScrollingText = ({
   text,
   className = "",
+  style,
   speed = 28,
   pauseSeconds = 1.8,
 }: ScrollingTextProps) => {
@@ -67,6 +69,7 @@ export const ScrollingText = ({
       ref={containerRef}
       className={`overflow-hidden whitespace-nowrap py-[1px] group/marquee ${className}`}
       style={{
+        ...style,
         maskImage: shouldScroll
           ? "linear-gradient(to right, transparent 0%, black 8px, black calc(100% - 8px), transparent 100%)"
           : undefined,

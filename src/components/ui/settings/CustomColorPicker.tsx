@@ -22,6 +22,9 @@ interface CustomColorPickerProps {
   onChange: (hex: string) => void;
   isLightMode?: boolean;
   isId?: boolean;
+  mode?: "surface" | "text";
+  previewBgColor?: string;
+  previewTextColor?: string;
 }
 
 type PaletteCategory = "dark" | "vibrant" | "pastel" | "hardware";
@@ -32,7 +35,7 @@ interface SwatchItem {
   nameEn: string;
 }
 
-const TEMPLATE_CATEGORIES: {
+const SURFACE_TEMPLATE_CATEGORIES: {
   id: PaletteCategory;
   labelId: string;
   labelEn: string;
@@ -105,17 +108,96 @@ const TEMPLATE_CATEGORIES: {
   },
 ];
 
+const TEXT_TEMPLATE_CATEGORIES: {
+  id: PaletteCategory;
+  labelId: string;
+  labelEn: string;
+  icon: string;
+  swatches: SwatchItem[];
+}[] = [
+  {
+    id: "dark",
+    labelId: "Klasik & Jelas",
+    labelEn: "Classic & Crisp",
+    icon: "⚪",
+    swatches: [
+      { hex: "#ffffff", nameId: "Putih Murni", nameEn: "Pure White" },
+      { hex: "#f8fafc", nameId: "Putih Salju", nameEn: "Snow White" },
+      { hex: "#e2e8f0", nameId: "Perak Platinum", nameEn: "Platinum Silver" },
+      { hex: "#cbd5e1", nameId: "Abu-abu Terang", nameEn: "Light Slate" },
+      { hex: "#fef08a", nameId: "Emas Champagne", nameEn: "Champagne Gold" },
+      { hex: "#fef3c7", nameId: "Krem Hangat", nameEn: "Warm Cream" },
+      { hex: "#111114", nameId: "Hitam Pekat", nameEn: "Pitch Black" },
+      { hex: "#334155", nameId: "Arang Gelap", nameEn: "Dark Charcoal" },
+    ],
+  },
+  {
+    id: "vibrant",
+    labelId: "Neon & Cyber",
+    labelEn: "Neon & Cyber",
+    icon: "⚡",
+    swatches: [
+      { hex: "#38bdf8", nameId: "Cyan Listrik", nameEn: "Electric Cyan" },
+      { hex: "#4ade80", nameId: "Hijau Neon", nameEn: "Neon Green" },
+      { hex: "#facc15", nameId: "Kuning Lemon", nameEn: "Lemon Yellow" },
+      { hex: "#fb7185", nameId: "Mawar Terang", nameEn: "Bright Rose" },
+      { hex: "#c084fc", nameId: "Ungu Neon", nameEn: "Neon Violet" },
+      { hex: "#fb923c", nameId: "Oranye Senja", nameEn: "Sunset Orange" },
+      { hex: "#22d3ee", nameId: "Biru Laser", nameEn: "Laser Blue" },
+      { hex: "#a3e635", nameId: "Lime Terang", nameEn: "Bright Lime" },
+    ],
+  },
+  {
+    id: "pastel",
+    labelId: "Pastel Lembut",
+    labelEn: "Soft Pastel",
+    icon: "🌸",
+    swatches: [
+      { hex: "#bae6fd", nameId: "Langit Biru Bayi", nameEn: "Baby Blue" },
+      { hex: "#bbf7d0", nameId: "Mint Lembut", nameEn: "Soft Mint" },
+      { hex: "#fed7aa", nameId: "Persik Halus", nameEn: "Peach Glow" },
+      { hex: "#fbcfe8", nameId: "Merah Jambu Lembut", nameEn: "Soft Blush" },
+      { hex: "#e9d5ff", nameId: "Lavender Pucat", nameEn: "Pale Lavender" },
+      { hex: "#cffafe", nameId: "Es Cyan", nameEn: "Ice Cyan" },
+      { hex: "#ddd6fe", nameId: "Lilac Lembut", nameEn: "Soft Lilac" },
+      { hex: "#fef9c3", nameId: "Mentari Pagi", nameEn: "Morning Sun" },
+    ],
+  },
+  {
+    id: "hardware",
+    labelId: "Kemewahan & Emas",
+    labelEn: "Luxury & Gold",
+    icon: "💎",
+    swatches: [
+      { hex: "#fde047", nameId: "Kuning Emas 24K", nameEn: "24K Gold" },
+      { hex: "#34d399", nameId: "Zamrud Terang", nameEn: "Emerald Glow" },
+      { hex: "#60a5fa", nameId: "Safir Cerah", nameEn: "Vibrant Sapphire" },
+      { hex: "#fda4af", nameId: "Mawar Emas (Rose Gold)", nameEn: "Rose Gold" },
+      { hex: "#fcd34d", nameId: "Amber Madu", nameEn: "Honey Amber" },
+      { hex: "#2dd4bf", nameId: "Teal Kristal", nameEn: "Crystal Teal" },
+      { hex: "#a78bfa", nameId: "Violet Kerajaan", nameEn: "Royal Violet" },
+      { hex: "#e0e7ff", nameId: "Indigo Mistis", nameEn: "Indigo Mist" },
+    ],
+  },
+];
+
 export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
   value,
   onChange,
   isLightMode = false,
   isId = true,
+  mode = "surface",
+  previewBgColor,
+  previewTextColor,
 }) => {
-  const currentHex = useMemo(() => normalizeHex(value || "#0f172a"), [value]);
+  const defaultFallback = mode === "text" ? "#ffffff" : "#0f172a";
+  const currentHex = useMemo(() => normalizeHex(value || defaultFallback), [value, defaultFallback]);
   const [hsl, setHsl] = useState(() => hexToHsl(currentHex));
   const [hexInput, setHexInput] = useState(currentHex);
   const [copied, setCopied] = useState(false);
   const [activeCategory, setActiveCategory] = useState<PaletteCategory>("dark");
+
+  const categories = mode === "text" ? TEXT_TEMPLATE_CATEGORIES : SURFACE_TEMPLATE_CATEGORIES;
 
   useEffect(() => {
     setHexInput(currentHex);
@@ -211,8 +293,13 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
   const bgCard = isLightMode ? "bg-black/[0.02]" : "bg-white/[0.02]";
   const textMuted = isLightMode ? "text-neutral-500" : "text-zinc-400";
   const activeCategoryData =
-    TEMPLATE_CATEGORIES.find((c) => c.id === activeCategory) ||
-    TEMPLATE_CATEGORIES[0];
+    categories.find((c) => c.id === activeCategory) ||
+    categories[0];
+
+  // Colors for miniature mock preview
+  const mockPillBg = mode === "text" ? (previewBgColor || "#0f172a") : currentHex;
+  const mockTextColor = mode === "text" ? currentHex : (previewTextColor || (isLightContrast ? "#111114" : "#ffffff"));
+  const mockDateColor = mode === "text" ? currentHex : (previewTextColor || (isLightContrast ? "#3f3f46" : "#d4d4d8"));
 
   return (
     <div
@@ -223,10 +310,17 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         <div className="flex items-center justify-between w-full text-[10px] text-zinc-400 px-0.5">
           <span className="flex items-center gap-1 font-medium">
             <Sparkles size={11} className="text-amber-400" />
-            {isId ? "Pratinjau Langsung Notch Idle" : "Live Idle Notch Preview"}
+            {mode === "text"
+              ? isId ? "Pratinjau Teks & Angka Idle" : "Live Idle Text & Numbers Preview"
+              : isId ? "Pratinjau Langsung Notch Idle" : "Live Idle Notch Preview"}
           </span>
           <span className="flex items-center gap-1 font-mono text-[9.5px] bg-white/[0.06] px-1.5 py-0.5 rounded-full text-zinc-300">
-            {isLightContrast ? (
+            {mode === "text" ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: currentHex }} />
+                {isId ? "Warna Kustom Aktif" : "Custom Color Active"}
+              </>
+            ) : isLightContrast ? (
               <>
                 <Sun size={10} className="text-amber-400" />
                 {isId ? "Teks Gelap Otomatis" : "Auto Dark Text"}
@@ -243,35 +337,32 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         {/* The Miniature Mock Notch Pill */}
         <div
           style={{
-            backgroundColor: currentHex,
-            boxShadow: `0 8px 24px ${currentHex}44, 0 2px 6px rgba(0,0,0,0.4)`,
+            backgroundColor: mockPillBg,
+            boxShadow: `0 8px 24px ${mockPillBg}44, 0 2px 6px rgba(0,0,0,0.4)`,
           }}
           className="relative h-[28px] px-3.5 rounded-full flex items-center justify-between gap-3 border border-white/15 transition-all duration-300 select-none"
         >
           {/* Battery Mock */}
           <div
-            className={`flex items-center gap-1 text-[9.5px] font-bold ${
-              isLightContrast ? "text-black" : "text-white"
-            }`}
+            style={{ color: mockTextColor }}
+            className="flex items-center gap-1 text-[9.5px] font-bold"
           >
-            <Battery size={11} className={isLightContrast ? "text-emerald-700" : "text-emerald-400"} />
+            <Battery size={11} className="shrink-0" />
             <span>98%</span>
           </div>
 
           {/* Time Mock */}
           <span
-            className={`text-[10px] font-bold tracking-tight font-mono ${
-              isLightContrast ? "text-black" : "text-white"
-            }`}
+            style={{ color: mockTextColor }}
+            className="text-[10px] font-bold tracking-tight font-mono"
           >
             09:41
           </span>
 
           {/* Date Mock */}
           <span
-            className={`text-[9.5px] font-semibold ${
-              isLightContrast ? "text-neutral-700" : "text-neutral-300"
-            }`}
+            style={{ color: mockDateColor }}
+            className="text-[9.5px] font-semibold"
           >
             {isId ? "Sen, 2 Nov" : "Mon, Nov 2"}
           </span>
@@ -307,7 +398,7 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
             value={hexInput.replace(/^#/, "")}
             onChange={(e) => handleHexInputChange(`#${e.target.value}`)}
             maxLength={6}
-            placeholder="0f172a"
+            placeholder={mode === "text" ? "ffffff" : "0f172a"}
             className="w-full bg-transparent text-[12.5px] font-mono font-semibold text-white outline-none uppercase"
           />
           <button
@@ -343,12 +434,11 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         {/* Reset to Default */}
         <button
           type="button"
-          title={isId ? "Kembalikan ke warna default (#0f172a)" : "Reset to default (#0f172a)"}
+          title={isId ? `Kembalikan ke warna default (${defaultFallback})` : `Reset to default (${defaultFallback})`}
           onClick={() => {
-            const def = "#0f172a";
-            setHexInput(def);
-            setHsl(hexToHsl(def));
-            onChange(def);
+            setHexInput(defaultFallback);
+            setHsl(hexToHsl(defaultFallback));
+            onChange(defaultFallback);
           }}
           className={`w-10 h-10 rounded-[10px] border flex items-center justify-center transition-all ${
             isLightMode
@@ -437,7 +527,7 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
 
         {/* Category Pills */}
         <div className="grid grid-cols-4 gap-1 p-0.5 rounded-[10px] bg-black/40 border border-white/10">
-          {TEMPLATE_CATEGORIES.map((cat) => {
+          {categories.map((cat) => {
             const isActive = activeCategory === cat.id;
             return (
               <button

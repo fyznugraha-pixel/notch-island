@@ -590,8 +590,9 @@ export const PomodoroIdlePill: React.FC<{
   isRunning: boolean;
   taskTitle?: string | null;
   isLightMode?: boolean;
+  customTextColor?: string | null;
   onClick: () => void;
-}> = ({ mode, remainingSec, totalSec, isRunning, taskTitle, isLightMode = false, onClick }) => {
+}> = ({ mode, remainingSec, totalSec, isRunning, taskTitle, isLightMode = false, customTextColor, onClick }) => {
   const circumference = 56.5;
   const progress = totalSec > 0 ? Math.max(0, Math.min(1, remainingSec / totalSec)) : 0;
   const dash = `${(progress * circumference).toFixed(1)} ${circumference}`;
@@ -602,7 +603,9 @@ export const PomodoroIdlePill: React.FC<{
     ? isLightMode ? "#e11d48" : "#ff8a7a"
     : isLightMode ? "#0d9488" : "#5eead4";
 
-  const timeColor = !isRunning
+  const timeColor = customTextColor
+    ? ""
+    : !isRunning
     ? isLightMode ? "text-neutral-500" : "text-[#a1a1aa]"
     : mode === "focus"
     ? isLightMode ? "text-[#1d1d1f]" : "text-white"
@@ -642,15 +645,21 @@ export const PomodoroIdlePill: React.FC<{
           )}
         </div>
         {taskTitle && (
-          <span className={`text-[12px] font-medium truncate max-w-[125px] ${
-            isLightMode ? "text-neutral-700" : "text-white/85"
-          }`}>
+          <span
+            style={customTextColor ? { color: customTextColor } : undefined}
+            className={`text-[12px] font-medium truncate max-w-[125px] ${
+              isLightMode ? "text-neutral-700" : "text-white/85"
+            }`}
+          >
             {taskTitle}
           </span>
         )}
       </div>
 
-      <span className={`text-[14px] font-semibold tabular-nums tracking-[0.01em] ${timeColor}`}>
+      <span
+        style={customTextColor ? { color: customTextColor } : undefined}
+        className={`text-[14px] font-semibold tabular-nums tracking-[0.01em] ${timeColor}`}
+      >
         {formatSecondsMMSS(remainingSec)}
       </span>
     </motion.div>

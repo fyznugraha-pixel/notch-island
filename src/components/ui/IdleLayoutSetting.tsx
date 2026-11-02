@@ -115,6 +115,7 @@ export interface IdleRuntimeData {
   focusMode: "Normal" | "DND" | "Gaming" | "Sleep";
   optLanguage: Language;
   isLightMode?: boolean;
+  customTextColor?: string | null;
   onOpenTab?: (tab: "quick_control" | "todo" | "drop_shelf" | "sys_monitor" | "prayer_reminder") => void;
 }
 
@@ -281,9 +282,11 @@ export const IdleSlotView: React.FC<{
   data: IdleRuntimeData;
   isPreview?: boolean;
 }> = ({ item, data, isPreview = false }) => {
+  const customColor = !isPreview ? data.customTextColor : null;
   const baseTextClass = `text-[10px] font-bold leading-none idle-stat-number ${
-    data.isLightMode && !isPreview ? "text-black" : "text-neutral-200"
+    customColor ? "" : data.isLightMode && !isPreview ? "text-black" : "text-neutral-200"
   }`;
+  const customStyle: React.CSSProperties = customColor ? { color: customColor } : {};
 
   switch (item) {
     case "none":
@@ -303,17 +306,22 @@ export const IdleSlotView: React.FC<{
           ? data.isLightMode && !isPreview
             ? "text-red-700 battery-low"
             : "text-red-400"
+          : customColor
+          ? ""
           : data.isLightMode && !isPreview
           ? "text-black"
           : "text-white";
         return (
-          <span className={`text-[10px] font-bold leading-none tabular-nums idle-stat-number ${colorClass}`}>
+          <span
+            style={!data.battery.is_charging && data.battery.percent > 20 && customColor ? customStyle : undefined}
+            className={`text-[10px] font-bold leading-none tabular-nums idle-stat-number ${colorClass}`}
+          >
             {`${data.battery.percent}%`}
           </span>
         );
       }
       return (
-        <span className={baseTextClass} title={data.fullDateTitle}>
+        <span style={customStyle} className={baseTextClass} title={data.fullDateTitle}>
           {isPreview ? "85%" : data.dateDisplay}
         </span>
       );
@@ -321,14 +329,14 @@ export const IdleSlotView: React.FC<{
 
     case "clock":
       return (
-        <span className={`${baseTextClass} tabular-nums`}>
+        <span style={customStyle} className={`${baseTextClass} tabular-nums`}>
           {data.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </span>
       );
 
     case "date":
       return (
-        <span className={baseTextClass} title={data.fullDateTitle}>
+        <span style={customStyle} className={baseTextClass} title={data.fullDateTitle}>
           {data.dateDisplay}
         </span>
       );
@@ -425,7 +433,7 @@ export const IdleSlotView: React.FC<{
                 : "bg-[#ff453a]"
             }`}
           />
-          <span className={`${baseTextClass} tabular-nums`}>
+          <span style={customStyle} className={`${baseTextClass} tabular-nums`}>
             {data.networkPing !== null ? `${data.networkPing}ms` : "Off"}
           </span>
         </div>
@@ -438,7 +446,7 @@ export const IdleSlotView: React.FC<{
           title={data.weather?.locationName || undefined}
         >
           {getWeatherIcon(data.weather?.code ?? 0)}
-          <span className={baseTextClass}>{data.weather?.temp || "28°"}</span>
+          <span style={customStyle} className={baseTextClass}>{data.weather?.temp || "28°"}</span>
         </div>
       );
 
@@ -455,7 +463,10 @@ export const IdleSlotView: React.FC<{
           title={`${data.pendingTodosCount} ${t("todo_badge")}`}
         >
           <ListTodo size={10.5} className="text-amber-400 shrink-0" />
-          <span className="text-[10px] font-bold leading-none tabular-nums text-amber-300 idle-stat-number">
+          <span
+            style={customColor ? customStyle : undefined}
+            className={`text-[10px] font-bold leading-none tabular-nums ${customColor ? "" : "text-amber-300"} idle-stat-number`}
+          >
             {data.pendingTodosCount}
           </span>
         </div>
@@ -477,7 +488,7 @@ export const IdleSlotView: React.FC<{
           title={`${shortName} ${next.nextPrayerTime} (-${next.countdownText})`}
         >
           <Moon size={10} className="text-emerald-400 shrink-0" />
-          <span className={`${baseTextClass} tabular-nums`}>
+          <span style={customStyle} className={`${baseTextClass} tabular-nums`}>
             {shortName} {next.nextPrayerTime}
           </span>
         </div>
@@ -488,6 +499,7 @@ export const IdleSlotView: React.FC<{
       const currentFps = data.fps || 60;
       return (
         <span
+          style={customStyle}
           className={`${baseTextClass} tabular-nums`}
           title={`Frame Rate: ${currentFps} FPS`}
         >
@@ -515,7 +527,7 @@ export const IdleSlotView: React.FC<{
               data.isLightMode && !isPreview ? "text-violet-700" : "text-[#a78bfa]"
             }`}
           />
-          <span className={`${baseTextClass} tabular-nums`}>
+          <span style={customStyle} className={`${baseTextClass} tabular-nums`}>
             {cpuVal}%
           </span>
         </div>
@@ -544,7 +556,7 @@ export const IdleSlotView: React.FC<{
               data.isLightMode && !isPreview ? "text-purple-700" : "text-[#c084fc]"
             }`}
           />
-          <span className={`${baseTextClass} tabular-nums`}>
+          <span style={customStyle} className={`${baseTextClass} tabular-nums`}>
             {ramVal}%
           </span>
         </div>
@@ -572,7 +584,7 @@ export const IdleSlotView: React.FC<{
               data.isLightMode && !isPreview ? "text-sky-700" : "text-[#38bdf8]"
             }`}
           />
-          <span className={`${baseTextClass} tabular-nums`}>
+          <span style={customStyle} className={`${baseTextClass} tabular-nums`}>
             {speedStr}
           </span>
         </div>

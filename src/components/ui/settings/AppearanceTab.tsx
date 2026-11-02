@@ -40,6 +40,10 @@ export interface AppearanceTabProps {
   onChangeIdleColorEnabled?: (val: boolean) => void;
   optIdleColor?: string;
   onChangeIdleColor?: (color: string) => void;
+  optIdleTextColorEnabled?: boolean;
+  onChangeIdleTextColorEnabled?: (val: boolean) => void;
+  optIdleTextColor?: string;
+  onChangeIdleTextColor?: (color: string) => void;
   optAnimSpeed: "snappy" | "smooth" | "bouncy";
   onChangeAnimSpeed: (speed: "snappy" | "smooth" | "bouncy") => void;
 }
@@ -74,6 +78,10 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   onChangeIdleColorEnabled,
   optIdleColor = "#0f172a",
   onChangeIdleColor,
+  optIdleTextColorEnabled = false,
+  onChangeIdleTextColorEnabled,
+  optIdleTextColor = "#ffffff",
+  onChangeIdleTextColor,
   optAnimSpeed,
   onChangeAnimSpeed,
 }) => {
@@ -470,6 +478,38 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
               onChange={onChangeIdleColor}
               isLightMode={isLightMode}
               isId={optLanguage !== "en"}
+              mode="surface"
+              previewTextColor={optIdleTextColorEnabled ? optIdleTextColor : undefined}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 10. Warna Teks & Angka Idle */}
+      <div className="flex flex-col gap-1 rounded-[12px] transition-colors">
+        <SettingRow
+          icon={<Type size={18} />}
+          iconBgClass="bg-[#12283a]"
+          iconColorClass="text-[#38bdf8]"
+          title={t("settings_custom_idle_text_color")}
+          subtitle={t("settings_custom_idle_text_color_desc")}
+          control={
+            <IosSwitch
+              checked={optIdleTextColorEnabled}
+              onChange={() => onChangeIdleTextColorEnabled?.(!optIdleTextColorEnabled)}
+              activeColor="blue"
+            />
+          }
+        />
+        {optIdleTextColorEnabled && onChangeIdleTextColor && (
+          <div className="pt-1.5 pb-2 px-1">
+            <CustomColorPicker
+              value={optIdleTextColor}
+              onChange={onChangeIdleTextColor}
+              isLightMode={isLightMode}
+              isId={optLanguage !== "en"}
+              mode="text"
+              previewBgColor={optIdleColorEnabled ? optIdleColor : "#0f172a"}
             />
           </div>
         )}

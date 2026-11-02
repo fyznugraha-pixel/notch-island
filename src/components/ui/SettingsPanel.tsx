@@ -75,6 +75,10 @@ export interface SettingsPanelProps {
   onChangeIdleColorEnabled?: (val: boolean) => void;
   optIdleColor?: string;
   onChangeIdleColor?: (color: string) => void;
+  optIdleTextColorEnabled?: boolean;
+  onChangeIdleTextColorEnabled?: (val: boolean) => void;
+  optIdleTextColor?: string;
+  onChangeIdleTextColor?: (color: string) => void;
   optAnimSpeed: "snappy" | "smooth" | "bouncy";
   onChangeAnimSpeed: (speed: "snappy" | "smooth" | "bouncy") => void;
   // Modules
@@ -123,6 +127,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangeIdleColorEnabled,
   optIdleColor,
   onChangeIdleColor,
+  optIdleTextColorEnabled,
+  onChangeIdleTextColorEnabled,
+  optIdleTextColor,
+  onChangeIdleTextColor,
   optAnimSpeed,
   onChangeAnimSpeed,
   optSoundFx = true,
@@ -224,6 +232,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             onChangeIdleColorEnabled={onChangeIdleColorEnabled}
             optIdleColor={optIdleColor}
             onChangeIdleColor={onChangeIdleColor}
+            optIdleTextColorEnabled={optIdleTextColorEnabled}
+            onChangeIdleTextColorEnabled={onChangeIdleTextColorEnabled}
+            optIdleTextColor={optIdleTextColor}
+            onChangeIdleTextColor={onChangeIdleTextColor}
             optLanguage={optLanguage}
             optAnimSpeed={optAnimSpeed}
             onChangeAnimSpeed={onChangeAnimSpeed}
