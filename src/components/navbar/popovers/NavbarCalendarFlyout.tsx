@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
+import { hexToRgba } from "../../../services/navbarConfigService";
 
 interface NavbarCalendarFlyoutProps {
   onClose: () => void;
@@ -34,9 +35,10 @@ export const NavbarCalendarFlyout: React.FC<NavbarCalendarFlyoutProps> = ({
 
   useEffect(() => {
     const handleDown = (e: MouseEvent) => {
-      if (flyoutRef.current && !flyoutRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      const target = e.target as HTMLElement | null;
+      if (flyoutRef.current && flyoutRef.current.contains(target)) return;
+      if (target?.closest('[data-flyout-trigger="calendar"]')) return;
+      onClose();
     };
     window.addEventListener("mousedown", handleDown);
     return () => window.removeEventListener("mousedown", handleDown);
@@ -84,14 +86,17 @@ export const NavbarCalendarFlyout: React.FC<NavbarCalendarFlyoutProps> = ({
       exit={{ opacity: 0, y: 8, scale: 0.96 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
       style={{
-        boxShadow:
-          "0 24px 50px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.08)",
+        borderColor: hexToRgba(accentColor, 0.22),
+        boxShadow: `0 24px 50px rgba(0,0,0,0.85), inset 0 1px 0 ${hexToRgba(accentColor, 0.35)}, 0 0 0 1px ${hexToRgba(accentColor, 0.18)}, 0 8px 30px ${hexToRgba(accentColor, 0.1)}`,
       }}
-      className="absolute bottom-full mb-3.5 right-2 w-[310px] p-4 rounded-[22px] bg-[#0c0c10] border border-white/[0.08] backdrop-blur-2xl text-white select-none pointer-events-auto z-50 flex flex-col gap-3.5"
+      className="absolute bottom-full mb-3.5 right-2 w-[310px] p-4 rounded-[22px] bg-[#0c0c10] border backdrop-blur-2xl text-white select-none pointer-events-auto z-50 flex flex-col gap-3.5"
     >
       {/* Big Digital Clock Header */}
       <div className="flex flex-col items-center justify-center pt-1 pb-2 border-b border-white/[0.06]">
-        <span className="text-[32px] font-bold tracking-tight tabular-nums text-white leading-none">
+        <span
+          style={{ textShadow: `0 0 24px ${hexToRgba(accentColor, 0.3)}` }}
+          className="text-[32px] font-bold tracking-tight tabular-nums text-white leading-none"
+        >
           {timeStr}
         </span>
         <span className="text-[12px] font-medium text-white/50 mt-1">
@@ -151,10 +156,11 @@ export const NavbarCalendarFlyout: React.FC<NavbarCalendarFlyoutProps> = ({
               type="button"
               style={{
                 backgroundColor: isToday ? accentColor : undefined,
+                boxShadow: isToday ? `0 0 12px ${hexToRgba(accentColor, 0.55)}` : undefined,
               }}
-              className={`h-7 w-7 mx-auto rounded-full flex items-center justify-center text-[11.5px] font-medium transition-colors cursor-pointer ${
+              className={`h-7 w-7 mx-auto rounded-full flex items-center justify-center text-[11.5px] font-medium transition-all cursor-pointer ${
                 isToday
-                  ? "text-white font-bold shadow-md shadow-blue-500/30"
+                  ? "text-white font-bold scale-105"
                   : "text-white/80 hover:bg-white/10"
               }`}
             >

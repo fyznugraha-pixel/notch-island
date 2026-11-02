@@ -61,3 +61,57 @@ html.navbar-window #root {
   opacity: 0.03;
   pointer-events: none;
 }
+
+.navbar-surface-light {
+  color: #18181b !important;
+}
+.navbar-surface-light .text-white:not(.navbar-preview-dark *),
+.navbar-surface-light .text-zinc-100:not(.navbar-preview-dark *),
+.navbar-surface-light .text-zinc-200:not(.navbar-preview-dark *),
+.navbar-surface-light .text-zinc-300:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/90:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/85:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/80:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/75:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/70:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/65:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/60:not(.navbar-preview-dark *) {
+  color: #18181b !important;
+}
+.navbar-surface-light .text-zinc-400:not(.navbar-preview-dark *),
+.navbar-surface-light .text-zinc-500:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/55:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/50:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/45:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/40:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/30:not(.navbar-preview-dark *) {
+  color: #52525b !important;
+}
+.navbar-surface-light .bg-white\/10:not(.navbar-preview-dark *) {
+  background-color: rgba(0, 0, 0, 0.12) !important;
+}
+.navbar-surface-light .bg-white\/\[0\.09\]:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.08\]:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.07\]:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.06\]:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.05\]:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.04\]:not(.navbar-preview-dark *) {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}
+.navbar-surface-light .hover\:bg-white\/\[0\.09\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/\[0\.08\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/\[0\.1\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/\[0\.11\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/\[0\.14\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/20:hover:not(.navbar-preview-dark *) {
+  background-color: rgba(0, 0, 0, 0.09) !important;
+}
+.navbar-surface-light .hover\:text-white:hover:not(.navbar-preview-dark *) {
+  color: #09090b !important;
+}
+.navbar-surface-light .border-white\/10:not(.navbar-preview-dark *),
+.navbar-surface-light .border-white\/\[0\.08\]:not(.navbar-preview-dark *),
+.navbar-surface-light .border-white\/\[0\.07\]:not(.navbar-preview-dark *),
+.navbar-surface-light .border-white\/\[0\.06\]:not(.navbar-preview-dark *) {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}

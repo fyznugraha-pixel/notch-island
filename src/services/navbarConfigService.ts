@@ -1,5 +1,6 @@
 import { load, Store } from "@tauri-apps/plugin-store";
 import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import {
   NavbarConfig,
   NavbarModuleConfig,
@@ -7,6 +8,34 @@ import {
   DEFAULT_NAVBAR_MODULES,
   NAVBAR_ACCENT_COLORS,
 } from "../types/navbar";
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "").trim();
+  const safeAlpha = Math.max(0, Math.min(1, alpha));
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16) || 0;
+    const g = parseInt(clean[1] + clean[1], 16) || 0;
+    const b = parseInt(clean[2] + clean[2], 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
+  }
+  if (clean.length >= 6) {
+    const r = parseInt(clean.substring(0, 2), 16) || 0;
+    const g = parseInt(clean.substring(2, 4), 16) || 0;
+    const b = parseInt(clean.substring(4, 6), 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
+  }
+  return `rgba(0, 0, 0, ${safeAlpha})`;
+}
+
+export function darkenHex(hex: string, keep: number): string {
+  const clean = hex.replace("#", "").trim();
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const channel = (start: number) =>
+    Math.round((parseInt(full.substring(start, start + 2), 16) || 0) * keep)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(0)}${channel(2)}${channel(4)}`;
+}
 
 const STORE_FILENAME = "settings.json";
 const STORE_KEY = "opt_navbar_config";
@@ -103,6 +132,11 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
       ? r.iconSpacing
       : "tight";
 
+  const iconTheme =
+    r.iconTheme === "windows" || r.iconTheme === "ios"
+      ? r.iconTheme
+      : "fluent";
+
   const accent =
     typeof r.accent === "string" && /^#[0-9a-fA-F]{6}$/.test(r.accent)
       ? r.accent
@@ -117,12 +151,14 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
     distanceFromEdge: clamp(r.distanceFromEdge, 0, 40, DEFAULT_NAVBAR_CONFIG.distanceFromEdge),
     iconSize: clamp(r.iconSize, 28, 56, DEFAULT_NAVBAR_CONFIG.iconSize),
     iconSpacing,
+    iconTheme,
     style,
     background,
     customColor: typeof r.customColor === "string" ? r.customColor : null,
     accent,
     opacity: clamp(r.opacity, 20, 100, DEFAULT_NAVBAR_CONFIG.opacity),
     autoHide: typeof r.autoHide === "boolean" ? r.autoHide : DEFAULT_NAVBAR_CONFIG.autoHide,
+    autoHideMode: r.autoHideMode === "maxsize" ? "maxsize" : "normal",
     windowPreviews:
       typeof r.windowPreviews === "boolean" ? r.windowPreviews : DEFAULT_NAVBAR_CONFIG.windowPreviews,
     magnify: typeof r.magnify === "boolean" ? r.magnify : DEFAULT_NAVBAR_CONFIG.magnify,
@@ -133,6 +169,21 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
         ? r.hideWindowsTaskbar
         : DEFAULT_NAVBAR_CONFIG.hideWindowsTaskbar,
     modules: normalizeModules(r.modules),
+  };
+}
+
+export function getCachedNavbarConfigSync(): NavbarConfig {
+  if (typeof window !== "undefined") {
+    try {
+      const rawLocal = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (rawLocal) {
+        return normalizeNavbarConfig(JSON.parse(rawLocal));
+      }
+    } catch {}
+  }
+  return {
+    ...DEFAULT_NAVBAR_CONFIG,
+    modules: DEFAULT_NAVBAR_MODULES.map((m) => ({ ...m })),
   };
 }
 
@@ -188,8 +239,12 @@ export async function saveNavbarConfig(config: NavbarConfig): Promise<NavbarConf
     console.error("Failed to save navbar config to store:", err);
   }
 
-  // Broadcast sync event to all windows
+  // Broadcast sync event to all windows via Rust & frontend emit
   try {
+    await invoke("broadcast_navbar_config_update", { config: normalized });
+  } catch {}
+  try {
+    await emit("navbar_config_updated", normalized);
     await emit("gili-navbar-config-sync", normalized);
   } catch {}
 

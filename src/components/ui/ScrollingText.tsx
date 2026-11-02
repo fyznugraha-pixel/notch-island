@@ -1,9 +1,22 @@
 import { useRef, useState, useEffect } from "react";
 
-export const ScrollingText = ({ text, className }: { text: string; className?: string }) => {
+export interface ScrollingTextProps {
+  text: string;
+  className?: string;
+  speed?: number;
+  pauseSeconds?: number;
+}
+
+export const ScrollingText = ({
+  text,
+  className = "",
+  speed = 28,
+  pauseSeconds = 1.8,
+}: ScrollingTextProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [overflowPx, setOverflowPx] = useState(0);
+  const animId = useRef(Math.random().toString(36).substring(2, 7)).current;
 
   useEffect(() => {
     if (!containerRef.current || !textRef.current) return;
@@ -13,17 +26,15 @@ export const ScrollingText = ({ text, className }: { text: string; className?: s
       const span = textRef.current;
       if (!container || !span) return;
 
-      // Temporarily reset any transform and maxWidth so we get the raw natural width
       const prevTransform = span.style.transform;
       const prevMaxWidth = span.style.maxWidth;
       span.style.transform = "none";
       span.style.maxWidth = "none";
       span.style.transition = "none";
-      // Force layout
       void span.offsetWidth;
 
       const overflow = span.scrollWidth - container.clientWidth;
-      setOverflowPx(overflow > 2 ? overflow : 0);
+      setOverflowPx(overflow > 3 ? overflow : 0);
 
       span.style.transform = prevTransform;
       span.style.maxWidth = prevMaxWidth;
@@ -32,8 +43,7 @@ export const ScrollingText = ({ text, className }: { text: string; className?: s
     const ro = new ResizeObserver(checkScroll);
     ro.observe(containerRef.current);
     ro.observe(textRef.current);
-    // Small delay so layout animation finishes first
-    const timer = setTimeout(checkScroll, 100);
+    const timer = setTimeout(checkScroll, 120);
 
     return () => {
       ro.disconnect();
@@ -42,22 +52,37 @@ export const ScrollingText = ({ text, className }: { text: string; className?: s
   }, [text, className]);
 
   const shouldScroll = overflowPx > 0;
-  // scroll duration proportional to overflow, range 2-6s
-  const scrollDur = shouldScroll ? Math.max(2, Math.min(6, overflowPx / 25)) : 0;
-  // total cycle: 2s pause → scroll → 2s pause (handled via keyframe percentages)
-  const totalCycle = 2 + scrollDur + 2;
-  const scrollStartPct = ((2 / totalCycle) * 100).toFixed(1);
-  const scrollEndPct = (((2 + scrollDur) / totalCycle) * 100).toFixed(1);
+  const scrollDur = shouldScroll ? Math.max(2.2, Math.min(8.5, overflowPx / speed)) : 0;
+  const totalCycle = pauseSeconds + scrollDur + pauseSeconds + scrollDur + 0.8;
+
+  const p1 = ((pauseSeconds / totalCycle) * 100).toFixed(1);
+  const p2 = (((pauseSeconds + scrollDur) / totalCycle) * 100).toFixed(1);
+  const p3 = (((pauseSeconds + scrollDur + pauseSeconds) / totalCycle) * 100).toFixed(1);
+  const p4 = (((pauseSeconds + 2 * scrollDur + pauseSeconds) / totalCycle) * 100).toFixed(1);
+
+  const animName = `marquee-pp-${animId}-${Math.round(overflowPx)}`;
 
   return (
-    <div ref={containerRef} className={`overflow-hidden whitespace-nowrap py-[1px] ${className}`}>
+    <div
+      ref={containerRef}
+      className={`overflow-hidden whitespace-nowrap py-[1px] group/marquee ${className}`}
+      style={{
+        maskImage: shouldScroll
+          ? "linear-gradient(to right, transparent 0%, black 8px, black calc(100% - 8px), transparent 100%)"
+          : undefined,
+        WebkitMaskImage: shouldScroll
+          ? "linear-gradient(to right, transparent 0%, black 8px, black calc(100% - 8px), transparent 100%)"
+          : undefined,
+      }}
+    >
       {shouldScroll && (
         <style
           dangerouslySetInnerHTML={{
             __html: `
-          @keyframes marquee-pause-scroll-${Math.round(overflowPx)} {
-            0%, ${scrollStartPct}% { transform: translateX(0px); }
-            ${scrollEndPct}%, 100% { transform: translateX(-${overflowPx}px); }
+          @keyframes ${animName} {
+            0%, ${p1}% { transform: translateX(0px); }
+            ${p2}%, ${p3}% { transform: translateX(-${overflowPx}px); }
+            ${p4}%, 100% { transform: translateX(0px); }
           }
         `,
           }}
@@ -65,11 +90,12 @@ export const ScrollingText = ({ text, className }: { text: string; className?: s
       )}
       <span
         ref={textRef}
+        className={shouldScroll ? "group-hover/marquee:[animation-play-state:paused]" : ""}
         style={
           shouldScroll
             ? {
                 display: "inline-block",
-                animation: `marquee-pause-scroll-${Math.round(overflowPx)} ${totalCycle}s ease-in-out infinite`,
+                animation: `${animName} ${totalCycle}s ease-in-out infinite`,
                 willChange: "transform",
                 lineHeight: "1.3",
               }

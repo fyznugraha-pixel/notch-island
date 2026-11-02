@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
+import { hexToRgba } from "../../../services/navbarConfigService";
 
 interface NavbarStartLauncherFlyoutProps {
   onClose: () => void;
@@ -29,9 +30,10 @@ export const NavbarStartLauncherFlyout: React.FC<NavbarStartLauncherFlyoutProps>
   useEffect(() => {
     inputRef.current?.focus();
     const handleDown = (e: MouseEvent) => {
-      if (flyoutRef.current && !flyoutRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      const target = e.target as HTMLElement | null;
+      if (flyoutRef.current && flyoutRef.current.contains(target)) return;
+      if (target?.closest('[data-flyout-trigger="start"]')) return;
+      onClose();
     };
     window.addEventListener("mousedown", handleDown);
     return () => window.removeEventListener("mousedown", handleDown);
@@ -64,10 +66,10 @@ export const NavbarStartLauncherFlyout: React.FC<NavbarStartLauncherFlyoutProps>
       exit={{ opacity: 0, y: 8, scale: 0.96 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
       style={{
-        boxShadow:
-          "0 24px 50px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.08)",
+        borderColor: hexToRgba(accentColor, 0.22),
+        boxShadow: `0 24px 50px rgba(0,0,0,0.85), inset 0 1px 0 ${hexToRgba(accentColor, 0.35)}, 0 0 0 1px ${hexToRgba(accentColor, 0.18)}, 0 8px 30px ${hexToRgba(accentColor, 0.1)}`,
       }}
-      className="absolute bottom-full mb-3.5 left-4 w-[340px] p-4 rounded-[22px] bg-[#0c0c10] border border-white/[0.08] backdrop-blur-2xl text-white select-none pointer-events-auto z-50 flex flex-col gap-3.5"
+      className="absolute bottom-full mb-3.5 left-4 w-[340px] p-4 rounded-[22px] bg-[#0c0c10] border backdrop-blur-2xl text-white select-none pointer-events-auto z-50 flex flex-col gap-3.5"
     >
       {/* Search Input */}
       <div className="relative flex items-center">

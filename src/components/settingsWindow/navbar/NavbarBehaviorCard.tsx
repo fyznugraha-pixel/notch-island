@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import { NavbarConfig } from "../../../types/navbar";
-import { Sliders, RotateCcw, AlertTriangle } from "lucide-react";
+import { Sliders, RotateCcw, AlertTriangle, Check } from "lucide-react";
+import { Language } from "../../../services/i18n";
 
 interface NavbarBehaviorCardProps {
   config: NavbarConfig;
   onChange: (patch: Partial<NavbarConfig>) => void;
   onReset: () => void;
   isLightMode?: boolean;
+  optLanguage?: Language;
 }
 
 export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
@@ -14,7 +16,9 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
   onChange,
   onReset,
   isLightMode = false,
+  optLanguage = "id",
 }) => {
+  const isId = optLanguage === "id";
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const cardBg = isLightMode
@@ -44,8 +48,11 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
       <button
         type="button"
         onClick={onToggle}
+        style={{
+          backgroundColor: value ? config.accent : undefined,
+        }}
         className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${
-          value ? "bg-[#0a84ff]" : isLightMode ? "bg-black/20" : "bg-white/20"
+          value ? "" : isLightMode ? "bg-black/20" : "bg-white/20"
         }`}
       >
         <span
@@ -66,10 +73,12 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
         </div>
         <div className="flex flex-col">
           <span className={`text-[13px] font-semibold ${textTitle}`}>
-            Perilaku & Interaksi
+            {isId ? "Perilaku & Interaksi" : "Behavior & Interaction"}
           </span>
           <span className={`text-[11px] ${textSub}`}>
-            Pengaturan auto-hide, efek perbesaran dan sinkronisasi taskbar Windows
+            {isId
+              ? "Atur auto-hide, efek zoom kursor, & integrasi sama taskbar Windows"
+              : "Configure auto-hide, cursor magnification & Windows taskbar integration"}
           </span>
         </div>
       </div>
@@ -77,29 +86,108 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
       {/* Toggle Rows */}
       <div className="flex flex-col">
         {renderToggleRow(
-          "Sembunyikan Otomatis (Auto-Hide)",
-          "Dock meluncur keluar layar hingga kursor menyentuh tepi bawah",
+          isId ? "Sembunyikan Otomatis (Auto-Hide)" : "Auto-Hide Dock",
+          isId
+            ? "Dock bakal ngumpet otomatis, muncul lagi pas kursor lo mepet ke pinggir layar"
+            : "Automatically hide dock when inactive, reveal when cursor hovers near screen edge",
           config.autoHide,
           () => onChange({ autoHide: !config.autoHide })
         )}
 
+        {config.autoHide && (
+          <div className="flex flex-col gap-2.5 my-1.5 p-3 rounded-[12px] bg-white/[0.03] border border-white/[0.06]">
+            <div className="flex items-center justify-between">
+              <span className={`text-[11.5px] font-medium ${textTitle}`}>
+                {isId ? "Pilihan Sembunyi Otomatis:" : "Auto-Hide Behavior:"}
+              </span>
+              <span className={`text-[10px] ${textSub}`}>
+                {(config.autoHideMode || "normal") === "normal"
+                  ? isId
+                    ? "Normal • Tampil di Desktop"
+                    : "Normal • Visible on Desktop"
+                  : isId
+                  ? "Only Maxsize • Selalu Sembunyi"
+                  : "Only Maxsize • Always Hidden"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Option 1: Normal */}
+              <button
+                type="button"
+                onClick={() => onChange({ autoHideMode: "normal" })}
+                className={`p-2.5 rounded-[10px] border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                  (config.autoHideMode || "normal") === "normal"
+                    ? "bg-white/[0.08] border-white/30 ring-1 ring-white/20 shadow-sm"
+                    : "bg-transparent border-white/[0.07] hover:bg-white/[0.04]"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-[12px] font-semibold ${textTitle}`}>
+                    {isId ? "Normal (Cerdas)" : "Normal"}
+                  </span>
+                  {(config.autoHideMode || "normal") === "normal" && (
+                    <Check size={13} className="text-emerald-400" strokeWidth={2.6} />
+                  )}
+                </div>
+                <span className={`text-[10.5px] leading-relaxed ${textSub}`}>
+                  {isId
+                    ? "Pas di desktop tetap muncul. Otomatis ngumpet pas ada jendela terbuka / maximized."
+                    : "Stays visible on desktop. Auto-hides when windows are open or maximized."}
+                </span>
+              </button>
+
+              {/* Option 2: Only Maxsize */}
+              <button
+                type="button"
+                onClick={() => onChange({ autoHideMode: "maxsize" })}
+                className={`p-2.5 rounded-[10px] border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                  config.autoHideMode === "maxsize"
+                    ? "bg-white/[0.08] border-white/30 ring-1 ring-white/20 shadow-sm"
+                    : "bg-transparent border-white/[0.07] hover:bg-white/[0.04]"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-[12px] font-semibold ${textTitle}`}>
+                    {isId ? "Only Maxsize" : "Only Maxsize"}
+                  </span>
+                  {config.autoHideMode === "maxsize" && (
+                    <Check size={13} className="text-emerald-400" strokeWidth={2.6} />
+                  )}
+                </div>
+                <span className={`text-[10.5px] leading-relaxed ${textSub}`}>
+                  {isId
+                    ? "Di desktop pun tetap ke-hide. Selalu ngumpet dan muncul pas kursor mepet layar."
+                    : "Hides even on desktop. Always stays hidden until cursor moves to screen edge."}
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {renderToggleRow(
-          "Pratinjau Jendela (Window Previews)",
-          "Menampilkan thumbnail live aplikasi saat kursor diarahkan ke ikon",
+          isId ? "Pratinjau Jendela (Window Previews)" : "Window Previews",
+          isId
+            ? "Intip thumbnail live aplikasi pas kursor lo ngarah ke ikon"
+            : "Peek live window thumbnails when hovering app icons",
           config.windowPreviews,
           () => onChange({ windowPreviews: !config.windowPreviews })
         )}
 
         {renderToggleRow(
-          "Perbesar Ikon saat Hover (Magnify)",
-          "Efek pembesaran ikon yang halus dan interaktif saat disentuh",
+          isId ? "Perbesar Ikon saat Hover (Magnify)" : "Hover Magnification (Magnify)",
+          isId
+            ? "Efek zoom halus ala macOS pas kursor ngedeketin ikon"
+            : "Smooth macOS-style magnification as cursor gets close to icons",
           config.magnify,
           () => onChange({ magnify: !config.magnify })
         )}
 
         {renderToggleRow(
-          "Tampilkan Label Aplikasi",
-          "Teks nama aplikasi di bawah atau di samping ikon",
+          isId ? "Tampilkan Label Aplikasi" : "Show App Tooltips",
+          isId
+            ? "Tampilin nama aplikasi biar gak bingung nebak ikon"
+            : "Display app names on hover so you never guess an icon",
           config.appLabels,
           () => onChange({ appLabels: !config.appLabels })
         )}
@@ -108,10 +196,12 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
         <div className="flex items-center justify-between py-2 border-b border-white/[0.05]">
           <div className="flex flex-col">
             <span className={`text-[12.5px] font-medium ${textTitle}`}>
-              Format Jam 24 Jam
+              {isId ? "Format Jam 24 Jam" : "24-Hour Time Format"}
             </span>
             <span className={`text-[11px] ${textSub}`}>
-              Gunakan format 24 jam (23:26) atau 12 jam (11:26 PM)
+              {isId
+                ? "Pilih mau format 24 jam (23:26) atau 12 jam (11:26 PM)"
+                : "Toggle between 24-hour (23:26) or 12-hour (11:26 PM) format"}
             </span>
           </div>
           <div
@@ -152,18 +242,24 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
 
         {/* Hide Windows Taskbar */}
         {renderToggleRow(
-          "Sembunyikan Taskbar Asli Windows",
-          "Gantikan taskbar bawaan sepenuhnya dengan Gili Navbar",
+          isId ? "Sembunyikan Taskbar Asli Windows" : "Hide Native Windows Taskbar",
+          isId
+            ? "Auto-hide taskbar bawaan Windows biar gak dobel & makin clean"
+            : "Auto-hide Windows taskbar to eliminate clutter & avoid duplicate bars",
           config.hideWindowsTaskbar,
           () => onChange({ hideWindowsTaskbar: !config.hideWindowsTaskbar }),
-          "Taskbar otomatis dikembalikan utuh jika Gili ditutup atau fitur dinonaktifkan."
+          isId
+            ? "Tenang, taskbar bawaan Windows bakal balik normal otomatis kalau Gili ditutup."
+            : "Don't worry, the Windows taskbar restores automatically when Gili closes."
         )}
       </div>
 
       {/* Reset to Default */}
       <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
         <span className={`text-[11.5px] ${textSub}`}>
-          Kembalikan seluruh preferensi navbar ke setelan pabrik
+          {isId
+            ? "Balikin semua settingan taskbar ke default pabrik"
+            : "Reset all dock settings back to defaults"}
         </span>
         {showResetConfirm ? (
           <div className="flex items-center gap-1.5">
@@ -175,7 +271,7 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
               }}
               className="px-2.5 py-1 rounded-[8px] bg-red-600 text-white text-[11px] font-medium hover:bg-red-700 transition-colors cursor-pointer"
             >
-              Ya, Reset
+              {isId ? "Ya, Reset" : "Yes, Reset"}
             </button>
             <button
               type="button"
@@ -184,7 +280,7 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
                 isLightMode ? "text-neutral-600" : "text-zinc-400 hover:text-white"
               }`}
             >
-              Batal
+              {isId ? "Batal" : "Cancel"}
             </button>
           </div>
         ) : (
@@ -198,7 +294,7 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
             }`}
           >
             <RotateCcw size={13} />
-            <span>Reset ke Default</span>
+            <span>{isId ? "Reset ke Default" : "Reset to Defaults"}</span>
           </button>
         )}
       </div>

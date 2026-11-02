@@ -6,7 +6,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load, Store } from "@tauri-apps/plugin-store";
-import { Minus, X, Clock, Volume2, Send, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Minus, X, Clock, Volume2, Send, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2 } from "lucide-react";
 
 import { Language, getLanguage, setLanguage, t } from "../../services/i18n";
 import {
@@ -109,7 +109,7 @@ export const SettingsWindowApp: React.FC = () => {
   }, []);
 
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("4.3.2");
+  const [currentAppVersion, setCurrentAppVersion] = useState("5.0.0");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
@@ -891,6 +891,31 @@ export const SettingsWindowApp: React.FC = () => {
     SIDEBAR_SECTIONS.find((s) => s.id === activeSection) || SIDEBAR_SECTIONS[0];
   const isId = optLanguage === "id";
 
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    win.isMaximized().then(setIsMaximized).catch(() => {});
+    const unlistenPromise = win.onResized(() => {
+      win.isMaximized().then(setIsMaximized).catch(() => {});
+    });
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, []);
+
+  const handleToggleMaximize = async () => {
+    const win = getCurrentWindow();
+    const max = await win.isMaximized();
+    if (max) {
+      await win.unmaximize();
+      setIsMaximized(false);
+    } else {
+      await win.maximize();
+      setIsMaximized(true);
+    }
+  };
+
   const handleCloseWindow = () => {
     const win = getCurrentWindow();
     win.close().catch(() => win.destroy().catch(() => {}));
@@ -907,7 +932,7 @@ export const SettingsWindowApp: React.FC = () => {
       {/* Top Frameless Window Titlebar */}
       <header
         data-tauri-drag-region
-        onDoubleClick={(e) => e.preventDefault()}
+        onDoubleClick={handleToggleMaximize}
         className={`h-[44px] shrink-0 w-full flex items-center justify-between pl-4 pr-2.5 border-b ${
           isLightMode
             ? "bg-[#ebebef]/95 border-black/[0.08]"
@@ -958,7 +983,7 @@ export const SettingsWindowApp: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Minimize & Close Buttons */}
+        {/* Right: Minimize, Maximize & Close Buttons */}
         <div className="flex items-center gap-1 pointer-events-auto">
           <Tooltip side="bottom" delay={300} content={isId ? "Minimalkan" : "Minimize"}>
             <button
@@ -971,6 +996,19 @@ export const SettingsWindowApp: React.FC = () => {
               }`}
             >
               <Minus size={15} strokeWidth={2} />
+            </button>
+          </Tooltip>
+          <Tooltip side="bottom" delay={300} content={isMaximized ? (isId ? "Pulihkan" : "Restore") : (isId ? "Maksimalkan" : "Maximize")}>
+            <button
+              type="button"
+              onClick={handleToggleMaximize}
+              className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.07]"
+                  : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
+              }`}
+            >
+              {isMaximized ? <Minimize2 size={13} strokeWidth={2} /> : <Maximize2 size={13} strokeWidth={2} />}
             </button>
           </Tooltip>
           <Tooltip side="bottom" delay={300} content={isId ? "Tutup" : "Close"}>
@@ -1183,7 +1221,10 @@ export const SettingsWindowApp: React.FC = () => {
                   )}
 
                   {activeSection === "navbar" && (
-                    <NavbarSettingsTab isLightMode={isLightMode} />
+                    <NavbarSettingsTab
+                      isLightMode={isLightMode}
+                      optLanguage={optLanguage}
+                    />
                   )}
 
                   {activeSection === "idle" && (

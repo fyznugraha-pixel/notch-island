@@ -481,7 +481,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       exit={{ opacity: 0, scale: 0.96, y: -4 }}
                       transition={iosSpring.snappy}
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-[calc(100%+4px)] z-50 w-[252px] p-1 rounded-[15px] bg-[#17171d] border border-[#2a2a31] shadow-[0_8px_20px_rgba(0,0,0,0.5)] flex flex-col gap-0.5"
+                      className="absolute left-0 top-[calc(100%+2px)] z-50 w-[246px] max-h-[148px] p-1 rounded-[14px] bg-[#17171d]/95 backdrop-blur-2xl border border-white/10 shadow-[0_12px_28px_rgba(0,0,0,0.7)] flex flex-col gap-0.5 overflow-y-auto scrollbar-none select-none"
                     >
                       {focusModeOptions.map((opt) => {
                         const isSelected = focusMode === opt.id;
@@ -494,25 +494,29 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                               onSelectFocusMode(opt.id);
                               setIsModeDropdownOpen(false);
                             }}
-                            className={`h-[34px] rounded-[10px] px-2 flex items-center gap-2 text-left transition-colors cursor-pointer ${
-                              isSelected ? "bg-[#23232a] text-white" : "hover:bg-white/[0.04] text-white"
+                            className={`min-h-[34px] py-1 px-2 rounded-[9px] flex items-center gap-2 text-left transition-colors cursor-pointer shrink-0 ${
+                              isSelected
+                                ? "bg-[#25252e] text-white"
+                                : "hover:bg-white/[0.05] text-[#d4d4d8] hover:text-white"
                             }`}
                           >
                             <span
-                              className={`w-[24px] h-[24px] rounded-full flex items-center justify-center shrink-0 ${
-                                isSelected ? "bg-[#2e2e36]" : "bg-[#1d1d25]"
+                              className={`w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 ${
+                                isSelected ? "bg-[#32323d]" : "bg-[#1f1f27]"
                               } ${getFocusIconColor(opt.id)}`}
                             >
                               {renderFocusGlyph(opt.id, 13)}
                             </span>
-                            <span className="flex-1 min-w-0 flex flex-col">
+                            <div className="flex-1 min-w-0 flex flex-col justify-center">
                               <span className="text-[11.5px] font-semibold text-white leading-tight truncate">
                                 {opt.label}
                               </span>
-                              <span className="text-[9.5px] text-[#a1a1aa] leading-tight truncate">
-                                {opt.desc}
-                              </span>
-                            </span>
+                              {opt.desc && (
+                                <span className="text-[9.5px] text-[#a1a1aa] leading-tight truncate mt-0.5">
+                                  {opt.desc}
+                                </span>
+                              )}
+                            </div>
                             {isSelected && (
                               <Check size={13} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
                             )}

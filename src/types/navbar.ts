@@ -3,6 +3,8 @@ export type NavbarPosition = "bottom" | "top" | "left" | "right";
 export type NavbarStyle = "solid" | "liquid" | "followNotch";
 export type NavbarBackground = "followNotch" | "black" | "custom";
 export type NavbarIconSpacing = "tight" | "normal" | "roomy";
+export type NavbarIconTheme = "fluent" | "windows" | "ios";
+export type NavbarAutoHideMode = "normal" | "maxsize";
 export type NavbarModuleView = "compact" | "full";
 export type NavbarPowerState = "ACTIVE" | "IDLE" | "SUSPENDED";
 
@@ -22,12 +24,14 @@ export interface NavbarConfig {
   distanceFromEdge: number;
   iconSize: number;
   iconSpacing: NavbarIconSpacing;
+  iconTheme: NavbarIconTheme;
   style: NavbarStyle;
   background: NavbarBackground;
   customColor: string | null;
   accent: string;
   opacity: number;
   autoHide: boolean;
+  autoHideMode: NavbarAutoHideMode;
   windowPreviews: boolean;
   magnify: boolean;
   appLabels: boolean;
@@ -65,12 +69,14 @@ export const DEFAULT_NAVBAR_CONFIG: NavbarConfig = {
   distanceFromEdge: 14,
   iconSize: 40,
   iconSpacing: "tight",
+  iconTheme: "fluent",
   style: "solid",
   background: "black",
   customColor: null,
   accent: "#3882F6",
   opacity: 100,
   autoHide: false,
+  autoHideMode: "normal",
   windowPreviews: true,
   magnify: true,
   appLabels: false,

@@ -18,6 +18,36 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "5.0.0",
+    date: "2 Nov 2026",
+    highlights: [
+      {
+        icon: <SlidersHorizontal size={14} />,
+        titleId: "Dock & Taskbar Interaktif Generasi Baru",
+        titleEn: "Next-Gen Interactive Dock & Taskbar",
+        descId: "Fitur Auto-Hide cerdas dengan pilihan mode Normal (tetap muncul di desktop) dan Only Maxsize, Color Picker kustom studio, live preview thumbnail, serta integrasi penuh Taskband Windows.",
+        descEn: "Smart Auto-Hide with Normal (visible on desktop) and Only Maxsize modes, custom studio color picker, live window preview thumbnails, and full Windows Taskband integration.",
+        badge: "new",
+      },
+      {
+        icon: <Zap size={14} />,
+        titleId: "Desain Menu Fokus & Mode Notch Sleek",
+        titleEn: "Sleek Focus & Mode Dropdown Design",
+        descId: "Tampilan dropdown menu Mode di Control Center Notch dibuat lebih ramping, elegan, dan proporsional tanpa terpotong di batas bawah notch.",
+        descEn: "Redesigned Mode dropdown menu in Control Center Notch with a compact, elegant single-line layout that perfectly fits within notch bounds.",
+        badge: "improve",
+      },
+      {
+        icon: <Bug size={14} />,
+        titleId: "Pembersihan Ghost Window UWP Background",
+        titleEn: "UWP Background Ghost Window Filtering",
+        descId: "Memfilter proses UWP yang berstatus cloaked di background (seperti Windows Settings) agar tidak muncul sembarangan dengan titik indikator berjalan di taskbar.",
+        descEn: "Properly filters cloaked background UWP processes (like Windows Settings) so they no longer appear as running apps on the taskbar.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "4.3.2",
     date: "1 Nov 2026",
     highlights: [

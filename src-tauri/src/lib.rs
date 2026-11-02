@@ -11,6 +11,8 @@ pub mod shelf_server;
 pub mod shared_sampler;
 pub mod taskbar_manager;
 pub mod navbar_window;
+pub mod windows_pinned_apps;
+pub mod shell_surface_toggle;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -2808,21 +2810,54 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
             tauri::WebviewUrl::App("index.html".into()),
         )
         .title("Gili Settings")
-        .inner_size(880.0, 620.0)
-        .min_inner_size(760.0, 520.0)
-        .maximizable(false)
-        .resizable(false)
+        .inner_size(1060.0, 780.0)
+        .min_inner_size(912.0, 650.0)
+        .maximizable(true)
+        .resizable(true)
         .decorations(false)
         .transparent(false)
         .shadow(true)
         .center()
         .visible(true)
         .focused(true)
+        .skip_taskbar(false)
         .initialization_script("window.__IS_SETTINGS_WINDOW__ = true;")
         .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
         .build()
         {
             Ok(win) => {
+                if let Some(icon) = app_handle.default_window_icon() {
+                    let _ = win.set_icon(icon.clone());
+                }
+
+                #[cfg(windows)]
+                {
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+                        SetWindowPos, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_FRAMECHANGED,
+                    };
+                    use windows::Win32::Foundation::HWND;
+
+                    if let Ok(hwnd_val) = win.hwnd() {
+                        let hwnd = HWND(hwnd_val.0);
+                        unsafe {
+                            let mut ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+                            ex_style &= !WS_EX_TOOLWINDOW.0;
+                            ex_style |= WS_EX_APPWINDOW.0;
+                            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style as i32);
+                            let _ = SetWindowPos(
+                                hwnd,
+                                None,
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                            );
+                        }
+                    }
+                }
+
                 let sw = win.clone();
                 win.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -2862,6 +2897,26 @@ fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+#[tauri::command]
+fn get_screen_refresh_rate() -> u32 {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::Graphics::Gdi::{
+            EnumDisplaySettingsW, DEVMODEW, ENUM_CURRENT_SETTINGS,
+        };
+        let mut devmode = DEVMODEW {
+            dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+            ..Default::default()
+        };
+        if EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &mut devmode).as_bool() {
+            if devmode.dmDisplayFrequency >= 30 && devmode.dmDisplayFrequency <= 500 {
+                return devmode.dmDisplayFrequency;
+            }
+        }
+    }
+    60
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if std::env::args().any(|arg| arg == "--restore-taskbar") {
@@ -2887,8 +2942,10 @@ pub fn run() {
         use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
         use windows::core::w;
 
+        static SINGLE_INSTANCE_MUTEX: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
         unsafe {
-            let mutex = CreateMutexW(None, true, w!("com_faiz_gili_single_instance_mutex"));
+            let mutex = CreateMutexW(None, true, w!("Local\\com_faiz_gili_single_instance_mutex"));
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE};
                 if let Ok(hwnd) = FindWindowW(None, w!("Gili")) {
@@ -2899,7 +2956,9 @@ pub fn run() {
                 }
                 std::process::exit(0);
             }
-            let _ = mutex;
+            if let Ok(m) = mutex {
+                SINGLE_INSTANCE_MUTEX.store(m.0 as isize, std::sync::atomic::Ordering::SeqCst);
+            }
         }
     }
 
@@ -2987,6 +3046,7 @@ pub fn run() {
             broadcast_settings_sync,
             trigger_notch_action,
             restart_app,
+            get_screen_refresh_rate,
             shelf_server::start_shelf_send,
             shelf_server::start_shelf_receive,
             shelf_server::stop_shelf_transfer,
@@ -2997,6 +3057,11 @@ pub fn run() {
             navbar_window::toggle_navbar,
             navbar_window::open_navbar_window,
             navbar_window::close_navbar_window,
+            navbar_window::broadcast_navbar_config_update,
+            navbar_window::set_navbar_ignore_cursor_events,
+            navbar_window::set_navbar_popup_open,
+            navbar_window::set_navbar_auto_hide_state,
+            navbar_window::set_navbar_focusable,
             navbar_window::sync_navbar_bounds,
             navbar_window::trigger_start_menu,
             navbar_window::trigger_windows_search,
@@ -3005,10 +3070,16 @@ pub fn run() {
             navbar_window::trigger_file_explorer,
             navbar_window::trigger_task_manager,
             navbar_window::launch_target,
+            navbar_window::switch_virtual_desktop,
+            navbar_window::trigger_fullscreen_screenshot,
             navbar_window::get_running_windows,
             navbar_window::activate_or_toggle_window,
             navbar_window::capture_window_thumbnail,
-            navbar_window::close_window_by_hwnd
+            navbar_window::close_window_by_hwnd,
+            navbar_window::get_desktop_luminance,
+            navbar_window::check_navbar_window_overlap,
+            windows_pinned_apps::get_windows_pinned_apps,
+            windows_pinned_apps::launch_pinned_app
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -3063,6 +3134,12 @@ pub fn run() {
             }
 
             let _tray = tray_builder.build(app)?;
+
+            let app_h = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                windows_pinned_apps::start_pinned_apps_watcher(app_h.clone());
+            });
 
             let window = match app.get_webview_window("main") {
                 Some(w) => w,

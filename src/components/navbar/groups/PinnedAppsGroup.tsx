@@ -1,18 +1,38 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
 import { Tooltip } from "../../ui/Tooltip";
 import { WindowPreviewCard, WindowPreviewItem } from "../WindowPreviewCard";
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { NavbarIconTheme, NavbarPosition } from "../../../types/navbar";
+import { hexToRgba } from "../../../services/navbarConfigService";
+import { renderAppIcon } from "./appIcons";
+import { useWindowsPinnedApps } from "../../../hooks/useWindowsPinnedApps";
+import { matchesAppId, getRunningAppMeta } from "./pinnedAppsHelpers";
+import { AppContextMenu } from "./AppContextMenu";
 
 export interface NavbarAppItem {
   id: string;
   name: string;
+  activeTitle?: string;
   icon?: string;
-  iconType?: "folder" | "browser" | "code" | "terminal" | "settings" | "spotify" | "discord" | "whatsapp" | "brave";
+  iconType?:
+    | "folder"
+    | "browser"
+    | "code"
+    | "terminal"
+    | "settings"
+    | "spotify"
+    | "discord"
+    | "whatsapp"
+    | "brave";
   isRunning: boolean;
   isActive: boolean;
   hwnd?: number;
   windows?: WindowPreviewItem[];
+  targetPath?: string;
+  arguments?: string;
+  lnkPath?: string;
 }
 
 interface RunningWindowInfo {
@@ -21,100 +41,29 @@ interface RunningWindowInfo {
   process_name: string;
   is_active: boolean;
   is_minimized: boolean;
+  icon_base64?: string;
 }
 
 interface PinnedAppsGroupProps {
   apps?: NavbarAppItem[];
   iconSize?: number;
+  iconTheme?: NavbarIconTheme;
+  position?: NavbarPosition;
   magnifyOnHover?: boolean;
   windowPreviews?: boolean;
+  showAppLabels?: boolean;
   accentColor?: string;
-  onAppClick?: (app: NavbarAppItem) => void;
+  isPreview?: boolean;
+  showRunningApps?: boolean;
+  onAppClick?: (app: NavbarAppItem, forceNewInstance?: boolean) => void;
   onPreviewStateChange?: (isShowing: boolean) => void;
 }
 
-// Crisp official logos for Windows applications
-const ExplorerIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 48 48" fill="none">
-    <path
-      d="M4 10C4 7.79086 5.79086 6 8 6H19L24 12H40C42.2091 12 44 13.7909 44 16V38C44 40.2091 42.2091 42 40 42H8C5.79086 42 4 40.2091 4 38V10Z"
-      fill="#FFA000"
-    />
-    <path
-      d="M4 18H44V38C44 40.2091 42.2091 42 40 42H8C5.79086 42 4 40.2091 4 38V18Z"
-      fill="#FFCA28"
-    />
-    <rect x="18" y="22" width="12" height="14" rx="2" fill="#0288D1" />
-    <rect x="21" y="25" width="6" height="2" rx="1" fill="#FFFFFF" />
-  </svg>
-);
-
-const VSCodeIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 256 256" fill="none">
-    <path
-      d="M192.5 247.5L250.5 219.5V36.5L192.5 8.5L96.5 101.5L42.5 60.5L6.5 78.5L64.5 128L6.5 177.5L42.5 195.5L96.5 154.5L192.5 247.5Z"
-      fill="#0065A9"
-    />
-    <path
-      d="M192.5 247.5L250.5 219.5V36.5L192.5 8.5L160.5 128L192.5 247.5Z"
-      fill="#007ACC"
-    />
-    <path
-      d="M192.5 8.5L96.5 101.5L42.5 60.5L6.5 78.5L64.5 128L192.5 8.5Z"
-      fill="#1F9CF0"
-    />
-    <path
-      d="M192.5 247.5L96.5 154.5L42.5 195.5L6.5 177.5L64.5 128L192.5 247.5Z"
-      fill="#0065A9"
-    />
-  </svg>
-);
-
-const TerminalIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 48 48" fill="none">
-    <rect width="48" height="48" rx="10" fill="#1E1E1E" />
-    <path
-      d="M12 16L22 24L12 32"
-      stroke="#4AF626"
-      strokeWidth="4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <line x1="24" y1="32" x2="36" y2="32" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" />
-  </svg>
-);
-
-const SettingsIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 48 48" fill="none">
-    <circle cx="24" cy="24" r="22" fill="#0078D4" />
-    <path
-      d="M24 16C19.58 16 16 19.58 16 24C16 28.42 19.58 32 24 32C28.42 32 32 28.42 32 24C32 19.58 28.42 16 24 16Z"
-      fill="#FFFFFF"
-      fillOpacity="0.25"
-    />
-    <path
-      d="M24 19C21.24 19 19 21.24 19 24C19 26.76 21.24 29 24 29C26.76 29 29 26.76 29 24C29 21.24 26.76 19 24 19Z"
-      fill="#FFFFFF"
-    />
-    <circle cx="24" cy="8" r="3" fill="#FFFFFF" />
-    <circle cx="24" cy="40" r="3" fill="#FFFFFF" />
-    <circle cx="8" cy="24" r="3" fill="#FFFFFF" />
-    <circle cx="40" cy="24" r="3" fill="#FFFFFF" />
-    <circle cx="12.7" cy="12.7" r="3" fill="#FFFFFF" />
-    <circle cx="35.3" cy="35.3" r="3" fill="#FFFFFF" />
-    <circle cx="12.7" cy="35.3" r="3" fill="#FFFFFF" />
-    <circle cx="35.3" cy="12.7" r="3" fill="#FFFFFF" />
-  </svg>
-);
+const APP_ORDER_KEY = "gili_navbar_app_order_v1";
+const APP_UNPINNED_KEY = "gili_navbar_unpinned_ids_v1";
+const APP_EXTRA_PINNED_KEY = "gili_navbar_extra_pinned_v1";
 
 const DEFAULT_PINNED_APPS: NavbarAppItem[] = [
-  {
-    id: "explorer",
-    name: "File Explorer",
-    iconType: "folder",
-    isRunning: false,
-    isActive: false,
-  },
   {
     id: "chrome",
     name: "Google Chrome",
@@ -123,23 +72,23 @@ const DEFAULT_PINNED_APPS: NavbarAppItem[] = [
     isActive: false,
   },
   {
-    id: "vscode",
-    name: "Visual Studio Code",
-    iconType: "code",
+    id: "spotify",
+    name: "Spotify",
+    iconType: "spotify",
     isRunning: false,
     isActive: false,
   },
   {
-    id: "terminal",
-    name: "Terminal",
-    iconType: "terminal",
+    id: "explorer",
+    name: "File Explorer",
+    iconType: "folder",
     isRunning: false,
     isActive: false,
   },
   {
-    id: "settings",
-    name: "Settings",
-    iconType: "settings",
+    id: "brave",
+    name: "Brave",
+    iconType: "brave",
     isRunning: false,
     isActive: false,
   },
@@ -148,18 +97,119 @@ const DEFAULT_PINNED_APPS: NavbarAppItem[] = [
 export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   apps = DEFAULT_PINNED_APPS,
   iconSize = 40,
+  iconTheme = "fluent",
+  position = "bottom",
   magnifyOnHover = false,
   windowPreviews = true,
+  showAppLabels = false,
   accentColor = "#0a84ff",
+  isPreview = false,
+  showRunningApps = true,
   onAppClick,
   onPreviewStateChange,
 }) => {
   const [hoveredAppId, setHoveredAppId] = useState<string | null>(null);
+  const [hoveredSlotId, setHoveredSlotId] = useState<string | null>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [contextMenuAppId, setContextMenuAppId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
   const [runningWindows, setRunningWindows] = useState<RunningWindowInfo[]>([]);
 
-  // Synchronize real running windows from Windows system
+  const [customOrder, setCustomOrder] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(APP_ORDER_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [unpinnedIds, setUnpinnedIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(APP_UNPINNED_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [extraPinnedApps, setExtraPinnedApps] = useState<NavbarAppItem[]>(() => {
+    try {
+      const raw = localStorage.getItem(APP_EXTRA_PINNED_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [draggingAppId, setDraggingAppId] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const slotRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const innerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  const dragSessionRef = useRef<{
+    id: string;
+    app: NavbarAppItem;
+    startX: number;
+    startY: number;
+    pointerX: number;
+    pointerY: number;
+    grabOffsetX: number;
+    grabOffsetY: number;
+    hasMoved: boolean;
+    shiftKey: boolean;
+    lastSwapAt: number;
+  } | null>(null);
+
+  const latestStateRef = useRef<{
+    liveApps: NavbarAppItem[];
+    unpinnedIds: string[];
+    extraPinnedApps: NavbarAppItem[];
+    isVertical: boolean;
+  }>({
+    liveApps: [],
+    unpinnedIds: [],
+    extraPinnedApps: [],
+    isVertical: false,
+  });
+
+  const isVertical = position === "left" || position === "right";
+  const { pinnedApps: windowsPinnedApps } = useWindowsPinnedApps(true);
+
   useEffect(() => {
+    const unlistenPromise = listen<{
+      order?: string[];
+      unpinned?: string[];
+      extra?: NavbarAppItem[];
+    }>("gili-navbar-apps-sync", (ev) => {
+      if (ev.payload.order) setCustomOrder(ev.payload.order);
+      if (ev.payload.unpinned) setUnpinnedIds(ev.payload.unpinned);
+      if (ev.payload.extra) setExtraPinnedApps(ev.payload.extra);
+    });
+    return () => {
+      unlistenPromise.then((u) => u());
+    };
+  }, []);
+
+  const broadcastAppsState = (
+    nextOrder: string[],
+    nextUnpinned: string[],
+    nextExtra: NavbarAppItem[]
+  ) => {
+    try {
+      localStorage.setItem(APP_ORDER_KEY, JSON.stringify(nextOrder));
+      localStorage.setItem(APP_UNPINNED_KEY, JSON.stringify(nextUnpinned));
+      localStorage.setItem(APP_EXTRA_PINNED_KEY, JSON.stringify(nextExtra));
+    } catch {}
+    emit("gili-navbar-apps-sync", {
+      order: nextOrder,
+      unpinned: nextUnpinned,
+      extra: nextExtra,
+    }).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (isPreview) return;
     let isCancelled = false;
     const syncWindows = async () => {
       try {
@@ -176,58 +226,84 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
       isCancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [isPreview]);
 
-  // Compute live state for pinned apps
-  const liveApps = apps.map((app) => {
+  // 1. Base pinned apps from Windows Taskband + extra user-pinned apps, minus unpinned
+  const rawBasePinned: NavbarAppItem[] =
+    windowsPinnedApps.length > 0
+      ? windowsPinnedApps.map((wpa) => ({
+          id: wpa.id,
+          name: wpa.name,
+          icon: wpa.icon_base64 || undefined,
+          iconType: (wpa.icon_type as any) || undefined,
+          targetPath: wpa.target_path,
+          arguments: wpa.arguments,
+          lnkPath: wpa.lnk_path,
+          isRunning: false,
+          isActive: false,
+        }))
+      : apps;
+
+  const mergedPinnedMap = new Map<string, NavbarAppItem>();
+  rawBasePinned.forEach((a) => {
+    if (!unpinnedIds.includes(a.id)) mergedPinnedMap.set(a.id, a);
+  });
+  extraPinnedApps.forEach((a) => {
+    if (!unpinnedIds.includes(a.id) && !mergedPinnedMap.has(a.id)) {
+      mergedPinnedMap.set(a.id, a);
+    }
+  });
+  const basePinnedApps = Array.from(mergedPinnedMap.values());
+
+  // 2. Match pinned apps with live running windows
+  const matchedHwnds = new Set<number>();
+  const livePinnedApps: NavbarAppItem[] = basePinnedApps.map((app) => {
     const allMatches = runningWindows.filter((w) => {
       const p = w.process_name.toLowerCase();
-      switch (app.id) {
-        case "explorer":
-          return p.includes("explorer");
-        case "chrome":
-          return p.includes("chrome");
-        case "vscode":
-          return p.includes("code");
-        case "terminal":
-          return (
-            p.includes("windowsterminal") ||
-            p.includes("cmd") ||
-            p.includes("powershell")
-          );
-        case "settings":
-          return (
-            p.includes("systemsettings") ||
-            p.includes("applicationframehost")
-          );
-        case "spotify":
-          return p.includes("spotify");
-        case "discord":
-          return p.includes("discord");
-        case "whatsapp":
-          return p.includes("whatsapp");
-        default:
-          return p.includes(app.id.toLowerCase());
+      if (app.targetPath && p && app.targetPath.toLowerCase().includes(p)) {
+        return true;
       }
+      return matchesAppId(app.id, p, w.title);
     });
+
+    allMatches.forEach((w) => matchedHwnds.add(w.hwnd));
+
+    if (isPreview) {
+      const isDemoActive =
+        app.id === "chrome" || app.name.toLowerCase().includes("chrome");
+      const isDemoRunning =
+        isDemoActive ||
+        app.id === "explorer" ||
+        app.id === "spotify" ||
+        app.name.toLowerCase().includes("explorer");
+      return {
+        ...app,
+        isRunning: isDemoRunning,
+        isActive: isDemoActive,
+      };
+    }
 
     const isRunning = allMatches.length > 0;
     const activeWin = allMatches.find((w) => w.is_active);
     const isActive = activeWin !== undefined;
     const hwnd = activeWin ? activeWin.hwnd : allMatches[0]?.hwnd;
-    const title = activeWin?.title || allMatches[0]?.title || app.name;
+    const activeTitle = activeWin?.title || allMatches[0]?.title || app.name;
+    const liveIcon = app.icon || allMatches.find((w) => w.icon_base64)?.icon_base64;
 
     const windowsList: WindowPreviewItem[] = isRunning
       ? allMatches.map((w) => ({
           id: `win-${w.hwnd}`,
           hwnd: w.hwnd,
           title: w.title || app.name,
+          icon: w.icon_base64 || liveIcon,
+          isMinimized: w.is_minimized,
         }))
       : app.windows || [];
 
     return {
       ...app,
-      name: title,
+      icon: liveIcon,
+      activeTitle,
       isRunning,
       isActive,
       hwnd,
@@ -235,134 +311,428 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     };
   });
 
-  const renderAppIcon = (app: NavbarAppItem) => {
-    switch (app.iconType) {
-      case "folder":
-        return <ExplorerIcon />;
-      case "browser":
-        return (
-          <img
-            src="/logo/chrome.png"
-            alt={app.name}
-            draggable={false}
-            className="w-[22px] h-[22px] object-contain drop-shadow"
-          />
-        );
-      case "code":
-        return <VSCodeIcon />;
-      case "terminal":
-        return <TerminalIcon />;
-      case "settings":
-        return <SettingsIcon />;
-      case "spotify":
-        return (
-          <img
-            src="/logo/spotify.png"
-            alt={app.name}
-            draggable={false}
-            className="w-[22px] h-[22px] object-contain drop-shadow"
-          />
-        );
-      case "discord":
-        return (
-          <img
-            src="/logo/discord.webp"
-            alt={app.name}
-            draggable={false}
-            className="w-[22px] h-[22px] object-contain drop-shadow"
-          />
-        );
-      case "whatsapp":
-        return (
-          <img
-            src="/logo/whatsapp.svg"
-            alt={app.name}
-            draggable={false}
-            className="w-[22px] h-[22px] object-contain drop-shadow"
-          />
-        );
-      case "brave":
-        return (
-          <img
-            src="/logo/brave.png"
-            alt={app.name}
-            draggable={false}
-            className="w-[22px] h-[22px] object-contain drop-shadow"
-          />
-        );
-      default:
-        if (app.icon) {
-          return (
-            <img
-              src={app.icon}
-              alt={app.name}
-              draggable={false}
-              className="w-[22px] h-[22px] object-contain drop-shadow"
-            />
-          );
+  // 3. Collect unpinned running applications
+  const unpinnedRunningApps: NavbarAppItem[] = [];
+  if (showRunningApps && !isPreview) {
+    const processGroupMap = new Map<string, RunningWindowInfo[]>();
+
+    runningWindows.forEach((w) => {
+      if (matchedHwnds.has(w.hwnd)) return;
+      const p = w.process_name.toLowerCase();
+      const isAlreadyPinned = basePinnedApps.some(
+        (pinned) =>
+          matchesAppId(pinned.id, p, w.title) ||
+          (pinned.targetPath && pinned.targetPath.toLowerCase().includes(p))
+      );
+      if (isAlreadyPinned) return;
+
+      const existing = processGroupMap.get(p) || [];
+      existing.push(w);
+      processGroupMap.set(p, existing);
+    });
+
+    processGroupMap.forEach((windows, procKey) => {
+      const meta = getRunningAppMeta(procKey, windows[0]?.title || procKey);
+      if (basePinnedApps.some((p) => p.id === meta.id)) return;
+
+      const activeWin = windows.find((w) => w.is_active);
+      const isActive = activeWin !== undefined;
+      const hwnd = activeWin ? activeWin.hwnd : windows[0]?.hwnd;
+      const appIcon = windows.find((w) => w.icon_base64)?.icon_base64 || undefined;
+
+      unpinnedRunningApps.push({
+        id: meta.id,
+        name: meta.name,
+        activeTitle: activeWin?.title || windows[0]?.title || meta.name,
+        icon: appIcon,
+        iconType: meta.iconType,
+        isRunning: true,
+        isActive,
+        hwnd,
+        windows: windows.map((w) => ({
+          id: `win-${w.hwnd}`,
+          hwnd: w.hwnd,
+          title: w.title || meta.name,
+          icon: w.icon_base64 || appIcon,
+          isMinimized: w.is_minimized,
+        })),
+      });
+    });
+  }
+
+  const combinedApps = [...livePinnedApps, ...unpinnedRunningApps];
+
+  // Apply custom user drag order if any
+  const liveApps = [...combinedApps].sort((a, b) => {
+    const idxA = customOrder.indexOf(a.id);
+    const idxB = customOrder.indexOf(b.id);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return 0;
+  });
+
+  latestStateRef.current = {
+    liveApps,
+    unpinnedIds,
+    extraPinnedApps,
+    isVertical,
+  };
+
+  const applyDraggedButtonTransform = () => {
+    const drag = dragSessionRef.current;
+    if (!drag || !drag.hasMoved) return;
+    const container = containerRef.current;
+    const slotEl = slotRefs.current.get(drag.id);
+    const innerEl = innerRefs.current.get(drag.id);
+    if (!container || !slotEl || !innerEl) return;
+
+    const cRect = container.getBoundingClientRect();
+    const naturalLeft = cRect.left + slotEl.offsetLeft;
+    const naturalTop = cRect.top + slotEl.offsetTop;
+
+    const dx = latestStateRef.current.isVertical
+      ? 0
+      : drag.pointerX - drag.grabOffsetX - naturalLeft;
+    const dy = latestStateRef.current.isVertical
+      ? drag.pointerY - drag.grabOffsetY - naturalTop
+      : 0;
+
+    innerEl.style.transition = "none";
+    innerEl.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(1.08)`;
+  };
+
+  // Keep dragged button locked under cursor right after a swap re-orders the DOM
+  useLayoutEffect(() => {
+    if (draggingAppId) {
+      applyDraggedButtonTransform();
+    }
+  }, [customOrder, draggingAppId]);
+
+  // Window-level drag tracking with layout-neutral offsetLeft/offsetWidth (zero oscillation)
+  useEffect(() => {
+    const handleWinPointerMove = (e: PointerEvent) => {
+      const drag = dragSessionRef.current;
+      if (!drag) return;
+
+      drag.pointerX = e.clientX;
+      drag.pointerY = e.clientY;
+
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      if (!drag.hasMoved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+        drag.hasMoved = true;
+        setDraggingAppId(drag.id);
+        setHoveredAppId(null);
+        setHoveredSlotId(null);
+        setHoveredIndex(null);
+        setContextMenuAppId(null);
+        invoke("set_navbar_popup_open", { open: true }).catch(() => {});
+      }
+
+      if (drag.hasMoved) {
+        applyDraggedButtonTransform();
+
+        const now = performance.now();
+        if (now - drag.lastSwapAt < 75) return;
+
+        const container = containerRef.current;
+        if (!container) return;
+        const cRect = container.getBoundingClientRect();
+
+        const {
+          liveApps: curApps,
+          unpinnedIds: curUnpinned,
+          extraPinnedApps: curExtra,
+          isVertical: vert,
+        } = latestStateRef.current;
+
+        const currentIds = curApps.map((a) => a.id);
+        const fromIdx = currentIds.indexOf(drag.id);
+        if (fromIdx === -1) return;
+
+        const dragSlotEl = slotRefs.current.get(drag.id);
+        const dragW = dragSlotEl ? dragSlotEl.offsetWidth : iconSize;
+        const dragH = dragSlotEl ? dragSlotEl.offsetHeight : iconSize;
+
+        for (let i = 0; i < curApps.length; i++) {
+          if (i === fromIdx) continue;
+          const targetId = curApps[i].id;
+          const el = slotRefs.current.get(targetId);
+          if (!el) continue;
+
+          // Use un-transformed layout coordinates so Framer Motion spring animations never cause oscillation
+          const slotLeft = cRect.left + el.offsetLeft;
+          const slotTop = cRect.top + el.offsetTop;
+          const slotW = el.offsetWidth;
+          const slotH = el.offsetHeight;
+          const slotRight = slotLeft + slotW;
+          const slotBottom = slotTop + slotH;
+
+          // Width-compensated swap thresholds prevent wide+narrow items from oscillating
+          const rightThreshold = Math.max(slotLeft + slotW * 0.5, slotRight - dragW * 0.5) + 3;
+          const leftThreshold = Math.min(slotLeft + slotW * 0.5, slotLeft + dragW * 0.5) - 3;
+          const downThreshold = Math.max(slotTop + slotH * 0.5, slotBottom - dragH * 0.5) + 3;
+          const upThreshold = Math.min(slotTop + slotH * 0.5, slotTop + dragH * 0.5) - 3;
+
+          const shouldSwap = vert
+            ? (fromIdx < i && e.clientY > downThreshold) ||
+              (fromIdx > i && e.clientY < upThreshold)
+            : (fromIdx < i && e.clientX > rightThreshold) ||
+              (fromIdx > i && e.clientX < leftThreshold);
+
+          if (shouldSwap) {
+            drag.lastSwapAt = now;
+            const nextOrder = [...currentIds];
+            const [moved] = nextOrder.splice(fromIdx, 1);
+            nextOrder.splice(i, 0, moved);
+            setCustomOrder(nextOrder);
+            broadcastAppsState(nextOrder, curUnpinned, curExtra);
+            break;
+          }
         }
-        return <ExplorerIcon />;
+      }
+    };
+
+    const handleWinPointerUp = () => {
+      const drag = dragSessionRef.current;
+      if (!drag) return;
+      const innerEl = innerRefs.current.get(drag.id);
+      if (innerEl) {
+        innerEl.style.transition = "";
+        innerEl.style.transform = "";
+      }
+      dragSessionRef.current = null;
+
+      if (drag.hasMoved) {
+        invoke("set_navbar_popup_open", { open: false }).catch(() => {});
+      } else {
+        setContextMenuAppId(null);
+        onAppClick?.(drag.app, drag.shiftKey);
+      }
+      setDraggingAppId(null);
+    };
+
+    window.addEventListener("pointermove", handleWinPointerMove);
+    window.addEventListener("pointerup", handleWinPointerUp);
+    window.addEventListener("pointercancel", handleWinPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handleWinPointerMove);
+      window.removeEventListener("pointerup", handleWinPointerUp);
+      window.removeEventListener("pointercancel", handleWinPointerUp);
+    };
+  }, [onAppClick, iconSize]);
+
+  const handlePointerDown = (e: React.PointerEvent, app: NavbarAppItem) => {
+    if (isPreview || e.button !== 0) return;
+    e.stopPropagation();
+    const slotEl = slotRefs.current.get(app.id);
+    const rect = slotEl
+      ? slotEl.getBoundingClientRect()
+      : (e.currentTarget as HTMLElement).getBoundingClientRect();
+
+    dragSessionRef.current = {
+      id: app.id,
+      app,
+      startX: e.clientX,
+      startY: e.clientY,
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      grabOffsetX: e.clientX - rect.left,
+      grabOffsetY: e.clientY - rect.top,
+      hasMoved: false,
+      shiftKey: e.shiftKey,
+      lastSwapAt: 0,
+    };
+  };
+
+  const handleTogglePin = (app: NavbarAppItem, currentlyPinned: boolean) => {
+    if (currentlyPinned) {
+      const nextUnpinned = Array.from(new Set([...unpinnedIds, app.id]));
+      const nextExtra = extraPinnedApps.filter((a) => a.id !== app.id);
+      setUnpinnedIds(nextUnpinned);
+      setExtraPinnedApps(nextExtra);
+      broadcastAppsState(customOrder, nextUnpinned, nextExtra);
+    } else {
+      const nextUnpinned = unpinnedIds.filter((id) => id !== app.id);
+      const cleanApp: NavbarAppItem = {
+        id: app.id,
+        name: app.name,
+        icon: app.icon,
+        iconType: app.iconType,
+        targetPath: app.targetPath,
+        arguments: app.arguments,
+        lnkPath: app.lnkPath,
+        isRunning: false,
+        isActive: false,
+      };
+      const nextExtra = [
+        ...extraPinnedApps.filter((a) => a.id !== app.id),
+        cleanApp,
+      ];
+      setUnpinnedIds(nextUnpinned);
+      setExtraPinnedApps(nextExtra);
+      broadcastAppsState(customOrder, nextUnpinned, nextExtra);
     }
   };
 
-  const handleMouseEnter = (app: NavbarAppItem) => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    if (windowPreviews && app.isRunning && (app.windows?.length ?? 0) > 0) {
+  const handleMouseEnter = (app: NavbarAppItem, idx: number) => {
+    if (draggingAppId || contextMenuAppId) return;
+    setHoveredSlotId(app.id);
+    setHoveredIndex(idx);
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    if (windowPreviews && app.isRunning && (app.windows?.length ?? 0) > 0 && !isPreview) {
+      if (hoveredAppId === app.id) return;
+      const delay = hoveredAppId ? 45 : 150;
       hoverTimeoutRef.current = window.setTimeout(() => {
         setHoveredAppId(app.id);
         onPreviewStateChange?.(true);
-      }, 200);
+      }, delay);
+    } else if (hoveredAppId && hoveredAppId !== app.id) {
+      setHoveredAppId(null);
+      onPreviewStateChange?.(false);
     }
   };
 
   const handleMouseLeave = () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setHoveredSlotId(null);
+    setHoveredIndex(null);
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
     hoverTimeoutRef.current = window.setTimeout(() => {
       setHoveredAppId(null);
       onPreviewStateChange?.(false);
-    }, 200);
+    }, 220);
+  };
+
+  const cancelLeaveTimer = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
   };
 
   return (
-    <div className="flex items-center gap-1 shrink-0">
-      {liveApps.map((app) => {
+    <div
+      ref={containerRef}
+      data-pinned-apps-group
+      className={`relative flex ${
+        isVertical ? "flex-col" : "flex-row"
+      } items-center gap-1 shrink-0`}
+    >
+      {liveApps.map((app, idx) => {
+        const isPinned = basePinnedApps.some((p) => p.id === app.id);
+        const showLabelPill =
+          showAppLabels && !isVertical && (app.isRunning || app.isActive);
         const btnStyle: React.CSSProperties = {
-          width: `${iconSize}px`,
           height: `${iconSize}px`,
+          width: showLabelPill ? "auto" : `${iconSize}px`,
+          paddingLeft: showLabelPill ? "8px" : undefined,
+          paddingRight: showLabelPill ? "10px" : undefined,
         };
 
-        const hoverTransform = magnifyOnHover
-          ? "hover:scale-[1.18] hover:-translate-y-1"
-          : "hover:bg-white/[0.08]";
+        const isHoveredThis = hoveredSlotId === app.id && !draggingAppId;
+        let hoverScale = isHoveredThis ? 1.08 : 1;
+        let hoverLiftY = isHoveredThis ? (position === "top" ? 2 : -2.5) : 0;
 
-        const isShowingPreview = hoveredAppId === app.id;
+        if (magnifyOnHover && hoveredIndex !== null && !isVertical && !draggingAppId) {
+          const dist = Math.abs(hoveredIndex - idx);
+          if (dist === 0) {
+            hoverScale = 1.22;
+            hoverLiftY = position === "top" ? 3.5 : -4.5;
+          } else if (dist === 1) {
+            hoverScale = 1.1;
+            hoverLiftY = position === "top" ? 1.5 : -2;
+          } else if (dist === 2) {
+            hoverScale = 1.03;
+            hoverLiftY = position === "top" ? 0.5 : -0.8;
+          }
+        }
+
+        const isShowingPreview =
+          hoveredAppId === app.id && !contextMenuAppId && !draggingAppId;
+        const isShowingContextMenu = contextMenuAppId === app.id;
+        const isDraggingThis = draggingAppId === app.id;
 
         return (
-          <div
+          <motion.div
+            layout={!isDraggingThis ? "position" : false}
+            transition={{ type: "spring", stiffness: 460, damping: 36, mass: 0.7 }}
             key={app.id}
-            onMouseEnter={() => handleMouseEnter(app)}
+            ref={(el) => {
+              if (el) slotRefs.current.set(app.id, el);
+              else slotRefs.current.delete(app.id);
+            }}
+            onMouseEnter={() => handleMouseEnter(app, idx)}
             onMouseLeave={handleMouseLeave}
-            className="relative"
+            className={`relative ${isDraggingThis ? "z-40" : "z-10"}`}
           >
+            {/* Shared Fluid Hover Highlight Pill */}
+            {isHoveredThis && (
+              <motion.span
+                layoutId="navbar-app-hover-pill"
+                transition={{
+                  type: "spring",
+                  stiffness: 440,
+                  damping: 34,
+                  mass: 0.6,
+                }}
+                className="absolute inset-0 rounded-[12px] bg-white/[0.09] pointer-events-none"
+              />
+            )}
+
+            {/* Right-Click Context Menu */}
+            {isShowingContextMenu && (
+              <AppContextMenu
+                app={app}
+                isPinned={isPinned}
+                position={position}
+                onNewWindow={() => onAppClick?.(app, true)}
+                onTogglePin={() => handleTogglePin(app, isPinned)}
+                onCloseAllWindows={() => {
+                  const targetHwnds = (app.windows || [])
+                    .map((w) => w.hwnd)
+                    .concat(app.hwnd ? [app.hwnd] : []);
+                  const closedSet = new Set(targetHwnds);
+                  targetHwnds.forEach((h) => {
+                    if (h) {
+                      invoke("close_window_by_hwnd", { hwnd: h }).catch(() => {});
+                    }
+                  });
+                  setRunningWindows((prev) => prev.filter((w) => !closedSet.has(w.hwnd)));
+                }}
+                onCloseMenu={() => setContextMenuAppId(null)}
+              />
+            )}
+
             {/* Window Preview Dialog */}
             <AnimatePresence>
               {isShowingPreview && app.windows && app.windows.length > 0 && (
                 <WindowPreviewCard
                   appName={app.name}
                   windows={app.windows}
+                  position={position}
                   accentColor={accentColor}
+                  onMouseEnter={cancelLeaveTimer}
+                  onMouseLeave={handleMouseLeave}
                   onSelectWindow={(_winId, hwnd) => {
                     setHoveredAppId(null);
                     onPreviewStateChange?.(false);
                     if (hwnd) {
                       invoke("activate_or_toggle_window", { hwnd }).catch(() => {});
                     } else {
-                      onAppClick?.(app);
+                      onAppClick?.(app, false);
                     }
                   }}
                   onCloseWindow={(winId, hwnd) => {
                     if (hwnd) {
                       invoke("close_window_by_hwnd", { hwnd }).catch(() => {});
+                      setRunningWindows((prev) => prev.filter((w) => w.hwnd !== hwnd));
                     }
                     app.windows = app.windows?.filter((w) => w.id !== winId);
                     if (!app.windows || app.windows.length === 0) {
@@ -375,14 +745,16 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
             </AnimatePresence>
 
             <Tooltip
-              side="top"
+              side={position === "top" ? "bottom" : "top"}
               delay={120}
               content={
-                isShowingPreview ? null : (
+                isShowingPreview || isShowingContextMenu || isDraggingThis ? null : (
                   <div className="flex items-center gap-1.5 font-medium text-[11.5px]">
-                    <span>{app.name}</span>
+                    <span className="truncate max-w-[200px]">
+                      {app.activeTitle || app.name}
+                    </span>
                     {app.isActive && (
-                      <span className="text-[9.5px] px-1 py-0.2 rounded bg-white/20 font-semibold text-white">
+                      <span className="text-[9.5px] px-1 py-0.2 rounded bg-white/20 font-semibold text-white shrink-0">
                         Aktif
                       </span>
                     )}
@@ -391,36 +763,94 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
               }
             >
               <button
+                ref={(el) => {
+                  if (el) innerRefs.current.set(app.id, el);
+                  else innerRefs.current.delete(app.id);
+                }}
                 type="button"
-                onClick={() => onAppClick?.(app)}
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
+                onPointerDown={(e) => handlePointerDown(e, app)}
+                onAuxClick={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                    onAppClick?.(app, true);
+                  }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setHoveredAppId(null);
+                  setContextMenuAppId((prev) => (prev === app.id ? null : app.id));
+                }}
                 aria-label={app.name}
-                style={btnStyle}
-                className={`relative rounded-[12px] flex items-center justify-center p-0 cursor-pointer shrink-0 transition-all origin-bottom active:scale-95 ${
+                style={{
+                  ...btnStyle,
+                  touchAction: "none",
+                  transition: isDraggingThis
+                    ? "none"
+                    : "transform 260ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, color 180ms ease",
+                  transform:
+                    !isDraggingThis && (hoverScale !== 1 || hoverLiftY !== 0)
+                      ? `translate3d(0, ${hoverLiftY}px, 0) scale(${hoverScale})`
+                      : undefined,
+                }}
+                className={`relative rounded-[12px] flex items-center justify-center gap-2 p-0 cursor-grab active:cursor-grabbing active:scale-95 shrink-0 select-none ${
+                  position === "top" ? "origin-top" : "origin-bottom"
+                } ${
                   app.isActive
-                    ? "bg-white/[0.07] text-white shadow-sm"
-                    : "bg-transparent text-white/60 hover:text-white"
-                } ${hoverTransform}`}
+                    ? "bg-white/[0.09] text-white"
+                    : "text-white/65 hover:text-white"
+                } ${isDraggingThis ? "opacity-95 shadow-xl" : ""}`}
               >
-                {renderAppIcon(app)}
+                {renderAppIcon(app, iconTheme, iconSize)}
 
-                {/* Indicator: Active 12x3px bar with accent glow */}
+                {showLabelPill && (
+                  <span className="text-[11px] font-medium text-white/90 truncate max-w-[68px] pointer-events-none select-none">
+                    {app.name}
+                  </span>
+                )}
+
+                {/* Indicator: Active 14x3px bar with vibrant accent glow */}
                 {app.isActive && (
                   <span
                     style={{
                       backgroundColor: accentColor,
-                      boxShadow: `0 0 8px ${accentColor}`,
+                      boxShadow: `0 0 10px ${accentColor}, 0 0 4px ${accentColor}`,
                     }}
-                    className="absolute left-1/2 -translate-x-1/2 bottom-[2px] w-[12px] h-[3px] rounded-[2px]"
+                    className={
+                      isVertical
+                        ? `absolute top-1/2 -translate-y-1/2 ${
+                            position === "right" ? "right-[2px]" : "left-[2px]"
+                          } w-[3px] h-[14px] rounded-[2px] pointer-events-none transition-all duration-200`
+                        : `absolute left-1/2 -translate-x-1/2 ${
+                            position === "top" ? "top-[2px]" : "bottom-[2px]"
+                          } w-[14px] h-[3px] rounded-[2px] pointer-events-none transition-all duration-200`
+                    }
                   />
                 )}
 
-                {/* Indicator: Running dot 4x4px */}
+                {/* Indicator: Running dot 4x4px with accent glow */}
                 {app.isRunning && !app.isActive && (
-                  <span className="absolute left-1/2 -translate-x-1/2 bottom-[3px] w-[4px] h-[4px] rounded-full bg-white/50 shadow-sm" />
+                  <span
+                    style={{
+                      backgroundColor: hexToRgba(accentColor, 0.75),
+                      boxShadow: `0 0 4px ${hexToRgba(accentColor, 0.4)}`,
+                    }}
+                    className={
+                      isVertical
+                        ? `absolute top-1/2 -translate-y-1/2 ${
+                            position === "right" ? "right-[3px]" : "left-[3px]"
+                          } w-[4px] h-[4px] rounded-full pointer-events-none transition-all duration-200`
+                        : `absolute left-1/2 -translate-x-1/2 ${
+                            position === "top" ? "top-[3px]" : "bottom-[3px]"
+                          } w-[4px] h-[4px] rounded-full pointer-events-none transition-all duration-200`
+                    }
+                  />
                 )}
               </button>
             </Tooltip>
-          </div>
+          </motion.div>
         );
       })}
     </div>

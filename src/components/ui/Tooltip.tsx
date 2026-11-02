@@ -58,9 +58,14 @@ export const Tooltip: React.FC<TooltipProps> = ({
     }
 
     if (currentSide === "top" && align === "center") {
+      const safeTop = Math.max(tipHeight + 4, triggerRect.top - 8);
+      const safeLeft = Math.max(
+        tipWidth / 2 + 6,
+        Math.min(window.innerWidth - tipWidth / 2 - 6, triggerRect.left + triggerRect.width / 2)
+      );
       return {
-        top: triggerRect.top - 8,
-        left: triggerRect.left + triggerRect.width / 2,
+        top: safeTop,
+        left: safeLeft,
         useTransformCenter: true,
       };
     } else if (currentSide === "bottom") {

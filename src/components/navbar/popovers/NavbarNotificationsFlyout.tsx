@@ -25,9 +25,10 @@ export const NavbarNotificationsFlyout: React.FC<NavbarNotificationsFlyoutProps>
 
   useEffect(() => {
     const handleDown = (e: MouseEvent) => {
-      if (flyoutRef.current && !flyoutRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      const target = e.target as HTMLElement | null;
+      if (flyoutRef.current && flyoutRef.current.contains(target)) return;
+      if (target?.closest('[data-flyout-trigger="notifications"]')) return;
+      onClose();
     };
     window.addEventListener("mousedown", handleDown);
     return () => window.removeEventListener("mousedown", handleDown);

@@ -201,6 +201,8 @@ export default function App() {
         if (cfg.hideWindowsTaskbar) {
           invoke("set_windows_taskbar_visible", { visible: false }).catch(() => {});
         }
+      } else {
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
       }
     });
   }, []);
@@ -262,6 +264,8 @@ export default function App() {
     playNotificationSound();
   };
 
+  const lastDismissedNotifRef = useRef<{ key: string; time: number }>({ key: "", time: 0 });
+
   const showNotif = (newNotif: NotifPayload) => {
     // Record only real app/reminder notifications to history (ignore transient hardware/system status HUDs like CapsLock, battery, volume, brightness, Wi-Fi/Hotspot, Bluetooth/USB/Audio connect, greetings, and clipboard copy toasts)
     const isGreeting = newNotif.type === "greeting" || newNotif.icon === "sun" || newNotif.icon === "moon";
@@ -309,16 +313,21 @@ export default function App() {
     }
 
     const active = currentNotifRef.current;
+    const notifKey = `${newNotif.appName || ""}|${newNotif.title || ""}|${newNotif.body || ""}`;
+    const now = Date.now();
 
-    // Drop exact duplicate notifications already displaying
+    // Drop exact duplicate notifications already displaying or recently shown within 2.5s
     if (
-      active &&
-      active.title === newNotif.title &&
-      active.body === newNotif.body &&
-      active.appName === newNotif.appName
+      (active &&
+        active.title === newNotif.title &&
+        active.body === newNotif.body &&
+        active.appName === newNotif.appName) ||
+      (lastDismissedNotifRef.current.key === notifKey && now - lastDismissedNotifRef.current.time < 2500)
     ) {
       return;
     }
+
+    lastDismissedNotifRef.current = { key: notifKey, time: now };
 
     if (isHardwareHud) {
       if (active && active.icon !== newNotif.icon) {
@@ -501,6 +510,10 @@ export default function App() {
   const isCursorInsideNotchRef = useRef(false);
   const isShortcutPinnedRef = useRef(false);
   const shortcutPinnedTimerRef = useRef<number | null>(null);
+  const lastClosedTabInfoRef = useRef<{ tab: ExpandedTab | null; time: number }>({
+    tab: null,
+    time: 0,
+  });
   const isClosingRef = useRef(false);
   const closeGraceUntilRef = useRef<number>(0);
   const finishClosingTimerRef = useRef<number | null>(null);
@@ -1475,6 +1488,12 @@ export default function App() {
     isQuickControlRef.current = false;
     setIsExpanded(false);
     isExpandedRef.current = false;
+    if (currentTabRef.current) {
+      lastClosedTabInfoRef.current = {
+        tab: currentTabRef.current,
+        time: Date.now(),
+      };
+    }
     currentTabRef.current = null;
     setIsQuickNoteOpen(false);
     setIsQuickNoteSaved(false);
@@ -1698,8 +1717,9 @@ export default function App() {
 
   const goToTab = (targetTab: ExpandedTab, direction?: 1 | -1 | 0) => {
     cancelCollapseTimer();
-    if (currentTab === targetTab) return;
-    const wasAlreadyOpen = Boolean(currentTab);
+    const activeTabNow = currentTabRef.current;
+    if (activeTabNow === targetTab) return;
+    const wasAlreadyOpen = Boolean(activeTabNow);
     isClosingRef.current = false;
     setTabSwitchGrace(600);
     const currentIndex = currentTabIndex;
@@ -1712,12 +1732,14 @@ export default function App() {
     setControlCenterSubmenu(null);
     setIsNoteEditing(false);
 
-    if (targetTab === "settings" && currentTab && currentTab !== "settings") {
-      tabBeforeSettingsRef.current = currentTab;
+    if (targetTab === "settings" && activeTabNow && activeTabNow !== "settings") {
+      tabBeforeSettingsRef.current = activeTabNow;
     }
-    if (targetTab === "notif_center" && currentTab && currentTab !== "notif_center") {
-      tabBeforeNotifRef.current = currentTab;
+    if (targetTab === "notif_center" && activeTabNow && activeTabNow !== "notif_center") {
+      tabBeforeNotifRef.current = activeTabNow;
     }
+
+    currentTabRef.current = targetTab;
 
     isExpandedRef.current = targetTab === "media_expanded";
     setIsExpanded(targetTab === "media_expanded");
@@ -3591,9 +3613,33 @@ export default function App() {
         handleCloseImmediate();
       } else if (act === "toggle_preview" || act.startsWith("preview_tab:") || act.startsWith("open_tab:")) {
         const rawTarget = act.includes(":") ? act.split(":")[1] : "quick_control";
-        const targetTab = (availableTabs.includes(rawTarget as any) ? rawTarget : (availableTabs[0] || "quick_control")) as ExpandedTab;
+        const allValidTabs: ExpandedTab[] = [
+          "media_expanded",
+          "quick_control",
+          "todo",
+          "pomodoro",
+          "drop_shelf",
+          "sys_monitor",
+          "mini_note",
+          "water_reminder",
+          "prayer_reminder",
+          "clipboard",
+          "volume_mixer",
+          "notif_center",
+          "settings",
+        ];
+        const targetTab = (
+          allValidTabs.includes(rawTarget as ExpandedTab)
+            ? rawTarget
+            : availableTabs[0] || "quick_control"
+        ) as ExpandedTab;
 
-        if (currentTabRef.current === targetTab && isExpandedPanel) {
+        const wasJustClosed =
+          lastClosedTabInfoRef.current.tab === targetTab &&
+          Date.now() - lastClosedTabInfoRef.current.time < 650;
+
+        if (currentTabRef.current === targetTab || wasJustClosed) {
+          lastClosedTabInfoRef.current = { tab: null, time: 0 };
           isShortcutPinnedRef.current = false;
           if (shortcutPinnedTimerRef.current) {
             clearTimeout(shortcutPinnedTimerRef.current);
@@ -3660,7 +3706,9 @@ export default function App() {
       setNotifQueue(q => q.slice(1));
       triggerNotificationAudio(nextNotif);
     } else if (notif) {
-      let duration = optNotifTimeRef.current * 1000;
+      const rawSec = Number(optNotifTimeRef.current);
+      const configuredMs = (!isNaN(rawSec) && rawSec > 0 ? rawSec : 4) * 1000;
+      let duration = Math.max(3000, configuredMs);
       const shortIcons = ["volume", "brightness", "battery", "bluetooth"];
       if (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon") {
         duration = 6000;
@@ -3673,6 +3721,10 @@ export default function App() {
       }
       
       const timer = setTimeout(() => {
+        if (currentNotifRef.current) {
+          const k = `${currentNotifRef.current.appName || ""}|${currentNotifRef.current.title || ""}|${currentNotifRef.current.body || ""}`;
+          lastDismissedNotifRef.current = { key: k, time: Date.now() };
+        }
         currentNotifRef.current = null;
         setNotif(null);
       }, duration);

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { emit, listen } from "@tauri-apps/api/event";
 import {
   PomodoroMode,
   PomodoroSettings,
@@ -290,6 +291,40 @@ export function usePomodoro() {
       advanceToNextMode(finished, false);
     }
   }, [completeAlert, isRunning, advanceToNextMode]);
+
+  // Broadcast live state to Navbar Dock and any external modules
+  useEffect(() => {
+    const payload = {
+      mode,
+      remainingSec,
+      totalSec,
+      isRunning,
+      cycleSession,
+      sessionsPerCycle: settings.sessionsPerCycle,
+    };
+    try {
+      localStorage.setItem("gili_pomodoro_live_state", JSON.stringify(payload));
+    } catch {}
+    emit("gili-pomodoro-sync", payload).catch(() => {});
+  }, [mode, remainingSec, totalSec, isRunning, cycleSession, settings.sessionsPerCycle]);
+
+  // Remote control listener: actions from Navbar Dock (toggle, reset, skip)
+  useEffect(() => {
+    const unlistenPromise = listen<string>("gili-pomodoro-action", (event) => {
+      const act = event.payload;
+      if (act === "toggle") {
+        handleToggleRunning();
+      } else if (act === "reset") {
+        handleReset();
+      } else if (act === "skip") {
+        handleSkip();
+      }
+    });
+
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, [handleToggleRunning, handleReset, handleSkip]);
 
   return {
     mode,

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Monitor, RefreshCw, Check, Layers } from "lucide-react";
-import { t } from "../../../services/i18n";
+import { Language, TranslationKey, translations, getLanguage } from "../../../services/i18n";
 
 export interface MonitorInfo {
   id: string;
@@ -17,13 +17,21 @@ interface MonitorSelectorProps {
   value: string;
   onChange: (monitorId: string) => void;
   isLightMode?: boolean;
+  optLanguage?: Language;
 }
 
 export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
   value,
   onChange,
   isLightMode = false,
+  optLanguage,
 }) => {
+  const tr = (key: TranslationKey) => {
+    const lang = optLanguage || getLanguage();
+    const entry = translations[key];
+    if (!entry) return key;
+    return entry[lang] || entry["en"] || key;
+  };
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [isScanning, setIsScanning] = useState(false);
 
@@ -70,14 +78,14 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
                 isLightMode ? "text-neutral-900" : "text-white"
               }`}
             >
-              {t("settings_monitor")}
+              {tr("settings_monitor")}
             </span>
             <span
               className={`text-[10.5px] leading-tight mt-0.5 ${
                 isLightMode ? "text-neutral-500" : "text-[#71717a]"
               }`}
             >
-              {t("settings_monitor_desc")}
+              {tr("settings_monitor_desc")}
             </span>
           </div>
         </div>
@@ -86,8 +94,8 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
           type="button"
           onClick={fetchMonitors}
           disabled={isScanning}
-          title={t("settings_monitor_rescan")}
-          aria-label={t("settings_monitor_rescan")}
+          title={tr("settings_monitor_rescan")}
+          aria-label={tr("settings_monitor_rescan")}
           className={`flex items-center gap-1.5 px-2 py-1 rounded-[6px] text-[11px] font-medium transition-all ${
             isLightMode
               ? "bg-black/5 hover:bg-black/10 text-neutral-600 disabled:opacity-50"
@@ -95,7 +103,7 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
           }`}
         >
           <RefreshCw size={11} className={isScanning ? "animate-spin" : ""} />
-          <span>{isScanning ? t("settings_monitor_scanning") : t("settings_monitor_rescan")}</span>
+          <span>{isScanning ? tr("settings_monitor_scanning") : tr("settings_monitor_rescan")}</span>
         </button>
       </div>
 
@@ -129,11 +137,11 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
             </div>
           ) : (
             <span className="text-[11.5px]">
-              {isScanning ? t("settings_monitor_scanning") : t("settings_monitor_auto")}
+              {isScanning ? tr("settings_monitor_scanning") : tr("settings_monitor_auto")}
             </span>
           )}
           <span className="text-[10.5px] opacity-60 leading-relaxed">
-            {t("settings_monitor_single")}
+            {tr("settings_monitor_single")}
           </span>
         </div>
       ) : (
@@ -175,14 +183,14 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
                       : "text-[#d4d4d8]"
                   }`}
                 >
-                  {t("settings_monitor_all")}
+                  {tr("settings_monitor_all")}
                 </span>
                 <span
                   className={`text-[10px] leading-tight mt-0.5 ${
                     isLightMode ? "text-neutral-500" : "text-[#71717a]"
                   }`}
                 >
-                  {t("settings_monitor_all_desc")}
+                  {tr("settings_monitor_all_desc")}
                 </span>
               </div>
             </div>
@@ -249,7 +257,7 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {m.is_primary && (
                     <span className="px-1 py-0.2 rounded bg-amber-500/15 text-amber-500 text-[9.5px] font-semibold leading-tight">
-                      {t("settings_monitor_primary_badge")}
+                      {tr("settings_monitor_primary_badge")}
                     </span>
                   )}
                   <span

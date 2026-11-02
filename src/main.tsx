@@ -17,6 +17,8 @@ const isNavbarWindow = (() => {
   let result = false;
   if ((window as any).__IS_NAVBAR_WINDOW__ === true) {
     result = true;
+  } else if ((window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "navbar") {
+    result = true;
   } else {
     try {
       if (getCurrentWindow().label === "navbar") {
@@ -48,6 +50,8 @@ const isSettingsWindow = (() => {
   if (typeof window === "undefined") return false;
   let result = false;
   if ((window as any).__IS_SETTINGS_WINDOW__ === true) {
+    result = true;
+  } else if ((window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "settings") {
     result = true;
   } else {
     try {

@@ -1,6 +1,14 @@
-import React from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { motion } from "framer-motion";
 import { NavbarConfig } from "../../types/navbar";
+import { hexToRgba, saveNavbarConfig } from "../../services/navbarConfigService";
+import { useNotchTheme } from "../../hooks/useNotchTheme";
+import {
+  buildNotchPath,
+  buildNotchOutlinePath,
+  getNotchSurfaceMetrics,
+} from "../../utils/notchGeometry";
 import { StartSearchGroup } from "./groups/StartSearchGroup";
 import { PinnedAppsGroup } from "./groups/PinnedAppsGroup";
 import { SystemTrayGroup } from "./groups/SystemTrayGroup";
@@ -10,6 +18,7 @@ import { NavbarModuleUnifiedPreview } from "../../modules/components/NavbarModul
 interface NavbarDockProps {
   config: NavbarConfig;
   extraModules?: React.ReactNode;
+  isPreview?: boolean;
   onStartClick?: () => void;
   onSearchClick?: () => void;
   onControlCenterClick?: () => void;
@@ -18,11 +27,27 @@ interface NavbarDockProps {
   onPreviewStateChange?: (isShowing: boolean) => void;
 }
 
+function getOffsetRelativeToDock(
+  el: HTMLElement,
+  dockEl: HTMLElement | null
+): { left: number; top: number } {
+  let left = 0;
+  let top = 0;
+  let cur: HTMLElement | null = el;
+  while (cur && cur !== dockEl) {
+    left += cur.offsetLeft;
+    top += cur.offsetTop;
+    cur = cur.offsetParent as HTMLElement | null;
+  }
+  return { left, top };
+}
+
 export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
   (
     {
       config,
       extraModules,
+      isPreview,
       onStartClick,
       onSearchClick,
       onControlCenterClick,
@@ -33,33 +58,392 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     ref
   ) => {
     const isAnchored = config.shape === "anchored";
+    const pos = config.position || "bottom";
+    const isTop = pos === "top";
+    const isLeft = pos === "left";
+    const isRight = pos === "right";
+    const isVertical = isLeft || isRight;
+
     const iconSize = config.iconSize || 40;
-    const dockHeight = iconSize + 8; // 48px when iconSize = 40px
+    const dockThickness = iconSize + 8; // 48px when iconSize = 40px
     const radius = config.cornerRadius ?? 15;
+    const accentColor = config.accent || "#3882F6";
+    const { notchBgHex, notchMode } = useNotchTheme();
 
-    // Tint background calculation
-    const alpha = (config.opacity ?? 100) / 100;
-    let bgColor = `rgba(0, 0, 0, ${alpha})`;
-    if (config.background === "custom" && config.customColor) {
-      bgColor = config.customColor;
-    } else if (config.background === "followNotch") {
-      bgColor = `rgba(18, 18, 22, ${alpha})`;
-    }
+    const [desktopLuminance, setDesktopLuminance] = useState<number>(0);
 
-    // Styles for Anchored vs Floating
-    const dockStyle: React.CSSProperties = {
-      height: `${dockHeight}px`,
-      background: config.style === "liquid" ? undefined : bgColor,
-      borderRadius: isAnchored
-        ? `${radius}px ${radius}px 0 0`
-        : `${radius}px`,
-      marginBottom: isAnchored ? "0px" : `${config.distanceFromEdge ?? 14}px`,
-      boxShadow: isAnchored
-        ? "inset 0 1px 0 rgba(255,255,255,0.07)"
-        : "inset 0 1px 0 rgba(255,255,255,0.07), 0 14px 34px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.09)",
+    useEffect(() => {
+      if (isPreview) return;
+      let active = true;
+
+      const checkDesktopLuminance = async () => {
+        try {
+          const lum = await invoke<number>("get_desktop_luminance");
+          if (active && typeof lum === "number" && !isNaN(lum)) {
+            setDesktopLuminance(lum);
+          }
+        } catch {}
+      };
+
+      checkDesktopLuminance();
+      const interval = setInterval(checkDesktopLuminance, 1200);
+      return () => {
+        active = false;
+        clearInterval(interval);
+      };
+    }, [isPreview, config.position, config.distanceFromEdge, config.shape]);
+
+    const localDockRef = useRef<HTMLDivElement | null>(null);
+    const setCombinedRef = (node: HTMLDivElement | null) => {
+      localDockRef.current = node;
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      }
     };
 
-    // Spacing between groups
+    const [draggingModuleId, setDraggingModuleId] = useState<string | null>(null);
+    const modDragRef = useRef<{
+      id: string;
+      startX: number;
+      startY: number;
+      pointerX: number;
+      pointerY: number;
+      grabOffsetX: number;
+      grabOffsetY: number;
+      hasMoved: boolean;
+      lastSwapAt: number;
+    } | null>(null);
+    const justFinishedModDragRef = useRef(false);
+    const modSlotRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const modInnerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const latestConfigRef = useRef<{ config: NavbarConfig; isVertical: boolean }>({
+      config,
+      isVertical,
+    });
+    latestConfigRef.current = { config, isVertical };
+
+    const applyDraggedModuleTransform = () => {
+      const drag = modDragRef.current;
+      if (!drag || !drag.hasMoved) return;
+      const dockEl = localDockRef.current;
+      const slotEl = modSlotRefs.current.get(drag.id);
+      const innerEl = modInnerRefs.current.get(drag.id);
+      if (!dockEl || !slotEl || !innerEl) return;
+
+      const dockRect = dockEl.getBoundingClientRect();
+      const rel = getOffsetRelativeToDock(slotEl, dockEl);
+      const naturalLeft = dockRect.left + rel.left;
+      const naturalTop = dockRect.top + rel.top;
+
+      const dx = latestConfigRef.current.isVertical
+        ? 0
+        : drag.pointerX - drag.grabOffsetX - naturalLeft;
+      const dy = latestConfigRef.current.isVertical
+        ? drag.pointerY - drag.grabOffsetY - naturalTop
+        : 0;
+
+      innerEl.style.transition = "none";
+      innerEl.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(1.05)`;
+    };
+
+    useLayoutEffect(() => {
+      if (draggingModuleId) {
+        applyDraggedModuleTransform();
+      }
+    }, [config.modules, draggingModuleId]);
+
+    useEffect(() => {
+      if (isPreview) return;
+
+      const handleWinPointerMove = (e: PointerEvent) => {
+        const drag = modDragRef.current;
+        if (!drag) return;
+
+        drag.pointerX = e.clientX;
+        drag.pointerY = e.clientY;
+
+        const dx = e.clientX - drag.startX;
+        const dy = e.clientY - drag.startY;
+        if (!drag.hasMoved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+          drag.hasMoved = true;
+          setDraggingModuleId(drag.id);
+          invoke("set_navbar_popup_open", { open: true }).catch(() => {});
+        }
+
+        if (drag.hasMoved) {
+          applyDraggedModuleTransform();
+
+          const now = performance.now();
+          if (now - drag.lastSwapAt < 90) return;
+
+          const dockEl = localDockRef.current;
+          if (!dockEl) return;
+          const dockRect = dockEl.getBoundingClientRect();
+
+          const { config: curCfg, isVertical: vert } = latestConfigRef.current;
+
+          const slotEntries: {
+            id: string;
+            left: number;
+            top: number;
+            width: number;
+            height: number;
+          }[] = [];
+
+          modSlotRefs.current.forEach((el, id) => {
+            const rel = getOffsetRelativeToDock(el, dockEl);
+            slotEntries.push({
+              id,
+              left: dockRect.left + rel.left,
+              top: dockRect.top + rel.top,
+              width: el.offsetWidth,
+              height: el.offsetHeight,
+            });
+          });
+
+          slotEntries.sort((a, b) => (vert ? a.top - b.top : a.left - b.left));
+
+          const fromSlotIdx = slotEntries.findIndex((s) => s.id === drag.id);
+          if (fromSlotIdx === -1) return;
+
+          const dragSlot = slotEntries[fromSlotIdx];
+          const dragW = dragSlot.width;
+          const dragH = dragSlot.height;
+
+          for (let i = 0; i < slotEntries.length; i++) {
+            if (i === fromSlotIdx) continue;
+            const target = slotEntries[i];
+            const slotLeft = target.left;
+            const slotTop = target.top;
+            const slotW = target.width;
+            const slotH = target.height;
+            const slotRight = slotLeft + slotW;
+            const slotBottom = slotTop + slotH;
+
+            // Width-compensated threshold prevents wide slots (e.g. PinnedAppsGroup) from oscillating with narrow modules
+            const rightThreshold =
+              Math.max(slotLeft + slotW * 0.5, slotRight - dragW * 0.5) + 4;
+            const leftThreshold =
+              Math.min(slotLeft + slotW * 0.5, slotLeft + dragW * 0.5) - 4;
+            const downThreshold =
+              Math.max(slotTop + slotH * 0.5, slotBottom - dragH * 0.5) + 4;
+            const upThreshold =
+              Math.min(slotTop + slotH * 0.5, slotTop + dragH * 0.5) - 4;
+
+            const shouldSwap = vert
+              ? (fromSlotIdx < i && e.clientY > downThreshold) ||
+                (fromSlotIdx > i && e.clientY < upThreshold)
+              : (fromSlotIdx < i && e.clientX > rightThreshold) ||
+                (fromSlotIdx > i && e.clientX < leftThreshold);
+
+            if (shouldSwap) {
+              drag.lastSwapAt = now;
+              const getIdsForSlot = (slotId: string): string[] => {
+                if (slotId === "pinnedApps" || slotId === "runningApps") {
+                  return ["pinnedApps", "runningApps"];
+                }
+                return [slotId];
+              };
+
+              const movingIds = getIdsForSlot(drag.id);
+              const targetIds = getIdsForSlot(target.id);
+              const nextModules = curCfg.modules.map((m) => ({ ...m }));
+
+              const targetRep = nextModules.find((m) =>
+                targetIds.includes(m.id)
+              );
+              if (targetRep) {
+                const targetGroup = targetRep.group;
+                const extracted = nextModules
+                  .filter((m) => movingIds.includes(m.id))
+                  .map((m) => ({ ...m, group: targetGroup }));
+                const remaining = nextModules.filter(
+                  (m) => !movingIds.includes(m.id)
+                );
+
+                const targetIndices = remaining
+                  .map((m, idx) => (targetIds.includes(m.id) ? idx : -1))
+                  .filter((idx) => idx !== -1);
+
+                if (targetIndices.length > 0) {
+                  const insertAt =
+                    fromSlotIdx < i
+                      ? targetIndices[targetIndices.length - 1] + 1
+                      : targetIndices[0];
+                  remaining.splice(insertAt, 0, ...extracted);
+                  saveNavbarConfig({ ...curCfg, modules: remaining }).catch(
+                    () => {}
+                  );
+                }
+              }
+              break;
+            }
+          }
+        }
+      };
+
+      const handleWinPointerUp = () => {
+        const drag = modDragRef.current;
+        if (!drag) return;
+        const innerEl = modInnerRefs.current.get(drag.id);
+        if (innerEl) {
+          innerEl.style.transition = "";
+          innerEl.style.transform = "";
+        }
+        modDragRef.current = null;
+
+        if (drag.hasMoved) {
+          justFinishedModDragRef.current = true;
+          window.setTimeout(() => {
+            justFinishedModDragRef.current = false;
+          }, 120);
+          invoke("set_navbar_popup_open", { open: false }).catch(() => {});
+        }
+        setDraggingModuleId(null);
+      };
+
+      window.addEventListener("pointermove", handleWinPointerMove);
+      window.addEventListener("pointerup", handleWinPointerUp);
+      window.addEventListener("pointercancel", handleWinPointerUp);
+      return () => {
+        window.removeEventListener("pointermove", handleWinPointerMove);
+        window.removeEventListener("pointerup", handleWinPointerUp);
+        window.removeEventListener("pointercancel", handleWinPointerUp);
+      };
+    }, [isPreview]);
+
+    // Background & Opacity Calculation
+    const alpha = Math.max(0.1, Math.min(1, (config.opacity ?? 100) / 100));
+    const isFollowNotch =
+      config.style === "followNotch" || config.background === "followNotch";
+    let baseHex = "#000000";
+    if (isFollowNotch) {
+      baseHex = notchBgHex;
+    } else if (config.background === "custom" && config.customColor) {
+      baseHex = config.customColor;
+    } else {
+      baseHex = "#000000";
+    }
+    const bgColor = hexToRgba(baseHex, alpha);
+    const isLiquid = config.style === "liquid";
+    const edgeGap = isAnchored ? 0 : config.distanceFromEdge ?? 14;
+
+    const isHexLight = (hex: string) => {
+      const clean = hex.replace("#", "");
+      if (clean.length !== 6) return false;
+      const r = parseInt(clean.slice(0, 2), 16);
+      const g = parseInt(clean.slice(2, 4), 16);
+      const b = parseInt(clean.slice(4, 6), 16);
+      return (r * 299 + g * 587 + b * 114) / 1000 > 165;
+    };
+
+    const isTranslucent = isLiquid || alpha < 0.8;
+    const isLightSurface = isTranslucent
+      ? desktopLuminance >= 0.32 ||
+        (isLiquid && desktopLuminance >= 0.28) ||
+        (notchMode === "light" && isFollowNotch && desktopLuminance >= 0.25) ||
+        (isHexLight(baseHex) && alpha >= 0.4)
+      : isHexLight(baseHex);
+
+    const borderRadiusValue = `${radius}px`;
+
+    const rawClipId = useId();
+    const clipId = `dock_unified_clip_${rawClipId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+
+    const [dockDim, setDockDim] = useState<{ w: number; h: number }>({
+      w: 0,
+      h: 0,
+    });
+
+    useLayoutEffect(() => {
+      const el = localDockRef.current;
+      if (!el) return;
+      const measure = () => {
+        const w = Math.round(el.offsetWidth || el.getBoundingClientRect().width);
+        const h = Math.round(el.offsetHeight || el.getBoundingClientRect().height);
+        if (w > 0 && h > 0) {
+          setDockDim((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+        }
+      };
+      measure();
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [config.modules, config.iconSize, config.shape, config.position]);
+
+    const currentW =
+      dockDim.w > 0
+        ? dockDim.w
+        : isVertical
+        ? dockThickness
+        : 560;
+    const currentH =
+      dockDim.h > 0
+        ? dockDim.h
+        : isVertical
+        ? 560
+        : dockThickness;
+
+    // Prominent, generous concave ears for anchored mode (luxurious fluid scoop)
+    const earRadius = Math.max(
+      28,
+      Math.min(40, Math.round(dockThickness * 0.58 + (radius - 10) * 0.4))
+    );
+    const pathParams = {
+      width: currentW,
+      height: currentH,
+      earRadius: isAnchored ? earRadius : 0,
+      bottomRadius: radius,
+      isIsland: false,
+      isBottom: pos === "bottom",
+      position: pos as any,
+    };
+    const surfaceMetrics = getNotchSurfaceMetrics(pathParams);
+    const fillPath = buildNotchPath(pathParams);
+    const outlinePath = buildNotchOutlinePath(pathParams);
+
+    const surfaceBackground = isLiquid
+      ? isLightSurface
+        ? `linear-gradient(180deg, rgba(255,255,255,${0.55 * alpha}) 0%, rgba(240,240,245,${0.35 * alpha}) 48%, rgba(255,255,255,${0.45 * alpha}) 100%)`
+        : `linear-gradient(180deg, rgba(255,255,255,${0.3 * alpha}) 0%, rgba(255,255,255,${0.12 * alpha}) 48%, rgba(255,255,255,${0.16 * alpha}) 100%)`
+      : bgColor;
+    const surfaceBackdropFilter = isLiquid
+      ? "blur(22px) saturate(175%) brightness(1.07)"
+      : alpha < 1
+      ? "blur(18px) saturate(150%)"
+      : undefined;
+
+    // Neutral clean borders without accent color stroke (in anchored mode background & blur is on unified surface)
+    const dockStyle: React.CSSProperties = {
+      width: isVertical ? `${dockThickness}px` : undefined,
+      height: isVertical ? undefined : `${dockThickness}px`,
+      background: isAnchored ? "transparent" : surfaceBackground,
+      backdropFilter: isAnchored ? undefined : surfaceBackdropFilter,
+      WebkitBackdropFilter: isAnchored ? undefined : surfaceBackdropFilter,
+      borderRadius: isAnchored ? undefined : borderRadiusValue,
+      marginBottom: !isVertical && !isTop ? `${edgeGap}px` : "0px",
+      marginTop: !isVertical && isTop ? `${edgeGap}px` : "0px",
+      marginLeft: isLeft ? `${edgeGap}px` : "0px",
+      marginRight: isRight ? `${edgeGap}px` : "0px",
+      paddingLeft: isVertical ? "0px" : isAnchored ? "10px" : "14px",
+      paddingRight: isVertical ? "0px" : isAnchored ? "10px" : "14px",
+      paddingTop: isVertical ? (isAnchored ? "10px" : "14px") : "0px",
+      paddingBottom: isVertical ? (isAnchored ? "10px" : "14px") : "0px",
+      boxShadow: isAnchored
+        ? undefined
+        : isLiquid
+        ? isLightSurface
+          ? "inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(0,0,0,.15), 0 16px 36px rgba(0,0,0,.14), 0 2px 8px rgba(0,0,0,.08)"
+          : "inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(255,255,255,.14), inset 0 0 0 1px rgba(255,255,255,.22), 0 20px 44px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.16)"
+        : isLightSurface
+        ? "inset 0 1px 0 rgba(255,255,255,0.7), 0 14px 34px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.08)"
+        : "inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 34px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06)",
+      transition:
+        "margin 0.35s cubic-bezier(0.22, 1, 0.36, 1), padding 0.35s cubic-bezier(0.22, 1, 0.36, 1), background 0.25s ease, box-shadow 0.25s ease",
+    };
+
     const spacingClass =
       config.iconSpacing === "roomy"
         ? "gap-2"
@@ -67,171 +451,380 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         ? "gap-1"
         : "gap-0.5";
 
-    // Separator component
     const Separator = () => (
       <span
         aria-hidden="true"
-        className="w-[1px] h-[20px] bg-white/10 mx-1.5 shrink-0 select-none pointer-events-none"
+        className={
+          isVertical
+            ? "w-[20px] h-[1px] bg-white/10 my-1.5 shrink-0 select-none pointer-events-none"
+            : "w-[1px] h-[20px] bg-white/10 mx-1.5 shrink-0 select-none pointer-events-none"
+        }
       />
     );
 
-    // Module enable checks
     const hasModule = (id: string) =>
       config.modules.some((m) => m.id === id && m.enabled);
 
-    return (
-      <div
-        ref={ref}
-        style={dockStyle}
-        className={`relative inline-flex items-center px-2 text-white select-none whitespace-nowrap transition-all duration-150 box-border ${
-          config.style === "liquid"
-            ? "backdrop-blur-2xl bg-black/40 border border-white/15"
-            : ""
-        } ${spacingClass}`}
-      >
-        {/* Anchored Left & Right Inverted Wing Curves (Artboard 72) */}
-        {isAnchored && (
-          <>
-            <div
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: "-15px",
-                width: "15px",
-                height: "15px",
-                background: `radial-gradient(circle at 0 0, transparent 14px, ${bgColor} 15px)`,
-                pointerEvents: "none",
-              }}
-            />
-            <div
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                bottom: 0,
-                right: "-15px",
-                width: "15px",
-                height: "15px",
-                background: `radial-gradient(circle at 100% 0, transparent 14px, ${bgColor} 15px)`,
-                pointerEvents: "none",
-              }}
-            />
-          </>
-        )}
+    const handleAppClick = async (app: any, forceNewInstance = false) => {
+      if (!forceNewInstance && app.hwnd) {
+        try {
+          await invoke("activate_or_toggle_window", { hwnd: app.hwnd });
+          return;
+        } catch {}
+      }
 
-        {/* Grup 1: Start & Search */}
-        {hasModule("startSearch") && (
-          <>
-            <StartSearchGroup
-              iconSize={iconSize}
-              onStartClick={onStartClick}
-              onSearchClick={onSearchClick}
-            />
-            <Separator />
-          </>
-        )}
+      if (app.lnkPath) {
+        try {
+          await invoke("launch_pinned_app", {
+            lnkPath: app.lnkPath,
+            targetPath: app.targetPath || "",
+            arguments: app.arguments || "",
+          });
+          return;
+        } catch (err) {
+          console.error("Failed to launch pinned app via shortcut:", err);
+        }
+      }
 
-        {/* Grup 2: Apps (Pinned & Running) */}
-        {(hasModule("pinnedApps") || hasModule("runningApps")) && (
-          <PinnedAppsGroup
+      try {
+        switch (app.id) {
+          case "explorer":
+            await invoke("trigger_file_explorer");
+            break;
+          case "chrome":
+            await invoke("launch_target", { target: "chrome" });
+            break;
+          case "brave":
+            await invoke("launch_target", { target: "brave" });
+            break;
+          case "vscode":
+            await invoke("launch_target", { target: "code" });
+            break;
+          case "terminal":
+            await invoke("launch_target", { target: "wt" });
+            break;
+          case "settings":
+            await invoke("launch_target", { target: "ms-settings:" });
+            break;
+          case "gili":
+            await invoke("open_settings_window", { section: null });
+            break;
+          case "spotify":
+            await invoke("launch_target", { target: "spotify" });
+            break;
+          case "discord":
+            await invoke("launch_target", { target: "discord" });
+            break;
+          default:
+            await invoke("launch_target", { target: app.id });
+            break;
+        }
+      } catch (err) {
+        console.error("Failed to launch app:", err);
+      }
+    };
+
+    const handleModulePointerDown = (e: React.PointerEvent, modId: string) => {
+      if (isPreview || e.button !== 0) return;
+      if (modId === "pinnedApps" || modId === "runningApps") return;
+      const slotEl = modSlotRefs.current.get(modId);
+      const rect = slotEl
+        ? slotEl.getBoundingClientRect()
+        : (e.currentTarget as HTMLElement).getBoundingClientRect();
+
+      modDragRef.current = {
+        id: modId,
+        startX: e.clientX,
+        startY: e.clientY,
+        pointerX: e.clientX,
+        pointerY: e.clientY,
+        grabOffsetX: e.clientX - rect.left,
+        grabOffsetY: e.clientY - rect.top,
+        hasMoved: false,
+        lastSwapAt: 0,
+      };
+    };
+
+    // Build ordered groups respecting config.modules order & group assignment
+    const renderedCoreApps = { done: false };
+
+    const wrapDraggableModule = (
+      slotId: string,
+      node: React.ReactNode
+    ): React.ReactNode => {
+      if (!node) return null;
+      const isDraggingThis = draggingModuleId === slotId;
+      return (
+        <motion.div
+          layout={!isDraggingThis ? "position" : false}
+          transition={{ type: "spring", stiffness: 380, damping: 34, mass: 0.6 }}
+          key={`mod-slot-${slotId}`}
+          ref={(el) => {
+            if (el) modSlotRefs.current.set(slotId, el);
+            else modSlotRefs.current.delete(slotId);
+          }}
+          onDragStart={(e) => e.preventDefault()}
+          onPointerDown={(e) => handleModulePointerDown(e, slotId)}
+          onClickCapture={(e) => {
+            if (draggingModuleId === slotId || justFinishedModDragRef.current) {
+              e.stopPropagation();
+              e.preventDefault();
+            }
+          }}
+          className={`flex items-center shrink-0 select-none ${
+            slotId !== "pinnedApps" && slotId !== "runningApps"
+              ? "cursor-grab active:cursor-grabbing"
+              : ""
+          } ${isDraggingThis ? "z-40" : "z-10"}`}
+        >
+          <div
+            ref={(el) => {
+              if (el) modInnerRefs.current.set(slotId, el);
+              else modInnerRefs.current.delete(slotId);
+            }}
+            className="flex items-center shrink-0"
+          >
+            {node}
+          </div>
+        </motion.div>
+      );
+    };
+
+    const renderModuleNode = (
+      m: NavbarConfig["modules"][number]
+    ): React.ReactNode => {
+      if (!m.enabled) return null;
+
+      if (m.id === "startSearch") {
+        return wrapDraggableModule(
+          m.id,
+          <StartSearchGroup
+            key="startSearch"
             iconSize={iconSize}
+            accentColor={accentColor}
+            isVertical={isVertical}
+            onStartClick={onStartClick}
+            onSearchClick={onSearchClick}
+          />
+        );
+      }
+
+      if (m.id === "pinnedApps" || m.id === "runningApps") {
+        if (renderedCoreApps.done) return null;
+        renderedCoreApps.done = true;
+        return wrapDraggableModule(
+          m.id,
+          <PinnedAppsGroup
+            key="pinnedAppsGroup"
+            isPreview={isPreview}
+            iconSize={iconSize}
+            iconTheme={config.iconTheme || "fluent"}
+            position={pos}
             magnifyOnHover={config.magnify}
             windowPreviews={config.windowPreviews}
+            showAppLabels={config.appLabels}
             accentColor={config.accent}
+            showRunningApps={hasModule("runningApps")}
             onPreviewStateChange={onPreviewStateChange}
-            onAppClick={async (app) => {
-              if (app.hwnd) {
-                try {
-                  await invoke("activate_or_toggle_window", { hwnd: app.hwnd });
-                  return;
-                } catch {}
-              }
+            onAppClick={handleAppClick}
+          />
+        );
+      }
 
-              try {
-                switch (app.id) {
-                  case "explorer":
-                    await invoke("trigger_file_explorer");
-                    break;
-                  case "chrome":
-                    await invoke("launch_target", { target: "chrome" });
-                    break;
-                  case "vscode":
-                    await invoke("launch_target", { target: "code" });
-                    break;
-                  case "terminal":
-                    await invoke("launch_target", { target: "wt" });
-                    break;
-                  case "settings":
-                    await invoke("launch_target", { target: "ms-settings:" });
-                    break;
-                  default:
-                    await invoke("launch_target", { target: app.id });
-                    break;
+      if (
+        m.id === "systemIcons" ||
+        m.id === "notifications" ||
+        m.id === "clockDate"
+      ) {
+        return wrapDraggableModule(
+          m.id,
+          <SystemTrayGroup
+            key={m.id}
+            accentColor={config.accent}
+            use24HourClock={config.clock24h}
+            singleItem={m.id}
+            isVertical={isVertical}
+            onControlCenterClick={onControlCenterClick}
+            onNotificationsClick={onNotificationsClick}
+            onClockClick={onClockClick}
+          />
+        );
+      }
+
+      const def = getNavbarModuleById(m.id);
+      if (def?.component) {
+        const Component = def.component;
+        return wrapDraggableModule(
+          m.id,
+          <Component
+            key={m.id}
+            view={isVertical ? "compact" : m.view}
+            config={config}
+          />
+        );
+      }
+
+      return wrapDraggableModule(
+        m.id,
+        <NavbarModuleUnifiedPreview
+          key={m.id}
+          moduleId={m.id}
+          variant={!isVertical && m.view === "full" ? "pill" : "compact"}
+          className="cursor-pointer hover:opacity-90 transition-opacity"
+        />
+      );
+    };
+
+    const group1Nodes = config.modules
+      .filter((m) => (m.group || 1) === 1 && m.enabled)
+      .map(renderModuleNode)
+      .filter(Boolean);
+
+    const group2Nodes = config.modules
+      .filter((m) => (m.group || 2) === 2 && m.enabled)
+      .map(renderModuleNode)
+      .filter(Boolean);
+
+    if (extraModules) {
+      group2Nodes.push(
+        <React.Fragment key="extra">{extraModules}</React.Fragment>
+      );
+    }
+
+    const group3Nodes = config.modules
+      .filter((m) => (m.group || 3) === 3 && m.enabled)
+      .map(renderModuleNode)
+      .filter(Boolean);
+
+    const nonEmptyGroups = [group1Nodes, group2Nodes, group3Nodes].filter(
+      (g) => g.length > 0
+    );
+
+    return (
+      <div
+        ref={setCombinedRef}
+        style={dockStyle}
+        className={`relative inline-flex ${
+          isVertical ? "flex-col" : "flex-row"
+        } items-center ${
+          isLightSurface ? "navbar-surface-light text-zinc-900" : "text-white"
+        } select-none whitespace-nowrap box-border overflow-visible ${spacingClass}`}
+      >
+        {/* Unified Anchored Surface (continuous dock body + both ears into 1 SVG clip & surface) */}
+        {isAnchored && surfaceMetrics && (
+          <div
+            aria-hidden="true"
+            className="absolute pointer-events-none select-none z-0 overflow-visible"
+            style={{
+              left: `${surfaceMetrics.offsetLeft}px`,
+              top: `${surfaceMetrics.offsetTop}px`,
+              width: `${surfaceMetrics.totalW}px`,
+              height: `${surfaceMetrics.totalH}px`,
+              filter: isLiquid
+                ? isLightSurface
+                  ? "drop-shadow(0 10px 22px rgba(0,0,0,0.14))"
+                  : "drop-shadow(0 14px 30px rgba(0,0,0,0.32))"
+                : isLightSurface
+                ? "drop-shadow(0 6px 18px rgba(0,0,0,0.12))"
+                : "drop-shadow(0 12px 28px rgba(0,0,0,0.45))",
+            }}
+          >
+            <svg
+              className="absolute inset-0 w-full h-full block overflow-visible"
+              viewBox={`0 0 ${surfaceMetrics.totalW} ${surfaceMetrics.totalH}`}
+              preserveAspectRatio="none"
+              shapeRendering="geometricPrecision"
+            >
+              <defs>
+                <clipPath id={clipId} clipPathUnits="userSpaceOnUse">
+                  <path d={fillPath} />
+                </clipPath>
+              </defs>
+            </svg>
+
+            {/* Unified Clipped Surface (body + both ears) */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                clipPath: `url(#${clipId})`,
+                WebkitClipPath: `url(#${clipId})`,
+                background: surfaceBackground,
+                backdropFilter: surfaceBackdropFilter,
+                WebkitBackdropFilter: surfaceBackdropFilter,
+              }}
+            >
+              {isLiquid && (
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background: isLightSurface
+                      ? "linear-gradient(112deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 28%, rgba(0,0,0,0.03) 74%, rgba(255,255,255,0.4) 100%)"
+                      : "linear-gradient(112deg, rgba(255,255,255,0.34) 0%, rgba(255,255,255,0) 26%, rgba(255,255,255,0) 74%, rgba(255,255,255,0.2) 100%)",
+                  }}
+                />
+              )}
+            </div>
+
+            {/* Seamless Perimeter Outline following dock and ears */}
+            <svg
+              className="absolute inset-0 w-full h-full block overflow-visible"
+              viewBox={`0 0 ${surfaceMetrics.totalW} ${surfaceMetrics.totalH}`}
+              preserveAspectRatio="none"
+              shapeRendering="geometricPrecision"
+            >
+              <path
+                d={outlinePath}
+                fill="none"
+                stroke={
+                  isLiquid
+                    ? isLightSurface
+                      ? "rgba(0,0,0,0.18)"
+                      : "rgba(255,255,255,0.32)"
+                    : isLightSurface
+                    ? "rgba(0,0,0,0.12)"
+                    : "rgba(255,255,255,0.12)"
                 }
-              } catch (err) {
-                console.error("Failed to launch app:", err);
-              }
+                strokeWidth="1"
+              />
+            </svg>
+          </div>
+        )}
+
+        {/* Liquid Glass Specular Reflection Highlight for Floating mode */}
+        {!isAnchored && isLiquid && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "inherit",
+              pointerEvents: "none",
+              background: isLightSurface
+                ? "linear-gradient(112deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 28%, rgba(0,0,0,0.03) 74%, rgba(255,255,255,0.4) 100%)"
+                : "linear-gradient(112deg, rgba(255,255,255,0.34) 0%, rgba(255,255,255,0) 26%, rgba(255,255,255,0) 74%, rgba(255,255,255,0.2) 100%)",
             }}
           />
         )}
 
-        {/* Dynamic Catalog Modules Slot */}
-        {(() => {
-          const customModules = config.modules.filter(
-            (m) =>
-              m.enabled &&
-              ![
-                "startSearch",
-                "pinnedApps",
-                "runningApps",
-                "systemIcons",
-                "notifications",
-                "clockDate",
-              ].includes(m.id)
-          );
-
-          if (!customModules.length && !extraModules) return null;
-
-          return (
-            <>
-              <Separator />
-              <div className="flex items-center gap-1.5 shrink-0">
-                {customModules.map((m) => {
-                  const def = getNavbarModuleById(m.id);
-                  if (!def) return null;
-                  const Component = def.component;
-                  return Component ? (
-                    <Component key={m.id} view={m.view} config={config} />
-                  ) : (
-                    <NavbarModuleUnifiedPreview
-                      key={m.id}
-                      moduleId={m.id}
-                      variant={m.view === "full" ? "pill" : "compact"}
-                      className="cursor-pointer hover:opacity-90 transition-opacity"
-                    />
-                  );
-                })}
-                {extraModules}
+        {/* Dock modules & items */}
+        <div
+          className={`relative z-[1] flex ${
+            isVertical ? "flex-col" : "flex-row"
+          } items-center ${spacingClass}`}
+        >
+          {nonEmptyGroups.map((groupNodes, gIdx) => (
+            <React.Fragment key={`grp-${gIdx}`}>
+              {gIdx > 0 && <Separator />}
+              <div
+                className={`flex ${
+                  isVertical ? "flex-col" : "flex-row"
+                } items-center gap-1 shrink-0`}
+              >
+                {groupNodes}
               </div>
-            </>
-          );
-        })()}
-
-        {/* Grup 3: System Icons, Notifications, Clock/Date */}
-        {(hasModule("systemIcons") ||
-          hasModule("notifications") ||
-          hasModule("clockDate")) && (
-          <>
-            <Separator />
-            <SystemTrayGroup
-              accentColor={config.accent}
-              use24HourClock={config.clock24h}
-              onControlCenterClick={onControlCenterClick}
-              onNotificationsClick={onNotificationsClick}
-              onClockClick={onClockClick}
-            />
-          </>
-        )}
+            </React.Fragment>
+          ))}
+        </div>
       </div>
     );
   }

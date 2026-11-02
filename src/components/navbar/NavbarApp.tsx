@@ -1,201 +1,430 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AnimatePresence } from "framer-motion";
-import { NavbarConfig, DEFAULT_NAVBAR_CONFIG } from "../../types/navbar";
-import { loadNavbarConfig } from "../../services/navbarConfigService";
+import { NavbarConfig } from "../../types/navbar";
+import {
+  getCachedNavbarConfigSync,
+  loadNavbarConfig,
+} from "../../services/navbarConfigService";
 import { NavbarDock } from "./NavbarDock";
-import { NavbarControlCenterFlyout } from "./popovers/NavbarControlCenterFlyout";
-import { NavbarNotificationsFlyout } from "./popovers/NavbarNotificationsFlyout";
-import { NavbarCalendarFlyout } from "./popovers/NavbarCalendarFlyout";
-import { NavbarStartLauncherFlyout } from "./popovers/NavbarStartLauncherFlyout";
-
-type ActiveFlyoutType = "control_center" | "notifications" | "calendar" | "start" | null;
 
 export const NavbarApp: React.FC = () => {
-  const [config, setConfig] = useState<NavbarConfig>(DEFAULT_NAVBAR_CONFIG);
+  const [config, setConfig] = useState<NavbarConfig>(() =>
+    getCachedNavbarConfigSync()
+  );
   const [isDockVisible, setIsDockVisible] = useState(true);
-  const [activeFlyout, setActiveFlyout] = useState<ActiveFlyoutType>(null);
-  const [isPreviewShowing, setIsPreviewShowing] = useState(false);
+  const [isFullscreenCovered, setIsFullscreenCovered] = useState(false);
+  const [isWindowCoveringDock, setIsWindowCoveringDock] = useState(false);
+  const [hasEntered, setHasEntered] = useState(false);
 
   const dockRef = useRef<HTMLDivElement>(null);
-  const lastSyncRef = useRef<{ w: number; h: number; overhead: number }>({
+  const hasTriggeredEntranceRef = useRef(false);
+  const isCursorInDockRef = useRef(false);
+  const isWindowCoveringDockRef = useRef(false);
+  const lastSyncRef = useRef<{
+    w: number;
+    h: number;
+    overhead: number;
+    pos: string;
+    mon: string;
+    isAnchored: boolean;
+  }>({
     w: 0,
     h: 0,
     overhead: 0,
+    pos: "",
+    mon: "",
+    isAnchored: false,
   });
   const autoHideTimerRef = useRef<number | null>(null);
 
-  // 1. Initial config load
+  // 1. Initial config load & live sync
   useEffect(() => {
     loadNavbarConfig().then((cfg) => {
       setConfig(cfg);
+      if (!cfg.enabled) {
+        invoke("close_navbar_window").catch(() => {});
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+      } else {
+        invoke("open_navbar_window").catch(() => {});
+        if (cfg.hideWindowsTaskbar) {
+          invoke("set_windows_taskbar_visible", { visible: false }).catch(() => {});
+        }
+      }
     });
 
-    const unlistenPromise = listen<NavbarConfig>("navbar_config_updated", (event) => {
-      if (event.payload) {
-        setConfig(event.payload);
+    const handleConfigUpdate = (payload: NavbarConfig) => {
+      setConfig(payload);
+      if (!payload.enabled) {
+        invoke("close_navbar_window").catch(() => {});
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+      } else {
+        invoke("open_navbar_window").catch(() => {});
+        if (payload.hideWindowsTaskbar) {
+          invoke("set_windows_taskbar_visible", { visible: false }).catch(() => {});
+        } else {
+          invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+        }
+      }
+    };
+
+    const unlistenPromise1 = listen<NavbarConfig>("navbar_config_updated", (event) => {
+      if (event.payload) handleConfigUpdate(event.payload);
+    });
+
+    const unlistenPromise2 = listen<NavbarConfig>("gili-navbar-config-sync", (event) => {
+      if (event.payload) handleConfigUpdate(event.payload);
+    });
+
+    const unlistenSyncBounds = listen("navbar-request-sync-bounds", () => {
+      if (dockRef.current) {
+        const naturalW = dockRef.current.offsetWidth || dockRef.current.getBoundingClientRect().width;
+        const naturalH = dockRef.current.offsetHeight || dockRef.current.getBoundingClientRect().height;
+        if (naturalW > 0 && naturalH > 0) {
+          syncBounds(naturalW, naturalH, 380, 420, true);
+        }
       }
     });
 
     return () => {
-      unlistenPromise.then((fn) => fn());
+      unlistenPromise1.then((fn) => fn());
+      unlistenPromise2.then((fn) => fn());
+      unlistenSyncBounds.then((fn) => fn());
     };
   }, []);
 
-  // 2. Report measured bounds to Rust for window centering & positioning
-  const syncBounds = useCallback(
-    async (width: number, height: number, overhead: number, extraWidth: number) => {
-      if (width <= 0 || height <= 0) return;
-      if (
-        Math.abs(width - lastSyncRef.current.w) < 2 &&
-        Math.abs(height - lastSyncRef.current.h) < 2 &&
-        Math.abs(overhead - lastSyncRef.current.overhead) < 2
-      ) {
-        return;
-      }
-      lastSyncRef.current = { w: width, h: height, overhead };
-
-      try {
-        await invoke("sync_navbar_bounds", {
-          width: Math.ceil(width),
-          height: Math.ceil(height),
-          position: config.position || "bottom",
-          distanceFromEdge: config.shape === "anchored" ? 0 : (config.distanceFromEdge ?? 14),
-          isAnchored: config.shape === "anchored",
-          overhead,
-          extraWidth,
-        });
-      } catch (err) {
-        console.error("Failed to sync navbar bounds:", err);
-      }
-    },
-    [config.position, config.shape, config.distanceFromEdge]
-  );
-
-  // 3. Dynamic sizing calculation depending on whether flyouts or previews are open
-  const getOverheadAndExtra = useCallback(() => {
-    if (activeFlyout !== null) {
-      return { overhead: 420, extraWidth: 340 };
-    }
-    if (isPreviewShowing) {
-      return { overhead: 220, extraWidth: 220 };
-    }
-    return { overhead: 42, extraWidth: 80 };
-  }, [activeFlyout, isPreviewShowing]);
-
-  // 4. ResizeObserver to track dynamic dock content changes
+  // 2. Listen to native Rust cursor hit, fullscreen, and window overlap events
   useEffect(() => {
-    const el = dockRef.current;
-    if (!el) return;
+    isWindowCoveringDockRef.current = isWindowCoveringDock;
+  }, [isWindowCoveringDock]);
 
-    const observer = new ResizeObserver(() => {
-      const { overhead, extraWidth } = getOverheadAndExtra();
-      const elWidth = el.offsetWidth || el.getBoundingClientRect().width;
-      const elHeight = el.offsetHeight || el.getBoundingClientRect().height;
-      const isAnchored = config.shape === "anchored";
-      const bottomOffset = isAnchored ? 0 : (config.distanceFromEdge ?? 14);
-      syncBounds(elWidth, elHeight + bottomOffset, overhead, extraWidth);
+  useEffect(() => {
+    invoke<boolean>("check_navbar_window_overlap")
+      .then((val) => {
+        setIsWindowCoveringDock(!!val);
+        isWindowCoveringDockRef.current = !!val;
+      })
+      .catch(() => {});
+
+    const unlistenHit = listen<boolean>("navbar-cursor-hit", (event) => {
+      const hit = !!event.payload;
+      isCursorInDockRef.current = hit;
+      if (hit) {
+        if (autoHideTimerRef.current) {
+          clearTimeout(autoHideTimerRef.current);
+          autoHideTimerRef.current = null;
+        }
+        setIsDockVisible(true);
+        invoke("set_metrics_power_state", { state: "Active" }).catch(() => {});
+      } else {
+        const mode = config.autoHideMode || "normal";
+        const needsHide =
+          config.autoHide && (mode === "maxsize" || isWindowCoveringDockRef.current);
+        if (needsHide) {
+          if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+          autoHideTimerRef.current = window.setTimeout(() => {
+            setIsDockVisible(false);
+          }, 420);
+        } else {
+          setIsDockVisible(true);
+        }
+        invoke("set_metrics_power_state", { state: "Idle" }).catch(() => {});
+      }
     });
 
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [config.shape, config.distanceFromEdge, getOverheadAndExtra, syncBounds]);
+    const unlistenFullscreen = listen<boolean>("navbar-fullscreen-state", (event) => {
+      setIsFullscreenCovered(!!event.payload);
+    });
 
-  // Trigger sync immediately when flyout or preview state changes
+    const unlistenOverlap = listen<boolean>("navbar-window-overlap-state", (event) => {
+      const isCovered = !!event.payload;
+      setIsWindowCoveringDock(isCovered);
+      isWindowCoveringDockRef.current = isCovered;
+    });
+
+    return () => {
+      unlistenHit.then((fn) => fn());
+      unlistenFullscreen.then((fn) => fn());
+      unlistenOverlap.then((fn) => fn());
+    };
+  }, [config.autoHide, config.autoHideMode]);
+
+  // When in normal mode, smoothly reveal dock if desktop becomes clear, or hide if covered
+  useEffect(() => {
+    if (!config.autoHide) {
+      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+      setIsDockVisible(true);
+      return;
+    }
+    const mode = config.autoHideMode || "normal";
+    if (mode === "normal") {
+      if (isWindowCoveringDock) {
+        if (!isCursorInDockRef.current) {
+          if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+          autoHideTimerRef.current = window.setTimeout(() => {
+            setIsDockVisible(false);
+          }, 420);
+        }
+      } else {
+        // Desktop is clear/exposed: dock stays visible!
+        if (autoHideTimerRef.current) {
+          clearTimeout(autoHideTimerRef.current);
+          autoHideTimerRef.current = null;
+        }
+        setIsDockVisible(true);
+      }
+    }
+  }, [config.autoHide, config.autoHideMode, isWindowCoveringDock]);
+
+  // Keep Rust informed of auto-hide state so hit-testing switches to 4px screen edge when hidden
+  const isEffectiveAutoHide =
+    config.autoHide &&
+    ((config.autoHideMode || "normal") === "maxsize" || isWindowCoveringDock);
+  const shouldSlideOut = !hasEntered || (isEffectiveAutoHide && !isDockVisible);
+
+  useEffect(() => {
+    invoke("set_navbar_auto_hide_state", {
+      autoHide: !!isEffectiveAutoHide,
+      isHidden: isEffectiveAutoHide && !isDockVisible,
+    }).catch(() => {});
+  }, [isEffectiveAutoHide, isDockVisible]);
+
+  // Reset cached sync state whenever navbar is disabled so next enable always forces a sync
+  useEffect(() => {
+    if (!config.enabled) {
+      lastSyncRef.current = {
+        w: 0,
+        h: 0,
+        overhead: 0,
+        pos: "",
+        mon: "",
+        isAnchored: false,
+      };
+      hasTriggeredEntranceRef.current = false;
+      setHasEntered(false);
+    }
+  }, [config.enabled]);
+
+  // 3. Report measured bounds to Rust for window centering & hit-test geometry
+  const syncBounds = useCallback(
+    async (
+      width: number,
+      height: number,
+      overhead: number,
+      extraWidth: number,
+      force = false
+    ) => {
+      if (!config.enabled || width <= 0 || height <= 0) return;
+      const pos = config.position || "bottom";
+      const mon = config.monitorId || "primary";
+      const isAnchoredBool = config.shape === "anchored";
+
+      const isPositionOrMonitorChange =
+        pos !== lastSyncRef.current.pos || mon !== lastSyncRef.current.mon;
+      const isSizeSignificant =
+        Math.abs(width - lastSyncRef.current.w) >= 24 ||
+        Math.abs(height - lastSyncRef.current.h) >= 16 ||
+        Math.abs(overhead - lastSyncRef.current.overhead) >= 8;
+      const isAnchoredChange = isAnchoredBool !== lastSyncRef.current.isAnchored;
+
+      if (force || isPositionOrMonitorChange || isSizeSignificant || isAnchoredChange) {
+        lastSyncRef.current = {
+          w: width,
+          h: height,
+          overhead,
+          pos,
+          mon,
+          isAnchored: isAnchoredBool,
+        };
+        try {
+          await invoke("sync_navbar_bounds", {
+            width: Math.ceil(width),
+            height: Math.ceil(height),
+            position: pos,
+            distanceFromEdge:
+              isAnchoredBool ? 0 : config.distanceFromEdge ?? 14,
+            isAnchored: isAnchoredBool,
+            overhead,
+            extraWidth,
+            monitorId: mon,
+          });
+        } catch (err) {
+          console.error("Failed to sync navbar bounds:", err);
+        }
+      }
+
+      if (!hasTriggeredEntranceRef.current) {
+        hasTriggeredEntranceRef.current = true;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setHasEntered(true);
+          });
+        });
+      }
+    },
+    [config.position, config.shape, config.distanceFromEdge, config.monitorId, config.enabled]
+  );
+
+  const [viewportScale, setViewportScale] = useState(1);
+
+  // 4. ResizeObserver + MutationObserver to track dynamic dock content changes & auto-scale if exceeding monitor width
   useEffect(() => {
     const el = dockRef.current;
     if (!el) return;
-    const { overhead, extraWidth } = getOverheadAndExtra();
-    const elWidth = el.offsetWidth || el.getBoundingClientRect().width;
-    const elHeight = el.offsetHeight || el.getBoundingClientRect().height;
-    const isAnchored = config.shape === "anchored";
-    const bottomOffset = isAnchored ? 0 : (config.distanceFromEdge ?? 14);
-    syncBounds(elWidth, elHeight + bottomOffset, overhead, extraWidth);
-  }, [activeFlyout, isPreviewShowing, config.shape, config.distanceFromEdge, getOverheadAndExtra, syncBounds]);
 
-  // 5. Power state pacing & Auto-Hide handling
-  const handleMouseEnter = () => {
-    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
-    setIsDockVisible(true);
-    invoke("set_metrics_power_state", { state: "Active" }).catch(() => {});
+    let debounceTimer: number | null = null;
+
+    const measureAndSync = (force = false) => {
+      if (!config.enabled) return;
+      // While any popover/flyout is currently open, DO NOT move or resize the OS window!
+      // The OS window has 420px of extraWidth headroom, comfortably fitting pill changes.
+      // Moving the OS window via SetWindowPos while a user is clicking inside an open popover
+      // causes the popover to bounce and shake across the desktop.
+      const hasOpenFlyout = !!document.querySelector(
+        ".navbar-preview-dark, [data-calc-module-root] .navbar-preview-dark, [data-module-popover]"
+      );
+      if (hasOpenFlyout && !force) {
+        return;
+      }
+
+      // Use offset dimensions or bounding rect so absolute floating popups never contaminate dock size
+      const naturalW = el.offsetWidth || el.getBoundingClientRect().width;
+      const naturalH = el.offsetHeight || el.getBoundingClientRect().height;
+      if (naturalW <= 0 || naturalH <= 0) return;
+
+      const maxScreenW = Math.max(600, window.screen.availWidth - 48);
+      const maxScreenH = Math.max(400, window.screen.availHeight - 48);
+      const isVert = config.position === "left" || config.position === "right";
+
+      let nextScale = 1;
+      if (!isVert && naturalW > maxScreenW) {
+        nextScale = Math.max(0.65, Number((maxScreenW / naturalW).toFixed(3)));
+      } else if (isVert && naturalH > maxScreenH) {
+        nextScale = Math.max(0.65, Number((maxScreenH / naturalH).toFixed(3)));
+      }
+      setViewportScale((prev) =>
+        Math.abs(prev - nextScale) > 0.005 ? nextScale : prev
+      );
+
+      const effectiveW = Math.ceil(naturalW * nextScale);
+      const effectiveH = Math.ceil(naturalH * nextScale);
+      syncBounds(effectiveW, effectiveH, 380, 420, force);
+    };
+
+    const scheduleMeasure = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        measureAndSync();
+      }, 280);
+    };
+
+    measureAndSync(true);
+    const observer = new ResizeObserver(() => {
+      scheduleMeasure();
+    });
+    observer.observe(el);
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      observer.disconnect();
+    };
+  }, [config, syncBounds]);
+
+  // Real native Windows triggers
+  const handleStartClick = () => {
+    invoke("trigger_start_menu").catch(() => {});
   };
 
-  const handleMouseLeave = () => {
-    if (config.autoHide && !activeFlyout) {
-      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
-      autoHideTimerRef.current = window.setTimeout(() => {
-        setIsDockVisible(false);
-      }, 400);
-    }
-    invoke("set_metrics_power_state", { state: "Idle" }).catch(() => {});
+  const handleSearchClick = () => {
+    invoke("trigger_windows_search").catch(() => {});
   };
 
-  const shouldSlideDown = config.autoHide && !isDockVisible && !activeFlyout;
+  const handleControlCenterClick = () => {
+    invoke("trigger_quick_settings").catch(() => {});
+  };
+
+  const handleNotificationsClick = () => {
+    invoke("trigger_notification_center").catch(() => {});
+  };
+
+  const handleClockClick = () => {
+    invoke("trigger_notification_center").catch(() => {});
+  };
+
+  const handlePreviewStateChange = useCallback((isShowing: boolean) => {
+    invoke("set_navbar_popup_open", { open: isShowing }).catch(() => {});
+  }, []);
+
+  const pos = config.position || "bottom";
+  const positionContainerClass =
+    pos === "top"
+      ? `top-0 left-1/2 -translate-x-1/2 ${
+          shouldSlideOut
+            ? "-translate-y-[calc(100%+24px)] opacity-0"
+            : "translate-y-0 opacity-100"
+        }`
+      : pos === "left"
+      ? `left-0 top-1/2 -translate-y-1/2 ${
+          shouldSlideOut
+            ? "-translate-x-[calc(100%+24px)] opacity-0"
+            : "translate-x-0 opacity-100"
+        }`
+      : pos === "right"
+      ? `right-0 top-1/2 -translate-y-1/2 ${
+          shouldSlideOut
+            ? "translate-x-[calc(100%+24px)] opacity-0"
+            : "translate-x-0 opacity-100"
+        }`
+      : `bottom-0 left-1/2 -translate-x-1/2 ${
+          shouldSlideOut
+            ? "translate-y-[calc(100%+24px)] opacity-0"
+            : "translate-y-0 opacity-100"
+        }`;
+
+  if (!config.enabled) {
+    return null;
+  }
 
   return (
     <div
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      className="fixed inset-0 w-screen h-screen flex items-end justify-center select-none overflow-visible bg-transparent pointer-events-none"
+      className={`fixed inset-0 w-full h-full select-none overflow-visible bg-transparent pointer-events-none transition-opacity duration-200 ${
+        isFullscreenCovered ? "opacity-0" : "opacity-100"
+      }`}
     >
-      {/* Auto-hide trigger edge hotzone at screen bottom */}
-      {config.autoHide && (
-        <div
-          onMouseEnter={handleMouseEnter}
-          className="absolute bottom-0 left-0 right-0 h-2 bg-transparent pointer-events-auto z-10"
-        />
-      )}
-
       <div
-        className={`relative pointer-events-auto transition-transform duration-200 ease-out ${
-          shouldSlideDown ? "translate-y-[calc(100%+20px)]" : "translate-y-0"
-        }`}
+        style={{
+          transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+        className={`absolute ${positionContainerClass} w-max h-max shrink-0 pointer-events-auto transition-[transform,opacity] duration-500`}
       >
-        {/* Custom Popovers / Flyouts */}
-        <AnimatePresence>
-          {activeFlyout === "control_center" && (
-            <NavbarControlCenterFlyout
-              onClose={() => setActiveFlyout(null)}
-              accentColor={config.accent}
-            />
-          )}
-          {activeFlyout === "notifications" && (
-            <NavbarNotificationsFlyout
-              onClose={() => setActiveFlyout(null)}
-            />
-          )}
-          {activeFlyout === "calendar" && (
-            <NavbarCalendarFlyout
-              onClose={() => setActiveFlyout(null)}
-              accentColor={config.accent}
-            />
-          )}
-          {activeFlyout === "start" && (
-            <NavbarStartLauncherFlyout
-              onClose={() => setActiveFlyout(null)}
-              accentColor={config.accent}
-            />
-          )}
-        </AnimatePresence>
-
-        <NavbarDock
-          ref={dockRef}
-          config={config}
-          onStartClick={() =>
-            setActiveFlyout((prev) => (prev === "start" ? null : "start"))
+        <div
+          style={
+            viewportScale < 1
+              ? {
+                  transform: `scale(${viewportScale})`,
+                  transformOrigin:
+                    pos === "top"
+                      ? "top center"
+                      : pos === "left"
+                      ? "center left"
+                      : pos === "right"
+                      ? "center right"
+                      : "bottom center",
+                }
+              : undefined
           }
-          onControlCenterClick={() =>
-            setActiveFlyout((prev) => (prev === "control_center" ? null : "control_center"))
-          }
-          onNotificationsClick={() =>
-            setActiveFlyout((prev) => (prev === "notifications" ? null : "notifications"))
-          }
-          onClockClick={() =>
-            setActiveFlyout((prev) => (prev === "calendar" ? null : "calendar"))
-          }
-          onPreviewStateChange={(isShowing) => setIsPreviewShowing(isShowing)}
-        />
+        >
+          <NavbarDock
+            ref={dockRef}
+            config={config}
+            onStartClick={handleStartClick}
+            onSearchClick={handleSearchClick}
+            onControlCenterClick={handleControlCenterClick}
+            onNotificationsClick={handleNotificationsClick}
+            onClockClick={handleClockClick}
+            onPreviewStateChange={handlePreviewStateChange}
+          />
+        </div>
       </div>
     </div>
   );

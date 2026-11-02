@@ -1,18 +1,23 @@
 import React from "react";
 import { NavbarConfig, NavbarIconSpacing } from "../../../types/navbar";
 import { Layers, Maximize2, Shield } from "lucide-react";
+import { hexToRgba } from "../../../services/navbarConfigService";
+import { Language } from "../../../services/i18n";
 
 interface NavbarShapeCardProps {
   config: NavbarConfig;
   onChange: (patch: Partial<NavbarConfig>) => void;
   isLightMode?: boolean;
+  optLanguage?: Language;
 }
 
 export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
   config,
   onChange,
   isLightMode = false,
+  optLanguage = "id",
 }) => {
+  const isId = optLanguage === "id";
   const isAnchored = config.shape === "anchored";
 
   const cardBg = isLightMode
@@ -31,19 +36,24 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
           </div>
           <div className="flex flex-col">
             <span className={`text-[13px] font-semibold ${textTitle}`}>
-              Aktifkan Navbar Gili
+              {isId ? "Aktifkan Taskbar Gili" : "Enable Gili Taskbar"}
             </span>
             <span className={`text-[11px] ${textSub}`}>
-              Jadikan dock fleksibel sebagai navigasi aplikasi & status utama
+              {isId
+                ? "Nyalain dock melayang biar navigasi app makin sat-set & estetik"
+                : "Turn on floating dock for smooth app navigation & status"}
             </span>
           </div>
         </div>
         <button
           type="button"
           onClick={() => onChange({ enabled: !config.enabled })}
-          aria-label="Toggle Navbar"
+          aria-label={isId ? "Aktifkan Taskbar" : "Toggle Taskbar"}
+          style={{
+            backgroundColor: config.enabled ? config.accent : undefined,
+          }}
           className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${
-            config.enabled ? "bg-[#0a84ff]" : isLightMode ? "bg-black/20" : "bg-white/20"
+            config.enabled ? "" : isLightMode ? "bg-black/20" : "bg-white/20"
           }`}
         >
           <span
@@ -57,27 +67,76 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
       {/* 2. Shape Selection (Anchored vs Floating) */}
       <div className="flex flex-col gap-2">
         <label className={`text-[12px] font-semibold ${textTitle}`}>
-          Bentuk Bingkai (Shape)
+          {isId ? "Bentuk Bingkai (Shape)" : "Dock Shape"}
         </label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Anchored Button */}
           <button
             type="button"
             onClick={() => onChange({ shape: "anchored" })}
-            className={`flex flex-col items-start p-3 rounded-[12px] border text-left transition-all cursor-pointer ${
+            style={
               isAnchored
-                ? "bg-blue-500/10 border-blue-500 text-blue-500"
+                ? {
+                    backgroundColor: hexToRgba(config.accent, 0.12),
+                    borderColor: config.accent,
+                    color: config.accent,
+                  }
+                : undefined
+            }
+            className={`flex flex-col p-3 rounded-[14px] border text-left transition-all cursor-pointer ${
+              isAnchored
+                ? "shadow-sm"
                 : isLightMode
                 ? "bg-black/[0.03] border-black/[0.06] hover:bg-black/[0.06] text-neutral-700"
                 : "bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.08] text-zinc-300"
             }`}
           >
+            {/* SVG Visual Miniature Preview of Anchored */}
+            <div className="w-full h-16 rounded-[9px] bg-[#0c0c11] border border-white/10 mb-2.5 overflow-hidden relative flex items-end justify-center select-none pointer-events-none">
+              <svg width="100%" height="100%" viewBox="0 0 140 48" fill="none" className="w-full h-full">
+                {/* Desktop Grid Lines */}
+                <line x1="0" y1="12" x2="140" y2="12" stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+                <line x1="0" y1="24" x2="140" y2="24" stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+                <line x1="0" y1="36" x2="140" y2="36" stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+                
+                {/* Screen Bottom Edge Line */}
+                <line x1="0" y1="47.5" x2="140" y2="47.5" stroke={isAnchored ? "#3b82f6" : "rgba(255,255,255,0.2)"} strokeWidth="1" />
+
+                {/* Left Inverted Wing */}
+                <path d="M 33 48 Q 41 48 41 38 L 41 48 Z" fill="#1b1b22" />
+                {/* Right Inverted Wing */}
+                <path d="M 99 38 Q 99 48 107 48 L 99 48 Z" fill="#1b1b22" />
+
+                {/* Anchored Dock Body */}
+                <path
+                  d="M 41 48 L 41 33 Q 41 27 47 27 L 93 27 Q 99 27 99 33 L 99 48 Z"
+                  fill="#1b1b22"
+                  stroke={isAnchored ? "#3b82f6" : "rgba(255,255,255,0.18)"}
+                  strokeWidth="0.8"
+                />
+
+                {/* Mini Dock Items */}
+                <rect x="46" y="32" width="6.5" height="6.5" rx="2" fill="#fff" fillOpacity="0.9" />
+                <rect x="56" y="32" width="6.5" height="6.5" rx="2" fill="#3b82f6" fillOpacity="0.8" />
+                <rect x="66" y="32" width="6.5" height="6.5" rx="2" fill="#fff" fillOpacity="0.8" />
+                {/* Active Indicator Bar */}
+                <line x1="67.5" y1="41" x2="70.5" y2="41" stroke="#3882F6" strokeWidth="1.5" strokeLinecap="round" />
+                <rect x="76" y="32" width="6.5" height="6.5" rx="2" fill="#fff" fillOpacity="0.5" />
+                {/* Mini Clock */}
+                <rect x="86" y="33" width="7" height="4.5" rx="1.5" fill="#fff" fillOpacity="0.6" />
+              </svg>
+            </div>
+
             <div className="flex items-center gap-2 mb-1">
               <Layers size={15} />
-              <span className="text-[12.5px] font-semibold">Nempel (Anchored)</span>
+              <span className="text-[12.5px] font-semibold">
+                {isId ? "Nempel (Anchored)" : "Anchored"}
+              </span>
             </div>
-            <span className={`text-[10.5px] ${isAnchored ? "text-blue-400" : textSub}`}>
-              Rapat di tepi layar bawah dengan sayap lekukan estetik
+            <span className={`text-[10.5px] leading-relaxed ${isAnchored ? "text-blue-400" : textSub}`}>
+              {isId
+                ? "Nempel rapi di pinggir layar pake lekukan sayap yang smooth abis"
+                : "Seamlessly hugs the bottom screen edge with smooth wings"}
             </span>
           </button>
 
@@ -85,20 +144,71 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
           <button
             type="button"
             onClick={() => onChange({ shape: "floating" })}
-            className={`flex flex-col items-start p-3 rounded-[12px] border text-left transition-all cursor-pointer ${
+            style={
               !isAnchored
-                ? "bg-blue-500/10 border-blue-500 text-blue-500"
+                ? {
+                    backgroundColor: hexToRgba(config.accent, 0.12),
+                    borderColor: config.accent,
+                    color: config.accent,
+                  }
+                : undefined
+            }
+            className={`flex flex-col p-3 rounded-[14px] border text-left transition-all cursor-pointer ${
+              !isAnchored
+                ? "shadow-sm"
                 : isLightMode
                 ? "bg-black/[0.03] border-black/[0.06] hover:bg-black/[0.06] text-neutral-700"
                 : "bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.08] text-zinc-300"
             }`}
           >
+            {/* SVG Visual Miniature Preview of Floating */}
+            <div className="w-full h-16 rounded-[9px] bg-[#0c0c11] border border-white/10 mb-2.5 overflow-hidden relative flex items-end justify-center select-none pointer-events-none">
+              <svg width="100%" height="100%" viewBox="0 0 140 48" fill="none" className="w-full h-full">
+                {/* Desktop Grid Lines */}
+                <line x1="0" y1="12" x2="140" y2="12" stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+                <line x1="0" y1="24" x2="140" y2="24" stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+                <line x1="0" y1="36" x2="140" y2="36" stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+                
+                {/* Screen Bottom Edge Line */}
+                <line x1="0" y1="47.5" x2="140" y2="47.5" stroke={!isAnchored ? "#3b82f6" : "rgba(255,255,255,0.2)"} strokeWidth="1" />
+
+                {/* Floating Dock Shadow */}
+                <rect x="36" y="32" width="68" height="10" rx="5" fill="#000" fillOpacity="0.5" />
+
+                {/* Floating Capsule Pill Body */}
+                <rect
+                  x="36"
+                  y="23"
+                  width="68"
+                  height="17"
+                  rx="8.5"
+                  fill="#1b1b22"
+                  stroke={!isAnchored ? "#3b82f6" : "rgba(255,255,255,0.22)"}
+                  strokeWidth="0.9"
+                />
+
+                {/* Mini Dock Items */}
+                <rect x="42" y="28" width="6.5" height="6.5" rx="2" fill="#fff" fillOpacity="0.9" />
+                <rect x="52" y="28" width="6.5" height="6.5" rx="2" fill="#3b82f6" fillOpacity="0.8" />
+                <rect x="62" y="28" width="6.5" height="6.5" rx="2" fill="#fff" fillOpacity="0.8" />
+                {/* Active Indicator Bar */}
+                <line x1="63.5" y1="37" x2="66.5" y2="37" stroke="#3882F6" strokeWidth="1.5" strokeLinecap="round" />
+                <rect x="72" y="28" width="6.5" height="6.5" rx="2" fill="#fff" fillOpacity="0.5" />
+                {/* Mini Clock */}
+                <rect x="82" y="29" width="7" height="4.5" rx="1.5" fill="#fff" fillOpacity="0.6" />
+              </svg>
+            </div>
+
             <div className="flex items-center gap-2 mb-1">
               <Maximize2 size={15} />
-              <span className="text-[12.5px] font-semibold">Melayang (Floating)</span>
+              <span className="text-[12.5px] font-semibold">
+                {isId ? "Melayang (Floating)" : "Floating"}
+              </span>
             </div>
-            <span className={`text-[10.5px] ${!isAnchored ? "text-blue-400" : textSub}`}>
-              Satu kapsul melayang dengan elevasi bayangan halus
+            <span className={`text-[10.5px] leading-relaxed ${!isAnchored ? "text-blue-400" : textSub}`}>
+              {isId
+                ? "Kapsul ngambang estetik dengan shadow halus & sudut rounded"
+                : "Aesthetic floating capsule with soft shadows & rounded corners"}
             </span>
           </button>
         </div>
@@ -109,7 +219,9 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
         {/* Corner Radius */}
         <div className="flex flex-col gap-1.5">
           <div className="flex justify-between items-center text-[11.5px]">
-            <span className={`font-medium ${textTitle}`}>Radius Sudut</span>
+            <span className={`font-medium ${textTitle}`}>
+              {isId ? "Radius Sudut" : "Corner Radius"}
+            </span>
             <span className={`font-semibold tabular-nums text-blue-500`}>
               {config.cornerRadius}px
             </span>
@@ -131,7 +243,9 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
           }`}
         >
           <div className="flex justify-between items-center text-[11.5px]">
-            <span className={`font-medium ${textTitle}`}>Jarak dari Tepi Layar</span>
+            <span className={`font-medium ${textTitle}`}>
+              {isId ? "Jarak dari Tepi Layar" : "Distance from Edge"}
+            </span>
             <span className={`font-semibold tabular-nums text-blue-500`}>
               {isAnchored ? "0px" : `${config.distanceFromEdge}px`}
             </span>
@@ -150,7 +264,9 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
         {/* Icon Size */}
         <div className="flex flex-col gap-1.5">
           <div className="flex justify-between items-center text-[11.5px]">
-            <span className={`font-medium ${textTitle}`}>Ukuran Ikon</span>
+            <span className={`font-medium ${textTitle}`}>
+              {isId ? "Ukuran Ikon" : "Icon Size"}
+            </span>
             <span className={`font-semibold tabular-nums text-blue-500`}>
               {config.iconSize}px
             </span>
@@ -168,7 +284,7 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
         {/* Icon Spacing Segmented Control */}
         <div className="flex flex-col gap-1.5">
           <span className={`text-[11.5px] font-medium ${textTitle}`}>
-            Jarak Antar Ikon
+            {isId ? "Jarak Antar Ikon" : "Icon Spacing"}
           </span>
           <div
             className={`flex items-center p-0.5 rounded-[9px] border ${
@@ -179,7 +295,11 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
           >
             {(["tight", "normal", "roomy"] as NavbarIconSpacing[]).map((spacing) => {
               const label =
-                spacing === "tight" ? "Rapat" : spacing === "normal" ? "Normal" : "Lega";
+                spacing === "tight"
+                  ? (isId ? "Rapat" : "Tight")
+                  : spacing === "normal"
+                  ? "Normal"
+                  : (isId ? "Lega" : "Roomy");
               const isSelected = config.iconSpacing === spacing;
               return (
                 <button
