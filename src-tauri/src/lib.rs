@@ -897,6 +897,37 @@ fn resolve_target_monitor(
         .or_else(|| monitors.into_iter().next())
 }
 
+fn position_notch_window_on_monitor(
+    window: &tauri::WebviewWindow,
+    monitor: &tauri::Monitor,
+    pos: NotchPos,
+    top_offset_phys: i32,
+) {
+    let work_area = monitor.work_area();
+    let physical_size = monitor.size();
+    let physical_pos = monitor.position();
+    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(820, 460));
+
+    let x = if pos.is_left() {
+        physical_pos.x + top_offset_phys
+    } else if pos.is_right() {
+        physical_pos.x + (physical_size.width as i32 - window_size.width as i32) - top_offset_phys
+    } else {
+        physical_pos.x + (physical_size.width as i32 - window_size.width as i32) / 2
+    };
+
+    let y = if pos.is_bottom() {
+        let base = work_area.position.y + (work_area.size.height as i32 - window_size.height as i32);
+        base - top_offset_phys
+    } else if pos.is_top() {
+        physical_pos.y + top_offset_phys
+    } else {
+        physical_pos.y + (physical_size.height as i32 - window_size.height as i32) / 2
+    };
+
+    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+}
+
 fn position_notch_window(
     window: &tauri::WebviewWindow,
     pos: NotchPos,
@@ -904,29 +935,7 @@ fn position_notch_window(
     target_monitor_id: Option<&str>,
 ) {
     if let Some(monitor) = resolve_target_monitor(window, target_monitor_id) {
-        let work_area = monitor.work_area();
-        let physical_size = monitor.size();
-        let physical_pos = monitor.position();
-        let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(820, 460));
-
-        let x = if pos.is_left() {
-            physical_pos.x + top_offset_phys
-        } else if pos.is_right() {
-            physical_pos.x + (physical_size.width as i32 - window_size.width as i32) - top_offset_phys
-        } else {
-            physical_pos.x + (physical_size.width as i32 - window_size.width as i32) / 2
-        };
-
-        let y = if pos.is_bottom() {
-            let base = work_area.position.y + (work_area.size.height as i32 - window_size.height as i32);
-            base - top_offset_phys
-        } else if pos.is_top() {
-            physical_pos.y + top_offset_phys
-        } else {
-            physical_pos.y + (physical_size.height as i32 - window_size.height as i32) / 2
-        };
-
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        position_notch_window_on_monitor(window, &monitor, pos, top_offset_phys);
     }
 }
 
@@ -983,12 +992,26 @@ fn get_available_monitors(app: tauri::AppHandle, window: tauri::WebviewWindow) -
         .collect()
 }
 
+static IS_SYNCING_DISPLAYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn sync_all_displays_windows(
     app: &tauri::AppHandle,
     is_all: bool,
 ) {
     let app_handle = app.clone();
     std::thread::spawn(move || {
+        // Prevent concurrent calls creating duplicate windows
+        if IS_SYNCING_DISPLAYS.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        struct SyncGuard;
+        impl Drop for SyncGuard {
+            fn drop(&mut self) {
+                IS_SYNCING_DISPLAYS.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let _guard = SyncGuard;
+
         let state_guard = app_handle.state::<PillSize>();
         if !is_all {
             for (label, win) in app_handle.webview_windows() {
@@ -1012,11 +1035,27 @@ fn sync_all_displays_windows(
             Err(_) => return,
         };
 
-        let primary_name = main_win
+        // If only 1 monitor or none, no secondary notch should ever be created
+        if monitors.len() <= 1 {
+            for (label, win) in app_handle.webview_windows() {
+                if label.starts_with("notch_secondary_") {
+                    let _ = win.destroy();
+                }
+            }
+            if let Ok(mut s) = state_guard.0.lock() {
+                s.secondary_pills.clear();
+            }
+            return;
+        }
+
+        let primary_mon = main_win
             .primary_monitor()
             .ok()
             .flatten()
-            .and_then(|m| m.name().map(|s| s.to_string()));
+            .or_else(|| {
+                monitors.iter().find(|m| m.position().x == 0 && m.position().y == 0).cloned()
+            })
+            .or_else(|| monitors.first().cloned());
 
         let (pos, top_offset, is_island, dpr) = if let Ok(s) = state_guard.0.lock() {
             (s.pos, s.top_offset, s.is_island, s.dpr)
@@ -1027,12 +1066,17 @@ fn sync_all_displays_windows(
         let secondary_monitors: Vec<tauri::Monitor> = monitors
             .into_iter()
             .filter(|m| {
-                let m_name = m.name().map(|s| s.to_string());
-                if let Some(ref p_name) = primary_name {
-                    m_name.as_ref() != Some(p_name)
-                } else {
-                    !(m.position().x == 0 && m.position().y == 0)
+                if let Some(ref p) = primary_mon {
+                    if m.position() == p.position() && m.size() == p.size() {
+                        return false;
+                    }
+                    if let (Some(m_name), Some(p_name)) = (m.name(), p.name()) {
+                        if m_name == p_name {
+                            return false;
+                        }
+                    }
                 }
+                true
             })
             .collect();
 
@@ -1051,13 +1095,12 @@ fn sync_all_displays_windows(
         for (i, mon) in secondary_monitors.into_iter().enumerate() {
             let sec_idx = i + 1;
             let label = format!("notch_secondary_{}", sec_idx);
-            let mon_name = mon.name().map(|s| s.to_string());
             let m_sf = mon.scale_factor();
             let effective_sf = if dpr > 0.0 { (dpr as f64).max(m_sf) } else { m_sf * get_system_text_scale() };
             let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
 
             if let Some(sec_win) = app_handle.get_webview_window(&label) {
-                position_notch_window(&sec_win, pos, phys_offset, mon_name.as_deref());
+                position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
                 let _ = sec_win.show();
             } else {
                 let sec_url = format!("index.html?window=secondary&monitor={}", sec_idx);
@@ -1083,7 +1126,7 @@ fn sync_all_displays_windows(
                     Ok(sec_win) => {
                         let _ = sec_win.set_ignore_cursor_events(true);
                         let _ = sec_win.set_shadow(false);
-                        position_notch_window(&sec_win, pos, phys_offset, mon_name.as_deref());
+                        position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
                     }
                     Err(e) => {
                         eprintln!("Failed to create secondary notch window {}: {:?}", label, e);
@@ -1294,11 +1337,6 @@ fn update_pill_size(
             let effective_sf = if size.dpr > 0.0 { (size.dpr as f64).max(sf) } else { sf * get_system_text_scale() };
             let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
             position_notch_window(&window, pos, phys_offset, size.target_monitor.as_deref());
-
-            let is_all = size.target_monitor.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false);
-            if is_all {
-                sync_all_displays_windows(&window.app_handle(), true);
-            }
         }
 
         if was_expanded && !now_expanded {
@@ -2972,7 +3010,7 @@ pub fn run() {
                         api.prevent_close();
                         let _ = win_for_events.emit("click-outside", ());
                     }
-                    tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Resized(_) => {
+                    tauri::WindowEvent::ScaleFactorChanged { .. } => {
                         if win_for_events.is_minimized().unwrap_or(false) {
                             let _ = win_for_events.unminimize();
                         }
@@ -2990,6 +3028,21 @@ pub fn run() {
                         if target_mon.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false) {
                             sync_all_displays_windows(&app_for_events, true);
                         }
+                    }
+                    tauri::WindowEvent::Resized(_) => {
+                        if win_for_events.is_minimized().unwrap_or(false) {
+                            let _ = win_for_events.unminimize();
+                        }
+                        let (pos, top_offset, is_island, dpr, target_mon) = app_for_events
+                            .state::<PillSize>()
+                            .0
+                            .lock()
+                            .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr, s.target_monitor.clone()))
+                            .unwrap_or((NotchPos::Top, 0.0, false, 1.0, None));
+                        let sf = win_for_events.scale_factor().unwrap_or(1.0);
+                        let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
+                        let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+                        position_notch_window(&win_for_events, pos, phys_offset, target_mon.as_deref());
                     }
                     _ => {}
                 }
