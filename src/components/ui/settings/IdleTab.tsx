@@ -17,6 +17,7 @@ import {
   ArrowDownUp,
   Bell,
   FolderDown,
+  Moon,
 } from "lucide-react";
 import {
   IdleLayoutConfig,
@@ -30,6 +31,11 @@ import {
 import { IdleMascot } from "../IdleMascot";
 import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
+import {
+  getImmediatePrayerSchedule,
+  getNextPrayerStatus,
+  getPrayerShortName,
+} from "../../../services/prayerService";
 
 export interface IdleTabProps {
   layout: IdleLayoutConfig;
@@ -48,6 +54,7 @@ const ALL_IDLE_ITEMS: IdleSlotItem[] = [
   "ping",
   "weather",
   "todo",
+  "prayer",
   "notifications",
   "shelf",
   "fps",
@@ -83,6 +90,8 @@ const renderOptionIcon = (
           return <Sun size={14} className="!text-[#007aff]" />;
         case "todo":
           return <ListTodo size={14} className="!text-[#007aff]" />;
+        case "prayer":
+          return <Moon size={14} className="!text-[#007aff]" />;
         case "fps":
           return <Gauge size={14} className="!text-[#007aff]" />;
         case "notifications":
@@ -117,6 +126,8 @@ const renderOptionIcon = (
         return <Sun size={14} className="text-white" />;
       case "todo":
         return <ListTodo size={14} className="text-white" />;
+      case "prayer":
+        return <Moon size={14} className="text-white" />;
       case "fps":
         return <Gauge size={14} className="text-white" />;
       case "notifications":
@@ -151,6 +162,8 @@ const renderOptionIcon = (
         return <Sun size={14} className="text-amber-600" />;
       case "todo":
         return <ListTodo size={14} className="text-orange-600" />;
+      case "prayer":
+        return <Moon size={14} className="text-emerald-700" />;
       case "fps":
         return <Gauge size={14} className="text-teal-700" />;
       case "notifications":
@@ -185,6 +198,8 @@ const renderOptionIcon = (
       return <Sun size={14} className="text-[#ff9f0a]" />;
     case "todo":
       return <ListTodo size={14} className="text-[#ff9f0a]" />;
+    case "prayer":
+      return <Moon size={14} className="text-[#34d399]" />;
     case "fps":
       return <Gauge size={14} className="text-[#40c8ae]" />;
     case "notifications":
@@ -228,6 +243,8 @@ const getOptionBgClass = (
         return "bg-amber-100/90";
       case "todo":
         return "bg-orange-100/90";
+      case "prayer":
+        return "bg-emerald-100/90";
       case "fps":
         return "bg-teal-100/90";
       case "notifications":
@@ -262,6 +279,8 @@ const getOptionBgClass = (
       return "bg-[#2c2410]";
     case "todo":
       return "bg-[#2c2010]";
+    case "prayer":
+      return "bg-[#10291f]";
     case "fps":
       return "bg-[#132c2c]";
     case "notifications":
@@ -401,6 +420,22 @@ export const IdleTab: React.FC<IdleTabProps> = ({
             <span>{runtimeData.pendingTodosCount}</span>
           </div>
         );
+      case "prayer": {
+        const next = getNextPrayerStatus(getImmediatePrayerSchedule(), runtimeData.time);
+        const shortName = getPrayerShortName(next.nextPrayer, runtimeData.optLanguage);
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-emerald-700" : "text-emerald-400"
+            }`}
+          >
+            <Moon size={11} />
+            <span>
+              {shortName} {next.nextPrayerTime}
+            </span>
+          </div>
+        );
+      }
       case "fps":
         return (
           <span
