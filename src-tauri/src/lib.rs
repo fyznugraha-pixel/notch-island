@@ -816,6 +816,7 @@ pub struct PillState {
     pub is_island: bool,
     pub dpr: f32,
     pub target_monitor: Option<String>,
+    pub secondary_pills: std::collections::HashMap<String, (f32, f32)>,
 }
 
 impl Default for PillState {
@@ -829,6 +830,7 @@ impl Default for PillState {
             is_island: false,
             dpr: 1.0,
             target_monitor: None,
+            secondary_pills: std::collections::HashMap::new(),
         }
     }
 }
@@ -857,6 +859,14 @@ fn resolve_target_monitor(
 
     if let Some(target) = target_id {
         let trimmed_target = target.trim();
+        if trimmed_target.eq_ignore_ascii_case("all") {
+            return window
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .or_else(|| window.current_monitor().ok().flatten())
+                .or_else(|| monitors.into_iter().next());
+        }
         if !trimmed_target.is_empty() && !trimmed_target.eq_ignore_ascii_case("primary") {
             if let Some(found) = monitors.iter().find(|m| {
                 if let Some(name) = m.name() {
@@ -973,6 +983,117 @@ fn get_available_monitors(app: tauri::AppHandle, window: tauri::WebviewWindow) -
         .collect()
 }
 
+fn sync_all_displays_windows(
+    app: &tauri::AppHandle,
+    is_all: bool,
+) {
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let state_guard = app_handle.state::<PillSize>();
+        if !is_all {
+            for (label, win) in app_handle.webview_windows() {
+                if label.starts_with("notch_secondary_") {
+                    let _ = win.destroy();
+                }
+            }
+            if let Ok(mut s) = state_guard.0.lock() {
+                s.secondary_pills.clear();
+            }
+            return;
+        }
+
+        let main_win = match app_handle.get_webview_window("main") {
+            Some(w) => w,
+            None => return,
+        };
+
+        let monitors = match main_win.available_monitors() {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+
+        let primary_name = main_win
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .and_then(|m| m.name().map(|s| s.to_string()));
+
+        let (pos, top_offset, is_island, dpr) = if let Ok(s) = state_guard.0.lock() {
+            (s.pos, s.top_offset, s.is_island, s.dpr)
+        } else {
+            (NotchPos::Top, 0.0, false, 1.0)
+        };
+
+        let secondary_monitors: Vec<tauri::Monitor> = monitors
+            .into_iter()
+            .filter(|m| {
+                let m_name = m.name().map(|s| s.to_string());
+                if let Some(ref p_name) = primary_name {
+                    m_name.as_ref() != Some(p_name)
+                } else {
+                    !(m.position().x == 0 && m.position().y == 0)
+                }
+            })
+            .collect();
+
+        let sec_count = secondary_monitors.len();
+
+        for (label, win) in app_handle.webview_windows() {
+            if label.starts_with("notch_secondary_") {
+                if let Ok(idx) = label.trim_start_matches("notch_secondary_").parse::<usize>() {
+                    if idx > sec_count {
+                        let _ = win.destroy();
+                    }
+                }
+            }
+        }
+
+        for (i, mon) in secondary_monitors.into_iter().enumerate() {
+            let sec_idx = i + 1;
+            let label = format!("notch_secondary_{}", sec_idx);
+            let mon_name = mon.name().map(|s| s.to_string());
+            let m_sf = mon.scale_factor();
+            let effective_sf = if dpr > 0.0 { (dpr as f64).max(m_sf) } else { m_sf * get_system_text_scale() };
+            let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+
+            if let Some(sec_win) = app_handle.get_webview_window(&label) {
+                position_notch_window(&sec_win, pos, phys_offset, mon_name.as_deref());
+                let _ = sec_win.show();
+            } else {
+                let sec_url = format!("index.html?window=secondary&monitor={}", sec_idx);
+                let builder = tauri::WebviewWindowBuilder::new(
+                    &app_handle,
+                    &label,
+                    tauri::WebviewUrl::App(sec_url.into()),
+                )
+                .title(format!("Gili Secondary Notch {}", sec_idx))
+                .inner_size(820.0, 460.0)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .visible(true)
+                .focused(false)
+                .initialization_script("window.__IS_SECONDARY_NOTCH_WINDOW__ = true;")
+                .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion");
+
+                match builder.build() {
+                    Ok(sec_win) => {
+                        let _ = sec_win.set_ignore_cursor_events(true);
+                        let _ = sec_win.set_shadow(false);
+                        position_notch_window(&sec_win, pos, phys_offset, mon_name.as_deref());
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create secondary notch window {}: {:?}", label, e);
+                    }
+                }
+            }
+        }
+    });
+}
+
 #[tauri::command]
 fn set_target_monitor(
     target_monitor: Option<String>,
@@ -999,6 +1120,9 @@ fn set_target_monitor(
     let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
     let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
     position_notch_window(&main_win, pos, phys_offset, target_monitor.as_deref());
+
+    let is_all = target_monitor.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false);
+    sync_all_displays_windows(&app, is_all);
 }
 
 #[tauri::command]
@@ -1039,6 +1163,11 @@ fn set_window_position(
     let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
     let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
     position_notch_window(&target_win, pos, phys_offset, chosen_monitor.as_deref());
+
+    let is_all = chosen_monitor.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false);
+    if is_all {
+        sync_all_displays_windows(&app, true);
+    }
 }
 
 static IS_TRIM_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1129,7 +1258,14 @@ fn update_pill_size(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PillSize>,
 ) {
-    if window.label() != "main" {
+    let win_label = window.label();
+    if win_label.starts_with("notch_secondary_") {
+        if let Ok(mut size) = state.0.lock() {
+            size.secondary_pills.insert(win_label.to_string(), (width, height));
+        }
+        return;
+    }
+    if win_label != "main" {
         return;
     }
     let pos = NotchPos::from_str_or_bottom(position.as_deref(), is_bottom);
@@ -1158,6 +1294,11 @@ fn update_pill_size(
             let effective_sf = if size.dpr > 0.0 { (size.dpr as f64).max(sf) } else { sf * get_system_text_scale() };
             let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
             position_notch_window(&window, pos, phys_offset, size.target_monitor.as_deref());
+
+            let is_all = size.target_monitor.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false);
+            if is_all {
+                sync_all_displays_windows(&window.app_handle(), true);
+            }
         }
 
         if was_expanded && !now_expanded {
@@ -2321,17 +2462,33 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
     use windows::Win32::Foundation::POINT;
     use tauri::Manager;
 
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let mut pt = POINT { x: 0, y: 0 };
-        if unsafe { GetCursorPos(&mut pt) }.is_ok() {
-            if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (window.outer_position(), window.outer_size(), window.scale_factor()) {
-                let pill = if let Ok(size) = state.0.lock() {
-                    size.clone()
-                } else {
-                    PillState::default()
-                };
+    let mut pt = POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+        let pill = if let Ok(size) = state.0.lock() {
+            size.clone()
+        } else {
+            PillState::default()
+        };
 
-                return calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
+        if let Some(window) = app_handle.get_webview_window("main") {
+            if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (window.outer_position(), window.outer_size(), window.scale_factor()) {
+                if calculate_notch_hit(pt, win_pos, win_size, sf, &pill) {
+                    return true;
+                }
+            }
+        }
+
+        for (label, win) in app_handle.webview_windows() {
+            if label.starts_with("notch_secondary_") {
+                if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (win.outer_position(), win.outer_size(), win.scale_factor()) {
+                    let (sec_w, sec_h) = pill.secondary_pills.get(&label).copied().unwrap_or((220.0, 36.0));
+                    let mut sec_pill = pill.clone();
+                    sec_pill.width = sec_w;
+                    sec_pill.height = sec_h;
+                    if calculate_notch_hit(pt, win_pos, win_size, sf, &sec_pill) {
+                        return true;
+                    }
+                }
             }
         }
     }
@@ -2763,6 +2920,13 @@ pub fn run() {
                                 let _ = w.show();
                                 let _ = w.emit("tray-toggle-visibility", ());
                             }
+                            for (label, w) in app.webview_windows() {
+                                if label.starts_with("notch_secondary_") {
+                                    let _ = w.unminimize();
+                                    let _ = w.show();
+                                    let _ = w.emit("tray-toggle-visibility", ());
+                                }
+                            }
                         }
                         "open_control_center" => {
                             if let Some(w) = app.get_webview_window("main") {
@@ -2822,6 +2986,10 @@ pub fn run() {
                         let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
                         let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
                         position_notch_window(&win_for_events, pos, phys_offset, target_mon.as_deref());
+
+                        if target_mon.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false) {
+                            sync_all_displays_windows(&app_for_events, true);
+                        }
                     }
                     _ => {}
                 }
@@ -2833,6 +3001,11 @@ pub fn run() {
             std::thread::spawn(move || {
                 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
                 use windows::Win32::Foundation::POINT;
+                struct SecHitState {
+                    was_in: bool,
+                    cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)>,
+                }
+                let mut sec_hit_map: std::collections::HashMap<String, SecHitState> = std::collections::HashMap::new();
                 let mut was_in_pill = false;
                 let mut time_since_left_pill = std::time::Instant::now();
                 let mut loop_count: u32 = 0;
@@ -2963,6 +3136,53 @@ pub fn run() {
                                 }
                             } else {
                                 click_outside_emitted = false;
+                            }
+                        }
+
+                        // Polling hit test untuk notch di layar sekunder
+                        if loop_count.is_multiple_of(30) {
+                            let cur_windows = app_handle_poll.webview_windows();
+                            sec_hit_map.retain(|label, _| cur_windows.contains_key(label));
+                            for (label, _) in &cur_windows {
+                                if label.starts_with("notch_secondary_") && !sec_hit_map.contains_key(label) {
+                                    sec_hit_map.insert(label.clone(), SecHitState { was_in: false, cached_geom: None });
+                                }
+                            }
+                        }
+
+                        for (sec_label, sec_state) in sec_hit_map.iter_mut() {
+                            if let Some(sec_win) = app_handle_poll.get_webview_window(sec_label) {
+                                if need_geom_refresh || sec_state.cached_geom.is_none() {
+                                    if let (Ok(wp), Ok(ws), Ok(s)) = (
+                                        sec_win.outer_position(),
+                                        sec_win.outer_size(),
+                                        sec_win.scale_factor(),
+                                    ) {
+                                        sec_state.cached_geom = Some((wp, ws, s));
+                                    }
+                                }
+
+                                if let Some((sec_pos, sec_size, sec_sf)) = sec_state.cached_geom {
+                                    let (sec_w, sec_h) = pill.secondary_pills.get(sec_label).copied().unwrap_or((220.0, 36.0));
+                                    let mut sec_pill = pill.clone();
+                                    sec_pill.width = sec_w;
+                                    sec_pill.height = sec_h;
+
+                                    let in_sec = calculate_notch_hit(pt, sec_pos, sec_size, sec_sf, &sec_pill);
+                                    if in_sec != sec_state.was_in {
+                                        sec_state.was_in = in_sec;
+                                        let _ = sec_win.set_ignore_cursor_events(!in_sec);
+                                        use tauri::Emitter;
+                                        if !in_sec {
+                                            let _ = sec_win.emit("notch-mouse-leave", ());
+                                        } else {
+                                            let _ = sec_win.emit("notch-mouse-enter", ());
+                                            nudge_cursor();
+                                        }
+                                    } else if is_window_click_through(&sec_win) == Some(in_sec) {
+                                        let _ = sec_win.set_ignore_cursor_events(!in_sec);
+                                    }
+                                }
                             }
                         }
                     }

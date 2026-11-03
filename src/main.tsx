@@ -9,6 +9,7 @@ import "./App.css";
 import "./index.css";
 import App from "./App";
 import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
+import { SecondaryNotchApp } from "./SecondaryNotchApp";
 import { getLanguage } from "./services/i18n";
 
 const isSettingsWindow = (() => {
@@ -41,6 +42,24 @@ const isSettingsWindow = (() => {
     }
   }
   return result;
+})();
+
+const isSecondaryWindow = (() => {
+  if (typeof window === "undefined") return false;
+  if ((window as any).__IS_SECONDARY_NOTCH_WINDOW__ === true) {
+    return true;
+  }
+  try {
+    if (getCurrentWindow().label.startsWith("notch_secondary_")) {
+      return true;
+    }
+  } catch {}
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("window") === "secondary" ||
+    window.location.search.includes("window=secondary") ||
+    window.location.href.includes("window=secondary")
+  );
 })();
 
 interface Props {
@@ -80,6 +99,12 @@ class RootErrorBoundary extends Component<Props, State> {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RootErrorBoundary>
-    {isSettingsWindow ? <SettingsWindowApp /> : <App />}
+    {isSettingsWindow ? (
+      <SettingsWindowApp />
+    ) : isSecondaryWindow ? (
+      <SecondaryNotchApp />
+    ) : (
+      <App />
+    )}
   </RootErrorBoundary>
 );
