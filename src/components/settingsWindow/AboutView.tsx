@@ -18,6 +18,36 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.4.1",
+    date: "3 Nov 2026",
+    highlights: [
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Ikon Ethernet di Control Center",
+        titleEn: "Ethernet Icon in Control Center",
+        descId: "Saat terhubung lewat kabel LAN tanpa Wi-Fi, tile jaringan kini menampilkan ikon dan label Ethernet beserta ping, bukan lagi Wi-Fi.",
+        descEn: "When connected through a LAN cable without Wi-Fi, the network tile now shows an Ethernet icon and label with ping instead of Wi-Fi.",
+        badge: "new",
+      },
+      {
+        icon: <Music size={14} />,
+        titleId: "Deteksi Tab Musik dan Lirik Lebih Andal",
+        titleEn: "More Reliable Music and Lyrics Tab Detection",
+        descId: "Memperbaiki tab musik dan lirik yang kadang tidak muncul walau pemutar sudah menyala, termasuk saat musik sudah berjalan sebelum Gili dibuka.",
+        descEn: "Fixed the music and lyrics tabs sometimes not appearing even though a player is running, including when music was already playing before Gili started.",
+        badge: "fix",
+      },
+      {
+        icon: <Repeat size={14} />,
+        titleId: "Tugas Berulang Muncul Sesuai Jadwal",
+        titleEn: "Recurring Tasks Follow Their Schedule",
+        descId: "Tugas Daily, Weekday, Weekly, dan Monthly yang sudah diceklis tidak lagi muncul kembali di hari yang sama, melainkan baru aktif pada jadwal berikutnya.",
+        descEn: "Checked-off Daily, Weekday, Weekly, and Monthly tasks no longer reappear the same day and only return on their next scheduled date.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "4.4.0",
     date: "3 Nov 2026",
     highlights: [
