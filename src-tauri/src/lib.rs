@@ -495,6 +495,12 @@ async fn extract_clipboard_text(app: tauri::AppHandle) -> Result<String, String>
 
 static LAST_ACTIVE_SMTC: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
 static LAST_SMTC_SEEK: std::sync::Mutex<Option<(std::time::Instant, f64)>> = std::sync::Mutex::new(None);
+static MEDIA_RESYNC_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+fn request_media_resync() {
+    MEDIA_RESYNC_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
 
 fn is_smtc_session_playing(playback: &windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackInfo) -> bool {
     use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
@@ -2664,6 +2670,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_pill_hover,
             smtc_action,
+            request_media_resync,
             smtc_seek,
             fetch_external_lyrics_api,
             update_pill_size,
@@ -3081,7 +3088,8 @@ pub fn run() {
                 let mut last_clipboard_seq = unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() };
                 let mut last_caps_state = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState(windows::Win32::UI::Input::KeyboardAndMouse::VK_CAPITAL.0 as i32) } & 1;
                 
-                let smtc_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|r| r.get()).ok();
+                let mut smtc_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|r| r.get()).ok();
+                let mut last_smtc_manager_retry = std::time::Instant::now();
                 let notif_listener = windows::UI::Notifications::Management::UserNotificationListener::Current().ok();
                 let mut notif_access_allowed = false;
                 if let Some(listener) = &notif_listener {
@@ -3354,6 +3362,11 @@ pub fn run() {
                     let mut current_app_id: Option<String> = None;
                     let mut current_web_source: Option<String> = None;
                     
+                    if smtc_manager.is_none() && last_smtc_manager_retry.elapsed().as_secs() >= 3 {
+                        last_smtc_manager_retry = std::time::Instant::now();
+                        smtc_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|r| r.get()).ok();
+                    }
+
                     if let Some(manager) = &smtc_manager {
                         let mut active_session = None;
                         if let Ok(sessions) = manager.GetSessions() {
@@ -3833,7 +3846,8 @@ pub fn run() {
                     }
 
                     // Check for changes (whether we have a session or not)
-                    if title != last_title || artist != last_artist || is_playing != last_is_playing || playback_type != last_playback_type || is_browser_session != last_is_browser || current_app_id != last_app_id || current_web_source != last_web_source || last_thumbnail != last_emitted_thumbnail {
+                    let force_media_emit = MEDIA_RESYNC_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed);
+                    if force_media_emit || title != last_title || artist != last_artist || is_playing != last_is_playing || playback_type != last_playback_type || is_browser_session != last_is_browser || current_app_id != last_app_id || current_web_source != last_web_source || last_thumbnail != last_emitted_thumbnail {
                         last_emitted_thumbnail = last_thumbnail.clone();
                         last_title = title.clone();
                         last_artist = artist.clone();

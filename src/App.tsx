@@ -3669,6 +3669,8 @@ export default function App() {
       }
     });
 
+    unlistenMedia.then(() => invoke("request_media_resync").catch(() => {}));
+
     return () => {
       if (clipboardDebounceTimer) clearTimeout(clipboardDebounceTimer);
       unlistenMedia.then((f) => f());
