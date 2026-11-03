@@ -18,6 +18,28 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.4.2",
+    date: "3 Nov 2026",
+    highlights: [
+      {
+        icon: <Layers size={14} />,
+        titleId: "Dukungan Notch di Semua Layar (All Displays)",
+        titleEn: "All Displays Notch Support",
+        descId: "Fitur 'Semua Layar' kini aktif sepenuhnya! Setiap monitor eksternal yang terhubung akan menampilkan notch mandiri dengan sinkronisasi tema, idle bar, dan kontrol musik.",
+        descEn: "The 'All Displays' feature is now fully active! Each connected external monitor displays an independent notch with theme sync, idle bar, and music controls.",
+        badge: "new",
+      },
+      {
+        icon: <MousePointerClick size={14} />,
+        titleId: "Hit-Testing & Click-Through Multi-Monitor",
+        titleEn: "Multi-Monitor Hit-Testing & Click-Through",
+        descId: "Hover kursor dan interaksi klik pada notch di semua monitor berjalan mulus tanpa mengganggu jendela aplikasi lain di bawahnya.",
+        descEn: "Cursor hover and click interactions on notches across all monitors run smoothly without interfering with windows underneath.",
+        badge: "improve",
+      },
+    ],
+  },
+  {
     version: "4.4.1",
     date: "3 Nov 2026",
     highlights: [
