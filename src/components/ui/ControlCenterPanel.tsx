@@ -6,6 +6,7 @@ import {
   ListTodo,
   Folder,
   Wifi,
+  EthernetPort,
   Bluetooth,
   Radio,
   Lock,
@@ -54,6 +55,7 @@ export interface ControlCenterPanelProps {
   soundLevel: number;
   onSetSoundLevel: (level: number) => void;
   wifiName: string;
+  isEthernetConnected?: boolean;
   networkPing: number | null;
   btName: string;
   isHotspotOn: boolean;
@@ -87,6 +89,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   soundLevel,
   onSetSoundLevel,
   wifiName,
+  isEthernetConnected = false,
   networkPing,
   btName,
   isHotspotOn,
@@ -157,6 +160,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
     wifiName !== "Off" &&
     wifiName !== "Loading..." &&
     wifiName !== "";
+  const isEthernetActive = isEthernetConnected && !isWifiConnected;
   const isBtConnected =
     isBtOn && btName !== "Not Connected" && btName !== "Off" && btName !== "Loading...";
   const currentFocusOption =
@@ -169,6 +173,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
 
   const handleQuickToggleWifi = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isEthernetActive) {
+      handleOpenWifi();
+      return;
+    }
     const next = !isWifiOn;
     setLocalWifiOn(next);
     try {
@@ -336,7 +344,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 className={`h-[50px] rounded-[15px] pl-2.5 pr-1.5 flex items-center gap-2 transition-all cursor-pointer min-w-0 ${
                   isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
                 } ${
-                  isWifiConnected
+                  isWifiConnected || isEthernetActive
                     ? "bg-[rgba(56,130,246,0.16)] border border-[rgba(56,130,246,0.4)]"
                     : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
                 }`}
@@ -346,21 +354,27 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   onClick={handleQuickToggleWifi}
                   aria-label={isEn ? "Toggle Wi-Fi" : "Alihkan Wi-Fi"}
                   className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
-                    isWifiConnected
+                    isWifiConnected || isEthernetActive
                       ? "bg-[#3882F6] text-white"
                       : isWifiOn
                       ? "bg-[#1d1d25] text-[#3882F6]"
                       : "bg-[#1d1d25] text-[#a1a1aa]"
                   }`}
                 >
-                  <Wifi size={16} />
+                  {isEthernetActive ? <EthernetPort size={16} /> : <Wifi size={16} />}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="text-[12.5px] font-semibold text-white leading-tight truncate">
-                    Wi-Fi
+                    {isEthernetActive ? "Ethernet" : "Wi-Fi"}
                   </div>
                   <div className="text-[10.5px] text-[#b4b4bd] truncate mt-0.5 tabular-nums">
-                    {isWifiOn
+                    {isEthernetActive
+                      ? networkPing !== null
+                        ? `${networkPing} ms`
+                        : isEn
+                        ? "Connected"
+                        : "Terhubung"
+                      : isWifiOn
                       ? isWifiConnected
                         ? networkPing !== null
                           ? `${wifiName} · ${networkPing} ms`

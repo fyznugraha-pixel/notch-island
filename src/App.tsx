@@ -627,6 +627,7 @@ export default function App() {
     return () => window.removeEventListener("island_trigger_onboarding", handleOpenInitialSettings);
   }, []);
   const [wifiName, setWifiName] = useState("Loading...");
+  const [isEthernetConnected, setIsEthernetConnected] = useState(false);
   const [btName, setBtName] = useState("Loading...");
   const [displayLevel, setDisplayLevel] = useState(85);
   const [soundLevel, setSoundLevel] = useState(60);
@@ -1721,9 +1722,10 @@ export default function App() {
     if (now - lastSysInfoFetchRef.current < 4000) return;
     lastSysInfoFetchRef.current = now;
 
-    invoke<[string, string]>("get_system_info").then(res => {
+    invoke<[string, string, boolean]>("get_system_info").then(res => {
       setWifiName(res[0]);
       setBtName(res[1]);
+      setIsEthernetConnected(res[2]);
     }).catch(console.error);
     invoke<number>("get_master_volume").then(v => setSoundLevel(Math.round(v * 100))).catch(console.error);
     invoke<number>("get_brightness").then(b => setDisplayLevel(b)).catch(console.error);
@@ -2498,9 +2500,10 @@ export default function App() {
 
   useEffect(() => {
     const initSettings = async () => {
-      invoke<[string, string]>("get_system_info").then(res => {
+      invoke<[string, string, boolean]>("get_system_info").then(res => {
         setWifiName(res[0]);
         setBtName(res[1]);
+        setIsEthernetConnected(res[2]);
       }).catch(console.error);
       invoke<number>("get_master_volume").then(v => setSoundLevel(Math.round(v * 100))).catch(console.error);
       invoke<number>("get_brightness").then(b => setDisplayLevel(b)).catch(console.error);
@@ -3446,9 +3449,10 @@ export default function App() {
       setNetworkPing(event.payload);
     });
 
-    const unlistenSysInfo = listen<[string, string]>("system-info-update", (event) => {
+    const unlistenSysInfo = listen<[string, string, boolean]>("system-info-update", (event) => {
       setWifiName(event.payload[0]);
       setBtName(event.payload[1]);
+      setIsEthernetConnected(event.payload[2]);
     });
 
     const unlistenBrightness = listen<number>("brightness-update", (event) => {
@@ -5421,6 +5425,7 @@ export default function App() {
                                 soundLevel={soundLevel}
                                 onSetSoundLevel={setSoundLevel}
                                 wifiName={wifiName}
+                                isEthernetConnected={isEthernetConnected}
                                 networkPing={networkPing}
                                 btName={btName}
                                 isHotspotOn={isHotspotOn}

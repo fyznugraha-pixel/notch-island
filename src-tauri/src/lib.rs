@@ -1714,7 +1714,7 @@ fn get_username() -> String {
     std::env::var("USERNAME").unwrap_or_else(|_| "User".to_string())
 }
 
-static LAST_SYS_INFO: std::sync::Mutex<Option<(std::time::Instant, (String, String))>> = std::sync::Mutex::new(None);
+static LAST_SYS_INFO: std::sync::Mutex<Option<(std::time::Instant, (String, String, bool))>> = std::sync::Mutex::new(None);
 static IS_FETCHING_SYS_INFO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn get_connected_bluetooth_devices() -> Vec<(String, Option<u8>)> {
@@ -1857,7 +1857,7 @@ fn get_connected_bluetooth_devices() -> Vec<(String, Option<u8>)> {
 }
 
 #[tauri::command]
-fn get_system_info(app_handle: tauri::AppHandle) -> (String, String) {
+fn get_system_info(app_handle: tauri::AppHandle) -> (String, String, bool) {
     let mut cached = None;
     let mut needs_refresh = false;
 
@@ -1921,7 +1921,7 @@ fn get_system_info(app_handle: tauri::AppHandle) -> (String, String) {
                 "Not Connected".to_string()
             };
 
-            let result = (wifi_name, bt_name);
+            let result = (wifi_name, bt_name, connectivity::is_ethernet_connected());
             if let Ok(mut guard) = LAST_SYS_INFO.lock() {
                 *guard = Some((std::time::Instant::now(), result.clone()));
             }
@@ -1930,7 +1930,7 @@ fn get_system_info(app_handle: tauri::AppHandle) -> (String, String) {
         });
     }
 
-    cached.unwrap_or_else(|| ("Not Connected".to_string(), "Not Connected".to_string()))
+    cached.unwrap_or_else(|| ("Not Connected".to_string(), "Not Connected".to_string(), false))
 }
 
 #[derive(serde::Serialize)]

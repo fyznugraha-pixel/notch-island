@@ -4,6 +4,34 @@ use serde::{Deserialize, Serialize};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+pub fn is_ethernet_connected() -> bool {
+    use windows::Win32::NetworkManagement::IpHelper::{FreeMibTable, GetIfTable2, MIB_IF_TABLE2};
+    use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+
+    const IF_TYPE_ETHERNET_CSMACD: u32 = 6;
+    const HARDWARE_INTERFACE: u8 = 0x01;
+    const FILTER_INTERFACE: u8 = 0x02;
+    const NOT_MEDIA_CONNECTED: u8 = 0x10;
+
+    let mut connected = false;
+    unsafe {
+        let mut table_ptr: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
+        if GetIfTable2(&mut table_ptr).is_ok() && !table_ptr.is_null() {
+            let count = (*table_ptr).NumEntries as usize;
+            let rows = std::slice::from_raw_parts((*table_ptr).Table.as_ptr(), count);
+            connected = rows.iter().any(|row| {
+                let flags = row.InterfaceAndOperStatusFlags._bitfield;
+                row.Type == IF_TYPE_ETHERNET_CSMACD
+                    && row.OperStatus == IfOperStatusUp
+                    && flags & HARDWARE_INTERFACE != 0
+                    && flags & (FILTER_INTERFACE | NOT_MEDIA_CONNECTED) == 0
+            });
+            FreeMibTable(table_ptr as *const _);
+        }
+    }
+    connected
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WifiNetwork {
     pub ssid: String,
