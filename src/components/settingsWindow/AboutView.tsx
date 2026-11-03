@@ -18,6 +18,28 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.4.3",
+    date: "3 Nov 2026",
+    highlights: [
+      {
+        icon: <Layers size={14} />,
+        titleId: "Perbaikan Multi-Monitor & Notch Duplikat",
+        titleEn: "Multi-Monitor & Duplicate Notch Fix",
+        descId: "Memperbaiki masalah notch bertumpuk dan mencegah duplikasi jendela sekunder pada monitor utama dengan positioning hardware langsung.",
+        descEn: "Fixed stacked notch issue and prevented duplicate secondary windows on primary monitors via direct hardware coordinates positioning.",
+        badge: "fix",
+      },
+      {
+        icon: <Bell size={14} />,
+        titleId: "Pengingat Sholat Default Nonaktif",
+        titleEn: "Prayer Reminder Default Off",
+        descId: "Notifikasi pop-up waktu sholat dan pengingat adzan kini default nonaktif (OFF) dan dapat diaktifkan manual sesuai kebutuhan.",
+        descEn: "Prayer time pop-ups and pre-adzan reminders now default to OFF and can be manually enabled as desired.",
+        badge: "improve",
+      },
+    ],
+  },
+  {
     version: "4.4.2",
     date: "3 Nov 2026",
     highlights: [

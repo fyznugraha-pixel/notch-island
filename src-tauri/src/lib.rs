@@ -1117,7 +1117,7 @@ fn sync_all_displays_windows(
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .resizable(false)
-                .visible(true)
+                .visible(false)
                 .focused(false)
                 .initialization_script("window.__IS_SECONDARY_NOTCH_WINDOW__ = true;")
                 .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion");
@@ -1127,6 +1127,7 @@ fn sync_all_displays_windows(
                         let _ = sec_win.set_ignore_cursor_events(true);
                         let _ = sec_win.set_shadow(false);
                         position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
+                        let _ = sec_win.show();
                     }
                     Err(e) => {
                         eprintln!("Failed to create secondary notch window {}: {:?}", label, e);
@@ -1208,9 +1209,7 @@ fn set_window_position(
     position_notch_window(&target_win, pos, phys_offset, chosen_monitor.as_deref());
 
     let is_all = chosen_monitor.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false);
-    if is_all {
-        sync_all_displays_windows(&app, true);
-    }
+    sync_all_displays_windows(&app, is_all);
 }
 
 static IS_TRIM_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -4234,6 +4233,7 @@ mod hit_test {
             is_island: false,
             dpr: 1.0,
             target_monitor: None,
+            ..Default::default()
         };
 
         // Center is at 360 + (1200 - 120) / 2 = 900.
@@ -4262,6 +4262,7 @@ mod hit_test {
             is_island: false,
             dpr: 1.25,
             target_monitor: None,
+            ..Default::default()
         };
 
         // With 125% text scale:
@@ -4301,6 +4302,7 @@ mod hit_test {
             is_island: true,
             dpr: 1.0,
             target_monitor: None,
+            ..Default::default()
         };
 
         // phys_offset = 10, min_y = 10 - 10 = 0 (physical screen edge)
@@ -4329,6 +4331,7 @@ mod hit_test {
             is_island: false,
             dpr: 1.0,
             target_monitor: None,
+            ..Default::default()
         };
 
         // pill_y = 320 + 760 - 35 = 1045
@@ -4353,6 +4356,7 @@ mod hit_test {
             is_island: true,
             dpr: 1.0,
             target_monitor: None,
+            ..Default::default()
         };
 
         // Point inside the 12px floating gap above the notch (y = 6)
@@ -4452,6 +4456,7 @@ mod hit_test {
             is_island: false,
             dpr: 1.0,
             target_monitor: Some(r"\\.\DISPLAY2".to_string()),
+            ..Default::default()
         };
 
         // Pill center on Monitor 2: 2086 + (820 - 120)/2 + 60 = 2086 + 350 + 60 = 2496

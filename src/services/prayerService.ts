@@ -103,10 +103,11 @@ export interface PrayerToastPayload {
 const SETTINGS_KEY = "gili_prayer_settings_v1";
 const COMPLETED_KEY = "gili_prayer_completed_v1";
 const SCHEDULE_CACHE_KEY = "gili_prayer_schedule_cache_v1";
+const CONFIG_FLAG_KEY = "gili_prayer_reminder_configured_v1";
 
 export const DEFAULT_PRAYER_SETTINGS: PrayerSettings = {
-  reminderEnabled: true,
-  preReminderEnabled: true,
+  reminderEnabled: false,
+  preReminderEnabled: false,
   preReminderMinutes: 10,
   enabledPrayers: {
     Fajr: true,
@@ -143,11 +144,21 @@ export function getTodayDateKey(now = new Date()): string {
 export function loadPrayerSettings(): PrayerSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
+    const isUserConfigured =
+      typeof window !== "undefined" &&
+      localStorage.getItem(CONFIG_FLAG_KEY) === "true";
+
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
         ...DEFAULT_PRAYER_SETTINGS,
         ...parsed,
+        reminderEnabled: isUserConfigured
+          ? Boolean(parsed.reminderEnabled)
+          : false,
+        preReminderEnabled: isUserConfigured
+          ? Boolean(parsed.preReminderEnabled)
+          : false,
         enabledPrayers: {
           ...DEFAULT_PRAYER_SETTINGS.enabledPrayers,
           ...(parsed.enabledPrayers || {}),
@@ -168,6 +179,11 @@ export function savePrayerSettings(next: PrayerSettings): void {
 }
 
 export function updatePrayerSettings(partial: Partial<PrayerSettings>): PrayerSettings {
+  if (partial.reminderEnabled !== undefined || partial.preReminderEnabled !== undefined) {
+    try {
+      localStorage.setItem(CONFIG_FLAG_KEY, "true");
+    } catch {}
+  }
   const current = loadPrayerSettings();
   const updated: PrayerSettings = {
     ...current,
