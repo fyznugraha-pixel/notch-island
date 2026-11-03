@@ -19,7 +19,7 @@ interface ChangelogEntry {
 const CHANGELOG: ChangelogEntry[] = [
   {
     version: "4.4.0",
-    date: "28 Nov 2026",
+    date: "3 Nov 2026",
     highlights: [
       {
         icon: <Smartphone size={14} />,
