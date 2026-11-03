@@ -20,6 +20,8 @@ import {
   type TodoRepeatRule,
   type TodoItem,
   computeNextRepeatDue,
+  shouldRecurringTaskRollover,
+  rolloverRecurringTasks,
   getRepeatBadgeText,
   getRepeatLabel,
 } from "../../services/todoUtils";
@@ -28,6 +30,8 @@ export {
   type TodoRepeatRule,
   type TodoItem,
   computeNextRepeatDue,
+  shouldRecurringTaskRollover,
+  rolloverRecurringTasks,
   getRepeatBadgeText,
   getRepeatLabel,
 };
@@ -164,7 +168,7 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
     return () => window.clearInterval(id);
   }, []);
 
-  const [filter, setFilter] = useState<"today" | "upcoming" | "all">("all");
+  const [filter, setFilter] = useState<"today" | "upcoming" | "all">("today");
   const [inputText, setInputText] = useState("");
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [newDuePreset, setNewDuePreset] = useState<"today" | "tomorrow" | "none" | "custom">("today");

@@ -57,7 +57,7 @@ import {
   isAppMuted,
   setDndStatus,
 } from "./services/notificationHistoryService";
-import { type TodoItem, type TodoRepeatRule, computeNextRepeatDue } from "./services/todoUtils";
+import { type TodoItem, type TodoRepeatRule, computeNextRepeatDue, rolloverRecurringTasks } from "./services/todoUtils";
 import type { StashedFile } from "./components/ui/DropShelfPanel";
 import {
   NotchTabsPreferences,
@@ -855,14 +855,49 @@ export default function App() {
   const [todoItems, setTodoItems] = useState<TodoItem[]>(() => {
     try {
       const saved = localStorage.getItem("island_todo_list");
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed: TodoItem[] = JSON.parse(saved);
+      const { updated, changed } = rolloverRecurringTasks(parsed);
+      if (changed) {
+        try {
+          localStorage.setItem("island_todo_list", JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
     } catch {
       return [];
     }
   });
 
+  // Rollover recurring tasks on midnight / interval and window focus
+  useEffect(() => {
+    const checkRollover = () => {
+      setTodoItems((prev) => {
+        const { updated, changed } = rolloverRecurringTasks(prev);
+        if (!changed) return prev;
+        try {
+          localStorage.setItem("island_todo_list", JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    };
+
+    checkRollover();
+    const intervalId = window.setInterval(checkRollover, 30_000);
+    window.addEventListener("focus", checkRollover);
+    document.addEventListener("visibilitychange", checkRollover);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", checkRollover);
+      document.removeEventListener("visibilitychange", checkRollover);
+    };
+  }, []);
+
   const pendingTodos = React.useMemo(() => {
-    return todoItems.filter((t) => !t.completed);
+    const now = new Date();
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+    return todoItems.filter((t) => !t.completed && (!t.dueAt || t.dueAt <= endOfToday));
   }, [todoItems]);
   const pendingTodosRef = useRef(pendingTodos);
   useEffect(() => {
@@ -912,27 +947,45 @@ export default function App() {
       const item = prev.find((i) => i.id === id);
       if (!item) return prev;
 
-      // Recurring task: completing it spawns the next occurrence
-      if (!item.completed && item.repeat && item.repeat !== "none") {
-        const nextDueAt = computeNextRepeatDue(item.dueAt || Date.now(), item.repeat);
-        const completedTask: TodoItem = {
-          ...item,
-          completed: true,
-        };
-        const nextTask: TodoItem = {
-          id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          text: item.text,
-          completed: false,
-          createdAt: Date.now(),
-          dueAt: nextDueAt,
-          reminders: item.reminders,
-          repeat: item.repeat,
-        };
-        const updated = [nextTask, ...prev.map((i) => (i.id === id ? completedTask : i))];
-        try {
-          localStorage.setItem("island_todo_list", JSON.stringify(updated));
-        } catch {}
-        return updated;
+      // Recurring task: completing it schedules the next occurrence instead of spawning duplicate clones
+      if (item.repeat && item.repeat !== "none") {
+        if (!item.completed) {
+          const nextDueAt = item.dueAt
+            ? computeNextRepeatDue(item.dueAt, item.repeat)
+            : null;
+          const updated = prev.map((i) =>
+            i.id === id
+              ? {
+                  ...i,
+                  completed: true,
+                  lastCompletedAt: Date.now(),
+                  previousDueAt: i.dueAt ?? null,
+                  dueAt: nextDueAt,
+                }
+              : i
+          );
+          try {
+            localStorage.setItem("island_todo_list", JSON.stringify(updated));
+          } catch {}
+          return updated;
+        } else {
+          // Unchecking a recurring task reverts it to active and restores previous due date
+          const updated = prev.map((i) =>
+            i.id === id
+              ? {
+                  ...i,
+                  completed: false,
+                  lastCompletedAt: null,
+                  dueAt: i.previousDueAt !== undefined ? i.previousDueAt : i.dueAt,
+                  previousDueAt: null,
+                }
+              : i
+          );
+          try {
+            localStorage.setItem("island_todo_list", JSON.stringify(updated));
+          } catch {}
+          return updated;
+        }
       }
 
       const updated = prev.map((i) =>
@@ -995,7 +1048,8 @@ export default function App() {
 
   const clearCompletedTodos = () => {
     setTodoItems((prev) => {
-      const updated = prev.filter((item) => !item.completed);
+      // Keep active tasks and completed recurring tasks (which will rollover on next schedule)
+      const updated = prev.filter((item) => !item.completed || (item.repeat && item.repeat !== "none"));
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
       } catch {}

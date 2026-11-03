@@ -147,7 +147,15 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
 
   // Upcoming items for State 3: list of up to 3 non-completed tasks
   const upcomingTodos = useMemo(() => {
-    return todoItems.filter((t) => !t.completed).slice(0, 3);
+    return todoItems
+      .filter((t) => !t.completed)
+      .sort((a, b) => {
+        if (a.dueAt && b.dueAt) return a.dueAt - b.dueAt;
+        if (a.dueAt) return -1;
+        if (b.dueAt) return 1;
+        return b.createdAt - a.createdAt;
+      })
+      .slice(0, 3);
   }, [todoItems]);
 
   const handleManualPresetClick = (preset: "today" | "tomorrow" | "weekend") => {
