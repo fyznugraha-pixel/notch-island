@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2, Smile, Bell, FolderDown, Gamepad2, MousePointerClick } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2, Smile, Bell, FolderDown, Gamepad2, MousePointerClick, Moon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -21,6 +21,14 @@ const CHANGELOG: ChangelogEntry[] = [
     version: "4.4.1",
     date: "3 Nov 2026",
     highlights: [
+      {
+        icon: <Moon size={14} />,
+        titleId: "Jadwal Sholat Berikutnya di Idle Bar",
+        titleEn: "Next Prayer Time in Idle Bar",
+        descId: "Slot Sholat kini dapat dipilih di Pengaturan Idle Layout dan menampilkan waktu sholat berikutnya langsung di idle bar.",
+        descEn: "The Prayer slot can now be selected in Idle Layout settings to display the upcoming prayer time directly on the idle bar.",
+        badge: "new",
+      },
       {
         icon: <Monitor size={14} />,
         titleId: "Ikon Ethernet di Control Center",
