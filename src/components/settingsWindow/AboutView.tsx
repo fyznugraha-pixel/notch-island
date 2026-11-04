@@ -18,6 +18,36 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.4.5",
+    date: "4 Nov 2026",
+    highlights: [
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Sinkronisasi & Cermin Multi-Monitor",
+        titleEn: "Multi-Monitor Mirroring & Window Sync",
+        descId: "Notch di semua monitor kini tersinkronisasi mulus saat dihover atau membuka tab tanpa terpotong atau terpusat di satu monitor.",
+        descEn: "Notch across all connected monitors now smoothly mirrors hover and tab states without clipping or locking to a single display.",
+        badge: "fix",
+      },
+      {
+        icon: <Minimize2 size={14} />,
+        titleId: "Pemulihan Auto-Compact Lebih Andal",
+        titleEn: "Reliable Auto-Compact Recovery",
+        descId: "Notch dapat kembali ke tampilan normal (idle) secara konsisten saat menutup jendela aplikasi maksimal atau peramban.",
+        descEn: "Notch reliably returns to idle mode after closing maximized apps or browser windows.",
+        badge: "fix",
+      },
+      {
+        icon: <CheckSquare size={14} />,
+        titleId: "Penyempurnaan Quick To-Do & Terjemahan",
+        titleEn: "Quick To-Do Layout & Repeat Localization",
+        descId: "Area aksi tombol tidak lagi terpotong saat mendeteksi tenggat waktu, dan pilihan pengulangan tugas kini mendukung bahasa Inggris.",
+        descEn: "Action buttons are no longer clipped when a due time is detected, and repeat rule chips now fully support English.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "4.4.4",
     date: "4 Nov 2026",
     highlights: [

@@ -554,11 +554,11 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               {(["none", "daily", "weekdays", "weekly", "monthly"] as const).map((rule) => {
                 const labels: Record<string, string> = {
-                  none: "\u21BB Tidak",
-                  daily: "Harian",
-                  weekdays: "Hari Kerja",
-                  weekly: "Mingguan",
-                  monthly: "Bulanan",
+                  none: `\u21BB ${t("todo_repeat_badge_none")}`,
+                  daily: t("todo_repeat_badge_daily"),
+                  weekdays: t("todo_repeat_badge_weekdays"),
+                  weekly: t("todo_repeat_badge_weekly"),
+                  monthly: t("todo_repeat_badge_monthly"),
                 };
                 const active = repeatRule === rule;
                 return (

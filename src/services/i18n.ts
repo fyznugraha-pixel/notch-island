@@ -395,6 +395,7 @@ export const translations = {
   todo_repeat_weekdays: { en: "Weekdays (Mon-Fri)", id: "Hari kerja (Sen-Jum)" },
   todo_repeat_weekly: { en: "Weekly", id: "Setiap minggu" },
   todo_repeat_monthly: { en: "Monthly", id: "Setiap bulan" },
+  todo_repeat_badge_none: { en: "None", id: "Tidak" },
   todo_repeat_badge_daily: { en: "Daily", id: "Harian" },
   todo_repeat_badge_weekdays: { en: "Weekdays", id: "Hari Kerja" },
   todo_repeat_badge_weekly: { en: "Weekly", id: "Mingguan" },
