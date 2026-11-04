@@ -9,7 +9,6 @@ import "./App.css";
 import "./index.css";
 import App from "./App";
 import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
-import { SecondaryNotchApp } from "./SecondaryNotchApp";
 import { getLanguage } from "./services/i18n";
 
 const isSettingsWindow = (() => {
@@ -101,10 +100,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RootErrorBoundary>
     {isSettingsWindow ? (
       <SettingsWindowApp />
-    ) : isSecondaryWindow ? (
-      <SecondaryNotchApp />
     ) : (
-      <App />
+      <App isSecondaryWindow={isSecondaryWindow} />
     )}
   </RootErrorBoundary>
 );

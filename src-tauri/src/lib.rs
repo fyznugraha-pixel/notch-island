@@ -816,7 +816,7 @@ pub struct PillState {
     pub is_island: bool,
     pub dpr: f32,
     pub target_monitor: Option<String>,
-    pub secondary_pills: std::collections::HashMap<String, (f32, f32)>,
+    pub secondary_pills: std::collections::HashMap<String, (f32, f32, f32)>,
 }
 
 impl Default for PillState {
@@ -897,34 +897,48 @@ fn resolve_target_monitor(
         .or_else(|| monitors.into_iter().next())
 }
 
+fn compute_notch_window_rect(
+    monitor: &tauri::Monitor,
+    pos: NotchPos,
+    top_offset_phys: i32,
+) -> (i32, i32, u32, u32) {
+    let work_area = monitor.work_area();
+    let physical_size = monitor.size();
+    let physical_pos = monitor.position();
+    let m_sf = monitor.scale_factor();
+    let expected_w = (820.0 * m_sf).round() as u32;
+    let expected_h = (460.0 * m_sf).round() as u32;
+
+    let x = if pos.is_left() {
+        physical_pos.x + top_offset_phys
+    } else if pos.is_right() {
+        physical_pos.x + (physical_size.width as i32 - expected_w as i32) - top_offset_phys
+    } else {
+        physical_pos.x + (physical_size.width as i32 - expected_w as i32) / 2
+    };
+
+    let y = if pos.is_bottom() {
+        let base = work_area.position.y + (work_area.size.height as i32 - expected_h as i32);
+        base - top_offset_phys
+    } else if pos.is_top() {
+        physical_pos.y + top_offset_phys
+    } else {
+        physical_pos.y + (physical_size.height as i32 - expected_h as i32) / 2
+    };
+
+    (x, y, expected_w, expected_h)
+}
+
 fn position_notch_window_on_monitor(
     window: &tauri::WebviewWindow,
     monitor: &tauri::Monitor,
     pos: NotchPos,
     top_offset_phys: i32,
 ) {
-    let work_area = monitor.work_area();
-    let physical_size = monitor.size();
-    let physical_pos = monitor.position();
-    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(820, 460));
+    let (x, y, expected_w, expected_h) = compute_notch_window_rect(monitor, pos, top_offset_phys);
 
-    let x = if pos.is_left() {
-        physical_pos.x + top_offset_phys
-    } else if pos.is_right() {
-        physical_pos.x + (physical_size.width as i32 - window_size.width as i32) - top_offset_phys
-    } else {
-        physical_pos.x + (physical_size.width as i32 - window_size.width as i32) / 2
-    };
-
-    let y = if pos.is_bottom() {
-        let base = work_area.position.y + (work_area.size.height as i32 - window_size.height as i32);
-        base - top_offset_phys
-    } else if pos.is_top() {
-        physical_pos.y + top_offset_phys
-    } else {
-        physical_pos.y + (physical_size.height as i32 - window_size.height as i32) / 2
-    };
-
+    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(expected_w, expected_h)));
     let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
 }
 
@@ -1100,9 +1114,15 @@ fn sync_all_displays_windows(
             let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
 
             if let Some(sec_win) = app_handle.get_webview_window(&label) {
+                let _ = sec_win.set_decorations(false);
+                let _ = sec_win.set_shadow(false);
                 position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
                 let _ = sec_win.show();
+                ensure_window_topmost(&sec_win);
             } else {
+                let (init_x, init_y, _, _) = compute_notch_window_rect(&mon, pos, phys_offset);
+                let init_log_x = (init_x as f64) / m_sf;
+                let init_log_y = (init_y as f64) / m_sf;
                 let sec_url = format!("index.html?window=secondary&monitor={}", sec_idx);
                 let builder = tauri::WebviewWindowBuilder::new(
                     &app_handle,
@@ -1110,6 +1130,7 @@ fn sync_all_displays_windows(
                     tauri::WebviewUrl::App(sec_url.into()),
                 )
                 .title(format!("Gili Secondary Notch {}", sec_idx))
+                .position(init_log_x, init_log_y)
                 .inner_size(820.0, 460.0)
                 .decorations(false)
                 .transparent(true)
@@ -1117,17 +1138,47 @@ fn sync_all_displays_windows(
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .resizable(false)
-                .visible(false)
+                .maximizable(false)
+                .minimizable(false)
+                .visible(true)
                 .focused(false)
                 .initialization_script("window.__IS_SECONDARY_NOTCH_WINDOW__ = true;")
                 .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion");
 
                 match builder.build() {
                     Ok(sec_win) => {
+                        let _ = sec_win.set_decorations(false);
                         let _ = sec_win.set_ignore_cursor_events(true);
                         let _ = sec_win.set_shadow(false);
                         position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
-                        let _ = sec_win.show();
+                        ensure_window_topmost(&sec_win);
+
+                        let sec_for_events = sec_win.clone();
+                        let mon_for_events = mon.clone();
+                        let app_for_sec = app_handle.clone();
+                        sec_win.on_window_event(move |event| {
+                            match event {
+                                tauri::WindowEvent::CloseRequested { api, .. } => {
+                                    api.prevent_close();
+                                }
+                                tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Resized(_) => {
+                                    if sec_for_events.is_minimized().unwrap_or(false) {
+                                        let _ = sec_for_events.unminimize();
+                                    }
+                                    let (p, off, isl, d) = app_for_sec
+                                        .state::<PillSize>()
+                                        .0
+                                        .lock()
+                                        .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr))
+                                        .unwrap_or((NotchPos::Top, 0.0, false, 1.0));
+                                    let sf = sec_for_events.scale_factor().unwrap_or_else(|_| mon_for_events.scale_factor());
+                                    let eff_sf = if d > 0.0 { (d as f64).max(sf) } else { sf * get_system_text_scale() };
+                                    let p_off = if isl { (off as f64 * eff_sf).round() as i32 } else { 0 };
+                                    position_notch_window_on_monitor(&sec_for_events, &mon_for_events, p, p_off);
+                                }
+                                _ => {}
+                            }
+                        });
                     }
                     Err(e) => {
                         eprintln!("Failed to create secondary notch window {}: {:?}", label, e);
@@ -1302,8 +1353,9 @@ fn update_pill_size(
 ) {
     let win_label = window.label();
     if win_label.starts_with("notch_secondary_") {
+        let sec_dpr = dpr.unwrap_or(0.0);
         if let Ok(mut size) = state.0.lock() {
-            size.secondary_pills.insert(win_label.to_string(), (width, height));
+            size.secondary_pills.insert(win_label.to_string(), (width, height, sec_dpr));
         }
         return;
     }
@@ -2580,10 +2632,15 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
         for (label, win) in app_handle.webview_windows() {
             if label.starts_with("notch_secondary_") {
                 if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (win.outer_position(), win.outer_size(), win.scale_factor()) {
-                    let (sec_w, sec_h) = pill.secondary_pills.get(&label).copied().unwrap_or((220.0, 36.0));
+                    let (sec_w, sec_h, sec_dpr) = pill.secondary_pills.get(&label).copied().unwrap_or((pill.width, pill.height, 0.0));
                     let mut sec_pill = pill.clone();
                     sec_pill.width = sec_w;
                     sec_pill.height = sec_h;
+                    if sec_dpr > 0.0 {
+                        sec_pill.dpr = sec_dpr;
+                    } else {
+                        sec_pill.dpr = sf as f32;
+                    }
                     if calculate_notch_hit(pt, win_pos, win_size, sf, &sec_pill) {
                         return true;
                     }
@@ -3136,21 +3193,21 @@ pub fn run() {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     
                     loop_count = loop_count.wrapping_add(1);
-                    if loop_count.is_multiple_of(25) {
+                    if loop_count.is_multiple_of(15) {
                         if let Some(is_browser) = is_foreground_window_browser() {
                             if is_browser {
                                 browser_false_count = 0;
                                 if !last_is_browser {
                                     last_is_browser = true;
                                     use tauri::Emitter;
-                                    let _ = win_clone.emit("foreground-app-browser", true);
+                                    let _ = app_handle_poll.emit("foreground-app-browser", true);
                                 }
                             } else {
                                 browser_false_count += 1;
                                 if browser_false_count >= 2 && last_is_browser {
                                     last_is_browser = false;
                                     use tauri::Emitter;
-                                    let _ = win_clone.emit("foreground-app-browser", false);
+                                    let _ = app_handle_poll.emit("foreground-app-browser", false);
                                 }
                             }
                         }
@@ -3160,14 +3217,14 @@ pub fn run() {
                                 if !last_is_maximized {
                                     last_is_maximized = true;
                                     use tauri::Emitter;
-                                    let _ = win_clone.emit("foreground-app-maximized", true);
+                                    let _ = app_handle_poll.emit("foreground-app-maximized", true);
                                 }
                             } else {
                                 maximized_false_count += 1;
                                 if maximized_false_count >= 2 && last_is_maximized {
                                     last_is_maximized = false;
                                     use tauri::Emitter;
-                                    let _ = win_clone.emit("foreground-app-maximized", false);
+                                    let _ = app_handle_poll.emit("foreground-app-maximized", false);
                                 }
                             }
                         }
@@ -3195,86 +3252,8 @@ pub fn run() {
                             }
                         }
 
-                        if let Some((win_pos, win_size, sf)) = cached_geom {
-                            let in_pill = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
-
-                            if IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed) {
-                                let _ = win_clone.set_ignore_cursor_events(true);
-                                was_in_pill = false;
-                                click_outside_emitted = false;
-                                time_since_left_pill = std::time::Instant::now();
-                                continue;
-                            }
-
-                            if IS_INTERACTIVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
-                                let _ = win_clone.set_ignore_cursor_events(false);
-                                was_in_pill = true;
-                                if !in_pill {
-                                    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
-                                    use tauri::Emitter;
-                                    let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                    let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                    if l_down || r_down {
-                                        if !click_outside_emitted {
-                                            click_outside_emitted = true;
-                                            let _ = win_clone.emit("click-outside", ());
-                                        }
-                                    } else {
-                                        click_outside_emitted = false;
-                                    }
-                                } else {
-                                    click_outside_emitted = false;
-                                }
-                                continue;
-                            }
-                            
-                            if in_pill != was_in_pill {
-                                was_in_pill = in_pill;
-                                pending_cursor_nudge = in_pill;
-                                let _ = win_clone.set_ignore_cursor_events(!in_pill);
-                                use tauri::Emitter;
-                                if !in_pill {
-                                    time_since_left_pill = std::time::Instant::now();
-                                    let _ = win_clone.emit("notch-mouse-leave", ());
-                                } else {
-                                    let _ = win_clone.emit("notch-mouse-enter", ());
-                                }
-                            } else if is_window_click_through(&win_clone) == Some(in_pill) {
-                                // Other commands (focus, interactive mode) flip click-through without
-                                // updating was_in_pill; re-sync so the notch never stays unclickable
-                                let _ = win_clone.set_ignore_cursor_events(!in_pill);
-                            }
-
-                            // set_ignore_cursor_events is applied async on the main thread, so wait
-                            // until the style is actually lifted before nudging
-                            if pending_cursor_nudge && is_window_click_through(&win_clone) == Some(false) {
-                                pending_cursor_nudge = false;
-                                nudge_cursor();
-                            }
-
-                            if in_pill {
-                                time_since_left_pill = std::time::Instant::now();
-                                click_outside_emitted = false;
-                            } else if pill.height >= 120.0 && time_since_left_pill.elapsed().as_millis() >= 400 {
-                                use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
-                                use tauri::Emitter;
-                                let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                if l_down || r_down {
-                                    if !click_outside_emitted {
-                                        click_outside_emitted = true;
-                                        let _ = win_clone.emit("click-outside", ());
-                                    }
-                                } else {
-                                    click_outside_emitted = false;
-                                }
-                            } else {
-                                click_outside_emitted = false;
-                            }
-                        }
-
                         // Polling hit test untuk notch di layar sekunder
-                        if loop_count.is_multiple_of(30) {
+                        if loop_count.is_multiple_of(10) {
                             let cur_windows = app_handle_poll.webview_windows();
                             sec_hit_map.retain(|label, _| cur_windows.contains_key(label));
                             for (label, _) in &cur_windows {
@@ -3284,8 +3263,17 @@ pub fn run() {
                             }
                         }
 
+                        let is_dragging = IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed);
+                        let is_interactive = IS_INTERACTIVE_MODE.load(std::sync::atomic::Ordering::Relaxed);
+
+                        let mut any_in_sec = false;
                         for (sec_label, sec_state) in sec_hit_map.iter_mut() {
                             if let Some(sec_win) = app_handle_poll.get_webview_window(sec_label) {
+                                if is_dragging {
+                                    let _ = sec_win.set_ignore_cursor_events(true);
+                                    sec_state.was_in = false;
+                                    continue;
+                                }
                                 if need_geom_refresh || sec_state.cached_geom.is_none() {
                                     if let (Ok(wp), Ok(ws), Ok(s)) = (
                                         sec_win.outer_position(),
@@ -3297,26 +3285,115 @@ pub fn run() {
                                 }
 
                                 if let Some((sec_pos, sec_size, sec_sf)) = sec_state.cached_geom {
-                                    let (sec_w, sec_h) = pill.secondary_pills.get(sec_label).copied().unwrap_or((220.0, 36.0));
+                                    let (sec_w, sec_h, sec_dpr) = pill.secondary_pills.get(sec_label).copied().unwrap_or((pill.width, pill.height, 0.0));
                                     let mut sec_pill = pill.clone();
-                                    sec_pill.width = sec_w;
-                                    sec_pill.height = sec_h;
+                                    sec_pill.width = sec_w.max(pill.width);
+                                    sec_pill.height = sec_h.max(pill.height);
+                                    if sec_dpr > 0.0 {
+                                        sec_pill.dpr = sec_dpr;
+                                    } else {
+                                        sec_pill.dpr = sec_sf as f32;
+                                    }
 
                                     let in_sec = calculate_notch_hit(pt, sec_pos, sec_size, sec_sf, &sec_pill);
-                                    if in_sec != sec_state.was_in {
+                                    if in_sec {
+                                        any_in_sec = true;
+                                    }
+                                    if is_interactive {
+                                        let _ = sec_win.set_ignore_cursor_events(false);
+                                        sec_state.was_in = in_sec;
+                                    } else if in_sec != sec_state.was_in {
                                         sec_state.was_in = in_sec;
                                         let _ = sec_win.set_ignore_cursor_events(!in_sec);
-                                        use tauri::Emitter;
-                                        if !in_sec {
-                                            let _ = sec_win.emit("notch-mouse-leave", ());
-                                        } else {
-                                            let _ = sec_win.emit("notch-mouse-enter", ());
+                                        if in_sec {
                                             nudge_cursor();
                                         }
                                     } else if is_window_click_through(&sec_win) == Some(in_sec) {
                                         let _ = sec_win.set_ignore_cursor_events(!in_sec);
                                     }
                                 }
+                            }
+                        }
+
+                        if let Some((win_pos, win_size, sf)) = cached_geom {
+                            let in_main = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
+                            let any_in_pill = in_main || any_in_sec;
+
+                            if is_dragging {
+                                let _ = win_clone.set_ignore_cursor_events(true);
+                                was_in_pill = false;
+                                click_outside_emitted = false;
+                                time_since_left_pill = std::time::Instant::now();
+                                continue;
+                            }
+
+                            if is_interactive {
+                                let _ = win_clone.set_ignore_cursor_events(false);
+                                was_in_pill = true;
+                                if !any_in_pill {
+                                    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+                                    use tauri::Emitter;
+                                    let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                    let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                    if l_down || r_down {
+                                        if !click_outside_emitted {
+                                            click_outside_emitted = true;
+                                            let _ = app_handle_poll.emit("click-outside", ());
+                                        }
+                                    } else {
+                                        click_outside_emitted = false;
+                                    }
+                                } else {
+                                    click_outside_emitted = false;
+                                }
+                                continue;
+                            }
+
+                            if is_window_click_through(&win_clone) == Some(in_main) {
+                                let _ = win_clone.set_ignore_cursor_events(!in_main);
+                                if in_main {
+                                    pending_cursor_nudge = true;
+                                }
+                            }
+
+                            if any_in_pill != was_in_pill {
+                                was_in_pill = any_in_pill;
+                                if in_main {
+                                    pending_cursor_nudge = true;
+                                }
+                                let _ = win_clone.set_ignore_cursor_events(!in_main);
+                                use tauri::Emitter;
+                                if !any_in_pill {
+                                    time_since_left_pill = std::time::Instant::now();
+                                    let _ = app_handle_poll.emit("notch-mouse-leave", ());
+                                } else {
+                                    let _ = app_handle_poll.emit("notch-mouse-enter", ());
+                                }
+                            }
+
+                            if pending_cursor_nudge && is_window_click_through(&win_clone) == Some(false) {
+                                pending_cursor_nudge = false;
+                                nudge_cursor();
+                            }
+
+                            if any_in_pill {
+                                time_since_left_pill = std::time::Instant::now();
+                                click_outside_emitted = false;
+                            } else if pill.height >= 120.0 && time_since_left_pill.elapsed().as_millis() >= 400 {
+                                use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+                                use tauri::Emitter;
+                                let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                if l_down || r_down {
+                                    if !click_outside_emitted {
+                                        click_outside_emitted = true;
+                                        let _ = app_handle_poll.emit("click-outside", ());
+                                    }
+                                } else {
+                                    click_outside_emitted = false;
+                                }
+                            } else {
+                                click_outside_emitted = false;
                             }
                         }
                     }
