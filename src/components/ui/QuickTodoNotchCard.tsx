@@ -20,6 +20,7 @@ export interface QuickTodoNotchCardProps {
   onCancel: () => void;
   onOpenTodoList: () => void;
   onSavedStateChange?: (isSaved: boolean) => void;
+  onDueStateChange?: (hasDue: boolean) => void;
 }
 
 type PresetDateType = "today" | "tomorrow" | "weekend" | "custom" | null;
@@ -37,6 +38,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
   onCancel,
   onOpenTodoList,
   onSavedStateChange,
+  onDueStateChange,
 }) => {
   // Theme tokens — the card was dark-only (white text invisible on light island).
   const textMain = isLightMode ? "text-[#101828]" : "text-white";
@@ -116,6 +118,10 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
     if (!effectiveDueAt) return null;
     return formatNlpDateBadge(effectiveDueAt, new Date(), effectiveLang, effectiveHasTime);
   }, [effectiveDueAt, effectiveLang, effectiveHasTime]);
+
+  useEffect(() => {
+    onDueStateChange?.(Boolean(effectiveDueAt));
+  }, [effectiveDueAt, onDueStateChange]);
 
   // Auto-close in saved state after 5 seconds of inactivity & Enter/Escape dismiss
   useEffect(() => {
@@ -575,7 +581,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
           )}
 
           {/* Bottom Row / Actions */}
-          <div className="flex items-center gap-2 mt-auto pt-2.5 h-8">
+          <div className="flex items-center gap-2 mt-auto pt-2 min-h-[38px]">
             <span className={`text-[11.5px] ${textSub} truncate`}>
               {nlpResult.hasDate
                 ? t("quick_todo_hint_nlp")
@@ -751,7 +757,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
           </div>
 
           {/* Bottom Actions */}
-          <div className="flex items-center gap-2 mt-auto pt-2.5 h-8">
+          <div className="flex items-center gap-2 mt-auto pt-2 min-h-[38px]">
             <span className={`text-[11.5px] ${textSub}`}>
               {t("quick_todo_keyboard_hint")}
             </span>

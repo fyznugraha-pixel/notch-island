@@ -1395,6 +1395,7 @@ export default function App() {
   const isQuickTodoOpenRef = useRef(false);
   useEffect(() => { isQuickTodoOpenRef.current = isQuickTodoOpen; }, [isQuickTodoOpen]);
   const [isQuickTodoSaved, setIsQuickTodoSaved] = useState(false);
+  const [isQuickTodoHasDue, setIsQuickTodoHasDue] = useState(false);
   const [isQuickNoteSaved, setIsQuickNoteSaved] = useState(false);
 
   useEffect(() => {
@@ -4441,7 +4442,17 @@ export default function App() {
     pomo_complete_alert: { width: 520, height: 112, x: 0, y: currentY, opacity: 1, borderRadius: radius("28px") },
     quick_todo: {
       width: 560,
-      height: isQuickTodoSaved ? (isIsland ? 342 : 330) : (isIsland ? 218 : 204),
+      height: isQuickTodoSaved
+        ? isIsland
+          ? 342
+          : 330
+        : isQuickTodoHasDue
+        ? isIsland
+          ? 258
+          : 246
+        : isIsland
+        ? 218
+        : 204,
       x: 0,
       y: currentY,
       opacity: 1,
@@ -4563,7 +4574,7 @@ export default function App() {
       dpr: window.devicePixelRatio || 1.0,
     }).catch(console.error);
     invoke("enforce_always_on_top").catch(console.error);
-  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, idleSideWidth, idleSideHeight, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast]);
+  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, idleSideWidth, idleSideHeight, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast, isQuickTodoSaved, isQuickTodoHasDue, isQuickNoteSaved]);
 
   useEffect(() => {
     const handleDprOrResize = () => {
@@ -5098,14 +5109,17 @@ export default function App() {
                     onToggleTodo={toggleTodoItem}
                     onDeleteTodo={deleteTodoItem}
                     onSavedStateChange={setIsQuickTodoSaved}
+                    onDueStateChange={setIsQuickTodoHasDue}
                     onOpenTodoList={() => {
                       setIsQuickTodoOpen(false);
                       setIsQuickTodoSaved(false);
+                      setIsQuickTodoHasDue(false);
                       goToTab("todo", 0);
                     }}
                     onCancel={() => {
                       setIsQuickTodoOpen(false);
                       setIsQuickTodoSaved(false);
+                      setIsQuickTodoHasDue(false);
                       invoke("restore_previous_foreground_window").catch(() => {});
                     }}
                   />
