@@ -2455,35 +2455,171 @@ async fn pick_audio_file_dialog() -> Result<Option<PickedAudioFile>, String> {
     .map_err(|e| e.to_string())?
 }
 
-fn is_foreground_window_browser() -> Option<bool> {
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-    use windows::Win32::System::ProcessStatus::GetProcessImageFileNameW;
+#[cfg(windows)]
+fn get_process_exe_name_lower(pid: u32) -> Option<String> {
     use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::ProcessStatus::GetProcessImageFileNameW;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    if pid == 0 {
+        return None;
+    }
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 512];
+        let len = GetProcessImageFileNameW(handle, &mut buf);
+        let _ = CloseHandle(handle);
+        if len > 0 {
+            let full = String::from_utf16_lossy(&buf[..len as usize]).to_lowercase();
+            let file_name = full.rsplit('\\').next().unwrap_or(&full).to_string();
+            return Some(file_name);
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn is_valid_active_user_window(hwnd: windows::Win32::Foundation::HWND) -> Option<(u32, String)> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetDesktopWindow, GetShellWindow, GetWindowLongPtrW,
+        GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, GWL_EXSTYLE,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    };
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmGetWindowAttribute(
+            hwnd: *mut std::ffi::c_void,
+            dw_attribute: u32,
+            pv_attribute: *mut std::ffi::c_void,
+            cb_attribute: u32,
+        ) -> i32;
+    }
+    const DWMWA_CLOAKED_ATTR: u32 = 14;
 
     unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() { return None; }
+        if hwnd.0.is_null()
+            || !IsWindow(hwnd).as_bool()
+            || hwnd == GetDesktopWindow()
+            || hwnd == GetShellWindow()
+        {
+            return None;
+        }
+        if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return None;
+        }
+        let mut cloaked: u32 = 0;
+        if DwmGetWindowAttribute(
+            hwnd.0,
+            DWMWA_CLOAKED_ATTR,
+            &mut cloaked as *mut u32 as *mut std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        ) == 0
+            && cloaked != 0
+        {
+            return None;
+        }
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if (ex_style & (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0 | WS_EX_TRANSPARENT.0)) != 0 {
+            return None;
+        }
+        let mut class_buf = [0u16; 96];
+        let len = GetClassNameW(hwnd, &mut class_buf);
+        let class_name = if len > 0 {
+            String::from_utf16_lossy(&class_buf[..len as usize])
+        } else {
+            String::new()
+        };
+        if matches!(
+            class_name.as_str(),
+            "Progman"
+                | "WorkerW"
+                | "Shell_TrayWnd"
+                | "Shell_SecondaryTrayWnd"
+                | "NotifyIconOverflowWindow"
+                | "TopLevelWindowForOverflowXamlIsland"
+                | "Windows.UI.Core.CoreWindow"
+                | "XamlExplorerHostIslandWindow"
+                | "DV2ControlHost"
+                | "MultitaskingViewFrame"
+        ) {
+            return None;
+        }
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == 0 || pid == std::process::id() { return None; }
-        if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
-            let mut buf = [0u16; 512];
-            let len = GetProcessImageFileNameW(handle, &mut buf);
-            let _ = CloseHandle(handle);
-            if len > 0 {
-                let name = String::from_utf16_lossy(&buf[..len as usize]).to_lowercase();
-                let is_b = name.ends_with("chrome.exe") 
-                    || name.ends_with("msedge.exe") 
-                    || name.ends_with("brave.exe") 
-                    || name.ends_with("firefox.exe") 
-                    || name.ends_with("opera.exe") 
-                    || name.ends_with("vivaldi.exe") 
-                    || name.ends_with("zen.exe")
-                    || name.ends_with("arc.exe");
-                return Some(is_b);
+        if pid == 0 {
+            return None;
+        }
+        Some((pid, class_name))
+    }
+}
+
+#[cfg(windows)]
+fn resolve_active_user_window() -> Option<(windows::Win32::Foundation::HWND, u32, String)> {
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetForegroundWindow, GetWindowTextLengthW, GetWindowThreadProcessId,
+    };
+
+    unsafe {
+        let fg = GetForegroundWindow();
+        if !fg.0.is_null() {
+            let mut fg_pid = 0u32;
+            GetWindowThreadProcessId(fg, Some(&mut fg_pid));
+            if fg_pid == std::process::id() {
+                // Gili itself holds foreground focus: find the topmost visible user app window behind Gili
+                struct TopWindowSearch {
+                    found: Option<(HWND, u32, String)>,
+                }
+                unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+                    let ctx = &mut *(lparam.0 as *mut TopWindowSearch);
+                    let mut pid = 0u32;
+                    GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                    if pid == std::process::id() {
+                        return BOOL(1);
+                    }
+                    if let Some((valid_pid, class_name)) = is_valid_active_user_window(hwnd) {
+                        if GetWindowTextLengthW(hwnd) > 0 {
+                            ctx.found = Some((hwnd, valid_pid, class_name));
+                            return BOOL(0);
+                        }
+                    }
+                    BOOL(1)
+                }
+                let mut search = TopWindowSearch { found: None };
+                let _ = EnumWindows(Some(enum_proc), LPARAM(&mut search as *mut TopWindowSearch as isize));
+                return search.found;
             }
         }
+        let (pid, class_name) = is_valid_active_user_window(fg)?;
+        Some((fg, pid, class_name))
+    }
+}
+
+fn is_foreground_window_browser() -> Option<bool> {
+    #[cfg(windows)]
+    {
+        let Some((_hwnd, pid, _class_name)) = resolve_active_user_window() else {
+            return Some(false);
+        };
+        if let Some(exe_name) = get_process_exe_name_lower(pid) {
+            let is_b = matches!(
+                exe_name.as_str(),
+                "chrome.exe"
+                    | "msedge.exe"
+                    | "brave.exe"
+                    | "firefox.exe"
+                    | "opera.exe"
+                    | "vivaldi.exe"
+                    | "zen.exe"
+                    | "arc.exe"
+            );
+            return Some(is_b);
+        }
+        Some(false)
+    }
+    #[cfg(not(windows))]
+    {
         Some(false)
     }
 }
@@ -2494,58 +2630,75 @@ fn check_foreground_browser() -> bool {
 }
 
 fn is_foreground_window_maximized() -> Option<bool> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowRect, GetWindowThreadProcessId, IsZoomed,
-    };
-    use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    };
-    use windows::Win32::Foundation::RECT;
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowRect, GetWindowTextLengthW, IsZoomed,
+        };
 
-    unsafe {
-        let fg = GetForegroundWindow();
-        if fg.0.is_null() || fg == GetDesktopWindow() || fg == GetShellWindow() {
-            return None;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(fg, Some(&mut pid));
-        if pid == 0 || pid == std::process::id() {
-            return None;
-        }
-        let mut class_buf = [0u16; 64];
-        let len = GetClassNameW(fg, &mut class_buf);
-        if len > 0 {
-            let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
-            if class_name == "Progman" || class_name == "WorkerW" || class_name == "Shell_TrayWnd" {
+        let Some((fg, pid, _class_name)) = resolve_active_user_window() else {
+            return Some(false);
+        };
+
+        unsafe {
+            let exe_name = get_process_exe_name_lower(pid).unwrap_or_default();
+            if matches!(
+                exe_name.as_str(),
+                "searchhost.exe"
+                    | "startmenuexperiencehost.exe"
+                    | "shellexperiencehost.exe"
+                    | "textinputhost.exe"
+                    | "lockapp.exe"
+                    | "widgets.exe"
+                    | "wallpaper32.exe"
+                    | "wallpaper64.exe"
+                    | "lively.exe"
+                    | "rainmeter.exe"
+            ) {
                 return Some(false);
             }
-        }
-        if IsZoomed(fg).as_bool() {
-            return Some(true);
-        }
-        let mut rect = RECT::default();
-        if GetWindowRect(fg, &mut rect).is_ok() {
-            let monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
-            let mut mi = MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
-            if GetMonitorInfoW(monitor, &mut mi).as_bool() {
-                let wr = mi.rcWork;
-                let mr = mi.rcMonitor;
-                let is_work_area_max = rect.left <= wr.left + 2
-                    && rect.top <= wr.top + 2
-                    && rect.right >= wr.right - 2
-                    && rect.bottom >= wr.bottom - 2;
-                let is_full_monitor = rect.left <= mr.left + 2
-                    && rect.top <= mr.top + 2
-                    && rect.right >= mr.right - 2
-                    && rect.bottom >= mr.bottom - 2;
-                if is_work_area_max || is_full_monitor {
-                    return Some(true);
+
+            if IsZoomed(fg).as_bool() {
+                return Some(true);
+            }
+
+            // File Explorer desktop/background windows are never IsZoomed; real maximized Explorer folders always have IsZoomed == true
+            if exe_name == "explorer.exe" || GetWindowTextLengthW(fg) <= 0 {
+                return Some(false);
+            }
+
+            let mut rect = RECT::default();
+            if GetWindowRect(fg, &mut rect).is_ok() {
+                let monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                    let wr = mi.rcWork;
+                    let mr = mi.rcMonitor;
+                    let is_work_area_max = rect.left <= wr.left + 2
+                        && rect.top <= wr.top + 2
+                        && rect.right >= wr.right - 2
+                        && rect.bottom >= wr.bottom - 2;
+                    let is_full_monitor = rect.left <= mr.left + 2
+                        && rect.top <= mr.top + 2
+                        && rect.right >= mr.right - 2
+                        && rect.bottom >= mr.bottom - 2;
+                    if is_work_area_max || is_full_monitor {
+                        return Some(true);
+                    }
                 }
             }
+            Some(false)
         }
+    }
+    #[cfg(not(windows))]
+    {
         Some(false)
     }
 }
