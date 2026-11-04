@@ -12,6 +12,7 @@ import {
 import { subscribeWeatherChange } from "../services/weatherService";
 
 interface UsePrayerReminderOptions {
+  enabled?: boolean;
   isFocusMode: boolean;
   onTriggerToast: (toast: PrayerToastPayload) => void;
 }
@@ -45,6 +46,7 @@ function persistTriggeredKeys(todayKey: string, keys: Set<string>) {
 }
 
 export function usePrayerReminder({
+  enabled = true,
   isFocusMode,
   onTriggerToast,
 }: UsePrayerReminderOptions) {
@@ -78,6 +80,7 @@ export function usePrayerReminder({
 
   const checkPrayerTimes = useCallback(() => {
     try {
+      if (!enabled) return;
       const settings = loadPrayerSettings();
       if (!settings.reminderEnabled) return;
       if (settings.dndFocus && isFocusMode) return;
@@ -147,16 +150,17 @@ export function usePrayerReminder({
     } catch (err) {
       console.error("Prayer reminder check error:", err);
     }
-  }, [isFocusMode, onTriggerToast, refreshSchedule, schedule]);
+  }, [isFocusMode, onTriggerToast, refreshSchedule, schedule, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     const initialTimer = setTimeout(checkPrayerTimes, 2500);
     const interval = setInterval(checkPrayerTimes, 15_000);
     return () => {
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, [checkPrayerTimes]);
+  }, [checkPrayerTimes, enabled]);
 
   return {
     schedule,

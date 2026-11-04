@@ -2493,6 +2493,68 @@ fn check_foreground_browser() -> bool {
     is_foreground_window_browser().unwrap_or(false)
 }
 
+fn is_foreground_window_maximized() -> Option<bool> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowRect, GetWindowThreadProcessId, IsZoomed,
+    };
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::Foundation::RECT;
+
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() || fg == GetDesktopWindow() || fg == GetShellWindow() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(fg, Some(&mut pid));
+        if pid == 0 || pid == std::process::id() {
+            return None;
+        }
+        let mut class_buf = [0u16; 64];
+        let len = GetClassNameW(fg, &mut class_buf);
+        if len > 0 {
+            let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
+            if class_name == "Progman" || class_name == "WorkerW" || class_name == "Shell_TrayWnd" {
+                return Some(false);
+            }
+        }
+        if IsZoomed(fg).as_bool() {
+            return Some(true);
+        }
+        let mut rect = RECT::default();
+        if GetWindowRect(fg, &mut rect).is_ok() {
+            let monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                let wr = mi.rcWork;
+                let mr = mi.rcMonitor;
+                let is_work_area_max = rect.left <= wr.left + 2
+                    && rect.top <= wr.top + 2
+                    && rect.right >= wr.right - 2
+                    && rect.bottom >= wr.bottom - 2;
+                let is_full_monitor = rect.left <= mr.left + 2
+                    && rect.top <= mr.top + 2
+                    && rect.right >= mr.right - 2
+                    && rect.bottom >= mr.bottom - 2;
+                if is_work_area_max || is_full_monitor {
+                    return Some(true);
+                }
+            }
+        }
+        Some(false)
+    }
+}
+
+#[tauri::command]
+fn check_foreground_maximized() -> bool {
+    is_foreground_window_maximized().unwrap_or(false)
+}
+
 #[tauri::command]
 fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, PillSize>) -> bool {
     use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
@@ -2900,6 +2962,7 @@ pub fn run() {
             get_file_preview,
             set_shelf_drag,
             check_foreground_browser,
+            check_foreground_maximized,
             is_cursor_in_notch,
             save_previous_foreground_window,
             restore_previous_foreground_window,
@@ -3063,6 +3126,8 @@ pub fn run() {
                 let mut loop_count: u32 = 0;
                 let mut last_is_browser = false;
                 let mut browser_false_count: u32 = 0;
+                let mut last_is_maximized = false;
+                let mut maximized_false_count: u32 = 0;
                 let mut click_outside_emitted = false;
                 let mut pending_cursor_nudge = false;
                 let mut cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
@@ -3086,6 +3151,23 @@ pub fn run() {
                                     last_is_browser = false;
                                     use tauri::Emitter;
                                     let _ = win_clone.emit("foreground-app-browser", false);
+                                }
+                            }
+                        }
+                        if let Some(is_max) = is_foreground_window_maximized() {
+                            if is_max {
+                                maximized_false_count = 0;
+                                if !last_is_maximized {
+                                    last_is_maximized = true;
+                                    use tauri::Emitter;
+                                    let _ = win_clone.emit("foreground-app-maximized", true);
+                                }
+                            } else {
+                                maximized_false_count += 1;
+                                if maximized_false_count >= 2 && last_is_maximized {
+                                    last_is_maximized = false;
+                                    use tauri::Emitter;
+                                    let _ = win_clone.emit("foreground-app-maximized", false);
                                 }
                             }
                         }

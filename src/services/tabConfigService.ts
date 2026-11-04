@@ -171,3 +171,12 @@ export function getOrderedEnabledTabs(prefs: NotchTabsPreferences): string[] {
   }
   return active;
 }
+
+export function isTabEnabled(
+  prefs: NotchTabsPreferences | null | undefined,
+  tabId: ManageableTabId
+): boolean {
+  if (!prefs || !Array.isArray(prefs.items)) return true;
+  const item = prefs.items.find((i) => i.id === tabId);
+  return item ? item.enabled : true;
+}

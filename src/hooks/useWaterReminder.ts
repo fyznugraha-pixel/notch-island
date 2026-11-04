@@ -9,16 +9,18 @@ import {
 import type { WaterToastType } from "../components/ui/water/WaterNotchToast";
 
 interface UseWaterReminderOptions {
+  enabled?: boolean;
   isFocusMode: boolean;
   onTriggerToast: (toast: { type: WaterToastType; amount?: number }) => void;
 }
 
-export function useWaterReminder({ isFocusMode, onTriggerToast }: UseWaterReminderOptions) {
+export function useWaterReminder({ enabled = true, isFocusMode, onTriggerToast }: UseWaterReminderOptions) {
   const lastDrinkReminderRef = useRef<number>(0);
   const warnedStreakDateRef = useRef<string>("");
 
   const checkReminders = useCallback(() => {
     try {
+      if (!enabled) return;
       const data = loadWaterData();
       if (!data.settings.reminderEnabled) return;
 
@@ -81,7 +83,7 @@ export function useWaterReminder({ isFocusMode, onTriggerToast }: UseWaterRemind
     } catch (err) {
       console.error("Water reminder check error:", err);
     }
-  }, [isFocusMode, onTriggerToast]);
+  }, [enabled, isFocusMode, onTriggerToast]);
 
   const snooze = useCallback((minutes?: number) => {
     const data = loadWaterData();
@@ -91,6 +93,7 @@ export function useWaterReminder({ isFocusMode, onTriggerToast }: UseWaterRemind
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     // Initial check after 3 seconds
     const initialTimer = setTimeout(checkReminders, 3000);
     // Recurring check every 30 seconds
@@ -100,7 +103,7 @@ export function useWaterReminder({ isFocusMode, onTriggerToast }: UseWaterRemind
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, [checkReminders]);
+  }, [checkReminders, enabled]);
 
   return {
     snooze,

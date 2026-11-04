@@ -26,6 +26,7 @@ import {
   Activity,
   User,
   ScanText,
+  MapPin,
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { NotchPosition } from "../../../utils/notchGeometry";
@@ -436,6 +437,26 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           ]}
         />
       ) : null,
+    },
+    {
+      id: "weather_location",
+      tab: "general",
+      tabLabel: t("settings_subtab_general"),
+      title: t("settings_weather_location"),
+      subtitle: t("settings_weather_mode_auto"),
+      keywords: ["weather", "cuaca", "lokasi", "location", "kota", "city", "bmkg", "suhu", "temperature"],
+      icon: <MapPin size={18} />,
+      iconBgClass: "bg-[#0d2836]",
+      iconColorClass: "text-[#32ade6]",
+      control: (
+        <button
+          type="button"
+          onClick={() => onNavigateTab("general")}
+          className="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 text-[11px] font-medium transition-colors cursor-pointer"
+        >
+          {t("settings_subtab_general")}
+        </button>
+      ),
     },
     {
       id: "notif_sound",

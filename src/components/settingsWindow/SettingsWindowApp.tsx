@@ -120,6 +120,13 @@ export const SettingsWindowApp: React.FC = () => {
     }
   });
   const [optAutoCompact, setOptAutoCompact] = useState(true);
+  const [optAutoCompactMode, setOptAutoCompactMode] = useState<"browser" | "maximized">(() => {
+    try {
+      const saved = localStorage.getItem("island_auto_compact_mode");
+      if (saved === "browser" || saved === "maximized") return saved;
+    } catch {}
+    return "browser";
+  });
   const [optCloseDelay, setOptCloseDelay] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("island_close_delay");
@@ -394,6 +401,12 @@ export const SettingsWindowApp: React.FC = () => {
         const ac = await s.get("opt_auto_compact");
         if (typeof ac === "boolean") setOptAutoCompact(ac);
 
+        const acm = await s.get("opt_auto_compact_mode");
+        if (acm === "browser" || acm === "maximized") {
+          setOptAutoCompactMode(acm);
+          try { localStorage.setItem("island_auto_compact_mode", acm); } catch {}
+        }
+
         const idleColEnabled = await s.get("opt_idle_color_enabled");
         if (typeof idleColEnabled === "boolean") setOptIdleColorEnabled(idleColEnabled);
 
@@ -523,6 +536,12 @@ export const SettingsWindowApp: React.FC = () => {
           case "opt_auto_compact":
             setOptAutoCompact(Boolean(value));
             break;
+          case "opt_auto_compact_mode":
+            if (value === "browser" || value === "maximized") {
+              setOptAutoCompactMode(value);
+              try { localStorage.setItem("island_auto_compact_mode", value); } catch {}
+            }
+            break;
           case "opt_sound_fx":
             setOptSoundFx(Boolean(value));
             break;
@@ -606,6 +625,18 @@ export const SettingsWindowApp: React.FC = () => {
     setOptAutoCompact(next);
     if (store) await store.set("opt_auto_compact", next);
     broadcastSetting("opt_auto_compact", next);
+  };
+
+  const handleChangeAutoCompactMode = async (mode: "browser" | "maximized") => {
+    setOptAutoCompactMode(mode);
+    try {
+      localStorage.setItem("island_auto_compact_mode", mode);
+    } catch {}
+    if (store) {
+      await store.set("opt_auto_compact_mode", mode);
+      await store.save();
+    }
+    broadcastSetting("opt_auto_compact_mode", mode);
   };
 
   const handleChangeCloseDelay = async (sec: number) => {
@@ -1098,6 +1129,8 @@ export const SettingsWindowApp: React.FC = () => {
                     onChangeCustomGreetingName={handleChangeCustomGreetingName}
                     optAutoCompact={optAutoCompact}
                     onToggleAutoCompact={handleToggleAutoCompact}
+                    optAutoCompactMode={optAutoCompactMode}
+                    onChangeAutoCompactMode={handleChangeAutoCompactMode}
                     optNotifTime={optNotifTime}
                     onChangeNotifTime={handleChangeNotifTime}
                     optNotifSound={optNotifSound}
@@ -1235,6 +1268,8 @@ export const SettingsWindowApp: React.FC = () => {
                       }}
                       optAutoCompact={optAutoCompact}
                       onToggleAutoCompact={handleToggleAutoCompact}
+                      optAutoCompactMode={optAutoCompactMode}
+                      onChangeAutoCompactMode={handleChangeAutoCompactMode}
                       optNotifTime={optNotifTime}
                       onChangeNotifTime={handleChangeNotifTime}
                       optNotifSound={optNotifSound}

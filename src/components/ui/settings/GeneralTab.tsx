@@ -5,6 +5,7 @@ import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
 import { ShortcutActionId, ShortcutStatus } from "../../../services/shortcuts";
 import { t, Language } from "../../../services/i18n";
+import { WeatherLocationSetting } from "../WeatherLocationSetting";
 
 export interface GeneralTabProps {
   optLanguage: Language;
@@ -233,6 +234,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
             />
           }
         />
+        {/* 6. Lokasi Cuaca */}
+        <WeatherLocationSetting isLightMode={isLightMode} />
       </div>
     </div>
   );

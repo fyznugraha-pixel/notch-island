@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2, Smile, Bell, FolderDown, Gamepad2, MousePointerClick, Moon } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2, Smile, Bell, FolderDown, Gamepad2, MousePointerClick, Moon, MapPin, BellOff, AppWindow } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -17,6 +17,36 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.4.4",
+    date: "4 Nov 2026",
+    highlights: [
+      {
+        icon: <AppWindow size={14} />,
+        titleId: "Target Auto-Compact: Peramban atau Aplikasi Dimaksimalkan",
+        titleEn: "Auto-Compact Target: Browser or All Maximized Apps",
+        descId: "Pilih pemicu mode ringkas otomatis antara hanya saat peramban aktif atau saat aplikasi apapun dimaksimalkan (maximized/fullscreen).",
+        descEn: "Choose auto-compact trigger between active browser only or whenever any app window is maximized/fullscreen.",
+        badge: "new",
+      },
+      {
+        icon: <MapPin size={14} />,
+        titleId: "Pilih Lokasi Cuaca di Pengaturan & Panel Cepat",
+        titleEn: "Weather Location Selector in Settings & Quick Panel",
+        descId: "Mengembalikan kontrol pencarian dan pemilihan kota cuaca kustom di Pengaturan Umum serta panel cepat notch dengan dukungan tema terang.",
+        descEn: "Restored custom city search and selection for weather in General Settings and the notch quick panel with full light theme support.",
+        badge: "new",
+      },
+      {
+        icon: <BellOff size={14} />,
+        titleId: "Sinkronisasi Tab Nonaktif & Penghentian Notifikasi",
+        titleEn: "Disabled Tab Sync & Notification Suppression",
+        descId: "Tab yang dinonaktifkan di Kelola Tab (seperti Pengingat Sholat, Pengingat Air, To-Do, dan Pomodoro) kini sepenuhnya menghentikan timer background dan tidak lagi mengirim notifikasi.",
+        descEn: "Tabs disabled in Tab Manager (such as Prayer Reminder, Water Tracker, To-Do, and Pomodoro) now fully halt background timers and suppress all notifications.",
+        badge: "fix",
+      },
+    ],
+  },
   {
     version: "4.4.3",
     date: "3 Nov 2026",

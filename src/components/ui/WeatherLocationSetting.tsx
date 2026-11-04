@@ -19,7 +19,13 @@ import {
 } from "../../services/weatherService";
 import { t } from "../../services/i18n";
 
-export const WeatherLocationSetting: React.FC = () => {
+export interface WeatherLocationSettingProps {
+  isLightMode?: boolean;
+}
+
+export const WeatherLocationSetting: React.FC<WeatherLocationSettingProps> = ({
+  isLightMode = false,
+}) => {
   const [customCity, setCustomCity] = useState<WeatherLocation | null>(() => getSavedCustomCity());
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -94,7 +100,9 @@ export const WeatherLocationSetting: React.FC = () => {
     <div className="flex flex-col transition-colors">
       {/* Row Header */}
       <div
-        className="flex items-center justify-between px-3.5 py-2.5 min-h-[44px] cursor-pointer hover:bg-white/[0.03] transition-colors select-none"
+        className={`flex items-center justify-between px-3.5 py-2.5 min-h-[44px] cursor-pointer transition-colors select-none ${
+          isLightMode ? "hover:bg-black/[0.03]" : "hover:bg-white/[0.03]"
+        }`}
         onClick={() => setIsExpanded((prev) => !prev)}
       >
         <div className="flex items-center gap-2.5 pr-2 min-w-0">
@@ -102,10 +110,18 @@ export const WeatherLocationSetting: React.FC = () => {
             <MapPin size={15} />
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-[12.5px] font-medium text-white leading-tight">
+            <span
+              className={`text-[12.5px] font-medium leading-tight ${
+                isLightMode ? "text-neutral-900" : "text-white"
+              }`}
+            >
               {t("settings_weather_location")}
             </span>
-            <span className="text-[9.5px] text-white/50 leading-tight mt-0.5 truncate max-w-[190px]">
+            <span
+              className={`text-[9.5px] leading-tight mt-0.5 truncate max-w-[190px] ${
+                isLightMode ? "text-neutral-500" : "text-white/50"
+              }`}
+            >
               {locationTitle}
             </span>
           </div>
@@ -123,9 +139,9 @@ export const WeatherLocationSetting: React.FC = () => {
           )}
           <ChevronRight
             size={14}
-            className={`text-white/40 transition-transform duration-200 ${
-              isExpanded ? "rotate-90" : ""
-            }`}
+            className={`transition-transform duration-200 ${
+              isLightMode ? "text-neutral-400" : "text-white/40"
+            } ${isExpanded ? "rotate-90" : ""}`}
           />
         </div>
       </div>
@@ -140,7 +156,9 @@ export const WeatherLocationSetting: React.FC = () => {
           <div className="relative flex items-center">
             <Search
               size={13}
-              className="absolute left-2.5 text-white/40 pointer-events-none"
+              className={`absolute left-2.5 pointer-events-none ${
+                isLightMode ? "text-neutral-400" : "text-white/40"
+              }`}
             />
             <input
               type="text"
@@ -154,7 +172,11 @@ export const WeatherLocationSetting: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 text-white/40 hover:text-white p-0.5"
+                className={`absolute right-2 p-0.5 transition-colors ${
+                  isLightMode
+                    ? "text-neutral-400 hover:text-neutral-900"
+                    : "text-white/40 hover:text-white"
+                }`}
               >
                 <X size={12} />
               </button>
@@ -192,7 +214,11 @@ export const WeatherLocationSetting: React.FC = () => {
 
           {/* Search State Indicator */}
           {isSearching && (
-            <div className="flex items-center justify-center gap-1.5 py-3 text-white/50 text-[11px]">
+            <div
+              className={`flex items-center justify-center gap-1.5 py-3 text-[11px] ${
+                isLightMode ? "text-neutral-500" : "text-white/50"
+              }`}
+            >
               <Loader2 size={13} className="animate-spin text-sky-400" />
               <span>{t("settings_weather_searching")}</span>
             </div>
@@ -209,16 +235,31 @@ export const WeatherLocationSetting: React.FC = () => {
                   className="weather-result-item flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors group"
                 >
                   <div className="flex flex-col min-w-0 pr-2">
-                    <span className="text-[11.5px] font-medium text-white truncate group-hover:text-sky-300 transition-colors">
+                    <span
+                      className={`text-[11.5px] font-medium truncate transition-colors ${
+                        isLightMode
+                          ? "text-neutral-900 group-hover:text-sky-600"
+                          : "text-white group-hover:text-sky-300"
+                      }`}
+                    >
                       {city.name}
                     </span>
-                    <span className="text-[9.5px] text-white/45 truncate">
+                    <span
+                      className={`text-[9.5px] truncate ${
+                        isLightMode ? "text-neutral-500" : "text-white/45"
+                      }`}
+                    >
                       {[city.admin2, city.admin1, city.country]
                         .filter(Boolean)
                         .join(", ")}
                     </span>
                   </div>
-                  <ChevronRight size={12} className="text-white/30 shrink-0" />
+                  <ChevronRight
+                    size={12}
+                    className={`shrink-0 ${
+                      isLightMode ? "text-neutral-400" : "text-white/30"
+                    }`}
+                  />
                 </button>
               ))}
             </div>
@@ -226,7 +267,11 @@ export const WeatherLocationSetting: React.FC = () => {
 
           {/* No results notice */}
           {!isSearching && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
-            <div className="py-2 text-center text-white/40 text-[10.5px]">
+            <div
+              className={`py-2 text-center text-[10.5px] ${
+                isLightMode ? "text-neutral-400" : "text-white/40"
+              }`}
+            >
               {t("settings_weather_no_results")}
             </div>
           )}

@@ -35,17 +35,19 @@ export function useTodoReminders(
   todoItems: TodoItem[],
   muteNotifs: boolean,
   onCompleteTask: (id: string) => void,
-  onNotifyReminder?: (task: TodoItem, offset: number) => void
+  onNotifyReminder?: (task: TodoItem, offset: number) => void,
+  enabled: boolean = true
 ) {
   const [deadlineAlert, setDeadlineAlert] = useState<TodoDeadlineAlert | null>(null);
   const [snoozedUntilMap, setSnoozedUntilMap] = useState<Record<string, number>>({});
   const firedSetRef = useRef<Set<string>>(loadFiredReminders());
 
   useEffect(() => {
+    if (!enabled) return;
     const checkReminders = () => {
       const now = Date.now();
 
-      if (muteNotifs) return;
+      if (!enabled || muteNotifs) return;
 
       for (const item of todoItems) {
         if (item.completed || !item.dueAt) continue;
@@ -94,16 +96,20 @@ export function useTodoReminders(
     const interval = window.setInterval(checkReminders, 5000);
 
     return () => clearInterval(interval);
-  }, [todoItems, muteNotifs, snoozedUntilMap, onNotifyReminder]);
+  }, [todoItems, muteNotifs, snoozedUntilMap, onNotifyReminder, enabled]);
 
-  // Clear alert if the task was completed or deleted
+  // Clear alert if disabled, or task completed or deleted
   useEffect(() => {
+    if (!enabled && deadlineAlert) {
+      setDeadlineAlert(null);
+      return;
+    }
     if (!deadlineAlert) return;
     const found = todoItems.find((t) => t.id === deadlineAlert.task.id);
     if (!found || found.completed) {
       setDeadlineAlert(null);
     }
-  }, [todoItems, deadlineAlert]);
+  }, [todoItems, deadlineAlert, enabled]);
 
   const snoozeDeadlineAlert = useCallback((minutes: number = 10) => {
     if (!deadlineAlert) return;

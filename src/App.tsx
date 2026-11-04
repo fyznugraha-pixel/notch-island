@@ -64,6 +64,7 @@ import {
   loadTabsPreferences,
   normalizeTabsPreferences,
   getOrderedEnabledTabs,
+  isTabEnabled,
 } from "./services/tabConfigService";
 import { createQuickNoteItem, deleteQuickNoteItem } from "./services/noteUtils";
 import { WaterNotchToast, WaterToastType } from "./components/ui/water/WaterNotchToast";
@@ -1065,18 +1066,43 @@ export default function App() {
     } catch {}
   };
 
+
+
+  const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
+  const tabsPrefsRef = useRef(tabsPrefs);
+  useEffect(() => {
+    tabsPrefsRef.current = tabsPrefs;
+  }, [tabsPrefs]);
+
+  const isPomodoroTabEnabled = isTabEnabled(tabsPrefs, "pomodoro");
+  const isPomodoroTabEnabledRef = useRef(isPomodoroTabEnabled);
+  useEffect(() => { isPomodoroTabEnabledRef.current = isPomodoroTabEnabled; }, [isPomodoroTabEnabled]);
+
+  const isTodoTabEnabled = isTabEnabled(tabsPrefs, "todo");
+  const isTodoTabEnabledRef = useRef(isTodoTabEnabled);
+  useEffect(() => { isTodoTabEnabledRef.current = isTodoTabEnabled; }, [isTodoTabEnabled]);
+
+  const isWaterTabEnabled = isTabEnabled(tabsPrefs, "water_reminder");
+  const isWaterTabEnabledRef = useRef(isWaterTabEnabled);
+  useEffect(() => { isWaterTabEnabledRef.current = isWaterTabEnabled; }, [isWaterTabEnabled]);
+
+  const isPrayerTabEnabled = isTabEnabled(tabsPrefs, "prayer_reminder");
+  const isPrayerTabEnabledRef = useRef(isPrayerTabEnabled);
+  useEffect(() => { isPrayerTabEnabledRef.current = isPrayerTabEnabled; }, [isPrayerTabEnabled]);
+
   const pomodoro = usePomodoro();
   useEffect(() => {
     pomoMuteNotifsRef.current = Boolean(
-      pomodoro.isRunning && pomodoro.mode === "focus" && pomodoro.settings.muteNotifsOnFocus
+      isPomodoroTabEnabled && pomodoro.isRunning && pomodoro.mode === "focus" && pomodoro.settings.muteNotifsOnFocus
     );
-  }, [pomodoro.isRunning, pomodoro.mode, pomodoro.settings.muteNotifsOnFocus]);
+  }, [isPomodoroTabEnabled, pomodoro.isRunning, pomodoro.mode, pomodoro.settings.muteNotifsOnFocus]);
 
   useTodoReminders(
     todoItems,
     focusMode === "DND",
     toggleTodoItem,
     (task, offset) => {
+      if (!isTodoTabEnabledRef.current) return;
       const bodyText =
         offset <= 0
           ? t("todo_alert_due_now")
@@ -1087,7 +1113,8 @@ export default function App() {
         icon: "bell",
         onClick: () => goToTab("todo"),
       });
-    }
+    },
+    isTodoTabEnabled
   );
 
   const [stashedFiles, setStashedFiles] = useState<StashedFile[]>(getInitialShelfFiles);
@@ -1100,7 +1127,15 @@ export default function App() {
   const outgoingShelfPathsRef = useRef<Set<string>>(new Set());
 
   const [isBrowserActive, setIsBrowserActive] = useState(false);
+  const [isMaximizedActive, setIsMaximizedActive] = useState(false);
   const [optAutoCompact, setOptAutoCompact] = useState(true);
+  const [optAutoCompactMode, setOptAutoCompactMode] = useState<"browser" | "maximized">(() => {
+    try {
+      const saved = localStorage.getItem("island_auto_compact_mode");
+      if (saved === "browser" || saved === "maximized") return saved;
+    } catch {}
+    return "browser";
+  });
 
   const lastDropTimeRef = useRef<number>(0);
 
@@ -1261,8 +1296,10 @@ export default function App() {
   }, [clearPausedMediaTimer]);
 
   const { snooze: snoozeWaterReminder } = useWaterReminder({
+    enabled: isWaterTabEnabled,
     isFocusMode: focusMode === "DND" || pomodoro.isRunning,
     onTriggerToast: useCallback((toast: { type: WaterToastType; amount?: number }) => {
+      if (!isWaterTabEnabledRef.current) return;
       if (!isPlayingRef.current) {
         clearPausedMediaTimer();
         isPausedMediaCollapsedRef.current = true;
@@ -1275,6 +1312,12 @@ export default function App() {
   });
 
   useEffect(() => {
+    if (!isWaterTabEnabled) {
+      setWaterToast(null);
+    }
+  }, [isWaterTabEnabled]);
+
+  useEffect(() => {
     if (!waterToast) return;
     const timeoutMs = waterToast.type === "time_to_drink" ? 14000 : 5000;
     const timer = setTimeout(() => {
@@ -1284,8 +1327,10 @@ export default function App() {
   }, [waterToast]);
 
   const { schedule: prayerSchedule, refreshSchedule: refreshPrayerSchedule } = usePrayerReminder({
+    enabled: isPrayerTabEnabled,
     isFocusMode: focusMode === "DND" || pomodoro.isRunning,
     onTriggerToast: useCallback((toast: PrayerToastPayload) => {
+      if (!isPrayerTabEnabledRef.current) return;
       if (!isPlayingRef.current) {
         clearPausedMediaTimer();
         isPausedMediaCollapsedRef.current = true;
@@ -1314,6 +1359,12 @@ export default function App() {
       }
     }, []),
   });
+
+  useEffect(() => {
+    if (!isPrayerTabEnabled) {
+      setPrayerToast(null);
+    }
+  }, [isPrayerTabEnabled]);
 
   useEffect(() => {
     if (!prayerToast) return;
@@ -1356,13 +1407,6 @@ export default function App() {
 
   const [slideDirection, setSlideDirection] = useState<number>(0);
   const [controlCenterSubmenu, setControlCenterSubmenu] = useState<null | "wifi" | "bluetooth">(null);
-
-  const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
-  const tabsPrefsRef = useRef(tabsPrefs);
-  useEffect(() => {
-    tabsPrefsRef.current = tabsPrefs;
-  }, [tabsPrefs]);
-
   const availableTabs: ExpandedTab[] = React.useMemo(() => {
     return getOrderedEnabledTabs(tabsPrefs) as ExpandedTab[];
   }, [tabsPrefs]);
@@ -2594,6 +2638,11 @@ export default function App() {
         }
         const ears = await s.get('opt_ears'); if (typeof ears === 'boolean') setOptEars(ears);
         const ac = await s.get('opt_auto_compact'); if (typeof ac === 'boolean') setOptAutoCompact(ac);
+        const acm = await s.get('opt_auto_compact_mode');
+        if (acm === 'browser' || acm === 'maximized') {
+          setOptAutoCompactMode(acm);
+          try { localStorage.setItem("island_auto_compact_mode", acm); } catch {}
+        }
         const idleColEnabled = await s.get('opt_idle_color_enabled');
         if (typeof idleColEnabled === 'boolean') {
           setOptIdleColorEnabled(idleColEnabled);
@@ -2892,6 +2941,10 @@ export default function App() {
       setIsBrowserActive(Boolean(event.payload));
     });
     invoke<boolean>("check_foreground_browser").then(setIsBrowserActive).catch(console.error);
+    const unlistenMaximized = listen<boolean>("foreground-app-maximized", (event) => {
+      setIsMaximizedActive(Boolean(event.payload));
+    });
+    invoke<boolean>("check_foreground_maximized").then(setIsMaximizedActive).catch(console.error);
     invoke<boolean>("request_notification_access").catch(() => {});
 
     let unlistenDragDrop: (() => void) | undefined;
@@ -2926,6 +2979,7 @@ export default function App() {
       unlistenMouseLeave.then(unlisten => unlisten());
       unlistenMouseEnter.then(unlisten => unlisten());
       unlistenBrowser.then(unlisten => unlisten());
+      unlistenMaximized.then(unlisten => unlisten());
       if (unlistenDragDrop) unlistenDragDrop();
       clearTimeout(updateCheckTimeout);
       shortcutManager.destroy().catch(() => {});
@@ -3508,6 +3562,12 @@ export default function App() {
             break;
           case "opt_auto_compact":
             setOptAutoCompact(Boolean(value));
+            break;
+          case "opt_auto_compact_mode":
+            if (value === "browser" || value === "maximized") {
+              setOptAutoCompactMode(value);
+              try { localStorage.setItem("island_auto_compact_mode", value); } catch {}
+            }
             break;
           case "opt_close_delay":
             optCloseDelayRef.current = Number(value);
@@ -4208,11 +4268,11 @@ export default function App() {
     else if (isMediumNotif) variant = "notif_medium";
     else if (isSmallNotif) variant = "notif_small";
     else variant = "notif";
-  } else if (pomodoro.completeAlert) {
+  } else if (pomodoro.completeAlert && isPomodoroTabEnabled) {
     variant = "pomo_complete_alert";
-  } else if (optAutoCompact && isBrowserActive) {
+  } else if (optAutoCompact && (optAutoCompactMode === "maximized" ? isMaximizedActive : isBrowserActive)) {
     variant = "compact";
-  } else if (pomodoro.isRunning && pomodoro.settings.showIdleTimer) {
+  } else if (isPomodoroTabEnabled && pomodoro.isRunning && pomodoro.settings.showIdleTimer) {
     variant = "pomo_idle";
   } else if (media && (!isPausedMediaCollapsed || isPlaying)) {
     variant = showLyrics ? "lyrics_idle" : "media";
@@ -5008,7 +5068,7 @@ export default function App() {
               />
             )}
 
-            {variant === "pomo_complete_alert" && pomodoro.completeAlert && (
+            {variant === "pomo_complete_alert" && pomodoro.completeAlert && isPomodoroTabEnabled && (
               <PomodoroCompleteAlertCard
                 alert={pomodoro.completeAlert}
                 focusedTaskTitle={focusedTaskTitle}
@@ -5683,6 +5743,21 @@ export default function App() {
                                   const next = !optAutoCompact;
                                   setOptAutoCompact(next);
                                   if (store) await store.set("opt_auto_compact", next);
+                                  invoke("broadcast_settings_sync", {
+                                    payload: { type: "setting_key", key: "opt_auto_compact", value: next },
+                                  }).catch(() => {});
+                                }}
+                                optAutoCompactMode={optAutoCompactMode}
+                                onChangeAutoCompactMode={async (mode) => {
+                                  setOptAutoCompactMode(mode);
+                                  try { localStorage.setItem("island_auto_compact_mode", mode); } catch {}
+                                  if (store) {
+                                    await store.set("opt_auto_compact_mode", mode);
+                                    await store.save();
+                                  }
+                                  invoke("broadcast_settings_sync", {
+                                    payload: { type: "setting_key", key: "opt_auto_compact_mode", value: mode },
+                                  }).catch(() => {});
                                 }}
                             isAutostart={isAutostart}
                             onToggleAutostart={async () => {
