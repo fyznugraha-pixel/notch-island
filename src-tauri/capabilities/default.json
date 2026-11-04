@@ -1,10 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main and settings windows",
+  "description": "Capability for the main, secondary notch, and settings windows",
   "windows": [
     "main",
-    "settings"
+    "settings",
+    "notch_secondary_*",
+    "notch_secondary_1",
+    "notch_secondary_2",
+    "notch_secondary_3",
+    "notch_secondary_4"
   ],
   "permissions": [
     "core:default",

@@ -162,7 +162,7 @@ import { iosSpring } from "./utils/iosMotion";
 import { t, getLanguage, setLanguage, Language } from "./services/i18n";
 import { GreetingNotification } from "./components/ui/GreetingNotification";
 
-export default function App() {
+export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?: boolean } = {}) {
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const mediaRef = useRef<MediaPayload | null>(null);
   useEffect(() => { mediaRef.current = media; }, [media]);
@@ -202,6 +202,7 @@ export default function App() {
   const notchPillRef = useRef<HTMLDivElement>(null);
 
   const triggerNotificationAudio = (notifItem: NotifPayload) => {
+    if (isSecondaryWindow) return;
     if (!notifItem) return;
     if ((notifItem as any)._soundPlayed) return;
 
@@ -598,6 +599,7 @@ export default function App() {
   const isSettingsRef = useRef(false);
   useEffect(() => { isSettingsRef.current = isSettings; }, [isSettings]);
   useEffect(() => {
+    if (isSecondaryWindow) return;
     const handleOpenInitialSettings = () => {
       try {
         localStorage.setItem("island_onboarding_completed", "true");
@@ -1485,8 +1487,8 @@ export default function App() {
     }
   };
 
-  const handleCloseImmediate = useCallback(() => {
-    if (isSwitchingTabRef.current) return;
+  const handleCloseImmediate = useCallback((fromSync?: boolean) => {
+    if (isSwitchingTabRef.current && !fromSync) return;
     const hadOpenPanel =
       isExpandedRef.current ||
       isQuickControlRef.current ||
@@ -1567,9 +1569,11 @@ export default function App() {
       isPausedMediaCollapsedRef.current = true;
       setIsPausedMediaCollapsed(true);
     }
-    invoke("broadcast_settings_sync", {
-      payload: { type: "notch_tab_state", tab: null, isOpen: false },
-    }).catch(() => {});
+    if (!fromSync) {
+      invoke("broadcast_settings_sync", {
+        payload: { type: "notch_tab_state", tab: null, isOpen: false },
+      }).catch(() => {});
+    }
 
     if (hadOpenPanel) {
       if (!currentNotifRef.current) {
@@ -1776,9 +1780,9 @@ export default function App() {
     invoke<number>("get_brightness").then(b => setDisplayLevel(b)).catch(console.error);
   };
 
-  const goToTab = (targetTab: ExpandedTab, direction?: 1 | -1 | 0) => {
+  const goToTab = (targetTab: ExpandedTab, direction?: 1 | -1 | 0, fromSync?: boolean) => {
     cancelCollapseTimer();
-    if (currentTab === targetTab) return;
+    if (currentTab === targetTab && currentTabRef.current === targetTab) return;
     const wasAlreadyOpen = Boolean(currentTab);
     isClosingRef.current = false;
     setTabSwitchGrace(600);
@@ -1842,9 +1846,11 @@ export default function App() {
     setIsNotifications(targetTab === "notif_center");
 
     // Defer background status refresh until after the expand animation settles so it never stutters mid-spring
-    invoke("broadcast_settings_sync", {
-      payload: { type: "notch_tab_state", tab: targetTab, isOpen: true },
-    }).catch(() => {});
+    if (!fromSync) {
+      invoke("broadcast_settings_sync", {
+        payload: { type: "notch_tab_state", tab: targetTab, isOpen: true },
+      }).catch(() => {});
+    }
     const fetchDelay = wasAlreadyOpen ? 40 : 260;
     if (targetTab === "quick_control") {
       window.setTimeout(() => fetchSystemStatus(), fetchDelay);
@@ -1870,6 +1876,10 @@ export default function App() {
       startCompactHoverTimer(80);
     } else if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
       goToTab("media_expanded", 0);
+    } else if (variantRef.current === "pomo_idle") {
+      goToTab("pomodoro", 0);
+    } else if (variantRef.current === "todo_idle_countdown") {
+      goToTab("todo", 0);
     } else if (variantRef.current === "idle" || currentTabRef.current === null) {
       openLastOrPreferredTab();
     }
@@ -2469,6 +2479,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (isSecondaryWindow) return;
     let isCancelled = false;
     const applyShortcuts = async () => {
       const statuses = await shortcutManager.applyAll(
@@ -3531,6 +3542,21 @@ export default function App() {
     const unlistenSettingsSync = listen<any>("gili-settings-sync", (event) => {
       const payload = event.payload;
       if (!payload || typeof payload !== "object") return;
+      if (payload.type === "notch_tab_state") {
+        if (payload.isOpen && payload.tab) {
+          isCursorInsideNotchRef.current = true;
+          cancelCollapseTimer();
+          if (currentTabRef.current !== payload.tab) {
+            goToTab(payload.tab as ExpandedTab, 0, true);
+          }
+        } else if (!payload.isOpen) {
+          isCursorInsideNotchRef.current = false;
+          if (currentTabRef.current !== null || isExpandedRef.current) {
+            handleCloseImmediate(true);
+          }
+        }
+        return;
+      }
       if (payload.type === "tabs_preferences" && payload.data) {
         const norm = normalizeTabsPreferences(payload.data);
         setTabsPrefs(norm);
@@ -4604,6 +4630,7 @@ export default function App() {
   }, [variant, optPosition, notchShape, islandTopOffset, isAnyPanelOpen]);
   
   useEffect(() => {
+    if (isSecondaryWindow) return;
     invoke("set_window_position", { 
       isBottom: isBottomNotchPosition(optPosition),
       position: optPosition,
@@ -4611,7 +4638,7 @@ export default function App() {
       isIsland: notchShape === "island",
       targetMonitor: optTargetMonitor,
     }).catch(console.error);
-  }, [optPosition, notchShape, islandTopOffset, optTargetMonitor]);
+  }, [optPosition, notchShape, islandTopOffset, optTargetMonitor, isSecondaryWindow]);
 
   useEffect(() => {
     const handleFocus = () => {
