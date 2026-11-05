@@ -13,6 +13,10 @@ pub mod taskbar_manager;
 pub mod navbar_window;
 pub mod windows_pinned_apps;
 pub mod shell_surface_toggle;
+pub mod taskbar_logger;
+pub mod taskbar_safety;
+pub mod taskbar_hotkey;
+pub mod taskbar_flyout;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -2919,6 +2923,18 @@ fn get_screen_refresh_rate() -> u32 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let args: Vec<String> = std::env::args().collect();
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--taskbar-watchdog" {
+            if let Some(pid_str) = args.get(i + 1) {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    taskbar_safety::run_taskbar_watchdog(pid);
+                    return;
+                }
+            }
+        }
+    }
+
     if std::env::args().any(|arg| arg == "--restore-taskbar") {
         taskbar_manager::set_taskbar_visible(true);
         println!("Windows Taskbar has been restored.");
@@ -3079,7 +3095,14 @@ pub fn run() {
             navbar_window::get_desktop_luminance,
             navbar_window::check_navbar_window_overlap,
             windows_pinned_apps::get_windows_pinned_apps,
-            windows_pinned_apps::launch_pinned_app
+            windows_pinned_apps::launch_pinned_app,
+            taskbar_safety::set_taskbar_window_switches,
+            taskbar_safety::get_taskbar_window_switches,
+            taskbar_safety::trigger_taskbar_kill_switch,
+            taskbar_flyout::toggle_taskbar_flyout,
+            taskbar_flyout::close_taskbar_flyout,
+            taskbar_flyout::is_taskbar_flyout_open,
+            taskbar_logger::get_taskbar_flyout_logs
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -4407,6 +4430,10 @@ pub fn run() {
                     is_first_run = false;
                 }
             });
+
+            taskbar_flyout::init_flyout_manager(app.handle());
+            taskbar_hotkey::init_taskbar_hotkey_layer();
+            taskbar_safety::ensure_taskbar_watchdog_spawned();
 
             Ok(())
         })

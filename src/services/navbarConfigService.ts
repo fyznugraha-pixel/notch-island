@@ -168,6 +168,15 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
       typeof r.hideWindowsTaskbar === "boolean"
         ? r.hideWindowsTaskbar
         : DEFAULT_NAVBAR_CONFIG.hideWindowsTaskbar,
+    useGiliStart: typeof r.useGiliStart === "boolean" ? r.useGiliStart : false,
+    useGiliSearch: typeof r.useGiliSearch === "boolean" ? r.useGiliSearch : false,
+    useGiliQuickSettings: typeof r.useGiliQuickSettings === "boolean" ? r.useGiliQuickSettings : false,
+    useGiliVolumeOutput: typeof r.useGiliVolumeOutput === "boolean" ? r.useGiliVolumeOutput : false,
+    useGiliNotificationsCalendar:
+      typeof r.useGiliNotificationsCalendar === "boolean"
+        ? r.useGiliNotificationsCalendar
+        : false,
+    useGiliTray: typeof r.useGiliTray === "boolean" ? r.useGiliTray : false,
     modules: normalizeModules(r.modules),
   };
 }
@@ -242,6 +251,18 @@ export async function saveNavbarConfig(config: NavbarConfig): Promise<NavbarConf
   // Broadcast sync event to all windows via Rust & frontend emit
   try {
     await invoke("broadcast_navbar_config_update", { config: normalized });
+  } catch {}
+  try {
+    await invoke("set_taskbar_window_switches", {
+      switches: {
+        use_gili_start: !!normalized.useGiliStart,
+        use_gili_search: !!normalized.useGiliSearch,
+        use_gili_quick_settings: !!normalized.useGiliQuickSettings,
+        use_gili_volume_output: !!normalized.useGiliVolumeOutput,
+        use_gili_notif_cal: !!normalized.useGiliNotificationsCalendar,
+        use_gili_tray: !!normalized.useGiliTray,
+      },
+    });
   } catch {}
   try {
     await emit("navbar_config_updated", normalized);

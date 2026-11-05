@@ -84,6 +84,7 @@ export const StartSearchGroup: React.FC<StartSearchGroupProps> = ({
       <Tooltip side="top" delay={150} content="Cari">
         <button
           type="button"
+          data-flyout-trigger="search"
           onClick={handleSearch}
           onMouseEnter={() => setIsSearchHovered(true)}
           onMouseLeave={() => setIsSearchHovered(false)}

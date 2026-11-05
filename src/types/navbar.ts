@@ -37,6 +37,12 @@ export interface NavbarConfig {
   appLabels: boolean;
   clock24h: boolean;
   hideWindowsTaskbar: boolean;
+  useGiliStart?: boolean;
+  useGiliSearch?: boolean;
+  useGiliQuickSettings?: boolean;
+  useGiliVolumeOutput?: boolean;
+  useGiliNotificationsCalendar?: boolean;
+  useGiliTray?: boolean;
   modules: NavbarModuleConfig[];
 }
 
@@ -82,6 +88,12 @@ export const DEFAULT_NAVBAR_CONFIG: NavbarConfig = {
   appLabels: false,
   clock24h: true,
   hideWindowsTaskbar: false,
+  useGiliStart: false,
+  useGiliSearch: false,
+  useGiliQuickSettings: false,
+  useGiliVolumeOutput: false,
+  useGiliNotificationsCalendar: false,
+  useGiliTray: false,
   modules: DEFAULT_NAVBAR_MODULES,
 };
 

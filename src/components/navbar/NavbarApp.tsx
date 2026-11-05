@@ -330,25 +330,97 @@ export const NavbarApp: React.FC = () => {
     };
   }, [config, syncBounds]);
 
-  // Real native Windows triggers
+  const getTriggerRect = (selector: string) => {
+    const el = document.querySelector(selector);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.left,
+      y: r.top,
+      width: r.width,
+      height: r.height,
+    };
+  };
+
+  // Triggers: Dispatches to Gili System Flyout if enabled, else delegates to native Windows
   const handleStartClick = () => {
-    invoke("trigger_start_menu").catch(() => {});
+    if (config.useGiliStart) {
+      const rect = getTriggerRect('[data-flyout-trigger="start"]');
+      invoke("toggle_taskbar_flyout", {
+        payload: {
+          target: "start",
+          trigger_rect: rect,
+          position: config.position || "bottom",
+          theme: config.style === "liquid" ? "liquid" : "solid",
+        },
+      }).catch(() => {});
+    } else {
+      invoke("trigger_start_menu").catch(() => {});
+    }
   };
 
   const handleSearchClick = () => {
-    invoke("trigger_windows_search").catch(() => {});
+    if (config.useGiliSearch) {
+      const rect = getTriggerRect('[data-flyout-trigger="search"]');
+      invoke("toggle_taskbar_flyout", {
+        payload: {
+          target: "search",
+          trigger_rect: rect,
+          position: config.position || "bottom",
+          theme: config.style === "liquid" ? "liquid" : "solid",
+        },
+      }).catch(() => {});
+    } else {
+      invoke("trigger_windows_search").catch(() => {});
+    }
   };
 
   const handleControlCenterClick = () => {
-    invoke("trigger_quick_settings").catch(() => {});
+    if (config.useGiliQuickSettings) {
+      const rect = getTriggerRect('[data-flyout-trigger="control_center"]');
+      invoke("toggle_taskbar_flyout", {
+        payload: {
+          target: "quickSettings",
+          trigger_rect: rect,
+          position: config.position || "bottom",
+          theme: config.style === "liquid" ? "liquid" : "solid",
+        },
+      }).catch(() => {});
+    } else {
+      invoke("trigger_quick_settings").catch(() => {});
+    }
   };
 
   const handleNotificationsClick = () => {
-    invoke("trigger_notification_center").catch(() => {});
+    if (config.useGiliNotificationsCalendar) {
+      const rect = getTriggerRect('[data-flyout-trigger="notifications"]');
+      invoke("toggle_taskbar_flyout", {
+        payload: {
+          target: "notificationsCalendar",
+          trigger_rect: rect,
+          position: config.position || "bottom",
+          theme: config.style === "liquid" ? "liquid" : "solid",
+        },
+      }).catch(() => {});
+    } else {
+      invoke("trigger_notification_center").catch(() => {});
+    }
   };
 
   const handleClockClick = () => {
-    invoke("trigger_notification_center").catch(() => {});
+    if (config.useGiliNotificationsCalendar) {
+      const rect = getTriggerRect('[data-flyout-trigger="calendar"]');
+      invoke("toggle_taskbar_flyout", {
+        payload: {
+          target: "notificationsCalendar",
+          trigger_rect: rect,
+          position: config.position || "bottom",
+          theme: config.style === "liquid" ? "liquid" : "solid",
+        },
+      }).catch(() => {});
+    } else {
+      invoke("trigger_notification_center").catch(() => {});
+    }
   };
 
   const handlePreviewStateChange = useCallback((isShowing: boolean) => {

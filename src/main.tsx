@@ -10,6 +10,7 @@ import "./index.css";
 import App from "./App";
 import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
 import { NavbarApp } from "./components/navbar/NavbarApp";
+import { TaskbarFlyoutApp } from "./components/taskbarFlyout/TaskbarFlyoutApp";
 import { getLanguage } from "./services/i18n";
 
 const isNavbarWindow = (() => {
@@ -80,6 +81,43 @@ const isSettingsWindow = (() => {
   return result;
 })();
 
+const isTaskbarFlyoutWindow = (() => {
+  if (typeof window === "undefined") return false;
+  let result = false;
+  if ((window as any).__IS_TASKBAR_FLYOUT_WINDOW__ === true) {
+    result = true;
+  } else if (
+    (window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label ===
+    "taskbar_flyout"
+  ) {
+    result = true;
+  } else {
+    try {
+      if (getCurrentWindow().label === "taskbar_flyout") {
+        result = true;
+      }
+    } catch {}
+    if (!result) {
+      result =
+        new URLSearchParams(window.location.search).get("window") === "flyout" ||
+        window.location.search.includes("window=flyout") ||
+        window.location.href.includes("window=flyout");
+    }
+  }
+
+  if (result) {
+    document.documentElement.classList.add("flyout-window");
+    if (document.body) {
+      document.body.classList.add("flyout-window");
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add("flyout-window");
+      });
+    }
+  }
+  return result;
+})();
+
 interface Props {
   children: ReactNode;
 }
@@ -122,6 +160,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <NavbarApp />
     ) : isSettingsWindow ? (
       <SettingsWindowApp />
+    ) : isTaskbarFlyoutWindow ? (
+      <TaskbarFlyoutApp />
     ) : (
       <App />
     )}

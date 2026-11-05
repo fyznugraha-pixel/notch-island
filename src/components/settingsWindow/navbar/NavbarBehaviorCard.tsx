@@ -252,6 +252,89 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
             ? "Tenang, taskbar bawaan Windows bakal balik normal otomatis kalau Gili ditutup."
             : "Don't worry, the Windows taskbar restores automatically when Gili closes."
         )}
+
+        {/* Jendela Sistem Taskbar (Per-Window Switch) */}
+        <div className="mt-4 pt-3 border-t border-white/[0.08] flex flex-col gap-2.5">
+          <div className="flex flex-col">
+            <span className={`text-[12.5px] font-semibold ${textTitle}`}>
+              {isId ? "Jendela Sistem Taskbar (Flyout)" : "Taskbar System Flyouts"}
+            </span>
+            <span className={`text-[11px] ${textSub}`}>
+              {isId
+                ? "Pilih untuk tiap fungsi: gunakan jendela kustom Gili atau jendela bawaan Windows asli."
+                : "Choose per function: use Gili custom flyouts or native Windows surfaces."}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-1.5 p-2.5 rounded-[12px] bg-white/[0.02] border border-white/[0.05]">
+            {renderToggleRow(
+              isId ? "1. Output Suara & Mixer" : "1. Sound Output & Mixer",
+              isId
+                ? "Pakai jendela Gili (Board 95/97) untuk volume & output suara"
+                : "Use Gili flyout (Board 95/97) for sound devices & volume mixer",
+              !!config.useGiliVolumeOutput,
+              () => onChange({ useGiliVolumeOutput: !config.useGiliVolumeOutput })
+            )}
+
+            {renderToggleRow(
+              isId ? "2. Pengaturan Cepat" : "2. Quick Settings",
+              isId
+                ? "Pakai jendela Gili (Board 90/94) untuk Wi-Fi, Bluetooth, media, & baterai"
+                : "Use Gili flyout (Board 90/94) for toggles, media, & battery",
+              !!config.useGiliQuickSettings,
+              () => onChange({ useGiliQuickSettings: !config.useGiliQuickSettings })
+            )}
+
+            {renderToggleRow(
+              isId ? "3. Notifikasi + Kalender" : "3. Notifications + Calendar",
+              isId
+                ? "Pakai jendela Gili (Board 96/98) untuk daftar notifikasi & kalender"
+                : "Use Gili flyout (Board 96/98) for notifications & calendar",
+              !!config.useGiliNotificationsCalendar,
+              () =>
+                onChange({
+                  useGiliNotificationsCalendar: !config.useGiliNotificationsCalendar,
+                })
+            )}
+
+            {renderToggleRow(
+              isId ? "4. Cari" : "4. Search",
+              isId
+                ? "Pakai jendela Gili (Board 88/92) untuk pencarian aplikasi & file"
+                : "Use Gili flyout (Board 88/92) for system & web search",
+              !!config.useGiliSearch,
+              () => onChange({ useGiliSearch: !config.useGiliSearch })
+            )}
+
+            {renderToggleRow(
+              isId ? "5. Menu Mulai" : "5. Start Menu",
+              isId
+                ? "Pakai jendela Gili (Board 87/91) untuk menu Mulai"
+                : "Use Gili flyout (Board 87/91) for start menu",
+              !!config.useGiliStart,
+              () => onChange({ useGiliStart: !config.useGiliStart })
+            )}
+
+            {renderToggleRow(
+              isId ? "6. Tray Tersembunyi" : "6. Hidden System Tray",
+              isId
+                ? "Pakai jendela Gili (Board 89/93) untuk overflow ikon tray"
+                : "Use Gili flyout (Board 89/93) for hidden tray overflow",
+              !!config.useGiliTray,
+              () => onChange({ useGiliTray: !config.useGiliTray })
+            )}
+          </div>
+
+          {/* Kill-switch notice */}
+          <div className="flex items-center gap-2 p-2 rounded-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] leading-relaxed">
+            <AlertTriangle size={14} className="shrink-0 text-amber-400" />
+            <span>
+              {isId
+                ? "Kill-switch darurat: Tekan Ctrl+Alt+Shift+Backspace kapan saja untuk langsung menonaktifkan jendela Gili dan mengembalikan taskbar bawaan Windows."
+                : "Emergency kill-switch: Press Ctrl+Alt+Shift+Backspace anytime to immediately deactivate Gili flyouts and restore the Windows taskbar."}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Reset to Default */}
