@@ -120,24 +120,33 @@ html.light #notch-pill,
 
 /* Dark Mode Tokens (Default) */
 #notch-pill {
-  --notch-bg: rgba(0, 0, 0, 1);
-  --notch-stroke: rgba(255, 255, 255, 0.12);
-  --notch-shadow: drop-shadow(0 8px 32px rgba(0, 0, 0, 0.6));
-  --notch-blur: none;
-}
-
-#notch-pill[data-theme-mode="glass"] {
-  --notch-bg: rgba(24, 24, 32, 0.52);
+  --notch-bg: transparent;
   --notch-stroke: rgba(255, 255, 255, 0.22);
-  --notch-shadow: drop-shadow(0 16px 44px rgba(0, 0, 0, 0.68));
-  --notch-blur: blur(36px) saturate(210%);
+  --notch-shadow: none;
+  --notch-blur: none;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
+#notch-pill[data-notch-shape="notch"] {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+
+#notch-pill[data-notch-shape="island"] {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 0 !important;
+}
+
+#notch-pill[data-theme-mode="glass"],
 #notch-pill[data-theme-mode="clear"] {
-  --notch-bg: rgba(18, 18, 26, 0.36);
-  --notch-stroke: rgba(255, 255, 255, 0.16);
-  --notch-shadow: drop-shadow(0 12px 36px rgba(0, 0, 0, 0.50));
-  --notch-blur: blur(28px) saturate(200%);
+  --notch-bg: transparent;
+  --notch-stroke: rgba(255, 255, 255, 0.22);
+  --notch-shadow: none;
+  --notch-blur: none;
 }
 
 /* Light Mode Tokens */
@@ -150,24 +159,6 @@ html.light #notch-pill,
   --notch-blur: none;
 }
 
-html.light #notch-pill[data-theme-mode="glass"],
-.light #notch-pill[data-theme-mode="glass"],
-#notch-pill.light[data-theme-mode="glass"] {
-  --notch-bg: rgba(246, 246, 250, 0.72);
-  --notch-stroke: rgba(255, 255, 255, 0.85);
-  --notch-shadow: drop-shadow(0 16px 40px rgba(0, 0, 0, 0.13));
-  --notch-blur: blur(36px) saturate(210%);
-}
-
-html.light #notch-pill[data-theme-mode="clear"],
-.light #notch-pill[data-theme-mode="clear"],
-#notch-pill.light[data-theme-mode="clear"] {
-  --notch-bg: rgba(255, 255, 255, 0.08);
-  --notch-stroke: rgba(255, 255, 255, 0.75);
-  --notch-shadow: none !important;
-  --notch-blur: blur(20px) saturate(180%);
-}
-
 /* Make noise subtle on light glass */
 html.light .bg-noise,
 .light .bg-noise,
@@ -176,102 +167,180 @@ html.light .bg-noise,
 }
 
 /* ========================================================
-   PREMIUM APPLE LIQUID GLASS INTERIOR (Whole UI Translucency)
-   Transforms all internal cards, tiles, and rows into Liquid Glass
+   AUTHENTIC FROSTED INDIGO GLASS INTERIOR TOKENS
+   Transforms all internal cards, tiles, and rows into Frosted Glass
    ======================================================== */
-#notch-pill[data-notch-shape="island"] {
-  --notch-shadow: none !important;
-  box-shadow: none !important;
-  filter: none !important;
-}
-
-#notch-pill[data-notch-shape="island"] .notch-surface-shadow {
+#notch-pill .notch-surface-shadow {
   display: none !important;
   box-shadow: none !important;
 }
 
-#notch-pill[data-theme-mode="glass"] .notch-surface-shadow,
-#notch-pill[data-theme-mode="clear"] .notch-surface-shadow {
-  display: none !important;
-  box-shadow: none !important;
-}
-
-#notch-pill[data-theme-mode="glass"] [class*="shadow-"],
-#notch-pill[data-theme-mode="clear"] [class*="shadow-"] {
-  box-shadow: none !important;
-}
-
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#101015]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#111114]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#121216]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#121217]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#141416]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#18181f]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#1c1c1e]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#17171d]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#18181b]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#18181c]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#15151c]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#15151d]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#16161a]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#19191e]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#1a1a20]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#202028]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-neutral-900/"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-neutral-800/"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#111114]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#121216]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#121217]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#141416]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#18181f]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#1c1c1e]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#17171d]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#18181b]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#18181c]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#15151c]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#15151d]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#16161a]"] {
-  background: var(--glass-card-bg, linear-gradient(145deg, rgba(26, 26, 35, 0.62) 0%, rgba(16, 16, 22, 0.50) 100%)) !important;
-  backdrop-filter: var(--glass-inner-blur, none);
-  -webkit-backdrop-filter: var(--glass-inner-blur, none);
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  box-shadow: inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.22) !important;
-}
-
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#101015]"]:hover,
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#121217]"]:hover,
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#18181f]"]:hover,
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"]:hover,
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#121217]"]:hover {
-  background: var(--glass-card-hover-bg, linear-gradient(145deg, rgba(38, 38, 50, 0.72) 0%, rgba(24, 24, 34, 0.60) 100%)) !important;
-  border-color: rgba(255, 255, 255, 0.25) !important;
-  box-shadow: inset 0 1.25px 2px 0 rgba(255, 255, 255, 0.35) !important;
-}
-
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#1d1d25]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#1e1e24]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#23232a]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#2a2a31]"],
-#notch-pill[data-theme-mode="glass"] [class*="bg-[#2e2e36]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#1d1d25]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#1e1e24]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#23232a]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#2a2a31]"],
-#notch-pill[data-theme-mode="clear"] [class*="bg-[#2e2e36]"] {
-  background: var(--glass-elevated-bg, linear-gradient(145deg, rgba(36, 36, 48, 0.70) 0%, rgba(24, 24, 32, 0.56) 100%)) !important;
-  backdrop-filter: var(--glass-inner-blur, none);
-  -webkit-backdrop-filter: var(--glass-inner-blur, none);
+/* 1. Cards (jangan ada yang hitam solid): rgba(255,255,255,.13) */
+#notch-pill [class*="bg-[#101015]"],
+#notch-pill [class*="bg-[#111114]"],
+#notch-pill [class*="bg-[#121216]"],
+#notch-pill [class*="bg-[#121217]"],
+#notch-pill [class*="bg-[#141416]"],
+#notch-pill [class*="bg-[#18181f]"],
+#notch-pill [class*="bg-[#1c1c1e]"],
+#notch-pill [class*="bg-[#17171d]"],
+#notch-pill [class*="bg-[#18181b]"],
+#notch-pill [class*="bg-[#18181c]"],
+#notch-pill [class*="bg-[#15151c]"],
+#notch-pill [class*="bg-[#15151d]"],
+#notch-pill [class*="bg-[#16161a]"],
+#notch-pill [class*="bg-[#19191e]"],
+#notch-pill [class*="bg-[#1a1a20]"],
+#notch-pill [class*="bg-[#202028]"],
+#notch-pill [class*="bg-neutral-900"],
+#notch-pill [class*="bg-neutral-800"],
+#notch-pill [class*="bg-zinc-900"],
+#notch-pill [class*="bg-zinc-800"],
+#notch-pill [class*="bg-gray-900"],
+#notch-pill [class*="bg-black/80"],
+#notch-pill [class*="bg-black/70"],
+#notch-pill [class*="bg-black/60"],
+#notch-pill [class*="bg-black/50"] {
+  background: rgba(255, 255, 255, 0.13) !important;
+  background-color: rgba(255, 255, 255, 0.13) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border-color: rgba(255, 255, 255, 0.18) !important;
-  box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
 }
 
-#notch-pill[data-theme-mode="glass"] [class*="hover:bg-[#282830]"]:hover,
-#notch-pill[data-theme-mode="glass"] [class*="hover:bg-[#252530]"]:hover,
-#notch-pill[data-theme-mode="clear"] [class*="hover:bg-[#282830]"]:hover,
-#notch-pill[data-theme-mode="clear"] [class*="hover:bg-[#252530]"]:hover {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.07) 100%) !important;
-  border-color: rgba(255, 255, 255, 0.30) !important;
+/* 2. Tombol bulat, chip: rgba(255,255,255,.18) */
+#notch-pill button[class*="rounded-full"]:not([class*="bg-[#3882F6]"]):not([class*="bg-blue-"]):not([class*="bg-red-"]):not([class*="bg-rose-"]):not([class*="bg-teal-"]):not([class*="bg-[#6366f1]"]),
+#notch-pill [class*="rounded-full"][class*="bg-[#1d1d25]"],
+#notch-pill [class*="rounded-full"][class*="bg-[#17171c]"],
+#notch-pill [class*="rounded-full"][class*="bg-[#27272f]"],
+#notch-pill [class*="rounded-full"][class*="bg-[#23232a]"],
+#notch-pill [class*="rounded-full"][class*="bg-white/10"],
+#notch-pill [class*="rounded-full"][class*="bg-white/5"] {
+  background: rgba(255, 255, 255, 0.18) !important;
+  background-color: rgba(255, 255, 255, 0.18) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* 3. Ikon / avatar kotak: rgba(255,255,255,.16) */
+#notch-pill [class*="rounded-[10px]"][class*="bg-[#1d1d25]"],
+#notch-pill [class*="rounded-[12px]"][class*="bg-[#1d1d25]"],
+#notch-pill [class*="rounded-[14px]"][class*="bg-[#1d1d25]"],
+#notch-pill [class*="rounded-xl"][class*="bg-[#1d1d25]"],
+#notch-pill [class*="rounded-lg"][class*="bg-[#1d1d25]"],
+#notch-pill [class*="rounded-[10px]"][class*="bg-[#17171c]"],
+#notch-pill [class*="rounded-[12px]"][class*="bg-[#17171c]"],
+#notch-pill [class*="rounded-[14px]"][class*="bg-[#17171c]"],
+#notch-pill [class*="rounded-xl"][class*="bg-[#17171c]"],
+#notch-pill [class*="rounded-lg"][class*="bg-[#17171c]"],
+#notch-pill [class*="bg-[#1d1d25]"]:not([class*="rounded-full"]),
+#notch-pill [class*="bg-[#1e1e24]"],
+#notch-pill [class*="bg-[#23232a]"]:not([class*="rounded-full"]),
+#notch-pill [class*="bg-[#2a2a31]"],
+#notch-pill [class*="bg-[#2e2e36]"] {
+  background: rgba(255, 255, 255, 0.16) !important;
+  background-color: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* 4. Track slider: rgba(255,255,255,.22), fill #e4e4e7 */
+#notch-pill [class*="bg-[#15151b]"],
+#notch-pill [class*="bg-[#08080b]"],
+#notch-pill [class*="bg-[#0c0c10]"],
+#notch-pill [class*="bg-neutral-800"][class*="h-"],
+#notch-pill .slider-track {
+  background: rgba(255, 255, 255, 0.22) !important;
+  background-color: rgba(255, 255, 255, 0.22) !important;
+}
+#notch-pill [class*="bg-[#e4e4e7]"],
+#notch-pill .slider-fill {
+  background: #e4e4e7 !important;
+  background-color: #e4e4e7 !important;
+}
+
+/* 5. Garis pemisah / border: rgba(255,255,255,.18) */
+#notch-pill [class*="border-[#1e1e25]"],
+#notch-pill [class*="border-[#2a2a33]"],
+#notch-pill [class*="border-[#3a3a43]"],
+#notch-pill [class*="border-neutral-800"],
+#notch-pill [class*="border-neutral-700"],
+#notch-pill [class*="border-white/10"],
+#notch-pill [class*="border-white/5"],
+#notch-pill [class*="divide-neutral-800"] > * + *,
+#notch-pill [class*="divide-white/10"] > * + * {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* 6. Item hover / terpilih: rgba(255,255,255,.24) */
+#notch-pill [class*="hover:bg-[#252530]"]:hover,
+#notch-pill [class*="hover:bg-[#272732]"]:hover,
+#notch-pill [class*="hover:bg-[#282830]"]:hover,
+#notch-pill [class*="hover:bg-[#23232a]"]:hover,
+#notch-pill [class*="hover:bg-[#15151a]"]:hover,
+#notch-pill [class*="hover:bg-white/"]:hover,
+#notch-pill [class*="is-selected"],
+#notch-pill [class*="aria-selected:true"] {
+  background: rgba(255, 255, 255, 0.24) !important;
+  background-color: rgba(255, 255, 255, 0.24) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+/* 7. Toggle aktif (Wi-Fi): rgba(56,130,246,.62), teks putih */
+#notch-pill [class*="bg-[#3882F6]"],
+#notch-pill [class*="bg-blue-600"],
+#notch-pill [class*="bg-blue-500"],
+#notch-pill .toggle-active {
+  background-color: rgba(56, 130, 246, 0.62) !important;
+  color: #ffffff !important;
+}
+#notch-pill [class*="bg-[#3882F6]"] svg,
+#notch-pill [class*="bg-blue-600"] svg,
+#notch-pill [class*="bg-blue-500"] svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* 8. Teks utama: #fff, Teks sekunder: rgba(255,255,255,.82) */
+#notch-pill {
+  color: #ffffff !important;
+}
+#notch-pill [class*="text-white"] {
+  color: #ffffff !important;
+}
+#notch-pill [class*="text-[#b4b4bd]"],
+#notch-pill [class*="text-[#a1a1aa]"],
+#notch-pill [class*="text-[#c4c4cc]"],
+#notch-pill [class*="text-[#71717a]"],
+#notch-pill [class*="text-neutral-400"],
+#notch-pill [class*="text-neutral-500"],
+#notch-pill [class*="text-zinc-400"],
+#notch-pill [class*="text-zinc-500"],
+#notch-pill [class*="text-gray-400"],
+#notch-pill [class*="text-white/70"],
+#notch-pill [class*="text-white/60"],
+#notch-pill [class*="text-white/50"] {
+  color: rgba(255, 255, 255, 0.82) !important;
+}
+
+/* 9. Hijau status: #8cf5cf, Merah / peringatan: #ffd0c9 */
+#notch-pill [class*="text-[#13FF00]"],
+#notch-pill [class*="text-emerald-"],
+#notch-pill [class*="text-green-"],
+#notch-pill [class*="bg-[#13FF00]"] {
+  color: #8cf5cf !important;
+}
+#notch-pill [class*="text-red-"],
+#notch-pill [class*="text-rose-"],
+#notch-pill [class*="text-[#ff9b8f]"],
+#notch-pill [class*="text-[#ffd0c9]"],
+#notch-pill [class*="text-[#f87171]"] {
+  color: #ffd0c9 !important;
+}
+#notch-pill [class*="bg-red-600"],
+#notch-pill [class*="bg-rose-500"] {
+  background-color: rgba(255, 107, 90, 0.65) !important;
+  color: #ffffff !important;
 }
 
 /* Light Mode Liquid Glass Interior */
