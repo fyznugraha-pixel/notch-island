@@ -61,75 +61,80 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         return Ok(true);
     }
 
-    // Compute bottom-right position BEFORE building the window,
-    // so we can pass it to .position() in the builder (matches secondary notch pattern).
-    let (init_x, init_y) = {
-        #[cfg(windows)]
-        {
-            use windows::Win32::Foundation::POINT;
-            use windows::Win32::Graphics::Gdi::{
-                GetMonitorInfoW, MonitorFromPoint, GetDeviceCaps, CreateDCW,
-                MONITORINFO, MONITOR_DEFAULTTOPRIMARY, LOGPIXELSX,
-            };
-            let pt = POINT { x: 0, y: 0 };
-            let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
-            let mut mi = MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
-            if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
-                let sf = unsafe {
-                    let display = windows::core::w!("DISPLAY");
-                    let hdc = CreateDCW(display, None, None, None);
-                    let dpi = GetDeviceCaps(hdc, LOGPIXELSX) as f64;
-                    dpi / 96.0
+    // Window must be created in std::thread::spawn (same as settings window).
+    // Tauri command handler threads cannot create WebView windows reliably.
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        // Compute bottom-right position before building
+        let (init_x, init_y) = {
+            #[cfg(windows)]
+            {
+                use windows::Win32::Foundation::POINT;
+                use windows::Win32::Graphics::Gdi::{
+                    GetMonitorInfoW, MonitorFromPoint, GetDeviceCaps, CreateDCW,
+                    MONITORINFO, MONITOR_DEFAULTTOPRIMARY, LOGPIXELSX,
                 };
-                let rc = mi.rcWork;
-                // Convert physical work area to logical, then place bottom-right with 12px margin
-                let log_right = rc.right as f64 / sf;
-                let log_bottom = rc.bottom as f64 / sf;
-                ((log_right - 440.0 - 12.0), (log_bottom - 88.0 - 12.0))
-            } else {
-                (100.0, 100.0)
+                let pt = POINT { x: 0, y: 0 };
+                let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+                    let sf = unsafe {
+                        let display = windows::core::w!("DISPLAY");
+                        let hdc = CreateDCW(display, None, None, None);
+                        let dpi = GetDeviceCaps(hdc, LOGPIXELSX) as f64;
+                        dpi / 96.0
+                    };
+                    let rc = mi.rcWork;
+                    let log_right = rc.right as f64 / sf;
+                    let log_bottom = rc.bottom as f64 / sf;
+                    ((log_right - 440.0 - 12.0), (log_bottom - 88.0 - 12.0))
+                } else {
+                    (100.0, 100.0)
+                }
+            }
+            #[cfg(not(windows))]
+            { (100.0, 100.0) }
+        };
+
+        let win = tauri::WebviewWindowBuilder::new(
+            &app_clone,
+            "miniplayer",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("Gili Mini Player")
+        .position(init_x, init_y)
+        .inner_size(440.0, 88.0)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .visible(true)
+        .focused(false)
+        .initialization_script("window.__IS_MINIPLAYER_WINDOW__ = true;")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
+        .build();
+
+        match win {
+            Ok(w) => {
+                #[cfg(windows)]
+                apply_no_activate_style(&w);
+                let _ = w.set_ignore_cursor_events(true);
+                let _ = app_clone.emit("miniplayer:visibility-changed", true);
+            }
+            Err(e) => {
+                eprintln!("[miniplayer] Window creation failed: {:?}", e);
             }
         }
-        #[cfg(not(windows))]
-        {
-            (100.0, 100.0)
-        }
-    };
-
-    // Build window with visible(true) and position set upfront.
-    // This matches the secondary notch window pattern that works reliably.
-    let win = tauri::WebviewWindowBuilder::new(
-        app,
-        "miniplayer",
-        tauri::WebviewUrl::App("index.html".into()),
-    )
-    .title("Gili Mini Player")
-    .position(init_x, init_y)
-    .inner_size(440.0, 88.0)
-    .decorations(false)
-    .transparent(true)
-    .shadow(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .resizable(false)
-    .maximizable(false)
-    .minimizable(false)
-    .visible(true)
-    .focused(false)
-    .initialization_script("window.__IS_MINIPLAYER_WINDOW__ = true;")
-    .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
-    .build()
-    .map_err(|e| format!("Failed to create miniplayer window: {}", e))?;
-
-    #[cfg(windows)]
-    apply_no_activate_style(&win);
-    let _ = win.set_ignore_cursor_events(true);
+    });
 
     *is_open = true;
-    let _ = app.emit("miniplayer:visibility-changed", true);
     Ok(true)
 }
 
