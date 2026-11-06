@@ -93,6 +93,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   const handleMediaControl = async (action: "prev" | "toggle" | "next") => {
     try {
       await invoke("smtc_action", { action });
+      await invoke("restore_previous_focus").catch(() => {});
     } catch {}
   };
 

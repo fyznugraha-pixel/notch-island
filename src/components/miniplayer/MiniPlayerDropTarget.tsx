@@ -44,3 +44,4 @@ export const MiniPlayerDropTarget: React.FC<MiniPlayerDropTargetProps> = ({
     </div>
   );
 };
+

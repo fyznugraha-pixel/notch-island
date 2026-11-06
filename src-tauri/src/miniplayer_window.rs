@@ -3,6 +3,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 static IS_MINIPLAYER_OPEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static WAS_OPEN_BEFORE_FULLSCREEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
+static LAST_EXTERNAL_HWND: OnceLock<Arc<Mutex<isize>>> = OnceLock::new();
 
 fn get_open_state() -> &'static Arc<Mutex<bool>> {
     IS_MINIPLAYER_OPEN.get_or_init(|| Arc::new(Mutex::new(false)))
@@ -12,18 +13,36 @@ fn get_fs_state() -> &'static Arc<Mutex<bool>> {
     WAS_OPEN_BEFORE_FULLSCREEN.get_or_init(|| Arc::new(Mutex::new(false)))
 }
 
+fn get_external_hwnd() -> &'static Arc<Mutex<isize>> {
+    LAST_EXTERNAL_HWND.get_or_init(|| Arc::new(Mutex::new(0)))
+}
+
 #[cfg(windows)]
-fn apply_no_activate_style(win: &WebviewWindow) {
+pub fn update_external_foreground() {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    let fg = unsafe { GetForegroundWindow() };
+    if !fg.0.is_null() {
+        let arc = get_external_hwnd();
+        if let Ok(mut g) = arc.lock() {
+            *g = fg.0 as isize;
+        }
+    }
+}
+
+#[cfg(windows)]
+fn apply_toolwindow_and_topmost(win: &WebviewWindow) {
     if let Ok(hwnd) = win.hwnd() {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
             GetWindowLongW, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
-            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+            SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOOLWINDOW,
         };
         unsafe {
             let h = HWND(hwnd.0);
             let ex_style = GetWindowLongW(h, GWL_EXSTYLE);
-            let new_ex_style = ex_style | (WS_EX_NOACTIVATE.0 as i32) | (WS_EX_TOOLWINDOW.0 as i32);
+            // WS_EX_TOOLWINDOW hides from Alt-Tab and taskbar without causing WebView2 mouse capture deadlock
+            let new_ex_style = (ex_style | (WS_EX_TOOLWINDOW.0 as i32))
+                & !(windows::Win32::UI::WindowsAndMessaging::WS_EX_NOACTIVATE.0 as i32);
             SetWindowLongW(h, GWL_EXSTYLE, new_ex_style);
             let _ = SetWindowPos(
                 h,
@@ -32,7 +51,7 @@ fn apply_no_activate_style(win: &WebviewWindow) {
                 0,
                 0,
                 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             );
         }
     }
@@ -53,19 +72,43 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         }
         let _ = w.show();
         #[cfg(windows)]
-        apply_no_activate_style(&w);
+        apply_toolwindow_and_topmost(&w);
         *is_open = true;
         let _ = app.emit("miniplayer:visibility-changed", true);
         return Ok(true);
     }
 
-    // Build the miniplayer Tauri window
+    // Compute default initial position on primary monitor work area (bottom right)
+    #[cfg(windows)]
+    let (init_x, init_y) = {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+        };
+        let pt = POINT { x: 100, y: 100 };
+        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+            let rc = mi.rcWork;
+            ((rc.right - 440 - 24) as f64, (rc.bottom - 88 - 48) as f64)
+        } else {
+            (100.0, 100.0)
+        }
+    };
+    #[cfg(not(windows))]
+    let (init_x, init_y) = (100.0, 100.0);
+
+    // Build the miniplayer Tauri window with guaranteed position
     let win = tauri::WebviewWindowBuilder::new(
         app,
         "miniplayer",
-        tauri::WebviewUrl::App("index.html?window=miniplayer".into()),
+        tauri::WebviewUrl::App("index.html".into()),
     )
     .title("Gili Mini Player")
+    .position(init_x, init_y)
     .inner_size(440.0, 88.0)
     .decorations(false)
     .transparent(true)
@@ -80,7 +123,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
     .map_err(|e| format!("Failed to create miniplayer window: {}", e))?;
 
     #[cfg(windows)]
-    apply_no_activate_style(&win);
+    apply_toolwindow_and_topmost(&win);
 
     let _ = win.show();
     *is_open = true;
@@ -103,14 +146,11 @@ pub fn check_fullscreen_and_autohide(app: &AppHandle) {
     #[cfg(windows)]
     {
         use windows::Win32::UI::Shell::{
-            SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
-            QUNS_RUNNING_D3D_FULL_SCREEN,
+            SHQueryUserNotificationState, QUNS_RUNNING_D3D_FULL_SCREEN,
         };
         let is_fullscreen = unsafe {
             if let Ok(state) = SHQueryUserNotificationState() {
                 state == QUNS_RUNNING_D3D_FULL_SCREEN
-                    || state == QUNS_BUSY
-                    || state == QUNS_PRESENTATION_MODE
             } else {
                 false
             }
@@ -133,7 +173,7 @@ pub fn check_fullscreen_and_autohide(app: &AppHandle) {
                 *was_open_fs = false;
                 *is_open = true;
                 let _ = w.show();
-                apply_no_activate_style(&w);
+                apply_toolwindow_and_topmost(&w);
                 let _ = app.emit("miniplayer:visibility-changed", true);
             }
         }
@@ -385,5 +425,23 @@ pub fn check_notch_proximity(
     NotchProximity {
         is_near: false,
         is_in_zone: false,
+    }
+}
+
+#[tauri::command]
+pub fn restore_previous_focus() {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+        let arc = get_external_hwnd();
+        if let Ok(g) = arc.lock() {
+            let val = *g;
+            if val != 0 {
+                unsafe {
+                    let _ = SetForegroundWindow(HWND(val as _));
+                }
+            }
+        }
     }
 }

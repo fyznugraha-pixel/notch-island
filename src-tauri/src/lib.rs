@@ -3234,7 +3234,8 @@ pub fn run() {
             miniplayer_window::set_miniplayer_ignore_cursor,
             miniplayer_window::is_ctrl_down,
             miniplayer_window::is_lbutton_down,
-            miniplayer_window::check_notch_proximity
+            miniplayer_window::check_notch_proximity,
+            miniplayer_window::restore_previous_focus
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -3411,7 +3412,10 @@ pub fn run() {
                                 }
                             }
                         }
-                        miniplayer_window::check_fullscreen_and_autohide(&app_handle_poll);
+                        miniplayer_window::update_external_foreground();
+                        if loop_count.is_multiple_of(100) {
+                            miniplayer_window::check_fullscreen_and_autohide(&app_handle_poll);
+                        }
                     }
 
                     let mut pt = POINT { x: 0, y: 0 };
