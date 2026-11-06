@@ -610,9 +610,9 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
 
   // Horizontal Swipe Cards View (Image 1)
   return (
-    <div className="flex flex-col w-full h-full min-h-0 px-6 -mt-2.5 pb-1 select-none text-white overflow-hidden">
+    <div className="flex flex-col w-full h-full min-h-0 px-6 pb-1 select-none text-white overflow-hidden">
       {/* Top Toolbar: Note count + Chevrons + Search + New Note Button */}
-      <div className="flex items-center justify-between gap-2 mb-1 shrink-0">
+      <div className="flex items-center justify-between gap-2 mt-0.5 mb-1.5 shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-[12.5px] font-bold text-white">
             {t("note_count", { count: notes.length })}
@@ -743,7 +743,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
           className="notes-horizontal-scroll flex items-stretch gap-2.5 overflow-x-auto overflow-y-hidden no-scrollbar pb-0.5 shrink-0 cursor-grab active:cursor-grabbing select-none"
         >
           {sortedFilteredNotes.length === 0 ? (
-            <div className="w-full h-[130px] flex flex-col items-center justify-center text-center text-[#71717a] border border-dashed border-[#1e1e25] rounded-[16px] px-4">
+            <div className="w-full h-[138px] flex flex-col items-center justify-center text-center text-[#71717a] border border-dashed border-[#1e1e25] rounded-[16px] px-4">
               <p className="text-[12.5px] font-medium text-[#a1a1aa]">
                 {searchQuery ? t("note_empty_search") : t("note_empty_notes")}
               </p>
@@ -769,7 +769,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                     if (hasDraggedRef.current) return;
                     setEditingNoteId(note.id);
                   }}
-                  className={`group w-[196px] shrink-0 h-[130px] rounded-[16px] p-3 bg-[#101015] flex flex-col gap-1 cursor-pointer transition-all ${
+                  className={`group w-[196px] shrink-0 h-[138px] rounded-[16px] p-3 bg-[#101015] flex flex-col gap-1 cursor-pointer transition-all ${
                     note.pinned
                       ? "border border-[#3882F6]/80 hover:border-[#3882F6]"
                       : "border border-[#1e1e25] hover:border-[#3a3a43]"

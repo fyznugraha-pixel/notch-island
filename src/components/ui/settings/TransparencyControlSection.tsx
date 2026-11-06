@@ -74,12 +74,18 @@ export function computeNotchGlassCssVars(
     };
   }
 
+  // Dark mode: pure transparency opacity, not polluted by blur:
+  const darkBase = Math.min(0.86, Math.max(0.22, clampedOpacity * 0.60 + expandBoost));
+  const darkEnd = Math.min(0.82, Math.max(0.16, clampedOpacity * 0.46 + expandBoost));
+  const elevatedBase = Math.min(0.90, darkBase + 0.08);
+  const elevatedEnd = Math.min(0.86, darkEnd + 0.06);
+
   return {
     "--notch-blur": blurPx <= 1 ? "none" : `blur(${blurPx}px) saturate(${satPct}%)`,
     "--glass-inner-blur": innerBlurCss,
-    "--glass-card-bg": "rgba(255, 255, 255, 0.13)",
-    "--glass-card-hover-bg": "rgba(255, 255, 255, 0.24)",
-    "--glass-elevated-bg": "rgba(255, 255, 255, 0.16)",
+    "--glass-card-bg": `linear-gradient(145deg, rgba(26, 26, 35, ${darkBase.toFixed(2)}) 0%, rgba(16, 16, 22, ${darkEnd.toFixed(2)}) 100%)`,
+    "--glass-card-hover-bg": `linear-gradient(145deg, rgba(38, 38, 50, ${Math.min(0.92, darkBase + 0.08).toFixed(2)}) 0%, rgba(24, 24, 34, ${Math.min(0.88, darkEnd + 0.08).toFixed(2)}) 100%)`,
+    "--glass-elevated-bg": `linear-gradient(145deg, rgba(36, 36, 48, ${elevatedBase.toFixed(2)}) 0%, rgba(24, 24, 32, ${elevatedEnd.toFixed(2)}) 100%)`,
   };
 }
 

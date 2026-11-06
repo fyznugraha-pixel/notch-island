@@ -5,7 +5,8 @@ mod connectivity;
 mod system_monitor;
 mod audio_endpoints;
 mod migration;
-mod install_repair;mod windows_dnd;
+mod install_repair;
+mod windows_dnd;
 mod toast_banners;
 pub mod shelf_server;
 
@@ -1153,14 +1154,6 @@ fn sync_all_displays_windows(
                         let _ = sec_win.set_decorations(false);
                         let _ = sec_win.set_ignore_cursor_events(true);
                         let _ = sec_win.set_shadow(false);
-                        #[cfg(windows)]
-                        if let Ok(hwnd_val) = sec_win.hwnd() {
-                            use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
-                            unsafe {
-                                let hwnd = windows::Win32::Foundation::HWND(hwnd_val.0);
-                                let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-                            }
-                        }
                         position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
                         ensure_window_topmost(&sec_win);
 
@@ -1404,110 +1397,6 @@ fn update_pill_size(
         if was_expanded && !now_expanded {
             schedule_working_set_trim(1200);
         }
-    }
-}
-
-#[tauri::command]
-fn capture_notch_backdrop(window: tauri::WebviewWindow) -> Result<String, String> {
-    #[cfg(windows)]
-    {
-        use base64::Engine;
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::Graphics::Gdi::{
-            GetDC, CreateCompatibleDC, CreateCompatibleBitmap, SelectObject, BitBlt,
-            GetDIBits, DeleteObject, DeleteDC, ReleaseDC, SRCCOPY, CAPTUREBLT,
-            BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
-
-        let hwnd_raw = window.hwnd().map_err(|e| e.to_string())?;
-        let hwnd = HWND(hwnd_raw.0);
-
-        unsafe {
-            let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-
-            let mut rect = windows::Win32::Foundation::RECT::default();
-            let _ = GetWindowRect(hwnd, &mut rect);
-            let width = (rect.right - rect.left).max(1);
-            let height = (rect.bottom - rect.top).max(1);
-            let x = rect.left;
-            let y = rect.top;
-
-            let screen_dc = GetDC(HWND(std::ptr::null_mut()));
-            if screen_dc.0.is_null() {
-                return Err("Failed to get screen DC".into());
-            }
-
-            let mem_dc = CreateCompatibleDC(screen_dc);
-            let bitmap = CreateCompatibleBitmap(screen_dc, width, height);
-            let old_bmp = SelectObject(mem_dc, bitmap);
-
-            let ok = BitBlt(mem_dc, 0, 0, width, height, screen_dc, x, y, SRCCOPY | CAPTUREBLT);
-            SelectObject(mem_dc, old_bmp);
-
-            if ok.is_err() {
-                let _ = DeleteObject(bitmap);
-                let _ = DeleteDC(mem_dc);
-                ReleaseDC(HWND(std::ptr::null_mut()), screen_dc);
-                return Err("BitBlt failed".into());
-            }
-
-            let mut bi = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: width,
-                    biHeight: -height,
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-
-            let mut raw_pixels = vec![0u8; (width * height * 4) as usize];
-            GetDIBits(
-                mem_dc,
-                bitmap,
-                0,
-                height as u32,
-                Some(raw_pixels.as_mut_ptr() as *mut _),
-                &mut bi,
-                DIB_RGB_COLORS,
-            );
-
-            let _ = DeleteObject(bitmap);
-            let _ = DeleteDC(mem_dc);
-            ReleaseDC(HWND(std::ptr::null_mut()), screen_dc);
-
-            for chunk in raw_pixels.chunks_exact_mut(4) {
-                chunk.swap(0, 2);
-                chunk[3] = 255;
-            }
-
-            let img_buffer = image::RgbaImage::from_raw(width as u32, height as u32, raw_pixels)
-                .ok_or_else(|| "Failed to create ImageBuffer".to_string())?;
-
-            let target_w = (width as u32).min(840);
-            let target_h = ((height as u32) * target_w) / (width as u32).max(1);
-            let final_img = if target_w < (width as u32) {
-                image::imageops::resize(&img_buffer, target_w, target_h, image::imageops::FilterType::Triangle)
-            } else {
-                img_buffer
-            };
-
-            let mut jpeg_bytes = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 82);
-            encoder.encode_image(&final_img).map_err(|e| e.to_string())?;
-
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
-            Ok(format!("data:image/jpeg;base64,{}", b64))
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        Err("Unsupported OS".into())
     }
 }
 
@@ -3262,7 +3151,6 @@ pub fn run() {
             smtc_seek,
             fetch_external_lyrics_api,
             update_pill_size,
-            capture_notch_backdrop,
             set_window_position,
             get_available_monitors,
             set_target_monitor,
@@ -3389,16 +3277,6 @@ pub fn run() {
                 None => return Ok(()),
             };
             
-            // 0. Pastikan window notch dikecualikan dari screen capture agar background di belakangnya bisa di-capture bersih
-            #[cfg(windows)]
-            if let Ok(hwnd_val) = window.hwnd() {
-                use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
-                unsafe {
-                    let hwnd = windows::Win32::Foundation::HWND(hwnd_val.0);
-                    let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-                }
-            }
-
             // 1. Awalnya buat window tembus klik & paksa matikan DWM shadow bawaan Windows
             let _ = window.set_ignore_cursor_events(true);
             let _ = window.set_shadow(false);

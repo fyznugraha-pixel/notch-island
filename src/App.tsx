@@ -5058,7 +5058,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="absolute inset-0 z-50 rounded-[inherit] bg-[rgba(22,16,72,0.65)] backdrop-blur-md p-3.5 flex flex-col pointer-events-none select-none"
+                className="absolute inset-0 z-50 rounded-[inherit] bg-black/80 backdrop-blur-md p-3.5 flex flex-col pointer-events-none select-none"
               >
                 <div className="w-full h-full rounded-[22px] border-2 border-dashed border-cyan-400/50 bg-cyan-950/25 flex flex-col items-center justify-center gap-2.5 text-center p-4">
                   <div className="w-13 h-13 rounded-2xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center shrink-0 shadow-[0_0_24px_rgba(6,182,212,0.35)]">
