@@ -65,7 +65,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
     let win = tauri::WebviewWindowBuilder::new(
         app,
         "miniplayer",
-        tauri::WebviewUrl::App("index.html?window=miniplayer".into()),
+        tauri::WebviewUrl::App("index.html".into()),
     )
     .title("Gili Mini Player")
     .inner_size(440.0, 88.0)
