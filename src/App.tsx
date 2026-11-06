@@ -444,6 +444,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     is_near: false,
     is_in_zone: false,
   });
+  const [isMiniPlayerOpen, setIsMiniPlayerOpen] = useState(false);
+  useEffect(() => {
+    invoke<boolean>("is_miniplayer_open")
+      .then((open) => setIsMiniPlayerOpen(Boolean(open)))
+      .catch(() => {});
+  }, []);
   const [showLyrics, setShowLyrics] = useState<boolean>(() => {
     try {
       return localStorage.getItem("island_show_lyrics") === "true";
@@ -3770,12 +3776,17 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     });
 
     const unlistenReturnToNotch = listen("miniplayer:return-to-notch", () => {
+      setIsMiniPlayerOpen(false);
       setShowLyrics(true);
       try {
         localStorage.setItem("island_show_lyrics", "true");
       } catch {}
       setIsHidden(false);
       setIsExpanded(false);
+    });
+
+    const unlistenMiniPlayerVis = listen<boolean>("miniplayer:visibility-changed", (event) => {
+      setIsMiniPlayerOpen(Boolean(event.payload));
     });
 
     const unlistenDragProx = listen<{ is_near: boolean; is_in_zone: boolean }>(
@@ -3806,6 +3817,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       unlistenSettingsSync.then((f) => f());
       unlistenTriggerAction.then((f) => f());
       unlistenReturnToNotch.then((f) => f());
+      unlistenMiniPlayerVis.then((f) => f());
       unlistenDragProx.then((f) => f());
     };
   }, []);
@@ -4307,7 +4319,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   } else if (isQuickControl) {
     variant = "quick_control";
   } else if (isExpanded) {
-    variant = showLyrics ? "media_expanded_lyrics" : "media_expanded";
+    variant = (showLyrics && !isMiniPlayerOpen) ? "media_expanded_lyrics" : "media_expanded";
   } else if (isDragOver) {
     variant = "drag_over";
   } else if (isQuickTodoOpen) {
@@ -4329,7 +4341,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   } else if (isPomodoroTabEnabled && pomodoro.isRunning && pomodoro.settings.showIdleTimer) {
     variant = "pomo_idle";
   } else if (media && (!isPausedMediaCollapsed || isPlaying)) {
-    variant = showLyrics ? "lyrics_idle" : "media";
+    variant = (showLyrics && !isMiniPlayerOpen) ? "lyrics_idle" : "media";
   }
 
   if (isHidden) {

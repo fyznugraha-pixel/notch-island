@@ -8,6 +8,8 @@ export interface MiniPlayerBarModeProps {
   lyrics: LyricsPayload | null;
   theme: "solid" | "liquid";
   tintColor: string;
+  showToolbar: boolean;
+  toolbarNode: React.ReactNode;
   onToggleMode?: () => void;
 }
 
@@ -16,13 +18,15 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   lyrics,
   theme,
   tintColor,
-  onToggleMode: _onToggleMode,
+  showToolbar,
+  toolbarNode,
+  onToggleMode,
 }) => {
   const isPlaying = Boolean(media?.is_playing);
   const position = media?.position || 0;
   const duration = media?.duration || 0;
 
-  const { activeLine, livePosition } = useLyricsSync(
+  const { activeLine, livePosition, liveDuration } = useLyricsSync(
     lyrics,
     position,
     duration,
@@ -35,32 +39,23 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }, []);
 
+  const totalDuration = liveDuration || duration;
   const progressPercent = useMemo(() => {
-    if (!duration || duration <= 0) return 0;
-    return Math.min(100, Math.max(0, (livePosition / duration) * 100));
-  }, [livePosition, duration]);
+    if (!totalDuration || totalDuration <= 0) return 0;
+    return Math.min(100, Math.max(0, (livePosition / totalDuration) * 100));
+  }, [livePosition, totalDuration]);
 
   // Determine active lyric text to display
   const activeLyricText = useMemo(() => {
     if (!media?.title) return "Gili Mini Player";
     if (lyrics?.state === "loading") return "Memuat lirik...";
-    if (lyrics?.state === "instrumental") return "♪ Instrumental ♪";
+    if (lyrics?.state === "instrumental") return "♪ Lagu Instrumental ♪";
     if (lyrics?.state === "not_found") return "Lirik tidak ditemukan";
     if (activeLine?.text) return activeLine.text;
     if (lyrics?.lines && lyrics.lines.length > 0) return lyrics.lines[0].text;
-    if (lyrics?.plain_lyrics) {
-      const firstLine = lyrics.plain_lyrics.split("\n").find((l) => l.trim().length > 0);
-      return firstLine || media.title;
-    }
-    return media.title;
-  }, [media?.title, lyrics?.state, lyrics?.lines, lyrics?.plain_lyrics, activeLine?.text]);
+    return "Lirik tidak tersedia";
+  }, [media?.title, lyrics?.state, activeLine?.text, lyrics?.lines]);
 
-  const titleArtistText = useMemo(() => {
-    if (!media?.title) return "Belum ada media aktif";
-    return media.artist ? `${media.title} • ${media.artist}` : media.title;
-  }, [media?.title, media?.artist]);
-
-  // Theme styling: Solid must be 100% OPAQUE with gradient. Liquid uses approved frosted glass backdrop.
   const containerStyle = useMemo(() => {
     if (theme === "solid") {
       return {
@@ -69,7 +64,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       };
     }
     return {
-      backgroundColor: "rgba(18, 18, 24, 0.72)",
+      backgroundColor: "rgba(18, 18, 24, 0.75)",
       backdropFilter: "blur(28px) saturate(180%)",
       WebkitBackdropFilter: "blur(28px) saturate(180%)",
     };
@@ -78,20 +73,36 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   return (
     <div
       data-tauri-drag-region
-      className={`relative w-[440px] h-[88px] rounded-[24px] overflow-hidden select-none cursor-move flex flex-col justify-between ${
+      onDoubleClick={onToggleMode}
+      className={`relative box-border w-[440px] text-white select-none cursor-move rounded-[24px] shadow-[0_18px_40px_rgba(0,0,0,0.55)] transition-[height] duration-200 ease-out p-[14px_16px_18px] overflow-hidden ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
-      } shadow-[0_18px_40px_rgba(0,0,0,0.55)]`}
+      } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
       style={containerStyle}
     >
-      {/* Main Content Area */}
-      <div className="flex items-center justify-between px-4 pt-3.5 pb-2 gap-3 flex-1 min-w-0 pointer-events-none">
-        {/* Left: 56px Album Cover */}
-        <div className="w-14 h-14 rounded-xl overflow-hidden bg-white/5 shrink-0 shadow-md border border-white/10 flex items-center justify-center">
+      {/* Top Slot for Toolbar on Hover */}
+      <div
+        className={`transition-all duration-150 ease-out overflow-hidden ${
+          showToolbar
+            ? "opacity-100 max-h-10 mb-1.5 -mt-1 pointer-events-auto"
+            : "opacity-0 max-h-0 mb-0 -mt-0 pointer-events-none"
+        }`}
+      >
+        {toolbarNode}
+      </div>
+
+      {/* Media Row: 56px Album Art + Title/Artist + Equalizer */}
+      <div className="flex items-center gap-3">
+        {/* Album Art: 56px, radius 12px */}
+        <div
+          role="img"
+          aria-label="Sampul album"
+          className="w-14 h-14 rounded-xl overflow-hidden bg-white/5 shrink-0 border border-white/10 flex items-center justify-center shadow-md"
+        >
           {media?.thumbnail ? (
             <img
               src={media.thumbnail}
               alt={media.title || "Album Art"}
-              className="w-full h-full object-cover select-none"
+              className="w-full h-full object-cover select-none pointer-events-none"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/5 text-white/40 text-lg">
@@ -100,31 +111,39 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
           )}
         </div>
 
-        {/* Center: Title + Artist (11.5px) and Active Lyric Line (14.5px Bold) */}
-        <div className="flex flex-col justify-center flex-1 min-w-0 pr-1">
-          {/* Title • Artist */}
-          <span
-            className="text-[11.5px] leading-tight text-white/60 font-medium truncate"
-            title={titleArtistText}
+        {/* Title, Artist, and Live Lyric */}
+        <div className="min-w-0 flex-1">
+          <div
+            className="text-[11.5px] text-white/60 truncate leading-tight"
+            title={`${media?.title || "Gili"} · ${media?.artist || ""}`}
           >
-            {titleArtistText}
-          </span>
+            {media?.title ? `${media.title} · ${media.artist || "Artis tidak diketahui"}` : "Gili Mini Player"}
+          </div>
 
-          {/* Active Synced Lyric (Crossfade 200-250ms) */}
-          <div className="h-[22px] flex items-center mt-1 overflow-hidden relative">
-            <AnimatePresence mode="wait">
-              <motion.span
+          <div className="h-[22px] mt-[3px] relative overflow-hidden flex items-center">
+            {prefersReducedMotion ? (
+              <div
                 key={activeLyricText}
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 3 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={prefersReducedMotion ? undefined : { opacity: 0, y: -3 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: "easeOut" }}
-                className="text-[14.5px] leading-tight font-bold text-white truncate block w-full tracking-[-0.005em]"
+                className="text-[14.5px] font-bold text-white truncate tracking-[-0.005em]"
                 title={activeLyricText}
               >
                 {activeLyricText}
-              </motion.span>
-            </AnimatePresence>
+              </div>
+            ) : (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeLyricText}
+                  initial={{ opacity: 0, y: 3 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -3 }}
+                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  className="text-[14.5px] font-bold text-white truncate tracking-[-0.005em] absolute inset-x-0"
+                  title={activeLyricText}
+                >
+                  {activeLyricText}
+                </motion.div>
+              </AnimatePresence>
+            )}
           </div>
         </div>
 
@@ -186,13 +205,17 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       </div>
 
       {/* Bottom: 3px Progress Bar */}
-      <div className="mx-4 mb-2 h-[3px] bg-white/20 rounded-full overflow-hidden">
+      <div
+        role="progressbar"
+        aria-label="Posisi lagu"
+        aria-valuenow={Math.round(progressPercent)}
+        className="absolute left-4 right-4 bottom-[9px] h-[3px] rounded-full bg-white/20 overflow-hidden"
+      >
         <div
-          className="h-full bg-white transition-[width] duration-200 ease-linear rounded-full"
+          className="h-full bg-white transition-[width] duration-150 ease-linear rounded-full"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
     </div>
   );
 };
-

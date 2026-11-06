@@ -11,6 +11,8 @@ export interface MiniPlayerCardModeProps {
   lyrics: LyricsPayload | null;
   theme: "solid" | "liquid";
   tintColor: string;
+  showToolbar: boolean;
+  toolbarNode: React.ReactNode;
   onToggleMode?: () => void;
 }
 
@@ -19,12 +21,15 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   lyrics,
   theme,
   tintColor,
+  showToolbar,
+  toolbarNode,
+  onToggleMode,
 }) => {
   const isPlaying = Boolean(media?.is_playing);
   const position = media?.position || 0;
   const duration = media?.duration || 0;
 
-  const { activeIndex, livePosition } = useLyricsSync(
+  const { activeIndex, livePosition, liveDuration } = useLyricsSync(
     lyrics,
     position,
     duration,
@@ -32,12 +37,13 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     lyrics?.offset || 0
   );
 
+  const totalDuration = liveDuration || duration;
   const progressPercent = useMemo(() => {
-    if (!duration || duration <= 0) return 0;
-    return Math.min(100, Math.max(0, (livePosition / duration) * 100));
-  }, [livePosition, duration]);
+    if (!totalDuration || totalDuration <= 0) return 0;
+    return Math.min(100, Math.max(0, (livePosition / totalDuration) * 100));
+  }, [livePosition, totalDuration]);
 
-  const remainingSeconds = Math.max(0, duration - livePosition);
+  const remainingSeconds = Math.max(0, totalDuration - livePosition);
 
   // Five lines of lyrics window around activeIndex
   const fiveLines = useMemo(() => {
@@ -69,7 +75,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   const containerStyle = useMemo(() => {
     if (theme === "solid") {
       return {
-        backgroundColor: tintColor || "#121216",
+        background: `linear-gradient(135deg, ${tintColor || "#3a1414"}, #0c0c10 125%)`,
         opacity: 1.0,
       };
     }
@@ -81,16 +87,17 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   }, [theme, tintColor]);
 
   const handleSeek = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!duration || duration <= 0) return;
+    if (!totalDuration || totalDuration <= 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetTime = ratio * duration;
+    const targetTime = ratio * totalDuration;
     try {
       await invoke("smtc_seek", { positionSec: targetTime });
     } catch {}
   };
 
-  const handleMediaControl = async (action: "prev" | "toggle" | "next") => {
+  const handleMediaControl = async (e: React.MouseEvent, action: "prev" | "toggle" | "next") => {
+    e.stopPropagation();
     try {
       await invoke("smtc_action", { action });
     } catch {}
@@ -99,19 +106,31 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   return (
     <div
       data-tauri-drag-region
-      className={`relative w-[380px] h-[440px] rounded-[28px] overflow-hidden select-none cursor-move flex flex-col justify-between p-[6px_18px_18px] ${
+      onDoubleClick={onToggleMode}
+      className={`relative box-border w-[380px] h-[440px] text-white select-none cursor-move rounded-[28px] shadow-[0_18px_40px_rgba(0,0,0,0.55)] p-[6px_18px_18px] flex flex-col justify-between overflow-hidden ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
-      } shadow-[0_18px_40px_rgba(0,0,0,0.55)]`}
+      }`}
       style={containerStyle}
     >
-      {/* Top 36px Grab Handle Slot (Toolbar hovers here) */}
+      {/* Top 36px Slot: Grab Handle (normal) or Toolbar (hover) */}
       <div className="h-9 w-full shrink-0 flex items-center justify-center">
-        <span className="w-9 h-1 rounded-full bg-white/20 pointer-events-none" />
+        {showToolbar ? (
+          <div className="w-full h-full flex items-center">{toolbarNode}</div>
+        ) : (
+          <span
+            aria-hidden="true"
+            className="w-9 h-1 rounded-full bg-white/20 pointer-events-none"
+          />
+        )}
       </div>
 
       {/* Header: 60px Album Art + Title/Artist + Equalizer */}
       <div className="flex items-center gap-3.5 shrink-0 mt-1 pointer-events-none">
-        <div className="w-[60px] h-[60px] rounded-[13px] overflow-hidden bg-white/5 shrink-0 shadow-lg border border-white/10 flex items-center justify-center">
+        <div
+          role="img"
+          aria-label="Sampul album"
+          className="w-[60px] h-[60px] rounded-[13px] overflow-hidden bg-white/5 shrink-0 shadow-lg border border-white/10 flex items-center justify-center"
+        >
           {media?.thumbnail ? (
             <img
               src={media.thumbnail}
@@ -199,7 +218,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
 
       {/* Center: 5 Lines of Synced Lyrics with Mask Fade */}
       <div
-        className="flex-1 my-3 flex flex-col justify-center overflow-hidden relative"
+        className="flex-1 my-2 flex flex-col justify-center gap-3.5 overflow-hidden relative"
         style={{
           maskImage:
             "linear-gradient(to bottom, transparent 0%, black 18%, black 82%, transparent 100%)",
@@ -221,7 +240,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
             Lirik tidak ditemukan
           </div>
         ) : lyrics?.synced && fiveLines.length > 0 ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 py-2 text-center">
+          <div className="flex flex-col items-center justify-center gap-2.5 py-1 text-center">
             {fiveLines.map(({ index, offset, line }) => {
               if (!line) {
                 return <div key={`empty-${offset}`} className="h-6" />;
@@ -240,16 +259,13 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
                       await invoke("smtc_seek", { positionSec: line.time });
                     } catch {}
                   }}
-                  className={`cursor-pointer transition-all duration-200 px-3 py-1 select-none ${
+                  className={`cursor-pointer transition-all duration-200 px-2 select-none ${
                     isActive
                       ? "text-[20px] font-bold text-white scale-100 line-clamp-3 leading-snug"
                       : isNear
-                      ? "text-[15px] font-medium text-white/60 hover:text-white/80"
-                      : "text-[13px] font-normal text-white/35 hover:text-white/60"
+                      ? "text-[15px] font-medium text-white/50 hover:text-white/80 leading-snug"
+                      : "text-[14px] font-normal text-white/30 hover:text-white/60 leading-snug"
                   }`}
-                  style={{
-                    opacity: isActive ? 1.0 : isNear ? 0.6 : 0.35,
-                  }}
                 >
                   {line.text}
                 </motion.div>
@@ -257,72 +273,61 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
             })}
           </div>
         ) : lyrics?.plain_lyrics ? (
-          <div className="h-full overflow-y-auto px-4 py-2 text-center text-[14px] text-white/70 whitespace-pre-wrap leading-relaxed">
+          <div className="text-center text-white/70 text-[14px] py-4 px-3 overflow-y-auto max-h-[180px] leading-relaxed whitespace-pre-wrap">
             {lyrics.plain_lyrics}
           </div>
         ) : (
           <div className="text-center text-white/40 text-[13.5px] py-8">
-            Siap memutar musik
+            {media?.title ? "Lirik tidak tersedia" : "Menunggu pemutaran musik..."}
           </div>
         )}
       </div>
 
-      {/* Bottom: Progress Bar + Playback Controls */}
-      <div
-        onMouseDown={(e) => e.stopPropagation()}
-        className="flex flex-col gap-2 shrink-0 pt-1"
-      >
-        {/* Progress Bar with Timers */}
-        <div className="flex items-center gap-2.5">
-          <span className="text-[11.5px] font-mono text-white/60 min-w-[32px] text-right select-none">
-            {formatMediaTime(livePosition)}
-          </span>
+      {/* Progress Bar & Time */}
+      <div className="flex items-center gap-2.5 text-[11.5px] font-mono text-white/60 shrink-0">
+        <span>{formatMediaTime(livePosition)}</span>
+        <div
+          role="progressbar"
+          aria-label="Posisi lagu"
+          aria-valuenow={Math.round(progressPercent)}
+          onClick={handleSeek}
+          className="flex-1 h-1 rounded-full bg-white/20 cursor-pointer overflow-hidden relative"
+        >
           <div
-            onClick={handleSeek}
-            className="flex-1 h-3 flex items-center cursor-pointer group"
-          >
-            <div className="w-full h-[3px] bg-white/15 rounded-full overflow-hidden relative group-hover:h-[4px] transition-all">
-              <div
-                className="h-full bg-white/90 rounded-full"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </div>
-          <span className="text-[11.5px] font-mono text-white/60 min-w-[36px] text-left select-none">
-            -{formatMediaTime(remainingSeconds)}
-          </span>
+            className="h-full bg-white rounded-full transition-[width] duration-150 ease-linear"
+            style={{ width: `${progressPercent}%` }}
+          />
         </div>
+        <span>-{formatMediaTime(remainingSeconds)}</span>
+      </div>
 
-        {/* Playback Controls (Previous, 46px White Play/Pause, Next) */}
-        <div className="flex items-center justify-center gap-8 pt-1">
-          <button
-            onClick={() => handleMediaControl("prev")}
-            className="w-10 h-10 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            aria-label="Sebelumnya"
-          >
-            <SkipBack size={22} fill="currentColor" />
-          </button>
-
-          <button
-            onClick={() => handleMediaControl("toggle")}
-            className="w-[46px] h-[46px] rounded-full bg-white text-black shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-transform cursor-pointer"
-            aria-label={isPlaying ? "Jeda" : "Putar"}
-          >
-            {isPlaying ? (
-              <Pause size={22} fill="currentColor" />
-            ) : (
-              <Play size={22} fill="currentColor" className="ml-0.5" />
-            )}
-          </button>
-
-          <button
-            onClick={() => handleMediaControl("next")}
-            className="w-10 h-10 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            aria-label="Berikutnya"
-          >
-            <SkipForward size={22} fill="currentColor" />
-          </button>
-        </div>
+      {/* Playback Controls (Previous, 46px Play/Pause, Next) */}
+      <div className="flex items-center justify-center gap-6 mt-2.5 mb-1 shrink-0">
+        <button
+          onClick={(e) => handleMediaControl(e, "prev")}
+          className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+          aria-label="Sebelumnya"
+        >
+          <SkipBack size={20} fill="currentColor" />
+        </button>
+        <button
+          onClick={(e) => handleMediaControl(e, "toggle")}
+          className="w-[46px] h-[46px] rounded-full bg-white text-[#111] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-lg"
+          aria-label={isPlaying ? "Jeda" : "Putar"}
+        >
+          {isPlaying ? (
+            <Pause size={18} fill="currentColor" />
+          ) : (
+            <Play size={18} fill="currentColor" className="ml-0.5" />
+          )}
+        </button>
+        <button
+          onClick={(e) => handleMediaControl(e, "next")}
+          className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+          aria-label="Berikutnya"
+        >
+          <SkipForward size={20} fill="currentColor" />
+        </button>
       </div>
     </div>
   );

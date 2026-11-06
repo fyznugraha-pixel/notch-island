@@ -36,9 +36,14 @@ export interface LyricsPayload {
 // In-memory reactive state listeners
 type MediaSubscriber = (media: MediaPayload) => void;
 type LyricsSubscriber = (lyrics: LyricsPayload) => void;
+export type ProgressPayload = { position: number; duration: number };
+type ProgressSubscriber = (progress: ProgressPayload) => void;
 
 const mediaSubscribers = new Set<MediaSubscriber>();
 const lyricsSubscribers = new Set<LyricsSubscriber>();
+const progressSubscribers = new Set<ProgressSubscriber>();
+
+let currentProgress: ProgressPayload = { position: 0, duration: 0 };
 
 let currentMedia: MediaPayload = {
   title: "",
@@ -94,8 +99,18 @@ export function subscribeLyrics(subscriber: LyricsSubscriber): () => void {
   };
 }
 
+export function subscribeProgress(subscriber: ProgressSubscriber): () => void {
+  progressSubscribers.add(subscriber);
+  subscriber(currentProgress);
+  return () => {
+    progressSubscribers.delete(subscriber);
+  };
+}
+
 export async function setSongLyricsOffset(artist: string, title: string, offset: number): Promise<void> {
   try {
+    currentLyrics = { ...currentLyrics, offset };
+    lyricsSubscribers.forEach((s) => s(currentLyrics));
     await invoke("set_lyrics_offset", { artist, title, offset });
     // Also dispatch window event for fast local UI feedback
     if (typeof window !== "undefined") {
@@ -162,6 +177,20 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
   const unlistenMedia = await listen<MediaPayload>("media:update", (event) => {
     currentMedia = event.payload;
     mediaSubscribers.forEach((s) => s(currentMedia));
+  });
+
+  // Listen to live media-progress to keep position & duration lockstep across windows
+  const unlistenProgress = await listen<ProgressPayload>("media-progress", (event) => {
+    currentProgress = event.payload;
+    currentMedia.position = event.payload.position;
+    currentMedia.duration = event.payload.duration;
+    progressSubscribers.forEach((s) => s(event.payload));
+  });
+
+  // Listen to offset changes broadcast
+  const unlistenOffset = await listen<number>("lyrics:offset-changed", (event) => {
+    currentLyrics = { ...currentLyrics, offset: event.payload };
+    lyricsSubscribers.forEach((s) => s(currentLyrics));
   });
 
   // Listen to lyrics:update
@@ -253,6 +282,8 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
 
   return () => {
     unlistenMedia();
+    unlistenProgress();
+    unlistenOffset();
     unlistenLyrics();
     isStoreInitialized = false;
   };

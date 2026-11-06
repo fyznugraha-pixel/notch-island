@@ -1,17 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import {
-  Minus,
-  Plus,
-  Pin,
-  ArrowUpToLine,
-  X,
   SkipBack,
   Play,
   Pause,
   SkipForward,
+  RotateCw,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { MediaPayload } from "../../services/mediaLyricsStore";
+import { MediaPayload, LyricsPayload, requestLyricsRefresh } from "../../services/mediaLyricsStore";
+import { LyricsProviderId } from "../../services/lyrics/types";
 
 export interface MiniPlayerToolbarProps {
   mode: "bar" | "card";
@@ -24,8 +21,15 @@ export interface MiniPlayerToolbarProps {
   onReturnToNotch: () => void;
   onClose: () => void;
   media: MediaPayload | null;
-  positionBottom?: boolean;
+  lyrics: LyricsPayload | null;
 }
+
+const PROVIDERS: { id: LyricsProviderId; label: string }[] = [
+  { id: "auto", label: "Auto" },
+  { id: "lrclib", label: "LRCLIB" },
+  { id: "qqmusic", label: "QQ" },
+  { id: "netease", label: "NetEase" },
+];
 
 export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
   mode,
@@ -38,9 +42,19 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
   onReturnToNotch,
   onClose,
   media,
-  positionBottom = false,
+  lyrics,
 }) => {
   const isPlaying = Boolean(media?.is_playing);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [currentProvider, setCurrentProvider] = useState<LyricsProviderId>(() => {
+    try {
+      const saved = localStorage.getItem("notch_lyrics_provider") as LyricsProviderId;
+      return saved || (lyrics?.provider as LyricsProviderId) || "auto";
+    } catch {
+      return "auto";
+    }
+  });
 
   const handleMediaControl = async (e: React.MouseEvent, action: "prev" | "toggle" | "next") => {
     e.stopPropagation();
@@ -49,136 +63,265 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
     } catch {}
   };
 
+  const handleCycleProvider = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const currIdx = PROVIDERS.findIndex((p) => p.id === currentProvider);
+    const nextIdx = (currIdx + 1) % PROVIDERS.length;
+    const nextProvider = PROVIDERS[nextIdx].id;
+    setCurrentProvider(nextProvider);
+
+    try {
+      localStorage.setItem("notch_lyrics_provider", nextProvider);
+      window.dispatchEvent(
+        new CustomEvent("notch_lyrics_provider_changed", { detail: nextProvider })
+      );
+    } catch {}
+
+    if (media?.title) {
+      setIsRefreshing(true);
+      await requestLyricsRefresh(media.artist || "", media.title, nextProvider);
+      setTimeout(() => setIsRefreshing(false), 800);
+    }
+  };
+
+  const handleRefresh = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!media?.title) return;
+    setIsRefreshing(true);
+    await requestLyricsRefresh(media.artist || "", media.title, currentProvider);
+    setTimeout(() => setIsRefreshing(false), 800);
+  };
+
   const formattedOffset =
     offset === 0 ? "0.0s" : `${offset > 0 ? "+" : ""}${offset.toFixed(1)}s`;
+
+  const providerLabel =
+    PROVIDERS.find((p) => p.id === currentProvider)?.label || currentProvider;
 
   return (
     <div
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
-      className={`absolute left-2 right-2 z-50 flex items-center justify-between px-2.5 py-1.5 rounded-full bg-black/65 backdrop-blur-xl border border-white/15 shadow-xl text-white transition-all select-none ${
-        positionBottom ? "bottom-2" : "top-2"
-      }`}
+      data-no-drag
+      className="flex items-center justify-between h-9 gap-2 select-none text-white w-full"
     >
-      {/* Left: Mode Toggle (Bar vs Card) */}
-      <div className="flex items-center p-0.5 rounded-full bg-white/10 border border-white/5">
+      {/* Left: Mode Segmented Switcher (Bar vs Card) */}
+      <div className="flex gap-0.5 p-0.5 rounded-[11px] bg-white/10 shrink-0">
         <button
           onClick={() => onSetMode("bar")}
-          className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex items-center gap-1 transition-colors ${
-            mode === "bar"
-              ? "bg-white text-black shadow-sm"
-              : "text-white/70 hover:text-white"
+          className={`w-7 h-7 rounded-[9px] flex items-center justify-center transition-colors ${
+            mode === "bar" ? "bg-white/25 text-white" : "bg-transparent text-white/60 hover:text-white"
           }`}
-          aria-label="Mode Bar"
+          aria-label="Mode bar"
+          title="Mode Bar (Ringkas)"
         >
-          <span className="w-3.5 h-1.5 rounded-full border border-current" />
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3" y="8" width="18" height="8" rx="3" />
+            <path d="M8 12h8" />
+          </svg>
         </button>
         <button
           onClick={() => onSetMode("card")}
-          className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex items-center gap-1 transition-colors ${
-            mode === "card"
-              ? "bg-white text-black shadow-sm"
-              : "text-white/70 hover:text-white"
+          className={`w-7 h-7 rounded-[9px] flex items-center justify-center transition-colors ${
+            mode === "card" ? "bg-white/25 text-white" : "bg-transparent text-white/60 hover:text-white"
           }`}
-          aria-label="Mode Kartu"
+          aria-label="Mode kartu"
+          title="Mode Kartu (5 Baris Lirik)"
         >
-          <span className="w-2.5 h-3 rounded-sm border border-current" />
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="6" y="3" width="12" height="18" rx="3" />
+            <path d="M9 9h6M9 13h6M9 17h3" />
+          </svg>
         </button>
       </div>
 
       {/* Center: Playback Controls (Bar Mode only) */}
       {mode === "bar" && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={(e) => handleMediaControl(e, "prev")}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/15 transition-colors"
+            className="w-[30px] h-[30px] flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors"
             aria-label="Sebelumnya"
           >
-            <SkipBack size={15} fill="currentColor" />
+            <SkipBack size={14} fill="currentColor" />
           </button>
           <button
             onClick={(e) => handleMediaControl(e, "toggle")}
-            className="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+            className="w-[30px] h-[30px] rounded-full bg-white text-[#111] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-md"
             aria-label={isPlaying ? "Jeda" : "Putar"}
           >
             {isPlaying ? (
-              <Pause size={14} fill="currentColor" />
+              <Pause size={13} fill="currentColor" />
             ) : (
-              <Play size={14} fill="currentColor" className="ml-0.5" />
+              <Play size={13} fill="currentColor" className="ml-0.5" />
             )}
           </button>
           <button
             onClick={(e) => handleMediaControl(e, "next")}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/15 transition-colors"
+            className="w-[30px] h-[30px] flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors"
             aria-label="Berikutnya"
           >
-            <SkipForward size={15} fill="currentColor" />
+            <SkipForward size={14} fill="currentColor" />
           </button>
         </div>
       )}
 
-      {/* Right Controls: Offset (-/+ 0.5s), Pin, Return to Notch, Close */}
-      <div className="flex items-center gap-1.5">
-        {/* Offset Control: - / 0.0s / + */}
-        <div className="flex items-center px-1.5 py-0.5 rounded-full bg-white/10 text-[11.5px] font-mono text-white/80">
+      {/* Right Controls: Provider, Refresh, Offset, Pin, Return to Notch, Close */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        {/* Lyrics Provider Selector Pill */}
+        <button
+          onClick={handleCycleProvider}
+          className="h-[26px] px-2 rounded-[13px] border border-white/15 bg-white/10 hover:bg-white/20 text-[11px] font-medium text-white/90 transition-colors flex items-center gap-1"
+          title={`Sumber lirik aktif: ${providerLabel}. Klik untuk ganti.`}
+          aria-label="Ganti sumber lirik"
+        >
+          <span className="text-[10px] text-white/60">Src:</span>
+          <span>{providerLabel}</span>
+        </button>
+
+        {/* Refresh Lyrics Button */}
+        <button
+          onClick={handleRefresh}
+          className="w-7 h-7 rounded-[9px] flex items-center justify-center text-white/75 hover:text-white hover:bg-white/15 transition-colors"
+          title="Muat ulang lirik"
+          aria-label="Muat ulang lirik"
+        >
+          <RotateCw size={13} className={isRefreshing ? "animate-spin text-[#3B9DF8]" : ""} />
+        </button>
+
+        {/* Offset Calibration: - 0.0s + */}
+        <div className="flex items-center gap-2 h-[26px] px-2.5 rounded-[13px] border border-white/15 bg-white/5 text-[11px] font-mono text-white/90">
           <button
-            onClick={() => onOffsetChange(-0.5)}
-            className="w-4 h-4 flex items-center justify-center hover:text-white text-white/60 hover:bg-white/10 rounded-full transition-colors"
-            aria-label="Kurang offset 0.5 detik"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOffsetChange(-0.5);
+            }}
+            className="text-white/60 hover:text-white text-[13px] font-bold leading-none p-0.5"
+            aria-label="Mundurkan lirik"
+            title="Mundurkan 0.5s"
           >
-            <Minus size={11} />
+            -
           </button>
           <button
-            onClick={onResetOffset}
-            className="px-1.5 hover:text-white cursor-pointer select-none"
+            onClick={(e) => {
+              e.stopPropagation();
+              onResetOffset();
+            }}
+            className="hover:text-white cursor-pointer select-none"
             title="Klik untuk reset offset ke 0.0s"
           >
             {formattedOffset}
           </button>
           <button
-            onClick={() => onOffsetChange(0.5)}
-            className="w-4 h-4 flex items-center justify-center hover:text-white text-white/60 hover:bg-white/10 rounded-full transition-colors"
-            aria-label="Tambah offset 0.5 detik"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOffsetChange(0.5);
+            }}
+            className="text-white/60 hover:text-white text-[13px] font-bold leading-none p-0.5"
+            aria-label="Majukan lirik"
+            title="Majukan 0.5s"
           >
-            <Plus size={11} />
+            +
           </button>
         </div>
 
-        {/* Pin Button */}
-        <button
-          onClick={onTogglePin}
-          className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
-            isPinned
-              ? "bg-blue-500/20 text-blue-400 border border-blue-400/40"
-              : "text-white/70 hover:text-white hover:bg-white/15"
-          }`}
-          aria-label={isPinned ? "Lepas sematan" : "Sematkan di atas"}
-          title={isPinned ? "Disematkan selalu di atas" : "Sematkan"}
-        >
-          <Pin size={13} className={isPinned ? "fill-current" : ""} />
-        </button>
+        {/* Action Icon Buttons */}
+        <div className="flex items-center gap-0.5">
+          {/* Pin Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin();
+            }}
+            className={`w-7 h-7 rounded-[9px] flex items-center justify-center transition-colors ${
+              isPinned
+                ? "bg-white/25 text-[#3B9DF8]"
+                : "text-white/70 hover:text-white hover:bg-white/15"
+            }`}
+            aria-label="Sematkan di atas"
+            title={isPinned ? "Lepas sematan" : "Sematkan di atas"}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 17v5M8 3h8l-1 6 3 3H6l3-3z" />
+            </svg>
+          </button>
 
-        {/* Return to Notch */}
-        <button
-          onClick={onReturnToNotch}
-          className="w-6 h-6 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-colors"
-          aria-label="Kembali ke notch"
-          title="Kembali ke notch"
-        >
-          <ArrowUpToLine size={13} />
-        </button>
+          {/* Return to Notch */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onReturnToNotch();
+            }}
+            className="w-7 h-7 rounded-[9px] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-colors"
+            aria-label="Kembali ke notch"
+            title="Kembali ke notch"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M4 4h16M12 20V8M8 12l4-4 4 4" />
+            </svg>
+          </button>
 
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="w-6 h-6 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-colors"
-          aria-label="Tutup mini player"
-          title="Tutup"
-        >
-          <X size={13} />
-        </button>
+          {/* Close */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="w-7 h-7 rounded-[9px] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-colors"
+            aria-label="Tutup"
+            title="Tutup mini player"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );
 };
-

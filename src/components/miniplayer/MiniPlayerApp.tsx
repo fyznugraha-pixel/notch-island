@@ -19,7 +19,7 @@ import { extractDominantColor } from "./colorExtractor";
 export const MiniPlayerApp: React.FC = () => {
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const [lyrics, setLyrics] = useState<LyricsPayload | null>(null);
-  const [tintColor, setTintColor] = useState<string>("#121216");
+  const [tintColor, setTintColor] = useState<string>("#3a1414");
   const [mode, setMode] = useState<"bar" | "card">(() => {
     try {
       const saved = localStorage.getItem("gili_miniplayer_mode");
@@ -65,7 +65,6 @@ export const MiniPlayerApp: React.FC = () => {
 
   const [isFaded, setIsFaded] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
-  const [positionBottom, setPositionBottom] = useState(false);
   const [isInZone, setIsInZone] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,10 +72,10 @@ export const MiniPlayerApp: React.FC = () => {
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ctrlPollRef = useRef<NodeJS.Timeout | null>(null);
   const dragCheckPollRef = useRef<NodeJS.Timeout | null>(null);
-  // Track whether the user is currently dragging the window
-  const isDraggingRef = useRef(false);
+  const latestPosRef = useRef({ x: 0, y: 0, w: 440, h: 88 });
+  const isInZoneRef = useRef(false);
 
-  // Initialize media & lyrics store as listener (not coordinator)
+  // Initialize media & lyrics store as listener
   useEffect(() => {
     let unlistenLyrics: (() => void) | null = null;
     let unlistenMedia: (() => void) | null = null;
@@ -120,7 +119,7 @@ export const MiniPlayerApp: React.FC = () => {
     };
   }, [media?.thumbnail]);
 
-  // Restore position and listen to move/drag snapping
+  // Restore position and track dragging
   useEffect(() => {
     const win = getCurrentWindow();
 
@@ -136,7 +135,7 @@ export const MiniPlayerApp: React.FC = () => {
             height: h,
           });
           await win.setPosition(new LogicalPosition(snappedX, snappedY));
-          setPositionBottom(snappedY < 48);
+          latestPosRef.current = { x: snappedX, y: snappedY, w, h };
         }
       } catch (e) {
         console.error("Failed to restore miniplayer position:", e);
@@ -145,19 +144,21 @@ export const MiniPlayerApp: React.FC = () => {
 
     restorePosition();
 
-    // Track window moves to save clamped position
+    // Track window moves to check notch proximity and snap
     const unlistenMove = win.onMoved(async (event) => {
       try {
         const { x, y } = event.payload;
         const currentW = mode === "card" ? 380 : 440;
         const currentH = mode === "card" ? 440 : 88;
+        latestPosRef.current = { x, y, w: currentW, h: currentH };
+
         const [snappedX, snappedY] = await invoke<[number, number]>("snap_miniplayer_position", {
           x,
           y,
           width: currentW,
           height: currentH,
         });
-        setPositionBottom(snappedY < 48);
+
         localStorage.setItem(
           "gili_miniplayer_pos",
           JSON.stringify({ x: snappedX, y: snappedY, w: currentW, h: currentH })
@@ -172,6 +173,7 @@ export const MiniPlayerApp: React.FC = () => {
         }).catch(() => ({ is_near: false, is_in_zone: false }));
 
         setIsInZone(prox.is_in_zone);
+        isInZoneRef.current = prox.is_in_zone;
         await emit("miniplayer:drag-proximity", prox);
 
         if (prox.is_near || prox.is_in_zone) {
@@ -184,28 +186,36 @@ export const MiniPlayerApp: React.FC = () => {
                   dragCheckPollRef.current = null;
                 }
 
+                const currentOuterPos = await win.outerPosition().catch(() => null);
+                const checkX = currentOuterPos ? currentOuterPos.x : latestPosRef.current.x;
+                const checkY = currentOuterPos ? currentOuterPos.y : latestPosRef.current.y;
+
                 const finalCheck = await invoke<{ is_near: boolean; is_in_zone: boolean }>(
                   "check_notch_proximity",
                   {
-                    x,
-                    y,
+                    x: checkX,
+                    y: checkY,
                     width: currentW,
                     height: currentH,
                   }
                 ).catch(() => ({ is_near: false, is_in_zone: false }));
 
+                const shouldMerge = finalCheck.is_in_zone || isInZoneRef.current;
+
                 await emit("miniplayer:drag-proximity", { is_near: false, is_in_zone: false });
                 setIsInZone(false);
+                isInZoneRef.current = false;
 
-                if (finalCheck.is_in_zone) {
+                if (shouldMerge) {
                   await invoke("close_miniplayer");
                   await emit("miniplayer:return-to-notch");
                 }
               }
-            }, 40);
+            }, 35);
           }
         } else {
           setIsInZone(false);
+          isInZoneRef.current = false;
           if (dragCheckPollRef.current) {
             clearInterval(dragCheckPollRef.current);
             dragCheckPollRef.current = null;
@@ -224,13 +234,7 @@ export const MiniPlayerApp: React.FC = () => {
   }, [mode]);
 
   // Hover dwell behavior (M4):
-  // 1. Cursor enters: fade to 30% immediately during the first 350ms.
-  // 2. If cursor dwells > 350ms or user clicks: restore 100% and show toolbar.
-  // 3. Fast pass-through: stays faded, restores upon exit.
-  // 4. Cursor exits: 120ms debounce to prevent flicker before hiding toolbar and restoring opacity.
   const handleMouseEnter = useCallback(() => {
-    isDraggingRef.current = false;
-
     if (exitTimerRef.current) {
       clearTimeout(exitTimerRef.current);
       exitTimerRef.current = null;
@@ -266,7 +270,6 @@ export const MiniPlayerApp: React.FC = () => {
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    // Don't initiate drag if clicking on interactive controls
     if (
       target.closest("button") ||
       target.closest("input") ||
@@ -277,7 +280,6 @@ export const MiniPlayerApp: React.FC = () => {
     }
 
     if (e.button === 0) {
-      isDraggingRef.current = true;
       getCurrentWindow().startDragging().catch(() => {});
     }
   }, []);
@@ -291,8 +293,7 @@ export const MiniPlayerApp: React.FC = () => {
     setShowToolbar(true);
   }, []);
 
-  // Ctrl key temporary click-through (M4):
-  // Holding Ctrl ignores cursor events so mouse clicks go straight through to apps underneath.
+  // Ctrl key temporary click-through
   useEffect(() => {
     const handleCheckCtrl = (e: KeyboardEvent | MouseEvent) => {
       if (e.ctrlKey) {
@@ -322,8 +323,6 @@ export const MiniPlayerApp: React.FC = () => {
         clearInterval(ctrlPollRef.current);
         ctrlPollRef.current = null;
       }
-      // Don't force-enable cursor events on unmount; leave it in click-through state
-      // since the window will be hidden/closed anyway
     };
   }, []);
 
@@ -373,6 +372,22 @@ export const MiniPlayerApp: React.FC = () => {
 
   const currentOffset = lyrics?.offset ?? 0;
 
+  const toolbarNode = (
+    <MiniPlayerToolbar
+      mode={mode}
+      onSetMode={handleSetMode}
+      offset={currentOffset}
+      onOffsetChange={handleOffsetChange}
+      onResetOffset={handleResetOffset}
+      isPinned={isPinned}
+      onTogglePin={handleTogglePin}
+      onReturnToNotch={handleReturnToNotch}
+      onClose={handleClose}
+      media={media}
+      lyrics={lyrics}
+    />
+  );
+
   return (
     <div
       ref={containerRef}
@@ -382,43 +397,23 @@ export const MiniPlayerApp: React.FC = () => {
       onMouseDown={handleMouseDown}
       onClick={handleClick}
       style={{
-        opacity: isFaded ? fadeOpacity : 1,
-        transform: isInZone ? "scale(0.85)" : "scale(1)",
-        transition: "opacity 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+        opacity: isFaded ? fadeOpacity : isInZone ? 0.8 : 1,
+        transform: isInZone ? "scale(0.6)" : "scale(1)",
+        transformOrigin: "top center",
+        transition: "opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       className={`relative overflow-hidden select-none transition-[width,height] duration-200 ease-out ${
         mode === "card" ? "w-[380px] h-[440px]" : showToolbar ? "w-[440px] h-[130px]" : "w-[440px] h-[88px]"
       }`}
     >
-      {/* Floating Toolbar with seamless fade and position adaptation */}
-      <div
-        className={`transition-all duration-150 ease-out ${
-          showToolbar
-            ? "opacity-100 pointer-events-auto scale-100"
-            : "opacity-0 pointer-events-none scale-95"
-        }`}
-      >
-        <MiniPlayerToolbar
-          mode={mode}
-          onSetMode={handleSetMode}
-          offset={currentOffset}
-          onOffsetChange={handleOffsetChange}
-          onResetOffset={handleResetOffset}
-          isPinned={isPinned}
-          onTogglePin={handleTogglePin}
-          onReturnToNotch={handleReturnToNotch}
-          onClose={handleClose}
-          media={media}
-          positionBottom={positionBottom}
-        />
-      </div>
-
       {mode === "card" ? (
         <MiniPlayerCardMode
           media={media}
           lyrics={lyrics}
           theme={theme}
           tintColor={tintColor}
+          showToolbar={showToolbar}
+          toolbarNode={toolbarNode}
           onToggleMode={() => handleSetMode("bar")}
         />
       ) : (
@@ -427,6 +422,8 @@ export const MiniPlayerApp: React.FC = () => {
           lyrics={lyrics}
           theme={theme}
           tintColor={tintColor}
+          showToolbar={showToolbar}
+          toolbarNode={toolbarNode}
           onToggleMode={() => handleSetMode("card")}
         />
       )}

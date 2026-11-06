@@ -405,7 +405,21 @@ pub fn get_lyrics_offset(app: AppHandle, artist: String, title: String) -> f64 {
 
 #[tauri::command]
 pub fn set_lyrics_offset(app: AppHandle, artist: String, title: String, offset: f64) -> Result<(), String> {
-    set_song_offset(&app, &artist, &title, offset)
+    set_song_offset(&app, &artist, &title, offset)?;
+    {
+        let lyrics_arc = get_lyrics_store();
+        let mut guard = lyrics_arc.lock().unwrap();
+        if let Some(ref mut payload) = *guard {
+            if payload.artist.eq_ignore_ascii_case(&artist) && payload.title.eq_ignore_ascii_case(&title) {
+                payload.offset = offset;
+                let clone = payload.clone();
+                drop(guard);
+                let _ = app.emit("lyrics:update", clone);
+            }
+        }
+    }
+    let _ = app.emit("lyrics:offset-changed", offset);
+    Ok(())
 }
 
 #[tauri::command]

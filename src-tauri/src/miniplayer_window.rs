@@ -420,10 +420,10 @@ pub fn check_notch_proximity(
             let dx = (mini_center_x - mon_center_x).abs();
             let dy = (mini_top_y - rc.top).abs();
 
-            // Target notch zone: within 160px horizontally from center and 100px from top
-            let is_in_zone = dx <= 160 && dy <= 100;
-            // Near zone: radius 48px from target notch zone
-            let is_near = dx <= 220 && dy <= 160;
+            // Target notch zone: within 200px horizontally from center and 120px from top
+            let is_in_zone = dx <= 200 && dy <= 120;
+            // Near zone: radius 80px from target notch zone
+            let is_near = dx <= 280 && dy <= 180;
 
             return NotchProximity { is_near, is_in_zone };
         }
