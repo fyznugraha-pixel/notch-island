@@ -3,6 +3,7 @@ import { Music2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { LyricsData } from "../../services/lyricsService";
 import { t } from "../../services/i18n";
+import { getSongLyricsOffset } from "../../services/mediaLyricsStore";
 import { MediaPayload } from "../../types";
 import { MediaThumbnail } from "./MediaThumbnail";
 import { AudioVisualizer } from "./AudioVisualizer";
@@ -109,6 +110,21 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   useEffect(() => {
     setActiveIndex(computeActiveIndex(safeTime, lyricsData, offset));
   }, [lyricsData]);
+
+  // Load per-song offset from persistent store
+  useEffect(() => {
+    if (!songTitle) {
+      setOffset(0.0);
+      return;
+    }
+    let isCancelled = false;
+    getSongLyricsOffset(artist || "", songTitle).then((val) => {
+      if (!isCancelled) setOffset(val);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [artist, songTitle]);
 
   // Sync offset calibration from custom events
   useEffect(() => {

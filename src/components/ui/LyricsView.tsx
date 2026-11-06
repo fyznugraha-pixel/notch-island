@@ -3,6 +3,7 @@ import { Music, RotateCw, ChevronDown, Check } from "lucide-react";
 import { LyricsData, LyricsProviderId, LYRICS_PROVIDERS_META } from "../../services/lyricsService";
 import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
+import { getSongLyricsOffset, setSongLyricsOffset } from "../../services/mediaLyricsStore";
 
 export interface LyricsViewProps {
   lyrics: LyricsData | null;
@@ -49,25 +50,29 @@ export const LyricsView = React.memo<LyricsViewProps>(({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isProviderDropdownOpen]);
 
-  // Sync offset calibration (default 0.0s)
-  const [offset, setOffset] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem("notch_lyrics_offset");
-      return saved !== null ? parseFloat(saved) : 0.0;
-    } catch {
-      return 0.0;
+  // Sync offset calibration per song (default 0.0s)
+  const [offset, setOffset] = useState<number>(0.0);
+
+  useEffect(() => {
+    if (!songTitle) {
+      setOffset(0.0);
+      return;
     }
-  });
+    let isCancelled = false;
+    getSongLyricsOffset(artist || "", songTitle).then((val) => {
+      if (!isCancelled) setOffset(val);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [artist, songTitle]);
 
   const handleOffsetChange = (delta: number) => {
     setOffset((prev) => {
       const next = Math.round((prev + delta) * 10) / 10;
       const clamped = Math.max(-5, Math.min(5, next));
-      try {
-        localStorage.setItem("notch_lyrics_offset", clamped.toString());
-      } catch {}
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("notch_lyrics_offset_changed", { detail: clamped }));
+      if (songTitle) {
+        setSongLyricsOffset(artist || "", songTitle, clamped);
       }
       return clamped;
     });
@@ -76,11 +81,8 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   const handleResetOffset = () => {
     const defaultVal = 0.0;
     setOffset(defaultVal);
-    try {
-      localStorage.setItem("notch_lyrics_offset", defaultVal.toString());
-    } catch {}
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("notch_lyrics_offset_changed", { detail: defaultVal }));
+    if (songTitle) {
+      setSongLyricsOffset(artist || "", songTitle, defaultVal);
     }
   };
 

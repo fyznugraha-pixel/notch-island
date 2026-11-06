@@ -9,6 +9,7 @@ mod install_repair;
 mod windows_dnd;
 mod toast_banners;
 pub mod shelf_server;
+pub mod media_lyrics_store;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -3215,7 +3216,14 @@ pub fn run() {
             shelf_server::start_shelf_send,
             shelf_server::start_shelf_receive,
             shelf_server::stop_shelf_transfer,
-            shelf_server::get_shelf_transfer_status
+            shelf_server::get_shelf_transfer_status,
+            media_lyrics_store::get_current_media,
+            media_lyrics_store::get_current_lyrics,
+            media_lyrics_store::get_lyrics_offset,
+            media_lyrics_store::set_lyrics_offset,
+            media_lyrics_store::store_lyrics_result,
+            media_lyrics_store::broadcast_lyrics_loading,
+            media_lyrics_store::clear_lyrics_disk_cache
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -4452,32 +4460,19 @@ pub fn run() {
                         last_app_id = current_app_id.clone();
                         last_web_source = current_web_source.clone();
                         
-                        #[derive(serde::Serialize, Clone)]
-                        struct MediaPayload {
-                            title: String,
-                            artist: String,
-                            is_playing: bool,
-                            thumbnail: Option<String>,
-                            playback_type: i32,
-                            position: f64,
-                            duration: f64,
-                            is_browser: bool,
-                            app_id: Option<String>,
-                            web_source: Option<String>,
-                        }
-                        
-                        let _ = app_handle.emit("media-update", MediaPayload { 
-                            title, 
-                            artist, 
+                        media_lyrics_store::on_media_state_changed(
+                            &app_handle,
+                            &title,
+                            &artist,
                             is_playing,
-                            thumbnail: last_thumbnail.clone(),
-                            playback_type: last_playback_type,
-                            position: position_sec,
-                            duration: duration_sec,
-                            is_browser: last_is_browser,
-                            app_id: current_app_id.clone(),
-                            web_source: last_web_source.clone(),
-                        });
+                            last_thumbnail.clone(),
+                            last_playback_type,
+                            position_sec,
+                            duration_sec,
+                            last_is_browser,
+                            current_app_id.clone(),
+                            last_web_source.clone(),
+                        );
                     }
 
                     if last_title.is_empty() {
@@ -4490,16 +4485,7 @@ pub fn run() {
                         last_position = position_sec;
                         last_duration = duration_sec;
                         
-                        #[derive(serde::Serialize, Clone)]
-                        struct ProgressPayload {
-                            position: f64,
-                            duration: f64,
-                        }
-                        
-                        let _ = app_handle.emit("media-progress", ProgressPayload { 
-                            position: position_sec, 
-                            duration: duration_sec 
-                        });
+                        media_lyrics_store::on_media_progress(&app_handle, position_sec, duration_sec);
                     }
                 }
             });

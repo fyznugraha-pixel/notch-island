@@ -44,7 +44,8 @@ import { isValidHex, normalizeHex, getPerceivedLuminance } from "./utils/colorUt
 import { PanelFrame } from "./components/ui/PanelNavHeader";
 import type { MonitorInfo } from "./components/ui/settings/MonitorSelector";
 import { getTextWidth } from "./utils/text";
-import { LyricsData, LyricsProviderId, fetchLyrics, clearLyricsCacheForTrack } from "./services/lyricsService";
+import { LyricsData, LyricsProviderId } from "./services/lyricsService";
+import { initMediaLyricsStore, subscribeLyrics, requestLyricsRefresh } from "./services/mediaLyricsStore";
 import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
 import { fetchCurrentWeather, subscribeWeatherChange, getCachedWeather } from "./services/weatherService";
 import { checkForAppUpdate } from "./services/updateService";
@@ -469,8 +470,6 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   });
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [isLyricsLoading, setIsLyricsLoading] = useState(false);
-  // Incremented whenever media is re-enabled so the fetch effect fires even if title/artist didn't change
-  const [lyricsFetchKey, setLyricsFetchKey] = useState(0);
   const [lyricsProvider, setLyricsProvider] = useState<LyricsProviderId>(() => {
     try {
       return (localStorage.getItem("notch_lyrics_provider") as LyricsProviderId) || "auto";
@@ -506,38 +505,49 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   };
 
   useEffect(() => {
-    setLyricsData(null);
     setActiveIdleLyric({ curr: "", prev: "", next: "" });
   }, [media?.title, media?.artist]);
 
+  // Unified Single Source of Truth for Lyrics & Media Store
   useEffect(() => {
-    if (!showLyrics || !media?.title) {
-      setIsLyricsLoading(false);
-      return;
-    }
-    let isCancelled = false;
-    setIsLyricsLoading(true);
-    // SMTC often reports title and artist a moment apart; wait so we search once with both
-    const debounceTimer = window.setTimeout(() => {
-      fetchLyrics(media.artist || "", media.title, media.duration || mediaProgress.duration, lyricsProvider)
-        .then((res) => {
-          if (!isCancelled) {
-            setLyricsData(res);
-            setIsLyricsLoading(false);
-          }
-        })
-        .catch(() => {
-          if (!isCancelled) {
-            setLyricsData(null);
-            setIsLyricsLoading(false);
-          }
-        });
-    }, 350);
+    let isCleanedUp = false;
+    let unsubscribeLyrics: (() => void) | null = null;
+
+    initMediaLyricsStore(!isSecondaryWindow).then(() => {
+      if (isCleanedUp) return;
+      unsubscribeLyrics = subscribeLyrics((payload) => {
+        if (payload.state === "loading") {
+          setIsLyricsLoading(true);
+        } else if (payload.state === "synced" || payload.state === "plain" || payload.state === "instrumental") {
+          setLyricsData({
+            synced: payload.synced,
+            lines: payload.lines,
+            plainLyrics: payload.plain_lyrics || undefined,
+            instrumental: payload.state === "instrumental",
+            provider: payload.provider as LyricsProviderId,
+            providerName: payload.provider_name,
+          });
+          setIsLyricsLoading(false);
+        } else if (payload.state === "not_found") {
+          setLyricsData({
+            synced: false,
+            lines: [],
+            provider: payload.provider as LyricsProviderId,
+            providerName: payload.provider_name,
+          });
+          setIsLyricsLoading(false);
+        } else if (payload.state === "empty") {
+          setLyricsData(null);
+          setIsLyricsLoading(false);
+        }
+      });
+    });
+
     return () => {
-      isCancelled = true;
-      window.clearTimeout(debounceTimer);
+      isCleanedUp = true;
+      if (unsubscribeLyrics) unsubscribeLyrics();
     };
-  }, [showLyrics, media?.title, media?.artist, lyricsProvider, lyricsFetchKey]);
+  }, [isSecondaryWindow]);
 
   const handleChangeLyricsProvider = useCallback(async (newProvider: LyricsProviderId) => {
     setLyricsProvider(newProvider);
@@ -546,42 +556,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     } catch {}
     if (!media?.title) return;
     setIsLyricsLoading(true);
-    try {
-      clearLyricsCacheForTrack(media.artist || "", media.title);
-      const res = await fetchLyrics(
-        media.artist || "",
-        media.title,
-        media.duration || mediaProgress.duration,
-        newProvider,
-        true
-      );
-      setLyricsData(res);
-    } catch {
-      setLyricsData(null);
-    } finally {
-      setIsLyricsLoading(false);
-    }
-  }, [media?.artist, media?.title, media?.duration, mediaProgress.duration]);
+    await requestLyricsRefresh(media.artist || "", media.title, newProvider);
+  }, [media?.artist, media?.title]);
 
   const handleRefreshLyrics = useCallback(async () => {
     if (!media?.title) return;
     setIsLyricsLoading(true);
-    try {
-      clearLyricsCacheForTrack(media.artist || "", media.title);
-      const res = await fetchLyrics(
-        media.artist || "",
-        media.title,
-        media.duration || mediaProgress.duration,
-        lyricsProvider,
-        true
-      );
-      setLyricsData(res);
-    } catch {
-      setLyricsData(null);
-    } finally {
-      setIsLyricsLoading(false);
-    }
-  }, [media?.artist, media?.title, media?.duration, mediaProgress.duration, lyricsProvider]);
+    await requestLyricsRefresh(media.artist || "", media.title, lyricsProvider);
+  }, [media?.artist, media?.title, lyricsProvider]);
 
   const [notifQueue, setNotifQueue] = useState<NotifPayload[]>([]);
   const musicAmbientUrl = useResolvedThumbnail(media);
@@ -2241,7 +2223,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         setMedia(lastMediaPayloadRef.current);
         setIsPlaying(lastMediaPayloadRef.current.is_playing);
         // force lyrics re-fetch — title/artist may be unchanged but media was toggled back on
-        setLyricsFetchKey((k) => k + 1);
+        requestLyricsRefresh(lastMediaPayloadRef.current.artist || "", lastMediaPayloadRef.current.title);
       }
     }
   }, [optMedia]);
