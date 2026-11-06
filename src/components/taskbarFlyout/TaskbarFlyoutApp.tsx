@@ -28,10 +28,6 @@ export const TaskbarFlyoutApp: React.FC = () => {
     const cfg = getCachedNavbarConfigSync();
     return cfg.style === "liquid" ? "liquid" : "solid";
   });
-  const [opacity, setOpacity] = useState<number>(() => {
-    const cfg = getCachedNavbarConfigSync();
-    return cfg.opacity ?? 100;
-  });
   const [desktopBackdropUrl, setDesktopBackdropUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,8 +40,6 @@ export const TaskbarFlyoutApp: React.FC = () => {
       setTarget(newTarget);
       if (newTheme) setTheme(newTheme);
       if (backdrop) setDesktopBackdropUrl(backdrop);
-      const cfg = getCachedNavbarConfigSync();
-      if (cfg.opacity !== undefined) setOpacity(cfg.opacity);
       setIsOpen(true);
     };
 
@@ -67,9 +61,6 @@ export const TaskbarFlyoutApp: React.FC = () => {
     // 3. Instant live sync from Settings
     const unsubscribeConfig = subscribeToNavbarConfig((newCfg) => {
       setTheme(newCfg.style === "liquid" ? "liquid" : "solid");
-      if (newCfg.opacity !== undefined) {
-        setOpacity(newCfg.opacity);
-      }
     });
 
     // 4. Listen to state changes from Rust window manager
@@ -87,8 +78,6 @@ export const TaskbarFlyoutApp: React.FC = () => {
             if (event.payload.backdropUrl !== undefined) {
               setDesktopBackdropUrl(event.payload.backdropUrl);
             }
-            const cfg = getCachedNavbarConfigSync();
-            if (cfg.opacity !== undefined) setOpacity(cfg.opacity);
             setIsOpen(true);
           } else {
             setIsOpen(false);
@@ -116,29 +105,6 @@ export const TaskbarFlyoutApp: React.FC = () => {
     return <div className="w-screen h-screen bg-transparent pointer-events-none" />;
   }
 
-  const alpha = Math.max(0.12, Math.min(1, opacity / 100));
-
-  const dynamicSurfaceStyle: React.CSSProperties =
-    theme === "liquid"
-      ? {
-          background: `linear-gradient(180deg, rgba(255, 255, 255, ${(
-            0.2 * alpha
-          ).toFixed(3)}) 0%, rgba(255, 255, 255, ${(0.07 * alpha).toFixed(
-            3
-          )}) 50%, rgba(255, 255, 255, ${(0.1 * alpha).toFixed(
-            3
-          )}) 100%), rgba(22, 16, 72, ${(0.5 * alpha).toFixed(3)})`,
-          backdropFilter: "blur(26px) saturate(175%) brightness(1.05)",
-          WebkitBackdropFilter: "blur(26px) saturate(175%) brightness(1.05)",
-        }
-      : {
-          background: `rgba(17, 17, 20, ${alpha.toFixed(3)})`,
-          backdropFilter:
-            alpha < 0.98 ? "blur(24px) saturate(160%)" : "none",
-          WebkitBackdropFilter:
-            alpha < 0.98 ? "blur(24px) saturate(160%)" : "none",
-        };
-
   return (
     <div
       data-taskbar-theme={theme}
@@ -147,7 +113,6 @@ export const TaskbarFlyoutApp: React.FC = () => {
       <div
         role="dialog"
         aria-label={`Gili ${target}`}
-        style={dynamicSurfaceStyle}
         className="gili-flyout-container w-full h-full flex flex-col relative p-3.5 box-border overflow-hidden"
       >
         {/* Authentic Liquid Glass Wallpaper Blur (Pre-captured, zero delay, zero jump) */}
@@ -160,7 +125,6 @@ export const TaskbarFlyoutApp: React.FC = () => {
               style={{
                 filter: "blur(26px) saturate(175%) brightness(1.05)",
                 transform: "scale(1.06)",
-                opacity: Math.max(0.25, Math.min(1, alpha * 1.15)),
               }}
             />
           </div>

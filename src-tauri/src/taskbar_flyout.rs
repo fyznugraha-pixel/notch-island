@@ -8,6 +8,23 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, SetForegroundWindow};
 
+#[link(name = "dwmapi")]
+extern "system" {
+    fn DwmSetWindowAttribute(
+        hwnd: windows::Win32::Foundation::HWND,
+        dw_attribute: u32,
+        pv_attribute: *const core::ffi::c_void,
+        cb_attribute: u32,
+    ) -> windows::core::HRESULT;
+}
+
+const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+const DWMWCP_DONOTROUND: u32 = 1;
+const DWMWA_BORDER_COLOR: u32 = 34;
+const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
+const DWMWA_SYSTEMBACKDROP_TYPE: u32 = 38;
+const DWMSBT_NONE: u32 = 1;
+
 static FLYOUT_OPEN: AtomicBool = AtomicBool::new(false);
 static ACTIVE_TARGET: Mutex<String> = Mutex::new(String::new());
 static LAST_FG_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -92,6 +109,31 @@ pub fn ensure_flyout_window(app: &AppHandle) -> Option<WebviewWindow> {
                     if new_ex != ex {
                         let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex as i32);
                     }
+
+                    // Forbid Windows 11 DWM from drawing any window borders, rectangular acrylic, or automatic corner cuts
+                    let corner_pref = DWMWCP_DONOTROUND;
+                    let _ = DwmSetWindowAttribute(
+                        hwnd,
+                        DWMWA_WINDOW_CORNER_PREFERENCE,
+                        &corner_pref as *const _ as *const _,
+                        std::mem::size_of::<u32>() as u32,
+                    );
+
+                    let border_color = DWMWA_COLOR_NONE;
+                    let _ = DwmSetWindowAttribute(
+                        hwnd,
+                        DWMWA_BORDER_COLOR,
+                        &border_color as *const _ as *const _,
+                        std::mem::size_of::<u32>() as u32,
+                    );
+
+                    let backdrop = DWMSBT_NONE;
+                    let _ = DwmSetWindowAttribute(
+                        hwnd,
+                        DWMWA_SYSTEMBACKDROP_TYPE,
+                        &backdrop as *const _ as *const _,
+                        std::mem::size_of::<u32>() as u32,
+                    );
                 }
             }
             Some(win)
