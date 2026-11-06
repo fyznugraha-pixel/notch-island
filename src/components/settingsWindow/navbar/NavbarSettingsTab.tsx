@@ -116,14 +116,6 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
         console.error("Failed to toggle taskbar visibility:", err);
       }
     }
-
-    try {
-      await invoke("broadcast_navbar_config_update", { config: nextConfig });
-    } catch {}
-    try {
-      await emit("navbar_config_updated", nextConfig);
-      await emit("gili-navbar-config-sync", nextConfig);
-    } catch {}
   };
 
   const handleApplyPreset = (

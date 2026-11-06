@@ -646,6 +646,10 @@ pub fn set_navbar_focusable(app: tauri::AppHandle, focusable: bool) {
 pub fn broadcast_navbar_config_update(app: tauri::AppHandle, config: serde_json::Value) {
     let _ = app.emit("navbar_config_updated", &config);
     let _ = app.emit("gili-navbar-config-sync", &config);
+    if let Some(win) = app.get_webview_window("navbar") {
+        let _ = win.emit("navbar_config_updated", &config);
+        let _ = win.emit("gili-navbar-config-sync", &config);
+    }
 }
 
 fn resolve_target_monitor(

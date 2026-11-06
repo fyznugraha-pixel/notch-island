@@ -5,6 +5,7 @@ import { NavbarConfig } from "../../types/navbar";
 import {
   getCachedNavbarConfigSync,
   loadNavbarConfig,
+  subscribeToNavbarConfig,
 } from "../../services/navbarConfigService";
 import { NavbarDock } from "./NavbarDock";
 
@@ -28,6 +29,7 @@ export const NavbarApp: React.FC = () => {
     pos: string;
     mon: string;
     isAnchored: boolean;
+    dist: number;
   }>({
     w: 0,
     h: 0,
@@ -35,6 +37,7 @@ export const NavbarApp: React.FC = () => {
     pos: "",
     mon: "",
     isAnchored: false,
+    dist: 0,
   });
   const autoHideTimerRef = useRef<number | null>(null);
 
@@ -43,12 +46,12 @@ export const NavbarApp: React.FC = () => {
     loadNavbarConfig().then((cfg) => {
       setConfig(cfg);
       if (!cfg.enabled) {
-        invoke("close_navbar_window").catch(() => {});
-        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+        invoke("close_navbar_window").catch(() => { });
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => { });
       } else {
-        invoke("open_navbar_window").catch(() => {});
+        invoke("open_navbar_window").catch(() => { });
         if (cfg.hideWindowsTaskbar) {
-          invoke("set_windows_taskbar_visible", { visible: false }).catch(() => {});
+          invoke("set_windows_taskbar_visible", { visible: false }).catch(() => { });
         }
       }
     });
@@ -56,17 +59,29 @@ export const NavbarApp: React.FC = () => {
     const handleConfigUpdate = (payload: NavbarConfig) => {
       setConfig(payload);
       if (!payload.enabled) {
-        invoke("close_navbar_window").catch(() => {});
-        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+        invoke("close_navbar_window").catch(() => { });
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => { });
       } else {
-        invoke("open_navbar_window").catch(() => {});
+        invoke("open_navbar_window").catch(() => { });
         if (payload.hideWindowsTaskbar) {
-          invoke("set_windows_taskbar_visible", { visible: false }).catch(() => {});
+          invoke("set_windows_taskbar_visible", { visible: false }).catch(() => { });
         } else {
-          invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+          invoke("set_windows_taskbar_visible", { visible: true }).catch(() => { });
         }
       }
+      // Force instant bounds sync with updated shape/margins
+      requestAnimationFrame(() => {
+        if (dockRef.current) {
+          const naturalW = dockRef.current.offsetWidth || dockRef.current.getBoundingClientRect().width;
+          const naturalH = dockRef.current.offsetHeight || dockRef.current.getBoundingClientRect().height;
+          if (naturalW > 0 && naturalH > 0) {
+            syncBounds(naturalW, naturalH, 380, 420, true);
+          }
+        }
+      });
     };
+
+    const unsubscribeBroadcast = subscribeToNavbarConfig(handleConfigUpdate);
 
     const unlistenPromise1 = listen<NavbarConfig>("navbar_config_updated", (event) => {
       if (event.payload) handleConfigUpdate(event.payload);
@@ -87,6 +102,7 @@ export const NavbarApp: React.FC = () => {
     });
 
     return () => {
+      unsubscribeBroadcast();
       unlistenPromise1.then((fn) => fn());
       unlistenPromise2.then((fn) => fn());
       unlistenSyncBounds.then((fn) => fn());
@@ -104,7 +120,7 @@ export const NavbarApp: React.FC = () => {
         setIsWindowCoveringDock(!!val);
         isWindowCoveringDockRef.current = !!val;
       })
-      .catch(() => {});
+      .catch(() => { });
 
     const unlistenHit = listen<boolean>("navbar-cursor-hit", (event) => {
       const hit = !!event.payload;
@@ -115,7 +131,7 @@ export const NavbarApp: React.FC = () => {
           autoHideTimerRef.current = null;
         }
         setIsDockVisible(true);
-        invoke("set_metrics_power_state", { state: "Active" }).catch(() => {});
+        invoke("set_metrics_power_state", { state: "Active" }).catch(() => { });
       } else {
         const mode = config.autoHideMode || "normal";
         const needsHide =
@@ -128,7 +144,7 @@ export const NavbarApp: React.FC = () => {
         } else {
           setIsDockVisible(true);
         }
-        invoke("set_metrics_power_state", { state: "Idle" }).catch(() => {});
+        invoke("set_metrics_power_state", { state: "Idle" }).catch(() => { });
       }
     });
 
@@ -186,7 +202,7 @@ export const NavbarApp: React.FC = () => {
     invoke("set_navbar_auto_hide_state", {
       autoHide: !!isEffectiveAutoHide,
       isHidden: isEffectiveAutoHide && !isDockVisible,
-    }).catch(() => {});
+    }).catch(() => { });
   }, [isEffectiveAutoHide, isDockVisible]);
 
   // Reset cached sync state whenever navbar is disabled so next enable always forces a sync
@@ -199,6 +215,7 @@ export const NavbarApp: React.FC = () => {
         pos: "",
         mon: "",
         isAnchored: false,
+        dist: 0,
       };
       hasTriggeredEntranceRef.current = false;
       setHasEntered(false);
@@ -218,16 +235,18 @@ export const NavbarApp: React.FC = () => {
       const pos = config.position || "bottom";
       const mon = config.monitorId || "primary";
       const isAnchoredBool = config.shape === "anchored";
+      const currentDist = isAnchoredBool ? 0 : config.distanceFromEdge ?? 14;
 
       const isPositionOrMonitorChange =
         pos !== lastSyncRef.current.pos || mon !== lastSyncRef.current.mon;
       const isSizeSignificant =
-        Math.abs(width - lastSyncRef.current.w) >= 24 ||
-        Math.abs(height - lastSyncRef.current.h) >= 16 ||
+        Math.abs(width - lastSyncRef.current.w) >= 12 ||
+        Math.abs(height - lastSyncRef.current.h) >= 8 ||
         Math.abs(overhead - lastSyncRef.current.overhead) >= 8;
       const isAnchoredChange = isAnchoredBool !== lastSyncRef.current.isAnchored;
+      const isDistChange = currentDist !== lastSyncRef.current.dist;
 
-      if (force || isPositionOrMonitorChange || isSizeSignificant || isAnchoredChange) {
+      if (force || isPositionOrMonitorChange || isSizeSignificant || isAnchoredChange || isDistChange) {
         lastSyncRef.current = {
           w: width,
           h: height,
@@ -235,14 +254,14 @@ export const NavbarApp: React.FC = () => {
           pos,
           mon,
           isAnchored: isAnchoredBool,
+          dist: currentDist,
         };
         try {
           await invoke("sync_navbar_bounds", {
             width: Math.ceil(width),
             height: Math.ceil(height),
             position: pos,
-            distanceFromEdge:
-              isAnchoredBool ? 0 : config.distanceFromEdge ?? 14,
+            distanceFromEdge: currentDist,
             isAnchored: isAnchoredBool,
             overhead,
             extraWidth,
@@ -353,9 +372,9 @@ export const NavbarApp: React.FC = () => {
           position: config.position || "bottom",
           theme: config.style === "liquid" ? "liquid" : "solid",
         },
-      }).catch(() => {});
+      }).catch(() => { });
     } else {
-      invoke("trigger_start_menu").catch(() => {});
+      invoke("trigger_start_menu").catch(() => { });
     }
   };
 
@@ -369,9 +388,9 @@ export const NavbarApp: React.FC = () => {
           position: config.position || "bottom",
           theme: config.style === "liquid" ? "liquid" : "solid",
         },
-      }).catch(() => {});
+      }).catch(() => { });
     } else {
-      invoke("trigger_windows_search").catch(() => {});
+      invoke("trigger_windows_search").catch(() => { });
     }
   };
 
@@ -385,9 +404,9 @@ export const NavbarApp: React.FC = () => {
           position: config.position || "bottom",
           theme: config.style === "liquid" ? "liquid" : "solid",
         },
-      }).catch(() => {});
+      }).catch(() => { });
     } else {
-      invoke("trigger_quick_settings").catch(() => {});
+      invoke("trigger_quick_settings").catch(() => { });
     }
   };
 
@@ -419,9 +438,9 @@ export const NavbarApp: React.FC = () => {
           position: config.position || "bottom",
           theme: config.style === "liquid" ? "liquid" : "solid",
         },
-      }).catch(() => {});
+      }).catch(() => { });
     } else {
-      invoke("trigger_notification_center").catch(() => {});
+      invoke("trigger_notification_center").catch(() => { });
     }
   };
 
@@ -435,41 +454,37 @@ export const NavbarApp: React.FC = () => {
           position: config.position || "bottom",
           theme: config.style === "liquid" ? "liquid" : "solid",
         },
-      }).catch(() => {});
+      }).catch(() => { });
     } else {
-      invoke("trigger_notification_center").catch(() => {});
+      invoke("trigger_notification_center").catch(() => { });
     }
   };
 
   const handlePreviewStateChange = useCallback((isShowing: boolean) => {
-    invoke("set_navbar_popup_open", { open: isShowing }).catch(() => {});
+    invoke("set_navbar_popup_open", { open: isShowing }).catch(() => { });
   }, []);
 
   const pos = config.position || "bottom";
   const positionContainerClass =
     pos === "top"
-      ? `top-0 left-1/2 -translate-x-1/2 ${
-          shouldSlideOut
-            ? "-translate-y-[calc(100%+24px)] opacity-0"
-            : "translate-y-0 opacity-100"
-        }`
+      ? `top-0 left-1/2 -translate-x-1/2 ${shouldSlideOut
+        ? "-translate-y-[calc(100%+24px)] opacity-0"
+        : "translate-y-0 opacity-100"
+      }`
       : pos === "left"
-      ? `left-0 top-1/2 -translate-y-1/2 ${
-          shouldSlideOut
-            ? "-translate-x-[calc(100%+24px)] opacity-0"
-            : "translate-x-0 opacity-100"
+        ? `left-0 top-1/2 -translate-y-1/2 ${shouldSlideOut
+          ? "-translate-x-[calc(100%+24px)] opacity-0"
+          : "translate-x-0 opacity-100"
         }`
-      : pos === "right"
-      ? `right-0 top-1/2 -translate-y-1/2 ${
-          shouldSlideOut
+        : pos === "right"
+          ? `right-0 top-1/2 -translate-y-1/2 ${shouldSlideOut
             ? "translate-x-[calc(100%+24px)] opacity-0"
             : "translate-x-0 opacity-100"
-        }`
-      : `bottom-0 left-1/2 -translate-x-1/2 ${
-          shouldSlideOut
+          }`
+          : `bottom-0 left-1/2 -translate-x-1/2 ${shouldSlideOut
             ? "translate-y-[calc(100%+24px)] opacity-0"
             : "translate-y-0 opacity-100"
-        }`;
+          }`;
 
   if (!config.enabled) {
     return null;
@@ -477,9 +492,8 @@ export const NavbarApp: React.FC = () => {
 
   return (
     <div
-      className={`fixed inset-0 w-full h-full select-none overflow-visible bg-transparent pointer-events-none transition-opacity duration-200 ${
-        isFullscreenCovered ? "opacity-0" : "opacity-100"
-      }`}
+      className={`fixed inset-0 w-full h-full select-none overflow-visible bg-transparent pointer-events-none transition-opacity duration-200 ${isFullscreenCovered ? "opacity-0" : "opacity-100"
+        }`}
     >
       <div
         style={{
@@ -491,16 +505,16 @@ export const NavbarApp: React.FC = () => {
           style={
             viewportScale < 1
               ? {
-                  transform: `scale(${viewportScale})`,
-                  transformOrigin:
-                    pos === "top"
-                      ? "top center"
-                      : pos === "left"
+                transform: `scale(${viewportScale})`,
+                transformOrigin:
+                  pos === "top"
+                    ? "top center"
+                    : pos === "left"
                       ? "center left"
                       : pos === "right"
-                      ? "center right"
-                      : "bottom center",
-                }
+                        ? "center right"
+                        : "bottom center",
+              }
               : undefined
           }
         >

@@ -40,9 +40,81 @@ export function darkenHex(hex: string, keep: number): string {
 const STORE_FILENAME = "settings.json";
 const STORE_KEY = "opt_navbar_config";
 const LOCAL_STORAGE_KEY = "island_navbar_config_v1";
+const BROADCAST_CHANNEL_NAME = "gili_navbar_sync_channel";
 
 let storeInstance: Store | null = null;
 let storeInitPromise: Promise<Store | null> | null = null;
+let syncChannel: BroadcastChannel | null = null;
+let debouncedSaveTimer: any = null;
+let pendingConfigToSave: NavbarConfig | null = null;
+let lastSavedSwitchesHash = "";
+
+function getSyncChannel(): BroadcastChannel | null {
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
+  if (!syncChannel) {
+    try {
+      syncChannel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+    } catch {}
+  }
+  return syncChannel;
+}
+
+async function flushConfigToStore(normalized: NavbarConfig): Promise<void> {
+  try {
+    const store = await getSettingsStore();
+    if (store) {
+      await store.set(STORE_KEY, normalized);
+      await store.save();
+    }
+  } catch (err) {
+    console.error("Failed to save navbar config to store:", err);
+  }
+}
+
+export function subscribeToNavbarConfig(
+  onUpdate: (config: NavbarConfig) => void
+): () => void {
+  const unlistenFns: (() => void)[] = [];
+
+  // 1. BroadcastChannel (zero-IPC, instant cross-window sync across WebViews)
+  const channel = getSyncChannel();
+  if (channel) {
+    const handler = (e: MessageEvent) => {
+      if (e.data && typeof e.data === "object") {
+        onUpdate(normalizeNavbarConfig(e.data));
+      }
+    };
+    channel.addEventListener("message", handler);
+    unlistenFns.push(() => channel.removeEventListener("message", handler));
+  }
+
+  // 2. Storage event (cross-webview fallback)
+  if (typeof window !== "undefined") {
+    const storageHandler = (e: StorageEvent) => {
+      if (e.key === LOCAL_STORAGE_KEY && e.newValue) {
+        try {
+          onUpdate(normalizeNavbarConfig(JSON.parse(e.newValue)));
+        } catch {}
+      }
+    };
+    window.addEventListener("storage", storageHandler);
+    unlistenFns.push(() => window.removeEventListener("storage", storageHandler));
+
+    // 3. Custom DOM event (same window)
+    const domHandler = (e: Event) => {
+      const custom = e as CustomEvent<NavbarConfig>;
+      if (custom.detail) {
+        onUpdate(normalizeNavbarConfig(custom.detail));
+      }
+    };
+    window.addEventListener("gili-navbar-config-sync", domHandler);
+    unlistenFns.push(() => window.removeEventListener("gili-navbar-config-sync", domHandler));
+  }
+
+  return () => {
+    unlistenFns.forEach((fn) => fn());
+  };
+}
 
 async function getSettingsStore(): Promise<Store | null> {
   if (typeof window === "undefined") return null;
@@ -188,7 +260,7 @@ export function getCachedNavbarConfigSync(): NavbarConfig {
       if (rawLocal) {
         return normalizeNavbarConfig(JSON.parse(rawLocal));
       }
-    } catch {}
+    } catch { }
   }
   return {
     ...DEFAULT_NAVBAR_CONFIG,
@@ -214,7 +286,7 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
       if (rawLocal) {
         loadedData = JSON.parse(rawLocal);
       }
-    } catch {}
+    } catch { }
   }
 
   const normalized = normalizeNavbarConfig(loadedData);
@@ -223,7 +295,7 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
-    } catch {}
+    } catch { }
   }
 
   return normalized;
@@ -232,42 +304,64 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
 export async function saveNavbarConfig(config: NavbarConfig): Promise<NavbarConfig> {
   const normalized = normalizeNavbarConfig(config);
 
+  // 1. Instant synchronous write to localStorage
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
+    } catch { }
+  }
+
+  // 2. Instant cross-window broadcast via BroadcastChannel (zero latency)
+  try {
+    const ch = getSyncChannel();
+    if (ch) ch.postMessage(normalized);
+  } catch {}
+
+  // 3. Same-window custom event dispatch
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("gili-navbar-config-sync", { detail: normalized })
+      );
     } catch {}
   }
 
+  // 4. Tauri event broadcast (Rust + cross-window emit) - runs immediately without waiting for disk I/O
   try {
-    const store = await getSettingsStore();
-    if (store) {
-      await store.set(STORE_KEY, normalized);
-      await store.save();
-    }
-  } catch (err) {
-    console.error("Failed to save navbar config to store:", err);
+    invoke("broadcast_navbar_config_update", { config: normalized }).catch(() => {});
+  } catch { }
+  try {
+    emit("navbar_config_updated", normalized).catch(() => {});
+    emit("gili-navbar-config-sync", normalized).catch(() => {});
+  } catch { }
+
+  // 5. Only notify flyout switches if actual switch values changed (avoids spamming log during slider drag)
+  const switchesHash = `${!!normalized.useGiliStart}:${!!normalized.useGiliSearch}:${!!normalized.useGiliQuickSettings}:${!!normalized.useGiliVolumeOutput}:${!!normalized.useGiliNotificationsCalendar}:${!!normalized.useGiliTray}`;
+  if (switchesHash !== lastSavedSwitchesHash) {
+    lastSavedSwitchesHash = switchesHash;
+    try {
+      invoke("set_taskbar_window_switches", {
+        switches: {
+          use_gili_start: !!normalized.useGiliStart,
+          use_gili_search: !!normalized.useGiliSearch,
+          use_gili_quick_settings: !!normalized.useGiliQuickSettings,
+          use_gili_volume_output: !!normalized.useGiliVolumeOutput,
+          use_gili_notif_cal: !!normalized.useGiliNotificationsCalendar,
+          use_gili_tray: !!normalized.useGiliTray,
+        },
+      }).catch(() => {});
+    } catch {}
   }
 
-  // Broadcast sync event to all windows via Rust & frontend emit
-  try {
-    await invoke("broadcast_navbar_config_update", { config: normalized });
-  } catch {}
-  try {
-    await invoke("set_taskbar_window_switches", {
-      switches: {
-        use_gili_start: !!normalized.useGiliStart,
-        use_gili_search: !!normalized.useGiliSearch,
-        use_gili_quick_settings: !!normalized.useGiliQuickSettings,
-        use_gili_volume_output: !!normalized.useGiliVolumeOutput,
-        use_gili_notif_cal: !!normalized.useGiliNotificationsCalendar,
-        use_gili_tray: !!normalized.useGiliTray,
-      },
-    });
-  } catch {}
-  try {
-    await emit("navbar_config_updated", normalized);
-    await emit("gili-navbar-config-sync", normalized);
-  } catch {}
+  // 6. Debounced disk persistence to store (never blocks UI or IPC thread)
+  pendingConfigToSave = normalized;
+  if (debouncedSaveTimer) clearTimeout(debouncedSaveTimer);
+  debouncedSaveTimer = setTimeout(() => {
+    if (pendingConfigToSave) {
+      flushConfigToStore(pendingConfigToSave);
+      pendingConfigToSave = null;
+    }
+  }, 250);
 
   return normalized;
 }
