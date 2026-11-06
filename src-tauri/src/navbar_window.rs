@@ -552,6 +552,7 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
                     let hwnd = HWND(raw_hwnd.0);
                     remove_appbar_if_registered(hwnd);
                     apply_navbar_exstyle(hwnd, false);
+                    crate::backdrop_capture::set_exclude_from_capture(hwnd);
                 }
 
                 let nw = win.clone();

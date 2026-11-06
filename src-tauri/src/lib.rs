@@ -17,6 +17,7 @@ pub mod taskbar_logger;
 pub mod taskbar_safety;
 pub mod taskbar_hotkey;
 pub mod taskbar_flyout;
+pub mod backdrop_capture;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -3204,7 +3205,9 @@ pub fn run() {
             set_master_mute,
             get_spatial_audio_status,
             open_sound_settings,
-            get_system_power_info
+            get_system_power_info,
+            backdrop_capture::capture_desktop_backdrop,
+            backdrop_capture::set_window_exclude_from_capture
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -3275,6 +3278,10 @@ pub fn run() {
             let _ = window.set_ignore_cursor_events(true);
             let _ = window.set_shadow(false);
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(820.0, 460.0)));
+            #[cfg(windows)]
+            if let Ok(raw_hwnd) = window.hwnd() {
+                backdrop_capture::set_exclude_from_capture(windows::Win32::Foundation::HWND(raw_hwnd.0));
+            }
 
             // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI berubah
             position_notch_window(&window, NotchPos::Top, 0, None);

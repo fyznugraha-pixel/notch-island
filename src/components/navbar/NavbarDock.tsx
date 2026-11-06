@@ -317,7 +317,9 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     }, [isPreview]);
 
     // Background & Opacity Calculation
-    const alpha = Math.max(0.1, Math.min(1, (config.opacity ?? 100) / 100));
+    const isLiquid = config.style === "liquid";
+    const isSolid = config.style === "solid";
+    const alpha = isSolid ? 1.0 : Math.max(0.1, Math.min(1, (config.opacity ?? 100) / 100));
     const isFollowNotch =
       config.style === "followNotch" || config.background === "followNotch";
     let baseHex = "#000000";
@@ -329,7 +331,6 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       baseHex = "#000000";
     }
     const bgColor = hexToRgba(baseHex, alpha);
-    const isLiquid = config.style === "liquid";
     const edgeGap = isAnchored ? 0 : config.distanceFromEdge ?? 14;
 
     const isHexLight = (hex: string) => {
@@ -341,13 +342,58 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       return (r * 299 + g * 587 + b * 114) / 1000 > 165;
     };
 
-    const isTranslucent = isLiquid || alpha < 0.8;
+    const isTranslucent = isLiquid || (!isSolid && alpha < 0.95);
     const isLightSurface = isTranslucent
       ? desktopLuminance >= 0.32 ||
         (isLiquid && desktopLuminance >= 0.28) ||
         (notchMode === "light" && isFollowNotch && desktopLuminance >= 0.25) ||
         (isHexLight(baseHex) && alpha >= 0.4)
       : isHexLight(baseHex);
+
+    // Real desktop wallpaper capture behind dock for Liquid Glass mode
+    const [desktopBackdropUrl, setDesktopBackdropUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+      if (!isLiquid || isPreview) {
+        setDesktopBackdropUrl(null);
+        return;
+      }
+
+      let isMounted = true;
+      const captureDockBackdrop = async () => {
+        try {
+          const el = localDockRef.current;
+          let clientRect: { x: number; y: number; width: number; height: number } | undefined;
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            const pad = isAnchored ? 40 : 8;
+            clientRect = {
+              x: Math.max(0, rect.left - (isVertical ? 0 : pad)),
+              y: Math.max(0, rect.top - (isVertical ? pad : 0)),
+              width: rect.width + (isVertical ? 0 : pad * 2),
+              height: rect.height + (isVertical ? pad * 2 : 0),
+            };
+          }
+          const dataUrl = await invoke<string>("capture_desktop_backdrop", {
+            windowLabel: "navbar",
+            clientRect,
+            blurSigma: 13.0,
+          });
+          if (isMounted && dataUrl) {
+            setDesktopBackdropUrl(dataUrl);
+          }
+        } catch {
+          // Graceful fallback
+        }
+      };
+
+      captureDockBackdrop();
+      const interval = setInterval(captureDockBackdrop, 5000);
+      return () => {
+        isMounted = false;
+        clearInterval(interval);
+      };
+    }, [isLiquid, isAnchored, isVertical, isPreview, config.position]);
 
     const borderRadiusValue = `${radius}px`;
 
@@ -408,11 +454,17 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
 
     const surfaceBackground = isLiquid
       ? isLightSurface
-        ? `linear-gradient(180deg, rgba(255,255,255,${0.55 * alpha}) 0%, rgba(240,240,245,${0.35 * alpha}) 48%, rgba(255,255,255,${0.45 * alpha}) 100%)`
-        : `linear-gradient(180deg, rgba(255,255,255,${0.3 * alpha}) 0%, rgba(255,255,255,${0.12 * alpha}) 48%, rgba(255,255,255,${0.16 * alpha}) 100%)`
+        ? "linear-gradient(180deg, rgba(255,255,255,.65) 0%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.40) 100%), rgba(240,244,255,.50)"
+        : "linear-gradient(180deg, rgba(255,255,255,.20) 0%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.10) 100%), rgba(22,16,72,.50)"
+      : isSolid
+      ? isLightSurface
+        ? "#ffffff"
+        : "#000000"
       : bgColor;
     const surfaceBackdropFilter = isLiquid
-      ? "blur(22px) saturate(175%) brightness(1.07)"
+      ? "blur(26px) saturate(175%) brightness(1.05)"
+      : isSolid
+      ? undefined
       : alpha < 1
       ? "blur(18px) saturate(150%)"
       : undefined;
@@ -437,8 +489,8 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         ? undefined
         : isLiquid
         ? isLightSurface
-          ? "inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(0,0,0,.15), 0 16px 36px rgba(0,0,0,.14), 0 2px 8px rgba(0,0,0,.08)"
-          : "inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(255,255,255,.14), inset 0 0 0 1px rgba(255,255,255,.22), 0 20px 44px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.16)"
+          ? "inset 0 1px 0 rgba(255,255,255,.85), inset 0 -1px 0 rgba(0,0,0,.04), inset 0 0 0 1px rgba(255,255,255,.45), 0 20px 48px rgba(0,0,0,.14), 0 2px 8px rgba(0,0,0,.06)"
+          : "inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(255,255,255,.12), inset 0 0 0 1px rgba(255,255,255,.22), 0 28px 64px rgba(12,10,60,.45), 0 2px 8px rgba(0,0,0,.16)"
         : isLightSurface
         ? "inset 0 1px 0 rgba(255,255,255,0.7), 0 14px 34px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.08)"
         : "inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 34px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06)",
@@ -747,22 +799,27 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
 
             {/* Unified Clipped Surface (body + both ears) */}
             <div
-              className="absolute inset-0 pointer-events-none"
+              className="absolute inset-0 pointer-events-none overflow-hidden"
               style={{
                 clipPath: `url(#${clipId})`,
                 WebkitClipPath: `url(#${clipId})`,
                 background: surfaceBackground,
-                backdropFilter: surfaceBackdropFilter,
-                WebkitBackdropFilter: surfaceBackdropFilter,
               }}
             >
+              {isLiquid && desktopBackdropUrl && (
+                <img
+                  src={desktopBackdropUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-fill pointer-events-none"
+                />
+              )}
               {isLiquid && (
                 <div
                   className="absolute inset-0 pointer-events-none"
                   style={{
                     background: isLightSurface
-                      ? "linear-gradient(112deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 28%, rgba(0,0,0,0.03) 74%, rgba(255,255,255,0.4) 100%)"
-                      : "linear-gradient(112deg, rgba(255,255,255,0.34) 0%, rgba(255,255,255,0) 26%, rgba(255,255,255,0) 74%, rgba(255,255,255,0.2) 100%)",
+                      ? "linear-gradient(180deg, rgba(255,255,255,.65) 0%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.40) 100%), rgba(240,244,255,.50)"
+                      : "linear-gradient(180deg, rgba(255,255,255,.20) 0%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.10) 100%), rgba(22,16,72,.50)",
                   }}
                 />
               )}
@@ -781,16 +838,25 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
                 stroke={
                   isLiquid
                     ? isLightSurface
-                      ? "rgba(0,0,0,0.18)"
-                      : "rgba(255,255,255,0.32)"
+                      ? "rgba(255,255,255,0.65)"
+                      : "rgba(255,255,255,0.22)"
                     : isLightSurface
-                    ? "rgba(0,0,0,0.12)"
-                    : "rgba(255,255,255,0.12)"
+                    ? "rgba(0,0,0,0.08)"
+                    : "rgba(255,255,255,0.08)"
                 }
                 strokeWidth="1"
               />
             </svg>
           </div>
+        )}
+
+        {/* Real captured desktop wallpaper behind dock in Floating mode */}
+        {!isAnchored && isLiquid && desktopBackdropUrl && (
+          <img
+            src={desktopBackdropUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full object-fill pointer-events-none rounded-[inherit] z-0"
+          />
         )}
 
         {/* Liquid Glass Specular Reflection Highlight for Floating mode */}
@@ -802,9 +868,10 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               inset: 0,
               borderRadius: "inherit",
               pointerEvents: "none",
+              zIndex: 0,
               background: isLightSurface
-                ? "linear-gradient(112deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 28%, rgba(0,0,0,0.03) 74%, rgba(255,255,255,0.4) 100%)"
-                : "linear-gradient(112deg, rgba(255,255,255,0.34) 0%, rgba(255,255,255,0) 26%, rgba(255,255,255,0) 74%, rgba(255,255,255,0.2) 100%)",
+                ? "linear-gradient(180deg, rgba(255,255,255,.65) 0%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.40) 100%), rgba(240,244,255,.50)"
+                : "linear-gradient(180deg, rgba(255,255,255,.20) 0%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.10) 100%), rgba(22,16,72,.50)",
             }}
           />
         )}
