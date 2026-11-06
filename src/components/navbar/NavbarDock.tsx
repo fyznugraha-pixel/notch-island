@@ -319,7 +319,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     // Background & Opacity Calculation
     const isLiquid = config.style === "liquid";
     const isSolid = config.style === "solid";
-    const alpha = isSolid ? 1.0 : Math.max(0.1, Math.min(1, (config.opacity ?? 100) / 100));
+    const alpha = Math.max(0.1, Math.min(1, (config.opacity ?? 100) / 100));
     const isFollowNotch =
       config.style === "followNotch" || config.background === "followNotch";
     let baseHex = "#000000";
@@ -342,7 +342,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       return (r * 299 + g * 587 + b * 114) / 1000 > 165;
     };
 
-    const isTranslucent = isLiquid || (!isSolid && alpha < 0.95);
+    const isTranslucent = isLiquid || alpha < 0.98;
     const isLightSurface = isTranslucent
       ? desktopLuminance >= 0.32 ||
         (isLiquid && desktopLuminance >= 0.28) ||
@@ -458,28 +458,30 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     const fillPath = buildNotchPath(pathParams);
     const outlinePath = buildNotchOutlinePath(pathParams);
 
+    const liquidDarkBg = `linear-gradient(180deg, rgba(255,255,255,${(0.20 * alpha).toFixed(3)}) 0%, rgba(255,255,255,${(0.07 * alpha).toFixed(3)}) 50%, rgba(255,255,255,${(0.10 * alpha).toFixed(3)}) 100%), rgba(22,16,72,${(0.50 * alpha).toFixed(3)})`;
+    const liquidLightBg = `linear-gradient(180deg, rgba(255,255,255,${(0.65 * alpha).toFixed(3)}) 0%, rgba(255,255,255,${(0.25 * alpha).toFixed(3)}) 50%, rgba(255,255,255,${(0.40 * alpha).toFixed(3)}) 100%), rgba(240,244,255,${(0.50 * alpha).toFixed(3)})`;
+
     const surfaceBackground = isLiquid
       ? isLightSurface
-        ? "linear-gradient(180deg, rgba(255,255,255,.65) 0%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.40) 100%), rgba(240,244,255,.50)"
-        : "linear-gradient(180deg, rgba(255,255,255,.20) 0%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.10) 100%), rgba(22,16,72,.50)"
+        ? liquidLightBg
+        : liquidDarkBg
       : isSolid
       ? isLightSurface
-        ? "#ffffff"
-        : "#000000"
+        ? `rgba(255, 255, 255, ${alpha})`
+        : `rgba(0, 0, 0, ${alpha})`
       : bgColor;
+
     const surfaceBackdropFilter = isLiquid
       ? "blur(26px) saturate(175%) brightness(1.05)"
-      : isSolid
-      ? undefined
-      : alpha < 1
-      ? "blur(18px) saturate(150%)"
+      : alpha < 0.99
+      ? "blur(20px) saturate(160%)"
       : undefined;
 
     // Neutral clean borders without accent color stroke (in anchored mode background & blur is on unified surface)
     const dockStyle: React.CSSProperties = {
       width: isVertical ? `${dockThickness}px` : undefined,
       height: isVertical ? undefined : `${dockThickness}px`,
-      background: isAnchored ? "transparent" : surfaceBackground,
+      background: isAnchored || isLiquid ? "transparent" : surfaceBackground,
       backdropFilter: isAnchored ? undefined : surfaceBackdropFilter,
       WebkitBackdropFilter: isAnchored ? undefined : surfaceBackdropFilter,
       borderRadius: isAnchored ? undefined : borderRadiusValue,
@@ -831,9 +833,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
                 <div
                   className="absolute inset-0 pointer-events-none"
                   style={{
-                    background: isLightSurface
-                      ? "linear-gradient(180deg, rgba(255,255,255,.65) 0%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.40) 100%), rgba(240,244,255,.50)"
-                      : "linear-gradient(180deg, rgba(255,255,255,.20) 0%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.10) 100%), rgba(22,16,72,.50)",
+                    background: surfaceBackground,
                   }}
                 />
               )}
@@ -889,9 +889,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               borderRadius: "inherit",
               pointerEvents: "none",
               zIndex: 0,
-              background: isLightSurface
-                ? "linear-gradient(180deg, rgba(255,255,255,.65) 0%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.40) 100%), rgba(240,244,255,.50)"
-                : "linear-gradient(180deg, rgba(255,255,255,.20) 0%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.10) 100%), rgba(22,16,72,.50)",
+              background: surfaceBackground,
             }}
           />
         )}
