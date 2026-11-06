@@ -1,0 +1,235 @@
+use std::sync::{Arc, Mutex, OnceLock};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
+
+static IS_MINIPLAYER_OPEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
+static WAS_OPEN_BEFORE_FULLSCREEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
+
+fn get_open_state() -> &'static Arc<Mutex<bool>> {
+    IS_MINIPLAYER_OPEN.get_or_init(|| Arc::new(Mutex::new(false)))
+}
+
+fn get_fs_state() -> &'static Arc<Mutex<bool>> {
+    WAS_OPEN_BEFORE_FULLSCREEN.get_or_init(|| Arc::new(Mutex::new(false)))
+}
+
+#[cfg(windows)]
+fn apply_no_activate_style(win: &WebviewWindow) {
+    if let Ok(hwnd) = win.hwnd() {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongW, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
+            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        };
+        unsafe {
+            let h = HWND(hwnd.0);
+            let ex_style = GetWindowLongW(h, GWL_EXSTYLE);
+            let new_ex_style = ex_style | (WS_EX_NOACTIVATE.0 as i32) | (WS_EX_TOOLWINDOW.0 as i32);
+            SetWindowLongW(h, GWL_EXSTYLE, new_ex_style);
+            let _ = SetWindowPos(
+                h,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+        }
+    }
+}
+
+pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
+    let open_arc = get_open_state();
+    let mut is_open = open_arc.lock().unwrap();
+
+    if let Some(w) = app.get_webview_window("miniplayer") {
+        if let Ok(is_vis) = w.is_visible() {
+            if is_vis {
+                let _ = w.hide();
+                *is_open = false;
+                let _ = app.emit("miniplayer:visibility-changed", false);
+                return Ok(false);
+            }
+        }
+        let _ = w.show();
+        #[cfg(windows)]
+        apply_no_activate_style(&w);
+        *is_open = true;
+        let _ = app.emit("miniplayer:visibility-changed", true);
+        return Ok(true);
+    }
+
+    // Build the miniplayer Tauri window
+    let win = tauri::WebviewWindowBuilder::new(
+        app,
+        "miniplayer",
+        tauri::WebviewUrl::App("index.html?window=miniplayer".into()),
+    )
+    .title("Gili Mini Player")
+    .inner_size(440.0, 88.0)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .visible(false)
+    .initialization_script("window.__IS_MINIPLAYER_WINDOW__ = true;")
+    .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
+    .build()
+    .map_err(|e| format!("Failed to create miniplayer window: {}", e))?;
+
+    #[cfg(windows)]
+    apply_no_activate_style(&win);
+
+    let _ = win.show();
+    *is_open = true;
+    let _ = app.emit("miniplayer:visibility-changed", true);
+    Ok(true)
+}
+
+pub fn close_miniplayer_window(app: &AppHandle) -> Result<(), String> {
+    let open_arc = get_open_state();
+    let mut is_open = open_arc.lock().unwrap();
+    if let Some(w) = app.get_webview_window("miniplayer") {
+        let _ = w.hide();
+    }
+    *is_open = false;
+    let _ = app.emit("miniplayer:visibility-changed", false);
+    Ok(())
+}
+
+pub fn check_fullscreen_and_autohide(app: &AppHandle) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::Shell::{
+            SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
+            QUNS_RUNNING_D3D_FULL_SCREEN,
+        };
+        let is_fullscreen = unsafe {
+            if let Ok(state) = SHQueryUserNotificationState() {
+                state == QUNS_RUNNING_D3D_FULL_SCREEN
+                    || state == QUNS_BUSY
+                    || state == QUNS_PRESENTATION_MODE
+            } else {
+                false
+            }
+        };
+
+        let open_arc = get_open_state();
+        let fs_arc = get_fs_state();
+        let mut is_open = open_arc.lock().unwrap();
+        let mut was_open_fs = fs_arc.lock().unwrap();
+
+        if let Some(w) = app.get_webview_window("miniplayer") {
+            if is_fullscreen {
+                if *is_open {
+                    *was_open_fs = true;
+                    *is_open = false;
+                    let _ = w.hide();
+                    let _ = app.emit("miniplayer:visibility-changed", false);
+                }
+            } else if *was_open_fs {
+                *was_open_fs = false;
+                *is_open = true;
+                let _ = w.show();
+                apply_no_activate_style(&w);
+                let _ = app.emit("miniplayer:visibility-changed", true);
+            }
+        }
+    }
+}
+
+pub fn clamp_and_snap_rect(
+    work_left: i32,
+    work_top: i32,
+    work_right: i32,
+    work_bottom: i32,
+    mut x: i32,
+    mut y: i32,
+    w: i32,
+    h: i32,
+) -> (i32, i32) {
+    const MARGIN: i32 = 12;
+    const ATTRACTION: i32 = 24;
+
+    // Left edge snapping
+    let snap_left = work_left + MARGIN;
+    if (x - snap_left).abs() <= ATTRACTION {
+        x = snap_left;
+    }
+
+    // Right edge snapping
+    let snap_right = work_right - MARGIN - w;
+    if (x - snap_right).abs() <= ATTRACTION {
+        x = snap_right;
+    }
+
+    // Top edge snapping
+    let snap_top = work_top + MARGIN;
+    if (y - snap_top).abs() <= ATTRACTION {
+        y = snap_top;
+    }
+
+    // Bottom edge snapping
+    let snap_bottom = work_bottom - MARGIN - h;
+    if (y - snap_bottom).abs() <= ATTRACTION {
+        y = snap_bottom;
+    }
+
+    // Strict clamping within work area
+    let clamped_x = x.clamp(work_left, (work_right - w).max(work_left));
+    let clamped_y = y.clamp(work_top, (work_bottom - h).max(work_top));
+
+    (clamped_x, clamped_y)
+}
+
+// --- Tauri Commands ---
+
+#[tauri::command]
+pub fn toggle_miniplayer(app: AppHandle) -> Result<bool, String> {
+    show_or_create_miniplayer(&app)
+}
+
+#[tauri::command]
+pub fn close_miniplayer(app: AppHandle) -> Result<(), String> {
+    close_miniplayer_window(&app)
+}
+
+#[tauri::command]
+pub fn is_miniplayer_open() -> bool {
+    let open_arc = get_open_state();
+    let guard = open_arc.lock().unwrap();
+    *guard
+}
+
+#[tauri::command]
+pub fn snap_miniplayer_position(
+    _app: AppHandle,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> (i32, i32) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
+
+        let pt = POINT { x, y };
+        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+
+        if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+            let rc = mi.rcWork;
+            return clamp_and_snap_rect(rc.left, rc.top, rc.right, rc.bottom, x, y, width, height);
+        }
+    }
+
+    (x, y)
+}

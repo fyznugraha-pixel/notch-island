@@ -9,6 +9,7 @@ import "./App.css";
 import "./index.css";
 import App from "./App";
 import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
+import { MiniPlayerApp } from "./components/miniplayer/MiniPlayerApp";
 import { getLanguage } from "./services/i18n";
 
 const isSettingsWindow = (() => {
@@ -61,6 +62,24 @@ const isSecondaryWindow = (() => {
   );
 })();
 
+const isMiniPlayerWindow = (() => {
+  if (typeof window === "undefined") return false;
+  if ((window as any).__IS_MINIPLAYER_WINDOW__ === true) {
+    return true;
+  }
+  try {
+    if (getCurrentWindow().label === "miniplayer") {
+      return true;
+    }
+  } catch {}
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("window") === "miniplayer" ||
+    window.location.search.includes("window=miniplayer") ||
+    window.location.href.includes("window=miniplayer")
+  );
+})();
+
 interface Props {
   children: ReactNode;
 }
@@ -100,6 +119,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RootErrorBoundary>
     {isSettingsWindow ? (
       <SettingsWindowApp />
+    ) : isMiniPlayerWindow ? (
+      <MiniPlayerApp />
     ) : (
       <App isSecondaryWindow={isSecondaryWindow} />
     )}

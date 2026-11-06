@@ -10,6 +10,7 @@ mod windows_dnd;
 mod toast_banners;
 pub mod shelf_server;
 pub mod media_lyrics_store;
+pub mod miniplayer_window;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -3223,7 +3224,11 @@ pub fn run() {
             media_lyrics_store::set_lyrics_offset,
             media_lyrics_store::store_lyrics_result,
             media_lyrics_store::broadcast_lyrics_loading,
-            media_lyrics_store::clear_lyrics_disk_cache
+            media_lyrics_store::clear_lyrics_disk_cache,
+            miniplayer_window::toggle_miniplayer,
+            miniplayer_window::close_miniplayer,
+            miniplayer_window::is_miniplayer_open,
+            miniplayer_window::snap_miniplayer_position
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -3400,6 +3405,7 @@ pub fn run() {
                                 }
                             }
                         }
+                        miniplayer_window::check_fullscreen_and_autohide(&app_handle_poll);
                     }
 
                     let mut pt = POINT { x: 0, y: 0 };

@@ -2266,6 +2266,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     toggle_focus_mode: "inactive",
     toggle_hide: "inactive",
     switch_monitor: "inactive",
+    toggle_miniplayer: "inactive",
   });
 
   const handleShortcutToggleNotch = useCallback(() => {
@@ -2434,6 +2435,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
   }, [store]);
 
+  const handleShortcutToggleMiniPlayer = useCallback(async () => {
+    try {
+      await invoke("toggle_miniplayer");
+    } catch (e) {
+      console.error("Failed to toggle miniplayer:", e);
+    }
+  }, []);
+
   const shortcutHandlersRef = useRef({
     toggle_notch: handleShortcutToggleNotch,
     quick_task: handleShortcutQuickTask,
@@ -2443,6 +2452,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     toggle_focus_mode: handleShortcutToggleFocusMode,
     toggle_hide: handleShortcutToggleHide,
     switch_monitor: handleShortcutSwitchMonitor,
+    toggle_miniplayer: handleShortcutToggleMiniPlayer,
   });
 
   useEffect(() => {
@@ -2455,6 +2465,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       toggle_focus_mode: handleShortcutToggleFocusMode,
       toggle_hide: handleShortcutToggleHide,
       switch_monitor: handleShortcutSwitchMonitor,
+      toggle_miniplayer: handleShortcutToggleMiniPlayer,
     };
     shortcutManager.updateHandlers(shortcutHandlersRef.current);
   }, [
@@ -2466,6 +2477,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     handleShortcutToggleFocusMode,
     handleShortcutToggleHide,
     handleShortcutSwitchMonitor,
+    handleShortcutToggleMiniPlayer,
   ]);
 
   useEffect(() => {

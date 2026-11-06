@@ -9,6 +9,7 @@ import {
   MessageSquareQuote,
   ListMusic,
   Music2,
+  PictureInPicture2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload } from "../../types";
@@ -98,6 +99,23 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   const remainingMediaDuration = !hasMedia
     ? 0
     : Math.max(0, mediaProgress.duration - currentMediaPosition);
+
+  const [isMiniPlayerOpen, setIsMiniPlayerOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<boolean>("miniplayer:visibility-changed", (e) => {
+        setIsMiniPlayerOpen(e.payload);
+      }).then((unsub) => {
+        unlisten = unsub;
+      });
+    });
+    invoke<boolean>("is_miniplayer_open").then(setIsMiniPlayerOpen).catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   const lastVolInvokeRef = React.useRef(0);
   const pendingVolRef = React.useRef<number | null>(null);
@@ -273,10 +291,28 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
             </span>
           </div>
 
-          <div className={`flex items-center justify-center relative ${isCompact ? "gap-4" : "gap-6"}`}>
-            <div className={`${isCompact ? "w-8 h-8" : "w-9 h-9"} opacity-0 pointer-events-none shrink-0`} />
+          <div className={`flex items-center justify-between px-1 relative ${isCompact ? "gap-3" : "gap-4"}`}>
+            {/* Lyrics / App Info Toggle Button (Left Side) */}
+            <Tooltip content={showLyrics ? t("media_app_source") : t("lyrics_title")} side="top">
+              <motion.button
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleLyrics();
+                }}
+                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
+                  showLyrics
+                    ? "bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.35)]"
+                    : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
+                }`}
+              >
+                {showLyrics ? <MessageSquareQuote size={16} /> : <ListMusic size={16} />}
+              </motion.button>
+            </Tooltip>
 
-            <div className={`flex items-center ${isCompact ? "gap-5" : "gap-7"}`}>
+            {/* Playback Controls (Center) */}
+            <div className={`flex items-center ${isCompact ? "gap-4" : "gap-6"}`}>
               <Tooltip content={t("media_prev")} side="top">
                 <motion.button
                   whileHover={{ scale: 1.1 }}
@@ -322,22 +358,35 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
               </Tooltip>
             </div>
 
-            {/* Lyrics / App Info Toggle Button */}
-            <Tooltip content={showLyrics ? t("media_app_source") : t("lyrics_title")} side="top">
+            {/* Mini Player Toggle Button (Right Side) */}
+            <Tooltip
+              content={
+                <div className="flex items-center gap-1.5">
+                  <span>Mini player</span>
+                  <span className="px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono leading-none">Ctrl Alt M</span>
+                </div>
+              }
+              side="top"
+            >
               <motion.button
                 whileHover={{ scale: 1.08 }}
                 whileTap={{ scale: 0.9 }}
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
-                  onToggleLyrics();
+                  try {
+                    await invoke("toggle_miniplayer");
+                  } catch (err) {
+                    console.error("Failed to toggle miniplayer:", err);
+                  }
                 }}
                 className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
-                  showLyrics
-                    ? "bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.35)]"
+                  isMiniPlayerOpen
+                    ? "bg-[#38bdf8]/20 text-[#38bdf8] ring-1 ring-[#38bdf8]/50 shadow-[0_0_12px_rgba(56,189,248,0.35)]"
                     : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
                 }`}
+                aria-label="Mini player Ctrl Alt M"
               >
-                {showLyrics ? <MessageSquareQuote size={16} /> : <ListMusic size={16} />}
+                <PictureInPicture2 size={16} />
               </motion.button>
             </Tooltip>
           </div>
