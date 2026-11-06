@@ -73,7 +73,6 @@ export const MiniPlayerApp: React.FC = () => {
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ctrlPollRef = useRef<NodeJS.Timeout | null>(null);
   const dragCheckPollRef = useRef<NodeJS.Timeout | null>(null);
-  const isUserDraggingRef = useRef(false);
 
   // Initialize media & lyrics store as listener (not coordinator)
   useEffect(() => {
@@ -162,70 +161,59 @@ export const MiniPlayerApp: React.FC = () => {
           JSON.stringify({ x: snappedX, y: snappedY, w: currentW, h: currentH })
         );
 
-        // Check proximity to notch target zone only when user is actively dragging (M5 Drag-to-merge)
-        if (isUserDraggingRef.current) {
-          const prox = await invoke<{ is_near: boolean; is_in_zone: boolean }>("check_notch_proximity", {
-            x,
-            y,
-            width: currentW,
-            height: currentH,
-          }).catch(() => ({ is_near: false, is_in_zone: false }));
+        // Check proximity to notch target zone (M5 Drag-to-merge)
+        const prox = await invoke<{ is_near: boolean; is_in_zone: boolean }>("check_notch_proximity", {
+          x,
+          y,
+          width: currentW,
+          height: currentH,
+        }).catch(() => ({ is_near: false, is_in_zone: false }));
 
-          setIsInZone(prox.is_in_zone);
-          await emit("miniplayer:drag-proximity", prox);
+        setIsInZone(prox.is_in_zone);
+        await emit("miniplayer:drag-proximity", prox);
 
-          if (prox.is_near || prox.is_in_zone) {
-            if (!dragCheckPollRef.current) {
-              dragCheckPollRef.current = setInterval(async () => {
-                const isDown = await invoke<boolean>("is_lbutton_down").catch(() => false);
-                if (!isDown) {
-                  isUserDraggingRef.current = false;
-                  if (dragCheckPollRef.current) {
-                    clearInterval(dragCheckPollRef.current);
-                    dragCheckPollRef.current = null;
-                  }
-
-                  const finalCheck = await invoke<{ is_near: boolean; is_in_zone: boolean }>(
-                    "check_notch_proximity",
-                    {
-                      x,
-                      y,
-                      width: currentW,
-                      height: currentH,
-                    }
-                  ).catch(() => ({ is_near: false, is_in_zone: false }));
-
-                  await emit("miniplayer:drag-proximity", { is_near: false, is_in_zone: false });
-                  setIsInZone(false);
-
-                  if (finalCheck.is_in_zone) {
-                    await invoke("close_miniplayer");
-                    await emit("miniplayer:return-to-notch");
-                  }
+        if (prox.is_near || prox.is_in_zone) {
+          if (!dragCheckPollRef.current) {
+            dragCheckPollRef.current = setInterval(async () => {
+              const isDown = await invoke<boolean>("is_lbutton_down").catch(() => false);
+              if (!isDown) {
+                if (dragCheckPollRef.current) {
+                  clearInterval(dragCheckPollRef.current);
+                  dragCheckPollRef.current = null;
                 }
-              }, 40);
-            }
-          } else {
-            setIsInZone(false);
-            if (dragCheckPollRef.current) {
-              clearInterval(dragCheckPollRef.current);
-              dragCheckPollRef.current = null;
-            }
+
+                const finalCheck = await invoke<{ is_near: boolean; is_in_zone: boolean }>(
+                  "check_notch_proximity",
+                  {
+                    x,
+                    y,
+                    width: currentW,
+                    height: currentH,
+                  }
+                ).catch(() => ({ is_near: false, is_in_zone: false }));
+
+                await emit("miniplayer:drag-proximity", { is_near: false, is_in_zone: false });
+                setIsInZone(false);
+
+                if (finalCheck.is_in_zone) {
+                  await invoke("close_miniplayer");
+                  await emit("miniplayer:return-to-notch");
+                }
+              }
+            }, 40);
+          }
+        } else {
+          setIsInZone(false);
+          if (dragCheckPollRef.current) {
+            clearInterval(dragCheckPollRef.current);
+            dragCheckPollRef.current = null;
           }
         }
       } catch {}
     });
 
-    const handleGlobalDragEnd = () => {
-      isUserDraggingRef.current = false;
-    };
-    window.addEventListener("pointerup", handleGlobalDragEnd);
-    window.addEventListener("mouseup", handleGlobalDragEnd);
-
     return () => {
       unlistenMove.then((f) => f());
-      window.removeEventListener("pointerup", handleGlobalDragEnd);
-      window.removeEventListener("mouseup", handleGlobalDragEnd);
       if (dragCheckPollRef.current) {
         clearInterval(dragCheckPollRef.current);
         dragCheckPollRef.current = null;
@@ -239,6 +227,9 @@ export const MiniPlayerApp: React.FC = () => {
   // 3. Fast pass-through: stays faded, restores upon exit.
   // 4. Cursor exits: 120ms debounce to prevent flicker before hiding toolbar and restoring opacity.
   const handleMouseEnter = useCallback(() => {
+    // Re-enable cursor events so the user can interact with controls
+    invoke("set_miniplayer_ignore_cursor", { ignore: false }).catch(() => {});
+
     if (exitTimerRef.current) {
       clearTimeout(exitTimerRef.current);
       exitTimerRef.current = null;
@@ -268,6 +259,8 @@ export const MiniPlayerApp: React.FC = () => {
     exitTimerRef.current = setTimeout(() => {
       setShowToolbar(false);
       setIsFaded(false);
+      // Return to click-through so the window doesn't block apps underneath
+      invoke("set_miniplayer_ignore_cursor", { ignore: true }).catch(() => {});
       exitTimerRef.current = null;
     }, 120);
   }, []);
@@ -312,7 +305,8 @@ export const MiniPlayerApp: React.FC = () => {
         clearInterval(ctrlPollRef.current);
         ctrlPollRef.current = null;
       }
-      invoke("set_miniplayer_ignore_cursor", { ignore: false }).catch(() => {});
+      // Don't force-enable cursor events on unmount; leave it in click-through state
+      // since the window will be hidden/closed anyway
     };
   }, []);
 
@@ -367,12 +361,6 @@ export const MiniPlayerApp: React.FC = () => {
       ref={containerRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onPointerDown={() => {
-        isUserDraggingRef.current = true;
-      }}
-      onPointerUp={() => {
-        isUserDraggingRef.current = false;
-      }}
       onClick={handleClick}
       style={{
         opacity: isFaded ? fadeOpacity : 1,
