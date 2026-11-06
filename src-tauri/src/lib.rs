@@ -3229,7 +3229,10 @@ pub fn run() {
             miniplayer_window::close_miniplayer,
             miniplayer_window::is_miniplayer_open,
             miniplayer_window::snap_miniplayer_position,
-            miniplayer_window::set_miniplayer_mode
+            miniplayer_window::set_miniplayer_mode,
+            miniplayer_window::set_miniplayer_always_on_top,
+            miniplayer_window::set_miniplayer_ignore_cursor,
+            miniplayer_window::is_ctrl_down
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};

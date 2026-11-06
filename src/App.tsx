@@ -2437,6 +2437,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   const handleShortcutToggleMiniPlayer = useCallback(async () => {
     try {
+      const isEnabled = localStorage.getItem("gili_miniplayer_enabled") !== "false";
+      if (!isEnabled) return;
       await invoke("toggle_miniplayer");
     } catch (e) {
       console.error("Failed to toggle miniplayer:", e);
@@ -3762,6 +3764,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       }
     });
 
+    const unlistenReturnToNotch = listen("miniplayer:return-to-notch", () => {
+      setShowLyrics(true);
+      try {
+        localStorage.setItem("island_show_lyrics", "true");
+      } catch {}
+      setIsHidden(false);
+      setIsExpanded(false);
+    });
+
     unlistenMedia.then(() => invoke("request_media_resync").catch(() => {}));
 
     return () => {
@@ -3782,6 +3793,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       unlistenTraySettings.then((f) => f());
       unlistenSettingsSync.then((f) => f());
       unlistenTriggerAction.then((f) => f());
+      unlistenReturnToNotch.then((f) => f());
     };
   }, []);
 

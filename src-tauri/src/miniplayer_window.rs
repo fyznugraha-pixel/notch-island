@@ -293,3 +293,32 @@ pub async fn set_miniplayer_mode(app: AppHandle, mode: String) -> Result<(), Str
     }
     Ok(())
 }
+
+#[tauri::command]
+pub fn set_miniplayer_always_on_top(app: AppHandle, always_on_top: bool) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("miniplayer") {
+        let _ = w.set_always_on_top(always_on_top);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_miniplayer_ignore_cursor(app: AppHandle, ignore: bool) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("miniplayer") {
+        let _ = w.set_ignore_cursor_events(ignore);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn is_ctrl_down() -> bool {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
+        unsafe { (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 }
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}

@@ -5,6 +5,7 @@
   "windows": [
     "main",
     "settings",
+    "miniplayer",
     "notch_secondary_*",
     "notch_secondary_1",
     "notch_secondary_2",
@@ -22,6 +23,8 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-always-on-top",
     "core:event:default",
     "opener:default",
     "autostart:default",

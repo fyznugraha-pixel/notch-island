@@ -101,6 +101,13 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
     : Math.max(0, mediaProgress.duration - currentMediaPosition);
 
   const [isMiniPlayerOpen, setIsMiniPlayerOpen] = React.useState(false);
+  const [isMiniPlayerFeatureEnabled, setIsMiniPlayerFeatureEnabled] = React.useState<boolean>(() => {
+    try {
+      return localStorage.getItem("gili_miniplayer_enabled") !== "false";
+    } catch {
+      return true;
+    }
+  });
 
   React.useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -112,8 +119,17 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
       });
     });
     invoke<boolean>("is_miniplayer_open").then(setIsMiniPlayerOpen).catch(() => {});
+
+    const handleSettingsUpdate = () => {
+      try {
+        setIsMiniPlayerFeatureEnabled(localStorage.getItem("gili_miniplayer_enabled") !== "false");
+      } catch {}
+    };
+    window.addEventListener("gili_miniplayer_settings_updated", handleSettingsUpdate);
+
     return () => {
       if (unlisten) unlisten();
+      window.removeEventListener("gili_miniplayer_settings_updated", handleSettingsUpdate);
     };
   }, []);
 
@@ -359,36 +375,38 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
             </div>
 
             {/* Mini Player Toggle Button (Right Side) */}
-            <Tooltip
-              content={
-                <div className="flex items-center gap-1.5">
-                  <span>Mini player</span>
-                  <span className="px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono leading-none">Ctrl Alt M</span>
-                </div>
-              }
-              side="top"
-            >
-              <motion.button
-                whileHover={{ scale: 1.08 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  try {
-                    await invoke("toggle_miniplayer");
-                  } catch (err) {
-                    console.error("Failed to toggle miniplayer:", err);
-                  }
-                }}
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
-                  isMiniPlayerOpen
-                    ? "bg-[#38bdf8]/20 text-[#38bdf8] ring-1 ring-[#38bdf8]/50 shadow-[0_0_12px_rgba(56,189,248,0.35)]"
-                    : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
-                }`}
-                aria-label="Mini player Ctrl Alt M"
+            {isMiniPlayerFeatureEnabled && (
+              <Tooltip
+                content={
+                  <div className="flex items-center gap-1.5">
+                    <span>Mini player</span>
+                    <span className="px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono leading-none">Ctrl Alt M</span>
+                  </div>
+                }
+                side="top"
               >
-                <PictureInPicture2 size={16} />
-              </motion.button>
-            </Tooltip>
+                <motion.button
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await invoke("toggle_miniplayer");
+                    } catch (err) {
+                      console.error("Failed to toggle miniplayer:", err);
+                    }
+                  }}
+                  className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
+                    isMiniPlayerOpen
+                      ? "bg-[#38bdf8]/20 text-[#38bdf8] ring-1 ring-[#38bdf8]/50 shadow-[0_0_12px_rgba(56,189,248,0.35)]"
+                      : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
+                  }`}
+                  aria-label="Mini player Ctrl Alt M"
+                >
+                  <PictureInPicture2 size={16} />
+                </motion.button>
+              </Tooltip>
+            )}
           </div>
 
           {/* Volume Slider (Sleek Slim Style) */}
