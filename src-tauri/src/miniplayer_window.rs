@@ -88,7 +88,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
                     let rc = mi.rcWork;
                     let log_right = rc.right as f64 / sf;
                     let log_bottom = rc.bottom as f64 / sf;
-                    ((log_right - 440.0 - 12.0), (log_bottom - 88.0 - 12.0))
+                    ((log_right - 440.0 - 12.0), (log_bottom - 130.0 - 12.0))
                 } else {
                     (100.0, 100.0)
                 }
@@ -104,7 +104,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         )
         .title("Gili Mini Player")
         .position(init_x, init_y)
-        .inner_size(440.0, 88.0)
+        .inner_size(440.0, 130.0)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -287,7 +287,7 @@ pub async fn set_miniplayer_mode(app: AppHandle, mode: String) -> Result<(), Str
         let (new_w, new_h) = if mode == "card" {
             (380.0, 440.0)
         } else {
-            (440.0, 88.0)
+            (440.0, 130.0)
         };
 
         if let (Ok(curr_pos), Ok(curr_size)) = (w.outer_position(), w.outer_size()) {

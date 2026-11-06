@@ -60,11 +60,11 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     return media.artist ? `${media.title} • ${media.artist}` : media.title;
   }, [media?.title, media?.artist]);
 
-  // Theme styling: Solid must be 100% OPAQUE. Liquid uses approved frosted glass backdrop.
+  // Theme styling: Solid must be 100% OPAQUE with gradient. Liquid uses approved frosted glass backdrop.
   const containerStyle = useMemo(() => {
     if (theme === "solid") {
       return {
-        backgroundColor: tintColor || "#121216",
+        background: `linear-gradient(135deg, ${tintColor || "#3a1414"}, #0c0c10 125%)`,
         opacity: 1.0,
       };
     }
@@ -78,13 +78,13 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   return (
     <div
       data-tauri-drag-region
-      className={`relative w-[440px] h-[88px] rounded-[22px] overflow-hidden select-none cursor-move flex flex-col justify-between ${
-        theme === "solid" ? "border border-white/[0.08]" : "border border-white/[0.16]"
-      } shadow-[0_12px_40px_rgba(0,0,0,0.55)]`}
+      className={`relative w-[440px] h-[88px] rounded-[24px] overflow-hidden select-none cursor-move flex flex-col justify-between ${
+        theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
+      } shadow-[0_18px_40px_rgba(0,0,0,0.55)]`}
       style={containerStyle}
     >
       {/* Main Content Area */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2 gap-3.5 flex-1 min-w-0 pointer-events-none">
+      <div className="flex items-center justify-between px-4 pt-3.5 pb-2 gap-3 flex-1 min-w-0 pointer-events-none">
         {/* Left: 56px Album Cover */}
         <div className="w-14 h-14 rounded-xl overflow-hidden bg-white/5 shrink-0 shadow-md border border-white/10 flex items-center justify-center">
           {media?.thumbnail ? (
@@ -104,7 +104,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         <div className="flex flex-col justify-center flex-1 min-w-0 pr-1">
           {/* Title • Artist */}
           <span
-            className="text-[11.5px] leading-tight text-white/70 font-medium truncate"
+            className="text-[11.5px] leading-tight text-white/60 font-medium truncate"
             title={titleArtistText}
           >
             {titleArtistText}
@@ -119,7 +119,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
                 animate={{ opacity: 1, y: 0 }}
                 exit={prefersReducedMotion ? undefined : { opacity: 0, y: -3 }}
                 transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: "easeOut" }}
-                className="text-[14.5px] leading-tight font-bold text-white truncate block w-full"
+                className="text-[14.5px] leading-tight font-bold text-white truncate block w-full tracking-[-0.005em]"
                 title={activeLyricText}
               >
                 {activeLyricText}
@@ -128,37 +128,67 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
           </div>
         </div>
 
-        {/* Right: Equalizer Wave (Cyan / Accent #38bdf8) */}
-        <div className="flex items-end justify-center gap-[3px] h-5 w-6 shrink-0 pb-0.5">
-          {[
-            { delay: "0s", duration: "0.85s" },
-            { delay: "0.2s", duration: "0.75s" },
-            { delay: "0.4s", duration: "0.95s" },
-            { delay: "0.15s", duration: "0.8s" },
-          ].map((bar, i) => (
-            <div
-              key={i}
-              className={`w-[2.5px] rounded-full bg-[#38bdf8] transition-all ${
-                isPlaying ? "animate-eq-bar" : "h-[4px]"
-              }`}
-              style={
-                isPlaying
-                  ? {
-                      animationDuration: bar.duration,
-                      animationDelay: bar.delay,
-                      minHeight: "4px",
-                    }
-                  : { height: "4px" }
-              }
-            />
-          ))}
-        </div>
+        {/* Right: Equalizer 5 bars (Blue #3B9DF8) */}
+        <svg
+          width="20"
+          height="22"
+          viewBox="0 0 25 28"
+          role="img"
+          aria-label="Sedang memutar"
+          className="shrink-0"
+        >
+          <rect
+            x="0"
+            y={isPlaying ? "9" : "15"}
+            width="3.5"
+            height={isPlaying ? "10" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+          <rect
+            x="5.5"
+            y={isPlaying ? "5" : "15"}
+            width="3.5"
+            height={isPlaying ? "18" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+          <rect
+            x="11"
+            y={isPlaying ? "1" : "15"}
+            width="3.5"
+            height={isPlaying ? "26" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+          <rect
+            x="16.5"
+            y={isPlaying ? "6" : "15"}
+            width="3.5"
+            height={isPlaying ? "16" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+          <rect
+            x="22"
+            y={isPlaying ? "10" : "15"}
+            width="3.5"
+            height={isPlaying ? "8" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+        </svg>
       </div>
 
       {/* Bottom: 3px Progress Bar */}
-      <div className="w-full h-[3px] bg-white/15 overflow-hidden">
+      <div className="mx-4 mb-2 h-[3px] bg-white/20 rounded-full overflow-hidden">
         <div
-          className="h-full bg-white/80 transition-[width] duration-200 ease-linear rounded-r-full"
+          className="h-full bg-white transition-[width] duration-200 ease-linear rounded-full"
           style={{ width: `${progressPercent}%` }}
         />
       </div>

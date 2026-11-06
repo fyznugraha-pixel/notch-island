@@ -387,7 +387,7 @@ export const MiniPlayerApp: React.FC = () => {
         transition: "opacity 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 200ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       className={`relative overflow-hidden select-none transition-[width,height] duration-200 ease-out ${
-        mode === "card" ? "w-[380px] h-[440px]" : "w-[440px] h-[88px]"
+        mode === "card" ? "w-[380px] h-[440px]" : showToolbar ? "w-[440px] h-[130px]" : "w-[440px] h-[88px]"
       }`}
     >
       {/* Floating Toolbar with seamless fade and position adaptation */}

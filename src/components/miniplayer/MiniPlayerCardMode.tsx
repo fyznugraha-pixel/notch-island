@@ -99,17 +99,19 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   return (
     <div
       data-tauri-drag-region
-      className={`relative w-[380px] h-[440px] rounded-[28px] overflow-hidden select-none cursor-move flex flex-col justify-between p-5 ${
-        theme === "solid" ? "border border-white/[0.08]" : "border border-white/[0.16]"
-      } shadow-[0_16px_48px_rgba(0,0,0,0.65)]`}
+      className={`relative w-[380px] h-[440px] rounded-[28px] overflow-hidden select-none cursor-move flex flex-col justify-between p-[6px_18px_18px] ${
+        theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
+      } shadow-[0_18px_40px_rgba(0,0,0,0.55)]`}
       style={containerStyle}
     >
-      {/* Reserved top 36px toolbar slot (toolbar hovers here) */}
-      <div className="h-9 w-full shrink-0 flex items-center justify-between" />
+      {/* Top 36px Grab Handle Slot (Toolbar hovers here) */}
+      <div className="h-9 w-full shrink-0 flex items-center justify-center">
+        <span className="w-9 h-1 rounded-full bg-white/20 pointer-events-none" />
+      </div>
 
       {/* Header: 60px Album Art + Title/Artist + Equalizer */}
-      <div className="flex items-center gap-3.5 shrink-0">
-        <div className="w-[60px] h-[60px] rounded-2xl overflow-hidden bg-white/5 shrink-0 shadow-lg border border-white/10 flex items-center justify-center">
+      <div className="flex items-center gap-3.5 shrink-0 mt-1 pointer-events-none">
+        <div className="w-[60px] h-[60px] rounded-[13px] overflow-hidden bg-white/5 shrink-0 shadow-lg border border-white/10 flex items-center justify-center">
           {media?.thumbnail ? (
             <img
               src={media.thumbnail}
@@ -125,44 +127,74 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
 
         <div className="flex flex-col min-w-0 flex-1">
           <span
-            className="text-[16px] font-bold text-white truncate leading-snug"
+            className="text-[15px] font-semibold text-white truncate leading-snug tracking-[-0.01em]"
             title={media?.title || "Gili Mini Player"}
           >
             {media?.title || "Gili Mini Player"}
           </span>
           <span
-            className="text-[13px] text-white/70 truncate leading-snug mt-0.5"
+            className="text-[12px] text-white/60 truncate leading-snug mt-[3px]"
             title={media?.artist || "Belum ada media aktif"}
           >
             {media?.artist || "Belum ada media aktif"}
           </span>
         </div>
 
-        {/* Animated Equalizer Wave (Cyan #38bdf8) */}
-        <div className="flex items-end justify-center gap-[3px] h-5 w-6 shrink-0 pb-1">
-          {[
-            { delay: "0s", duration: "0.85s" },
-            { delay: "0.2s", duration: "0.75s" },
-            { delay: "0.4s", duration: "0.95s" },
-            { delay: "0.15s", duration: "0.8s" },
-          ].map((bar, i) => (
-            <div
-              key={i}
-              className={`w-[2.5px] rounded-full bg-[#38bdf8] transition-all ${
-                isPlaying ? "animate-eq-bar" : "h-[4px]"
-              }`}
-              style={
-                isPlaying
-                  ? {
-                      animationDuration: bar.duration,
-                      animationDelay: bar.delay,
-                      minHeight: "4px",
-                    }
-                  : { height: "4px" }
-              }
-            />
-          ))}
-        </div>
+        {/* Right: Equalizer 5 bars (Blue #3B9DF8) */}
+        <svg
+          width="20"
+          height="22"
+          viewBox="0 0 25 28"
+          role="img"
+          aria-label="Sedang memutar"
+          className="shrink-0"
+        >
+          <rect
+            x="0"
+            y={isPlaying ? "9" : "15"}
+            width="3.5"
+            height={isPlaying ? "10" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+          <rect
+            x="5.5"
+            y={isPlaying ? "5" : "15"}
+            width="3.5"
+            height={isPlaying ? "18" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+          <rect
+            x="11"
+            y={isPlaying ? "1" : "15"}
+            width="3.5"
+            height={isPlaying ? "26" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+          <rect
+            x="16.5"
+            y={isPlaying ? "6" : "15"}
+            width="3.5"
+            height={isPlaying ? "16" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+          <rect
+            x="22"
+            y={isPlaying ? "10" : "15"}
+            width="3.5"
+            height={isPlaying ? "8" : "4"}
+            rx="1.75"
+            fill="#3B9DF8"
+            className={isPlaying ? "animate-pulse" : ""}
+          />
+        </svg>
       </div>
 
       {/* Center: 5 Lines of Synced Lyrics with Mask Fade */}
