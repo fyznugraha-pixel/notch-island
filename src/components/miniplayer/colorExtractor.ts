@@ -76,3 +76,4 @@ export async function extractDominantColor(imgSrc?: string | null): Promise<stri
     img.src = imgSrc;
   });
 }
+

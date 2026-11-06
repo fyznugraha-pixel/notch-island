@@ -233,3 +233,63 @@ pub fn snap_miniplayer_position(
 
     (x, y)
 }
+
+#[tauri::command]
+pub async fn set_miniplayer_mode(app: AppHandle, mode: String) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("miniplayer") {
+        let (new_w, new_h) = if mode == "card" {
+            (380.0, 440.0)
+        } else {
+            (440.0, 88.0)
+        };
+
+        if let (Ok(curr_pos), Ok(curr_size)) = (w.outer_position(), w.outer_size()) {
+            let scale_factor = w.scale_factor().unwrap_or(1.0);
+            let phys_w = (new_w * scale_factor).round() as u32;
+            let phys_h = (new_h * scale_factor).round() as u32;
+
+            let mut new_x = curr_pos.x;
+            let mut new_y = curr_pos.y;
+
+            #[cfg(windows)]
+            {
+                use windows::Win32::Foundation::POINT;
+                use windows::Win32::Graphics::Gdi::{
+                    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+                };
+                let pt = POINT { x: curr_pos.x, y: curr_pos.y };
+                let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+                    let rc = mi.rcWork;
+                    let curr_right = curr_pos.x + curr_size.width as i32;
+                    let curr_bottom = curr_pos.y + curr_size.height as i32;
+
+                    // If close to right edge (< 48px from margin), anchor right edge
+                    if (rc.right - 12 - curr_right).abs() < 48 {
+                        new_x = curr_right - phys_w as i32;
+                    }
+                    // If close to bottom edge (< 48px from margin), anchor bottom edge
+                    if (rc.bottom - 12 - curr_bottom).abs() < 48 {
+                        new_y = curr_bottom - phys_h as i32;
+                    }
+
+                    // Clamp within screen work area
+                    new_x = new_x.clamp(rc.left, (rc.right - phys_w as i32).max(rc.left));
+                    new_y = new_y.clamp(rc.top, (rc.bottom - phys_h as i32).max(rc.top));
+                }
+            }
+
+            let _ = w.set_size(tauri::PhysicalSize::new(phys_w, phys_h));
+            let _ = w.set_position(tauri::PhysicalPosition::new(new_x, new_y));
+        } else {
+            let _ = w.set_size(tauri::LogicalSize::new(new_w, new_h));
+        }
+
+        let _ = app.emit("miniplayer:mode-changed", mode);
+    }
+    Ok(())
+}

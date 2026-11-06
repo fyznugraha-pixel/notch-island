@@ -8,6 +8,7 @@ export interface MiniPlayerBarModeProps {
   lyrics: LyricsPayload | null;
   theme: "solid" | "liquid";
   tintColor: string;
+  onToggleMode?: () => void;
 }
 
 export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
@@ -15,6 +16,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   lyrics,
   theme,
   tintColor,
+  onToggleMode: _onToggleMode,
 }) => {
   const isPlaying = Boolean(media?.is_playing);
   const position = media?.position || 0;
@@ -163,3 +165,4 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     </div>
   );
 };
+
