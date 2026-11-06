@@ -92,6 +92,15 @@ export const MiniPlayerApp: React.FC = () => {
     };
   }, []);
 
+  // Enforce click-through from frontend side on mount.
+  // This handles the race where Rust sets ignore_cursor before WebView2 is ready.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      invoke("set_miniplayer_ignore_cursor", { ignore: true }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Sync mode with window size on initial mount
   useEffect(() => {
     if (mode === "card") {

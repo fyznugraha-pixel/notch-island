@@ -81,16 +81,23 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
     .build()
     .map_err(|e| format!("Failed to create miniplayer window: {}", e))?;
 
-    #[cfg(windows)]
-    apply_no_activate_style(&win);
+    // Show first so the window is attached to a monitor and scale factor is valid
+    let _ = win.show();
 
-    // Position bottom-right of primary monitor by default
     #[cfg(windows)]
     {
-        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Foundation::{HWND, POINT};
         use windows::Win32::Graphics::Gdi::{
             GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
         };
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        };
+
+        // Apply WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW after show
+        apply_no_activate_style(&win);
+
+        // Compute bottom-right position from primary monitor work area
         let pt = POINT { x: 0, y: 0 };
         let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
         let mut mi = MONITORINFO {
@@ -104,15 +111,28 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
             let phys_h = (88.0 * sf).round() as i32;
             let default_x = rc.right - phys_w - (12.0 * sf) as i32;
             let default_y = rc.bottom - phys_h - (12.0 * sf) as i32;
-            let _ = win.set_position(tauri::PhysicalPosition::new(default_x, default_y));
+
+            // Use Win32 SetWindowPos directly to bypass any Tauri scaling quirks
+            if let Ok(hwnd) = win.hwnd() {
+                unsafe {
+                    let _ = SetWindowPos(
+                        HWND(hwnd.0),
+                        None,
+                        default_x,
+                        default_y,
+                        phys_w,
+                        phys_h,
+                        SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+                    );
+                }
+            }
         }
+
+        // Set click-through AFTER window is shown and positioned.
+        // On WebView2, ignore_cursor_events only takes effect on a visible window.
+        let _ = win.set_ignore_cursor_events(true);
     }
 
-    // Start click-through by default; the frontend will call
-    // set_miniplayer_ignore_cursor(false) when the cursor enters.
-    let _ = win.set_ignore_cursor_events(true);
-
-    let _ = win.show();
     *is_open = true;
     let _ = app.emit("miniplayer:visibility-changed", true);
     Ok(true)
