@@ -12,6 +12,15 @@ export interface NavbarAppItem {
   windows?: any[];
 }
 
+export const normalizeIconUrl = (icon?: string | null): string | undefined => {
+  if (!icon) return undefined;
+  const trimmed = icon.trim();
+  if (trimmed.startsWith("data:") || trimmed.startsWith("/") || trimmed.startsWith("http")) {
+    return trimmed;
+  }
+  return `data:image/png;base64,${trimmed}`;
+};
+
 // ==========================================
 // 1. THEME: FLUENT (Modern Vector / Default)
 // ==========================================
@@ -387,7 +396,7 @@ export const AppIcon: React.FC<{
           return (
             <IOSSquircleWrapper gradient="linear-gradient(180deg, #3A3A3C 0%, #1C1C1E 100%)" size={squircleSize}>
               <img
-                src={app.icon}
+                src={normalizeIconUrl(app.icon)}
                 alt={app.name}
                 draggable={false}
                 className="w-[18px] h-[18px] object-contain drop-shadow pointer-events-none select-none"
@@ -405,7 +414,7 @@ export const AppIcon: React.FC<{
     if (app.icon) {
       return (
         <img
-          src={app.icon}
+          src={normalizeIconUrl(app.icon)}
           alt={app.name}
           draggable={false}
           style={{ width: `${nativePx}px`, height: `${nativePx}px` }}
@@ -559,7 +568,7 @@ export const AppIcon: React.FC<{
       if (app.icon) {
         return (
           <img
-            src={app.icon}
+            src={normalizeIconUrl(app.icon)}
             alt={app.name}
             draggable={false}
             className="w-[22px] h-[22px] object-contain drop-shadow pointer-events-none select-none"

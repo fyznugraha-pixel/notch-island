@@ -17,6 +17,39 @@ import {
   deleteNotificationHistoryItem,
   NotificationHistoryItem,
 } from "../../../services/notificationHistoryService";
+import { normalizeIconUrl } from "../../navbar/groups/appIcons";
+
+const renderNotificationAppIcon = (appName?: string, icon?: string) => {
+  if (icon) {
+    return (
+      <img
+        src={normalizeIconUrl(icon)}
+        alt=""
+        className="w-3.5 h-3.5 object-contain rounded-[3px] shrink-0"
+      />
+    );
+  }
+  const lower = (appName || "").toLowerCase();
+  if (lower.includes("discord")) {
+    return <img src="/logo/discord.webp" alt="Discord" className="w-3.5 h-3.5 object-contain shrink-0" />;
+  }
+  if (lower.includes("whatsapp")) {
+    return <img src="/logo/whatsapp.svg" alt="WhatsApp" className="w-3.5 h-3.5 object-contain shrink-0" />;
+  }
+  if (lower.includes("telegram")) {
+    return <img src="/logo/telegram.svg" alt="Telegram" className="w-3.5 h-3.5 object-contain shrink-0" />;
+  }
+  if (lower.includes("spotify")) {
+    return <img src="/logo/spotify.png" alt="Spotify" className="w-3.5 h-3.5 object-contain shrink-0" />;
+  }
+  if (lower.includes("chrome")) {
+    return <img src="/logo/chrome.png" alt="Chrome" className="w-3.5 h-3.5 object-contain shrink-0" />;
+  }
+  if (lower.includes("brave")) {
+    return <img src="/logo/brave.png" alt="Brave" className="w-3.5 h-3.5 object-contain shrink-0" />;
+  }
+  return <Bell className="w-3 h-3 text-[var(--taskbar-accent)] shrink-0" />;
+};
 
 interface NotificationsCalendarViewProps {
   onClose?: () => void;
@@ -177,6 +210,7 @@ export const NotificationsCalendarView: React.FC<NotificationsCalendarViewProps>
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
+                    {renderNotificationAppIcon(item.appName, item.icon)}
                     <span className="text-[10.5px] font-medium text-[var(--taskbar-text-muted)]">
                       {item.appName}
                     </span>

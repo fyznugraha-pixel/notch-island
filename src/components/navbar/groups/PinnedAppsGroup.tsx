@@ -6,7 +6,7 @@ import { WindowPreviewCard, WindowPreviewItem } from "../WindowPreviewCard";
 import { AnimatePresence, motion } from "framer-motion";
 import { NavbarIconTheme, NavbarPosition } from "../../../types/navbar";
 import { hexToRgba } from "../../../services/navbarConfigService";
-import { renderAppIcon } from "./appIcons";
+import { renderAppIcon, normalizeIconUrl } from "./appIcons";
 import { useWindowsPinnedApps } from "../../../hooks/useWindowsPinnedApps";
 import { matchesAppId, getRunningAppMeta } from "./pinnedAppsHelpers";
 import { AppContextMenu } from "./AppContextMenu";
@@ -239,7 +239,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
       ? windowsPinnedApps.map((wpa) => ({
           id: wpa.id,
           name: wpa.name,
-          icon: wpa.icon_base64 || undefined,
+          icon: normalizeIconUrl(wpa.icon_base64),
           iconType: (wpa.icon_type as any) || undefined,
           targetPath: wpa.target_path,
           arguments: wpa.arguments,
@@ -293,14 +293,15 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     const isActive = activeWin !== undefined;
     const hwnd = activeWin ? activeWin.hwnd : allMatches[0]?.hwnd;
     const activeTitle = activeWin?.title || allMatches[0]?.title || app.name;
-    const liveIcon = app.icon || allMatches.find((w) => w.icon_base64)?.icon_base64;
+    const rawLive = app.icon || allMatches.find((w) => w.icon_base64)?.icon_base64;
+    const liveIcon = normalizeIconUrl(rawLive);
 
     const windowsList: WindowPreviewItem[] = isRunning
       ? allMatches.map((w) => ({
           id: `win-${w.hwnd}`,
           hwnd: w.hwnd,
           title: w.title || app.name,
-          icon: w.icon_base64 || liveIcon,
+          icon: normalizeIconUrl(w.icon_base64) || liveIcon,
           isMinimized: w.is_minimized,
         }))
       : app.windows || [];
@@ -343,7 +344,8 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
       const activeWin = windows.find((w) => w.is_active);
       const isActive = activeWin !== undefined;
       const hwnd = activeWin ? activeWin.hwnd : windows[0]?.hwnd;
-      const appIcon = windows.find((w) => w.icon_base64)?.icon_base64 || undefined;
+      const rawAppIcon = windows.find((w) => w.icon_base64)?.icon_base64 || undefined;
+      const appIcon = normalizeIconUrl(rawAppIcon);
 
       unpinnedRunningApps.push({
         id: meta.id,
@@ -358,7 +360,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
           id: `win-${w.hwnd}`,
           hwnd: w.hwnd,
           title: w.title || meta.name,
-          icon: w.icon_base64 || appIcon,
+          icon: normalizeIconUrl(w.icon_base64) || appIcon,
           isMinimized: w.is_minimized,
         })),
       });

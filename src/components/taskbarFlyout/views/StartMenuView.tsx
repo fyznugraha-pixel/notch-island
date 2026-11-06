@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { normalizeIconUrl } from "../../navbar/groups/appIcons";
 import {
   Search,
   Power,
@@ -123,7 +124,7 @@ export const StartMenuView: React.FC<StartMenuViewProps> = ({
                 <div className="w-9 h-9 rounded-lg bg-[var(--taskbar-chip)] flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
                   {app.icon_base64 ? (
                     <img
-                      src={`data:image/png;base64,${app.icon_base64}`}
+                      src={normalizeIconUrl(app.icon_base64)}
                       alt={app.name}
                       className="w-7 h-7 object-contain"
                     />

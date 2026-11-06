@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { normalizeIconUrl } from "../../navbar/groups/appIcons";
 import {
   Search,
   X,
@@ -7,6 +8,15 @@ import {
   ArrowRight,
   Globe,
 } from "lucide-react";
+
+interface WindowsPinnedApp {
+  id: string;
+  name: string;
+  target_path: string;
+  arguments: string;
+  icon_base64?: string;
+  icon_type?: string;
+}
 
 interface SearchViewProps {
   onClose: () => void;
@@ -17,11 +27,24 @@ export const SearchView: React.FC<SearchViewProps> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<
     "all" | "apps" | "docs" | "web" | "settings"
   >("all");
+  const [pinnedApps, setPinnedApps] = useState<WindowsPinnedApp[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
+    invoke<WindowsPinnedApp[]>("get_windows_pinned_apps")
+      .then((apps) => {
+        if (Array.isArray(apps) && apps.length > 0) {
+          setPinnedApps(apps);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const handleLaunchApp = (app: WindowsPinnedApp) => {
+    invoke("launch_pinned_app", { app }).catch(() => {});
+    onClose();
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && query.trim()) {
@@ -146,14 +169,31 @@ export const SearchView: React.FC<SearchViewProps> = ({ onClose }) => {
                 Aplikasi teratas
               </span>
               <div className="grid grid-cols-5 gap-2">
-                {topApps.map((app, idx) => (
+                {(pinnedApps.length > 0 ? pinnedApps.slice(0, 5) : topApps).map((app: any, idx) => (
                   <div
-                    key={idx}
-                    className="h-16 rounded-xl bg-[var(--taskbar-card)] hover:bg-[var(--taskbar-item-hover)] flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors p-1"
+                    key={app.id || idx}
+                    onClick={() => {
+                      if (app.target_path) {
+                        handleLaunchApp(app);
+                      } else {
+                        setQuery(app.name);
+                      }
+                    }}
+                    className="h-16 rounded-xl bg-[var(--taskbar-card)] hover:bg-[var(--taskbar-item-hover)] active:scale-95 flex flex-col items-center justify-center gap-1 cursor-pointer transition-all p-1"
                   >
-                    <span className="w-7 h-7 rounded-lg bg-[var(--taskbar-chip)] text-[var(--taskbar-accent)] flex items-center justify-center text-[11px] font-bold">
-                      {app.name[0]}
-                    </span>
+                    <div className="w-7 h-7 rounded-lg bg-[var(--taskbar-chip)] flex items-center justify-center overflow-hidden shrink-0">
+                      {app.icon_base64 ? (
+                        <img
+                          src={normalizeIconUrl(app.icon_base64)}
+                          alt={app.name}
+                          className="w-5 h-5 object-contain"
+                        />
+                      ) : (
+                        <span className="text-[var(--taskbar-accent)] text-[11px] font-bold">
+                          {app.name[0]}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-[var(--taskbar-text)] truncate w-full text-center px-1 font-medium">
                       {app.name}
                     </span>

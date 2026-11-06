@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCachedNavbarConfigSync } from "../../services/navbarConfigService";
+import {
+  getCachedNavbarConfigSync,
+  subscribeToNavbarConfig,
+} from "../../services/navbarConfigService";
 import { SoundOutputMixerView } from "./views/SoundOutputMixerView";
 import { QuickSettingsView } from "./views/QuickSettingsView";
 import { NotificationsCalendarView } from "./views/NotificationsCalendarView";
@@ -22,6 +25,25 @@ export const TaskbarFlyoutApp: React.FC = () => {
     const cfg = getCachedNavbarConfigSync();
     return cfg.style === "liquid" ? "liquid" : "solid";
   });
+  const [desktopBackdropUrl, setDesktopBackdropUrl] = useState<string | null>(null);
+
+  const refreshBackdrop = useCallback(() => {
+    // 1. Instant 0ms cached backdrop
+    invoke<string | null>("get_cached_desktop_backdrop")
+      .then((cached) => {
+        if (cached) setDesktopBackdropUrl(cached);
+      })
+      .catch(() => {});
+
+    // 2. Refresh frame behind flyout
+    invoke<string>("capture_desktop_backdrop", {
+      windowLabel: "taskbar_flyout",
+    })
+      .then((fresh) => {
+        if (fresh) setDesktopBackdropUrl(fresh);
+      })
+      .catch(() => {});
+  }, []);
 
   const syncStateFromRust = useCallback(async () => {
     try {
@@ -32,7 +54,8 @@ export const TaskbarFlyoutApp: React.FC = () => {
         setTarget(st.target);
       }
     } catch {}
-  }, []);
+    refreshBackdrop();
+  }, [refreshBackdrop]);
 
   useEffect(() => {
     // 1. Immediately sync active target from Rust on mount
@@ -53,7 +76,12 @@ export const TaskbarFlyoutApp: React.FC = () => {
     };
     window.addEventListener("focus", handleFocus);
 
-    // 4. Listen to state changes from Rust window manager
+    // 4. Instant live sync from Settings
+    const unsubscribeConfig = subscribeToNavbarConfig((newCfg) => {
+      setTheme(newCfg.style === "liquid" ? "liquid" : "solid");
+    });
+
+    // 5. Listen to state changes from Rust window manager
     const unlisten = listen<FlyoutStatePayload>(
       "taskbar-flyout-state-changed",
       (event) => {
@@ -64,6 +92,7 @@ export const TaskbarFlyoutApp: React.FC = () => {
           if (event.payload.theme) {
             setTheme(event.payload.theme);
           }
+          refreshBackdrop();
         }
       }
     );
@@ -71,9 +100,10 @@ export const TaskbarFlyoutApp: React.FC = () => {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("focus", handleFocus);
+      unsubscribeConfig();
       unlisten.then((fn) => fn());
     };
-  }, [syncStateFromRust]);
+  }, [syncStateFromRust, refreshBackdrop]);
 
   const handleClose = () => {
     invoke("close_taskbar_flyout").catch(() => {});
@@ -82,51 +112,68 @@ export const TaskbarFlyoutApp: React.FC = () => {
   return (
     <div
       data-taskbar-theme={theme}
-      className="w-screen h-screen overflow-hidden bg-transparent flex flex-col select-none p-1.5"
+      className="w-screen h-screen overflow-hidden bg-transparent flex flex-col select-none"
     >
       <div
         role="dialog"
         aria-label={`Gili ${target}`}
-        className="gili-flyout-container w-full h-full flex flex-col relative p-3.5 box-border"
+        className="gili-flyout-container w-full h-full flex flex-col relative p-3.5 box-border overflow-hidden transition-all duration-150 ease-out"
       >
-        {target === "volume" ? (
-          <SoundOutputMixerView
-            onClose={handleClose}
-            onBack={() => setTarget("quickSettings")}
-          />
-        ) : target === "quickSettings" ? (
-          <QuickSettingsView
-            onClose={handleClose}
-            onSwitchToVolumeMixer={() => setTarget("volume")}
-          />
-        ) : target === "notificationsCalendar" ? (
-          <NotificationsCalendarView onClose={handleClose} />
-        ) : target === "start" ? (
-          <StartMenuView
-            onClose={handleClose}
-            onOpenSearch={() => setTarget("search")}
-          />
-        ) : target === "search" ? (
-          <SearchView onClose={handleClose} />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-            <div className="gili-flyout-card p-5 flex flex-col items-center gap-2 max-w-xs">
-              <span className="text-[13px] font-semibold text-[var(--taskbar-text)]">
-                Gili Flyout ({target})
-              </span>
-              <span className="text-[11px] text-[var(--taskbar-text-2)]">
-                Tema aktif: <strong className="capitalize">{theme}</strong>
-              </span>
-              <button
-                type="button"
-                onClick={handleClose}
-                className="gili-flyout-chip px-3 py-1.5 rounded-lg text-[11px] font-medium mt-2 cursor-pointer text-[var(--taskbar-text)]"
-              >
-                Tutup (Esc)
-              </button>
-            </div>
+        {/* Authentic Liquid Glass Wallpaper Blur (Zero Delay with cached frame) */}
+        {theme === "liquid" && desktopBackdropUrl && (
+          <div className="absolute inset-0 rounded-[inherit] overflow-hidden pointer-events-none z-0">
+            <img
+              src={desktopBackdropUrl}
+              alt=""
+              className="w-full h-full object-cover select-none pointer-events-none"
+              style={{
+                filter: "blur(26px) saturate(175%) brightness(1.05)",
+                transform: "scale(1.08)",
+              }}
+            />
           </div>
         )}
+
+        <div className="relative z-10 w-full h-full flex flex-col">
+          {target === "volume" ? (
+            <SoundOutputMixerView
+              onClose={handleClose}
+              onBack={() => setTarget("quickSettings")}
+            />
+          ) : target === "quickSettings" ? (
+            <QuickSettingsView
+              onClose={handleClose}
+              onSwitchToVolumeMixer={() => setTarget("volume")}
+            />
+          ) : target === "notificationsCalendar" ? (
+            <NotificationsCalendarView onClose={handleClose} />
+          ) : target === "start" ? (
+            <StartMenuView
+              onClose={handleClose}
+              onOpenSearch={() => setTarget("search")}
+            />
+          ) : target === "search" ? (
+            <SearchView onClose={handleClose} />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+              <div className="gili-flyout-card p-5 flex flex-col items-center gap-2 max-w-xs">
+                <span className="text-[13px] font-semibold text-[var(--taskbar-text)]">
+                  Gili Flyout ({target})
+                </span>
+                <span className="text-[11px] text-[var(--taskbar-text-2)]">
+                  Tema aktif: <strong className="capitalize">{theme}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="gili-flyout-chip px-3 py-1.5 rounded-lg text-[11px] font-medium mt-2 cursor-pointer text-[var(--taskbar-text)]"
+                >
+                  Tutup (Esc)
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

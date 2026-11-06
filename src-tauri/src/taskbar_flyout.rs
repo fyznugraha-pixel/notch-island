@@ -8,20 +8,6 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, SetForegroundWindow};
 
-#[link(name = "dwmapi")]
-extern "system" {
-    fn DwmSetWindowAttribute(
-        hwnd: windows::Win32::Foundation::HWND,
-        dw_attribute: u32,
-        pv_attribute: *const core::ffi::c_void,
-        cb_attribute: u32,
-    ) -> windows::core::HRESULT;
-}
-
-const DWMWA_SYSTEMBACKDROP_TYPE: u32 = 38;
-const DWMSBT_NONE: u32 = 1;
-const DWMSBT_ACRYLIC: u32 = 3;
-
 static FLYOUT_OPEN: AtomicBool = AtomicBool::new(false);
 static ACTIVE_TARGET: Mutex<String> = Mutex::new(String::new());
 static LAST_FG_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -95,7 +81,18 @@ pub fn ensure_flyout_window(app: &AppHandle) -> Option<WebviewWindow> {
             });
             #[cfg(windows)]
             if let Ok(raw_hwnd) = win.hwnd() {
-                crate::backdrop_capture::set_exclude_from_capture(HWND(raw_hwnd.0));
+                let hwnd = HWND(raw_hwnd.0);
+                crate::backdrop_capture::set_exclude_from_capture(hwnd);
+                unsafe {
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
+                    };
+                    let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+                    let new_ex = ex | WS_EX_TOOLWINDOW.0;
+                    if new_ex != ex {
+                        let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex as i32);
+                    }
+                }
             }
             Some(win)
         }
@@ -115,23 +112,6 @@ pub fn get_flyout_dimensions_for_target(target: &str) -> (f64, f64) {
         "volume" => (400.0, 520.0),                // Board 95/97
         "notificationsCalendar" => (388.0, 600.0), // Board 96/98
         _ => (400.0, 500.0),
-    }
-}
-
-/// Applies Windows 11 Acrylic or clear system backdrop.
-pub fn apply_flyout_backdrop(hwnd: HWND, is_liquid: bool) {
-    unsafe {
-        let backdrop_type = if is_liquid {
-            DWMSBT_ACRYLIC
-        } else {
-            DWMSBT_NONE
-        };
-        let _ = DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_SYSTEMBACKDROP_TYPE,
-            &backdrop_type as *const _ as *const _,
-            std::mem::size_of::<u32>() as u32,
-        );
     }
 }
 
@@ -189,11 +169,6 @@ pub fn open_taskbar_flyout_internal(
     let _ = win.set_position(tauri::LogicalPosition::new(target_x, target_y));
 
     let is_liquid = theme_opt.as_deref().unwrap_or("solid") == "liquid";
-    #[cfg(windows)]
-    if let Ok(raw_hwnd) = win.hwnd() {
-        let hwnd = HWND(raw_hwnd.0);
-        apply_flyout_backdrop(hwnd, is_liquid);
-    }
 
     let _ = win.show();
     let _ = win.set_focus();

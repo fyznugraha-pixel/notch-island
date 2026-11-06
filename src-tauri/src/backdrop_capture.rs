@@ -1,5 +1,6 @@
 use base64::Engine;
 use image::{ImageBuffer, Rgba};
+use std::sync::Mutex;
 use tauri::Manager;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{
@@ -13,6 +14,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 pub const WDA_EXCLUDEFROMCAPTURE: WINDOW_DISPLAY_AFFINITY = WINDOW_DISPLAY_AFFINITY(0x00000011);
 
+static LATEST_BACKDROP_DATA_URL: Mutex<Option<String>> = Mutex::new(None);
+
 pub fn set_exclude_from_capture(hwnd: HWND) {
     unsafe {
         let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
@@ -25,6 +28,141 @@ pub struct CaptureRect {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+}
+
+#[tauri::command]
+pub fn get_cached_desktop_backdrop() -> Option<String> {
+    LATEST_BACKDROP_DATA_URL.lock().unwrap().clone()
+}
+
+/// Pre-warms the desktop backdrop cache in a background thread on startup so
+/// the very first paint of the dock or flyout has an authentic blurred wallpaper (0ms delay).
+pub fn prewarm_desktop_backdrop() {
+    std::thread::spawn(|| {
+        let _ = capture_screen_rect_to_cache(0, 0, 1920, 1080);
+    });
+}
+
+fn capture_screen_rect_to_cache(target_x: i32, target_y: i32, safe_w: i32, safe_h: i32) -> Result<String, String> {
+    unsafe {
+        let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return Err("Failed to get screen DC".into());
+        }
+
+        let hdc_mem = CreateCompatibleDC(hdc_screen);
+        let scale = 0.35f32;
+        let cap_w = ((safe_w as f32 * scale).round() as i32).clamp(16, 480);
+        let cap_h = ((safe_h as f32 * scale).round() as i32).clamp(16, 320);
+
+        let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
+        let old_bm = SelectObject(hdc_mem, hbm);
+
+        let _ = SetStretchBltMode(hdc_mem, HALFTONE);
+        let blt_res = StretchBlt(
+            hdc_mem,
+            0,
+            0,
+            cap_w,
+            cap_h,
+            hdc_screen,
+            target_x,
+            target_y,
+            safe_w,
+            safe_h,
+            SRCCOPY,
+        );
+
+        if !blt_res.as_bool() {
+            SelectObject(hdc_mem, old_bm);
+            let _ = DeleteObject(hbm);
+            let _ = DeleteDC(hdc_mem);
+            let _ = ReleaseDC(None, hdc_screen);
+            return Err("StretchBlt failed".into());
+        }
+
+        let mut bi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: cap_w,
+                biHeight: -cap_h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: 0,
+                biSizeImage: 0,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+            },
+            bmiColors: [windows::Win32::Graphics::Gdi::RGBQUAD::default()],
+        };
+
+        let mut raw_pixels = vec![0u8; (cap_w * cap_h * 4) as usize];
+        let get_di = GetDIBits(
+            hdc_mem,
+            hbm,
+            0,
+            cap_h as u32,
+            Some(raw_pixels.as_mut_ptr() as *mut _),
+            &mut bi,
+            DIB_RGB_COLORS,
+        );
+
+        SelectObject(hdc_mem, old_bm);
+        let _ = DeleteObject(hbm);
+        let _ = DeleteDC(hdc_mem);
+        let _ = ReleaseDC(None, hdc_screen);
+
+        if get_di == 0 {
+            return Err("GetDIBits failed".into());
+        }
+
+        let total_pixels = (cap_w * cap_h) as usize;
+        let mut rgb_pixels = Vec::with_capacity(total_pixels * 3);
+        for i in 0..total_pixels {
+            let offset = i * 4;
+            let b = raw_pixels[offset] as f32;
+            let g = raw_pixels[offset + 1] as f32;
+            let r = raw_pixels[offset + 2] as f32;
+
+            let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            let nr = ((gray + (r - gray) * 1.5) * 1.05).clamp(0.0, 255.0) as u8;
+            let ng = ((gray + (g - gray) * 1.5) * 1.05).clamp(0.0, 255.0) as u8;
+            let nb = ((gray + (b - gray) * 1.5) * 1.05).clamp(0.0, 255.0) as u8;
+
+            rgb_pixels.push(nr);
+            rgb_pixels.push(ng);
+            rgb_pixels.push(nb);
+        }
+
+        let mut jpeg_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 70);
+        let img = ImageBuffer::<Rgba<u8>, _>::from_raw(
+            cap_w as u32,
+            cap_h as u32,
+            {
+                let mut rgba = Vec::with_capacity(total_pixels * 4);
+                for i in 0..total_pixels {
+                    rgba.push(rgb_pixels[i * 3]);
+                    rgba.push(rgb_pixels[i * 3 + 1]);
+                    rgba.push(rgb_pixels[i * 3 + 2]);
+                    rgba.push(255);
+                }
+                rgba
+            },
+        ).ok_or_else(|| "Failed to create image buffer".to_string())?;
+
+        if encoder.encode_image(&img).is_err() {
+            return Err("Failed to encode JPEG".into());
+        }
+
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+        let data_url = format!("data:image/jpeg;base64,{}", b64);
+        *LATEST_BACKDROP_DATA_URL.lock().unwrap() = Some(data_url.clone());
+        Ok(data_url)
+    }
 }
 
 #[tauri::command]
@@ -84,124 +222,5 @@ pub fn capture_desktop_backdrop(
     let safe_w = target_w.clamp(16, 3840) as i32;
     let safe_h = target_h.clamp(16, 2160) as i32;
 
-    unsafe {
-        let hdc_screen = GetDC(None);
-        if hdc_screen.is_invalid() {
-            return Err("Failed to get screen DC".into());
-        }
-
-        let hdc_mem = CreateCompatibleDC(hdc_screen);
-        // Fast, compact thumbnail downsampled via hardware GDI HALFTONE (takes ~0.5ms)
-        let scale = 0.35f32;
-        let cap_w = ((safe_w as f32 * scale).round() as i32).clamp(16, 480);
-        let cap_h = ((safe_h as f32 * scale).round() as i32).clamp(16, 320);
-
-        let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
-        let old_bm = SelectObject(hdc_mem, hbm);
-
-        let _ = SetStretchBltMode(hdc_mem, HALFTONE);
-        let blt_res = StretchBlt(
-            hdc_mem,
-            0,
-            0,
-            cap_w,
-            cap_h,
-            hdc_screen,
-            target_x,
-            target_y,
-            safe_w,
-            safe_h,
-            SRCCOPY,
-        );
-
-        if !blt_res.as_bool() {
-            SelectObject(hdc_mem, old_bm);
-            let _ = DeleteObject(hbm);
-            let _ = DeleteDC(hdc_mem);
-            let _ = ReleaseDC(None, hdc_screen);
-            return Err("StretchBlt failed".into());
-        }
-
-        let mut bi = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: cap_w,
-                biHeight: -cap_h, // top-down
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: 0,
-                biSizeImage: 0,
-                biXPelsPerMeter: 0,
-                biYPelsPerMeter: 0,
-                biClrUsed: 0,
-                biClrImportant: 0,
-            },
-            bmiColors: [windows::Win32::Graphics::Gdi::RGBQUAD::default()],
-        };
-
-        let mut raw_pixels = vec![0u8; (cap_w * cap_h * 4) as usize];
-        let get_di = GetDIBits(
-            hdc_mem,
-            hbm,
-            0,
-            cap_h as u32,
-            Some(raw_pixels.as_mut_ptr() as *mut _),
-            &mut bi,
-            DIB_RGB_COLORS,
-        );
-
-        SelectObject(hdc_mem, old_bm);
-        let _ = DeleteObject(hbm);
-        let _ = DeleteDC(hdc_mem);
-        let _ = ReleaseDC(None, hdc_screen);
-
-        if get_di == 0 {
-            return Err("GetDIBits failed".into());
-        }
-
-        // Fast direct BGRA to RGB conversion with saturation & brightness adjustment (takes ~0.05ms)
-        let total_pixels = (cap_w * cap_h) as usize;
-        let mut rgb_pixels = Vec::with_capacity(total_pixels * 3);
-        for i in 0..total_pixels {
-            let offset = i * 4;
-            let b = raw_pixels[offset] as f32;
-            let g = raw_pixels[offset + 1] as f32;
-            let r = raw_pixels[offset + 2] as f32;
-
-            let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-            let nr = ((gray + (r - gray) * 1.5) * 1.05).clamp(0.0, 255.0) as u8;
-            let ng = ((gray + (g - gray) * 1.5) * 1.05).clamp(0.0, 255.0) as u8;
-            let nb = ((gray + (b - gray) * 1.5) * 1.05).clamp(0.0, 255.0) as u8;
-
-            rgb_pixels.push(nr);
-            rgb_pixels.push(ng);
-            rgb_pixels.push(nb);
-        }
-
-        // Direct fast JPEG encode at quality 70 (takes ~0.5ms; blur is handled in GPU via CSS/SVG)
-        let mut jpeg_bytes = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
-        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 70);
-        let img = ImageBuffer::<Rgba<u8>, _>::from_raw(
-            cap_w as u32,
-            cap_h as u32,
-            {
-                let mut rgba = Vec::with_capacity(total_pixels * 4);
-                for i in 0..total_pixels {
-                    rgba.push(rgb_pixels[i * 3]);
-                    rgba.push(rgb_pixels[i * 3 + 1]);
-                    rgba.push(rgb_pixels[i * 3 + 2]);
-                    rgba.push(255);
-                }
-                rgba
-            },
-        ).ok_or_else(|| "Failed to create image buffer".to_string())?;
-
-        if encoder.encode_image(&img).is_err() {
-            return Err("Failed to encode JPEG".into());
-        }
-
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
-        Ok(format!("data:image/jpeg;base64,{}", b64))
-    }
+    capture_screen_rect_to_cache(target_x, target_y, safe_w, safe_h)
 }

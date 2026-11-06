@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { normalizeIconUrl } from "../../navbar/groups/appIcons";
 import {
   Volume2,
   VolumeX,
@@ -12,8 +13,6 @@ import {
   ChevronRight,
   Settings,
   Music,
-  Globe,
-  MessageSquare,
   Radio,
 } from "lucide-react";
 
@@ -240,14 +239,35 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
 
   const renderAppIcon = (name: string) => {
     const lower = name.toLowerCase();
-    if (lower.includes("spotify") || lower.includes("music")) {
+    if (lower.includes("discord")) {
+      return <img src="/logo/discord.webp" alt="Discord" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("spotify")) {
+      return <img src="/logo/spotify.png" alt="Spotify" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("chrome")) {
+      return <img src="/logo/chrome.png" alt="Chrome" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("brave")) {
+      return <img src="/logo/brave.png" alt="Brave" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("edge")) {
+      return <img src="/logo/edge.png" alt="Edge" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("firefox")) {
+      return <img src="/logo/firefox.png" alt="Firefox" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("vlc")) {
+      return <img src="/logo/vlc.png" alt="VLC" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("whatsapp")) {
+      return <img src="/logo/whatsapp.svg" alt="WhatsApp" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("telegram")) {
+      return <img src="/logo/telegram.svg" alt="Telegram" className="w-4 h-4 object-contain" />;
+    }
+    if (lower.includes("music") || lower.includes("audio")) {
       return <Music size={15} strokeWidth={1.6} />;
-    }
-    if (lower.includes("chrome") || lower.includes("edge") || lower.includes("firefox")) {
-      return <Globe size={15} strokeWidth={1.6} />;
-    }
-    if (lower.includes("discord") || lower.includes("chat")) {
-      return <MessageSquare size={15} strokeWidth={1.6} />;
     }
     return <Radio size={15} strokeWidth={1.6} />;
   };
@@ -480,8 +500,16 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
                     key={session.pid}
                     className="flex items-center gap-2.5 h-[42px]"
                   >
-                    <span className="w-[30px] h-[30px] rounded-[9px] gili-flyout-card flex items-center justify-center shrink-0 text-[var(--taskbar-text-2)]">
-                      {renderAppIcon(session.name)}
+                    <span className="w-[30px] h-[30px] rounded-[9px] gili-flyout-card flex items-center justify-center shrink-0 overflow-hidden text-[var(--taskbar-text-2)]">
+                      {session.icon ? (
+                        <img
+                          src={normalizeIconUrl(session.icon)}
+                          alt={session.name}
+                          className="w-5 h-5 object-contain"
+                        />
+                      ) : (
+                        renderAppIcon(session.name)
+                      )}
                     </span>
 
                     <span

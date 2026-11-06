@@ -65,6 +65,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                             if pid == 0 { continue; } // System sound
                                             
                                             let mut process_name = String::new();
+                                            let mut full_path_resolved = String::new();
                                             if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
                                                 let mut buffer = [0u16; 1024];
                                                 let mut len = buffer.len() as u32;
@@ -73,6 +74,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                     if let Some(name) = std::path::Path::new(&full_path).file_name() {
                                                         process_name = name.to_string_lossy().into_owned();
                                                     }
+                                                    full_path_resolved = full_path;
                                                 }
                                                 let _ = windows::Win32::Foundation::CloseHandle(handle);
                                             }
@@ -94,6 +96,12 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                 process_name = format!("App ({})", pid);
                                             }
 
+                                            let icon_b64 = if !full_path_resolved.is_empty() {
+                                                crate::windows_pinned_apps::get_cached_or_extract_icon(&full_path_resolved)
+                                            } else {
+                                                None
+                                            };
+
                                             if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
                                                 if let Ok(vol) = volume_ctrl.GetMasterVolume() {
                                                     if let Ok(muted) = volume_ctrl.GetMute() {
@@ -102,7 +110,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                             name: process_name.clone(),
                                                             volume: vol,
                                                             muted: muted.as_bool(),
-                                                            icon: Some(process_name),
+                                                            icon: icon_b64,
                                                         });
                                                     }
                                                 }
@@ -3208,9 +3216,11 @@ pub fn run() {
             open_sound_settings,
             get_system_power_info,
             backdrop_capture::capture_desktop_backdrop,
+            backdrop_capture::get_cached_desktop_backdrop,
             backdrop_capture::set_window_exclude_from_capture
         ])
         .setup(|app| {
+            backdrop_capture::prewarm_desktop_backdrop();
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
             use tauri::tray::TrayIconBuilder;

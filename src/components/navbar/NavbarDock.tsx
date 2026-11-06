@@ -360,6 +360,12 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       }
 
       let isMounted = true;
+      invoke<string | null>("get_cached_desktop_backdrop")
+        .then((cached) => {
+          if (isMounted && cached) setDesktopBackdropUrl(cached);
+        })
+        .catch(() => {});
+
       const captureDockBackdrop = async () => {
         try {
           const el = localDockRef.current;
@@ -807,7 +813,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               style={{
                 clipPath: `url(#${clipId})`,
                 WebkitClipPath: `url(#${clipId})`,
-                background: surfaceBackground,
+                background: isLiquid ? undefined : surfaceBackground,
               }}
             >
               {isLiquid && desktopBackdropUrl && (
@@ -860,15 +866,17 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
 
         {/* Real captured desktop wallpaper behind dock in Floating mode */}
         {!isAnchored && isLiquid && desktopBackdropUrl && (
-          <img
-            src={desktopBackdropUrl}
-            alt=""
-            className="absolute inset-0 w-full h-full object-fill pointer-events-none rounded-[inherit] z-0"
-            style={{
-              filter: "blur(26px) saturate(175%) brightness(1.05)",
-              transform: "scale(1.08)",
-            }}
-          />
+          <div className="absolute inset-0 rounded-[inherit] overflow-hidden pointer-events-none z-0">
+            <img
+              src={desktopBackdropUrl}
+              alt=""
+              className="w-full h-full object-cover pointer-events-none select-none"
+              style={{
+                filter: "blur(26px) saturate(175%) brightness(1.05)",
+                transform: "scale(1.08)",
+              }}
+            />
+          </div>
         )}
 
         {/* Liquid Glass Specular Reflection Highlight for Floating mode */}
