@@ -469,6 +469,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   });
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [isLyricsLoading, setIsLyricsLoading] = useState(false);
+  // Incremented whenever media is re-enabled so the fetch effect fires even if title/artist didn't change
+  const [lyricsFetchKey, setLyricsFetchKey] = useState(0);
   const [lyricsProvider, setLyricsProvider] = useState<LyricsProviderId>(() => {
     try {
       return (localStorage.getItem("notch_lyrics_provider") as LyricsProviderId) || "auto";
@@ -535,7 +537,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       isCancelled = true;
       window.clearTimeout(debounceTimer);
     };
-  }, [showLyrics, media?.title, media?.artist, lyricsProvider]);
+  }, [showLyrics, media?.title, media?.artist, lyricsProvider, lyricsFetchKey]);
 
   const handleChangeLyricsProvider = useCallback(async (newProvider: LyricsProviderId) => {
     setLyricsProvider(newProvider);
@@ -2238,6 +2240,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (lastMediaPayloadRef.current && (lastMediaPayloadRef.current.title || lastMediaPayloadRef.current.artist)) {
         setMedia(lastMediaPayloadRef.current);
         setIsPlaying(lastMediaPayloadRef.current.is_playing);
+        // force lyrics re-fetch — title/artist may be unchanged but media was toggled back on
+        setLyricsFetchKey((k) => k + 1);
       }
     }
   }, [optMedia]);
