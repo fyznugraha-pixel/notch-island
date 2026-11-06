@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { LyricLine, LyricsProviderId } from "./lyrics/types";
 import { fetchLyrics, clearLyricsCacheForTrack } from "./lyricsService";
 
+export type { LyricLine };
+
 export interface MediaPayload {
   title: string;
   artist: string;

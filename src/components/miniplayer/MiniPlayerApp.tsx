@@ -3,10 +3,22 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { initMediaLyricsStore, subscribeMedia, subscribeLyrics, MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
+import { MiniPlayerBarMode } from "./MiniPlayerBarMode";
+import { extractDominantColor } from "./colorExtractor";
 
 export const MiniPlayerApp: React.FC = () => {
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const [lyrics, setLyrics] = useState<LyricsPayload | null>(null);
+  const [tintColor, setTintColor] = useState<string>("#121216");
+  const [theme] = useState<"solid" | "liquid">(() => {
+    try {
+      const preset = localStorage.getItem("island_transparency_preset");
+      return preset === "liquid_glass" ? "liquid" : "solid";
+    } catch {
+      return "solid";
+    }
+  });
+
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Initialize media & lyrics store as listener (not coordinator)
@@ -24,6 +36,17 @@ export const MiniPlayerApp: React.FC = () => {
       if (unlistenLyrics) unlistenLyrics();
     };
   }, []);
+
+  // Extract dominant color when media thumbnail changes
+  useEffect(() => {
+    let isCancelled = false;
+    extractDominantColor(media?.thumbnail).then((color) => {
+      if (!isCancelled) setTintColor(color);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [media?.thumbnail]);
 
   // Restore position and listen to move/drag snapping
   useEffect(() => {
@@ -72,49 +95,13 @@ export const MiniPlayerApp: React.FC = () => {
   }, []);
 
   return (
-    <div
-      ref={containerRef}
-      data-tauri-drag-region
-      className="w-full h-full select-none cursor-move flex items-center justify-between px-4 py-2 bg-[#121216] text-white rounded-[20px] shadow-2xl border border-white/10"
-      style={{ width: "440px", height: "88px" }}
-    >
-      <div className="flex items-center gap-3 pointer-events-none">
-        {media?.thumbnail ? (
-          <img
-            src={media.thumbnail}
-            alt={media.title || "Album Cover"}
-            className="w-14 h-14 rounded-xl object-cover shrink-0"
-          />
-        ) : (
-          <div className="w-14 h-14 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
-            <span className="text-xl">🎵</span>
-          </div>
-        )}
-        <div className="flex flex-col min-w-0">
-          <span className="text-[11.5px] text-white/60 truncate">
-            {media?.title ? `${media.title} • ${media.artist || "Unknown"}` : "Gili Mini Player"}
-          </span>
-          <span className="text-[14.5px] font-bold text-white truncate mt-0.5">
-            {lyrics?.lines && lyrics.lines.length > 0
-              ? lyrics.lines[0].text
-              : lyrics?.state === "loading"
-              ? "Memuat lirik..."
-              : "Siap memutar"}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          onClick={async () => {
-            await invoke("close_miniplayer");
-          }}
-          className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
-          aria-label="Tutup Mini Player"
-        >
-          ✕
-        </button>
-      </div>
+    <div ref={containerRef} className="w-[440px] h-[88px] overflow-hidden select-none">
+      <MiniPlayerBarMode
+        media={media}
+        lyrics={lyrics}
+        theme={theme}
+        tintColor={tintColor}
+      />
     </div>
   );
 };
