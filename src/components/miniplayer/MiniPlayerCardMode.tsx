@@ -236,7 +236,10 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       </div>
 
       {/* Bottom: Progress Bar + Playback Controls */}
-      <div className="flex flex-col gap-2 shrink-0 pt-1">
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        className="flex flex-col gap-2 shrink-0 pt-1"
+      >
         {/* Progress Bar with Timers */}
         <div className="flex items-center gap-2.5">
           <span className="text-[11.5px] font-mono text-white/60 min-w-[32px] text-right select-none">

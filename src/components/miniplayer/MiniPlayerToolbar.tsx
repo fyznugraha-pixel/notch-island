@@ -55,6 +55,7 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
       className={`absolute left-2 right-2 z-50 flex items-center justify-between px-2.5 py-1.5 rounded-full bg-black/65 backdrop-blur-xl border border-white/15 shadow-xl text-white transition-all select-none ${
         positionBottom ? "bottom-2" : "top-2"
       }`}

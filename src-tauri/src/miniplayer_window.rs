@@ -54,8 +54,6 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         let _ = w.show();
         #[cfg(windows)]
         apply_no_activate_style(&w);
-        // Reset to click-through on re-show; frontend enables it on hover
-        let _ = w.set_ignore_cursor_events(true);
         *is_open = true;
         let _ = app.emit("miniplayer:visibility-changed", true);
         return Ok(true);
@@ -125,7 +123,6 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
             Ok(w) => {
                 #[cfg(windows)]
                 apply_no_activate_style(&w);
-                let _ = w.set_ignore_cursor_events(true);
                 let _ = app_clone.emit("miniplayer:visibility-changed", true);
             }
             Err(e) => {

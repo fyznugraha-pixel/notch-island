@@ -92,15 +92,6 @@ export const MiniPlayerApp: React.FC = () => {
     };
   }, []);
 
-  // Enforce click-through from frontend side on mount.
-  // This handles the race where Rust sets ignore_cursor before WebView2 is ready.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      invoke("set_miniplayer_ignore_cursor", { ignore: true }).catch(() => {});
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
-
   // Sync mode with window size on initial mount
   useEffect(() => {
     if (mode === "card") {
@@ -238,8 +229,6 @@ export const MiniPlayerApp: React.FC = () => {
   // 3. Fast pass-through: stays faded, restores upon exit.
   // 4. Cursor exits: 120ms debounce to prevent flicker before hiding toolbar and restoring opacity.
   const handleMouseEnter = useCallback(() => {
-    // Re-enable cursor events so the user can interact with controls and drag
-    invoke("set_miniplayer_ignore_cursor", { ignore: false }).catch(() => {});
     isDraggingRef.current = false;
 
     if (exitTimerRef.current) {
@@ -262,9 +251,6 @@ export const MiniPlayerApp: React.FC = () => {
   }, [fadeOnHover]);
 
   const handleMouseLeave = useCallback(() => {
-    // If the user is dragging, don't go click-through — that would kill the drag
-    if (isDraggingRef.current) return;
-
     if (dwellTimerRef.current) {
       clearTimeout(dwellTimerRef.current);
       dwellTimerRef.current = null;
@@ -274,29 +260,26 @@ export const MiniPlayerApp: React.FC = () => {
     exitTimerRef.current = setTimeout(() => {
       setShowToolbar(false);
       setIsFaded(false);
-      // Return to click-through so the window doesn't block apps underneath
-      invoke("set_miniplayer_ignore_cursor", { ignore: true }).catch(() => {});
       exitTimerRef.current = null;
     }, 120);
   }, []);
 
-  const handleMouseDown = useCallback(() => {
-    isDraggingRef.current = true;
-    // Ensure cursor events stay on during the drag
-    invoke("set_miniplayer_ignore_cursor", { ignore: false }).catch(() => {});
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    // Don't initiate drag if clicking on interactive controls
+    if (
+      target.closest("button") ||
+      target.closest("input") ||
+      target.closest("a") ||
+      target.closest("[data-no-drag]")
+    ) {
+      return;
+    }
 
-    const onMouseUp = () => {
-      isDraggingRef.current = false;
-      window.removeEventListener("mouseup", onMouseUp);
-      // After drag ends, restore click-through after a short delay.
-      // The delay lets onMouseEnter fire first if cursor is still inside.
-      setTimeout(() => {
-        if (!isDraggingRef.current) {
-          invoke("set_miniplayer_ignore_cursor", { ignore: true }).catch(() => {});
-        }
-      }, 150);
-    };
-    window.addEventListener("mouseup", onMouseUp);
+    if (e.button === 0) {
+      isDraggingRef.current = true;
+      getCurrentWindow().startDragging().catch(() => {});
+    }
   }, []);
 
   const handleClick = useCallback(() => {
@@ -393,6 +376,7 @@ export const MiniPlayerApp: React.FC = () => {
   return (
     <div
       ref={containerRef}
+      data-tauri-drag-region
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onMouseDown={handleMouseDown}
