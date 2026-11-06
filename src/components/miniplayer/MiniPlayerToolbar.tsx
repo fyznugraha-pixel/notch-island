@@ -46,7 +46,6 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
     e.stopPropagation();
     try {
       await invoke("smtc_action", { action });
-      await invoke("restore_previous_focus").catch(() => {});
     } catch {}
   };
 

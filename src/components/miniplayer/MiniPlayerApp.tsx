@@ -73,6 +73,8 @@ export const MiniPlayerApp: React.FC = () => {
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ctrlPollRef = useRef<NodeJS.Timeout | null>(null);
   const dragCheckPollRef = useRef<NodeJS.Timeout | null>(null);
+  // Track whether the user is currently dragging the window
+  const isDraggingRef = useRef(false);
 
   // Initialize media & lyrics store as listener (not coordinator)
   useEffect(() => {
@@ -227,8 +229,9 @@ export const MiniPlayerApp: React.FC = () => {
   // 3. Fast pass-through: stays faded, restores upon exit.
   // 4. Cursor exits: 120ms debounce to prevent flicker before hiding toolbar and restoring opacity.
   const handleMouseEnter = useCallback(() => {
-    // Re-enable cursor events so the user can interact with controls
+    // Re-enable cursor events so the user can interact with controls and drag
     invoke("set_miniplayer_ignore_cursor", { ignore: false }).catch(() => {});
+    isDraggingRef.current = false;
 
     if (exitTimerRef.current) {
       clearTimeout(exitTimerRef.current);
@@ -250,6 +253,9 @@ export const MiniPlayerApp: React.FC = () => {
   }, [fadeOnHover]);
 
   const handleMouseLeave = useCallback(() => {
+    // If the user is dragging, don't go click-through — that would kill the drag
+    if (isDraggingRef.current) return;
+
     if (dwellTimerRef.current) {
       clearTimeout(dwellTimerRef.current);
       dwellTimerRef.current = null;
@@ -263,6 +269,25 @@ export const MiniPlayerApp: React.FC = () => {
       invoke("set_miniplayer_ignore_cursor", { ignore: true }).catch(() => {});
       exitTimerRef.current = null;
     }, 120);
+  }, []);
+
+  const handleMouseDown = useCallback(() => {
+    isDraggingRef.current = true;
+    // Ensure cursor events stay on during the drag
+    invoke("set_miniplayer_ignore_cursor", { ignore: false }).catch(() => {});
+
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener("mouseup", onMouseUp);
+      // After drag ends, restore click-through after a short delay.
+      // The delay lets onMouseEnter fire first if cursor is still inside.
+      setTimeout(() => {
+        if (!isDraggingRef.current) {
+          invoke("set_miniplayer_ignore_cursor", { ignore: true }).catch(() => {});
+        }
+      }, 150);
+    };
+    window.addEventListener("mouseup", onMouseUp);
   }, []);
 
   const handleClick = useCallback(() => {
@@ -361,6 +386,7 @@ export const MiniPlayerApp: React.FC = () => {
       ref={containerRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onMouseDown={handleMouseDown}
       onClick={handleClick}
       style={{
         opacity: isFaded ? fadeOpacity : 1,
