@@ -19,8 +19,11 @@ function normalizeForMatch(text: string): string {
 
 /** Loose title check so a provider's top search hit isn't blindly trusted. */
 export function isSameTrack(candidateTitle: string | undefined, wantedTitle: string): boolean {
-  const a = normalizeForMatch(candidateTitle || "");
-  const b = normalizeForMatch(wantedTitle);
+  if (!candidateTitle || !wantedTitle) return true;
+  const cleanA = cleanTitle(candidateTitle);
+  const cleanB = cleanTitle(wantedTitle);
+  const a = normalizeForMatch(cleanA || candidateTitle);
+  const b = normalizeForMatch(cleanB || wantedTitle);
   if (!a || !b) return true;
   return a.includes(b) || b.includes(a);
 }
@@ -49,7 +52,27 @@ export function pickMatchingCandidate<T>(
 
 export function cleanArtist(artist: string): string {
   if (!artist) return "";
-  return artist
+  const trimmed = artist.trim();
+  const lower = trimmed.toLowerCase();
+  // Strip generic browser/platform names so title parsing can resolve artist
+  if (
+    lower === "brave" ||
+    lower === "brave browser" ||
+    lower === "google chrome" ||
+    lower === "chrome" ||
+    lower === "microsoft edge" ||
+    lower === "edge" ||
+    lower === "firefox" ||
+    lower === "mozilla firefox" ||
+    lower === "opera" ||
+    lower === "vivaldi" ||
+    lower === "zen browser" ||
+    lower === "youtube"
+  ) {
+    return "";
+  }
+
+  return trimmed
     .replace(/\s*-\s*topic$/i, "")
     .replace(/vevo$/i, "")
     .trim();

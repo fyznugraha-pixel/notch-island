@@ -4,15 +4,26 @@ import { fetchJson, rethrowIfFetchError } from "./lyricsHttp";
 
 function pickBestLrclibMatch(list: any[], wantedTitle: string, duration?: number): any {
   if (!Array.isArray(list) || list.length === 0) return null;
-  const sameTrack = list.filter((item: any) => isSameTrack(item.trackName, wantedTitle));
-  if (sameTrack.length === 0) return null;
-  const syncedItems = sameTrack.filter((item: any) => item.syncedLyrics);
-  const pool = syncedItems.length > 0 ? syncedItems : sameTrack;
+
+  const cleanWanted = cleanTitle(wantedTitle).toLowerCase();
+  const sameTrack = list.filter((item: any) => {
+    if (!item?.trackName) return false;
+    const cleanItem = cleanTitle(item.trackName).toLowerCase();
+    return (
+      cleanItem === cleanWanted ||
+      isSameTrack(item.trackName, wantedTitle) ||
+      isSameTrack(cleanItem, cleanWanted)
+    );
+  });
+
+  const pool = sameTrack.length > 0 ? sameTrack : list;
+  const syncedItems = pool.filter((item: any) => item.syncedLyrics);
+  const candidates = syncedItems.length > 0 ? syncedItems : pool;
 
   if (duration && duration > 0) {
-    let best = pool[0];
+    let best = candidates[0];
     let bestDiff = Math.abs((best.duration || 0) - duration);
-    for (const item of pool) {
+    for (const item of candidates) {
       const diff = Math.abs((item.duration || 0) - duration);
       if (diff < bestDiff) {
         best = item;
@@ -21,7 +32,8 @@ function pickBestLrclibMatch(list: any[], wantedTitle: string, duration?: number
     }
     return best;
   }
-  return pool[0];
+
+  return candidates[0];
 }
 
 function processLrclibResponse(data: any): LyricsData | null {
@@ -33,7 +45,7 @@ function processLrclibResponse(data: any): LyricsData | null {
       return {
         synced: true,
         lines,
-        plainLyrics: data.plainLyrics,
+        plainLyrics: data.plainLyrics || undefined,
         provider: "lrclib",
         providerName: "LRCLIB",
       };
@@ -74,44 +86,47 @@ export const lrclibProvider: LyricsProvider = {
   id: "lrclib",
   name: "LRCLIB",
   async fetchLyrics(artist: string, title: string, duration?: number): Promise<LyricsData | null> {
-    const cleanedArtist = cleanArtist(artist);
+    let cleanedArtist = cleanArtist(artist);
     let cleanedTitle = cleanTitle(title) || title;
-    let effectiveArtist = cleanedArtist;
 
+    // Handle "Artist - Title" or "Title - Artist" combinations
     if (cleanedTitle.includes(" - ")) {
       const parts = cleanedTitle.split(" - ");
       if (parts.length >= 2) {
-        const prefix = parts[0].trim();
-        const rest = parts.slice(1).join(" - ").trim();
-        if (
-          !effectiveArtist ||
-          effectiveArtist.toLowerCase() === prefix.toLowerCase() ||
-          effectiveArtist.toLowerCase().includes("youtube") ||
-          effectiveArtist.toLowerCase().includes("browser")
-        ) {
-          effectiveArtist = prefix;
-          cleanedTitle = rest;
+        const p1 = parts[0].trim();
+        const p2 = parts.slice(1).join(" - ").trim();
+
+        if (!cleanedArtist) {
+          cleanedArtist = p1;
+          cleanedTitle = cleanTitle(p2) || p2;
+        } else if (cleanedArtist.toLowerCase() === p1.toLowerCase()) {
+          cleanedTitle = cleanTitle(p2) || p2;
+        } else if (cleanedArtist.toLowerCase() === p2.toLowerCase()) {
+          cleanedTitle = cleanTitle(p1) || p1;
         }
       }
     }
 
-    const headers = { "User-Agent": "Gili/4.2.2 (https://github.com/faiz)" };
+    const headers = { "User-Agent": "Gili/4.4.6 (https://github.com/faiz)" };
 
     try {
-      let getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTitle)}&artist_name=${encodeURIComponent(effectiveArtist)}`;
-      if (duration && duration > 0) {
-        getUrl += `&duration=${Math.round(duration)}`;
-      }
+      // 1. Run exact get + targeted search in parallel for instant response (< 500ms)
+      const getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTitle)}&artist_name=${encodeURIComponent(cleanedArtist)}`;
+      const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanedTitle)}&artist_name=${encodeURIComponent(cleanedArtist)}`;
 
-      const getData = await fetchJson(getUrl, { headers });
+      const [getData, searchData] = await Promise.all([
+        fetchJson(getUrl, { headers }).catch(() => null),
+        fetchJson(searchUrl, { headers }).catch(() => null),
+      ]);
+
+      // Check exact GET response first
       if (getData) {
         const result = processLrclibResponse(getData);
-        if (result) return result;
+        if (result && result.synced) return result;
       }
 
-      const searchQuery = encodeURIComponent(`${effectiveArtist} ${cleanedTitle}`.trim());
-      const searchData = await fetchJson(`https://lrclib.net/api/search?q=${searchQuery}`, { headers });
-      if (Array.isArray(searchData)) {
+      // Check targeted search response
+      if (Array.isArray(searchData) && searchData.length > 0) {
         const bestMatch = pickBestLrclibMatch(searchData, cleanedTitle, duration);
         if (bestMatch) {
           const result = processLrclibResponse(bestMatch);
@@ -119,13 +134,31 @@ export const lrclibProvider: LyricsProvider = {
         }
       }
 
-      if (cleanedTitle !== title || effectiveArtist) {
-        const titleData = await fetchJson(
+      // If GET returned non-synced/plain lyrics and search had no better, use GET
+      if (getData) {
+        const result = processLrclibResponse(getData);
+        if (result) return result;
+      }
+
+      // 2. Fallback to broad query search
+      const broadQuery = encodeURIComponent(`${cleanedArtist} ${cleanedTitle}`.trim());
+      const broadData = await fetchJson(`https://lrclib.net/api/search?q=${broadQuery}`, { headers });
+      if (Array.isArray(broadData) && broadData.length > 0) {
+        const bestMatch = pickBestLrclibMatch(broadData, cleanedTitle, duration);
+        if (bestMatch) {
+          const result = processLrclibResponse(bestMatch);
+          if (result) return result;
+        }
+      }
+
+      // 3. Fallback search by title only if artist was unknown or failed
+      if (cleanedArtist) {
+        const titleOnlyData = await fetchJson(
           `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanedTitle)}`,
           { headers }
         );
-        if (Array.isArray(titleData)) {
-          const bestMatch = pickBestLrclibMatch(titleData, cleanedTitle, duration);
+        if (Array.isArray(titleOnlyData) && titleOnlyData.length > 0) {
+          const bestMatch = pickBestLrclibMatch(titleOnlyData, cleanedTitle, duration);
           if (bestMatch) {
             const result = processLrclibResponse(bestMatch);
             if (result) return result;

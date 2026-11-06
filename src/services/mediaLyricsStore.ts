@@ -143,6 +143,87 @@ export async function requestLyricsRefresh(artist: string, title: string, provid
   }
 }
 
+async function triggerCoordinatorFetch(wantedArtist: string, wantedTitle: string, duration?: number): Promise<void> {
+  if (!wantedTitle) return;
+
+  if (coordinatorFetchCancel) {
+    coordinatorFetchCancel();
+    coordinatorFetchCancel = null;
+  }
+
+  let isCancelled = false;
+  coordinatorFetchCancel = () => {
+    isCancelled = true;
+  };
+
+  try {
+    const preferredProvider =
+      (typeof localStorage !== "undefined" &&
+        (localStorage.getItem("notch_lyrics_provider") as LyricsProviderId)) ||
+      "auto";
+
+    const res = await fetchLyrics(
+      wantedArtist,
+      wantedTitle,
+      duration || currentMedia.duration || 0,
+      preferredProvider
+    );
+
+    if (isCancelled) return;
+
+    if (res && (res.lines.length > 0 || res.plainLyrics || res.instrumental)) {
+      const state: LyricsState = res.instrumental
+        ? "instrumental"
+        : res.synced
+        ? "synced"
+        : "plain";
+
+      const resultPayload: LyricsPayload = {
+        artist: wantedArtist,
+        title: wantedTitle,
+        state,
+        synced: !!res.synced,
+        lines: res.lines,
+        plain_lyrics: res.plainLyrics || null,
+        provider: res.provider || preferredProvider,
+        provider_name: res.providerName || (preferredProvider === "lrclib" ? "LRCLIB" : preferredProvider.toUpperCase()),
+        offset: currentLyrics.offset || 0,
+      };
+
+      await invoke("store_lyrics_result", { payload: resultPayload });
+    } else {
+      const notFoundPayload: LyricsPayload = {
+        artist: wantedArtist,
+        title: wantedTitle,
+        state: "not_found",
+        synced: false,
+        lines: [],
+        plain_lyrics: null,
+        provider: preferredProvider,
+        provider_name: preferredProvider.toUpperCase(),
+        offset: currentLyrics.offset || 0,
+      };
+
+      await invoke("store_lyrics_result", { payload: notFoundPayload });
+    }
+  } catch (err) {
+    if (!isCancelled) {
+      const errorPayload: LyricsPayload = {
+        artist: wantedArtist,
+        title: wantedTitle,
+        state: "not_found",
+        synced: false,
+        lines: [],
+        plain_lyrics: null,
+        provider: "error",
+        provider_name: "Error",
+        offset: currentLyrics.offset || 0,
+      };
+      await invoke("store_lyrics_result", { payload: errorPayload });
+    }
+  }
+}
+
 /**
  * Initializes listeners for media:update and lyrics:update.
  * If isCoordinator is true (only on the primary main Notch window),
@@ -151,7 +232,16 @@ export async function requestLyricsRefresh(artist: string, title: string, provid
  */
 export async function initMediaLyricsStore(isCoordinator: boolean = false): Promise<() => void> {
   if (isStoreInitialized) {
-    if (isCoordinator) isCoordinatorActive = true;
+    if (isCoordinator) {
+      isCoordinatorActive = true;
+      if (
+        currentMedia &&
+        currentMedia.title &&
+        (!currentLyrics.title || currentLyrics.state === "loading" || currentLyrics.state === "empty")
+      ) {
+        triggerCoordinatorFetch(currentMedia.artist, currentMedia.title, currentMedia.duration);
+      }
+    }
     return () => {};
   }
   isStoreInitialized = true;
@@ -168,6 +258,12 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
     if (initialLyrics && initialLyrics.title) {
       currentLyrics = initialLyrics;
       lyricsSubscribers.forEach((s) => s(currentLyrics));
+
+      if (isCoordinatorActive && initialLyrics.state === "loading") {
+        triggerCoordinatorFetch(initialLyrics.artist, initialLyrics.title, currentMedia.duration);
+      }
+    } else if (isCoordinatorActive && initialMedia && initialMedia.title) {
+      triggerCoordinatorFetch(initialMedia.artist, initialMedia.title, initialMedia.duration);
     }
   } catch (e) {
     console.error("Failed to hydrate media/lyrics store:", e);
@@ -175,8 +271,17 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
 
   // Listen to media:update (and fallback media-update)
   const unlistenMedia = await listen<MediaPayload>("media:update", (event) => {
+    const prevMedia = currentMedia;
     currentMedia = event.payload;
     mediaSubscribers.forEach((s) => s(currentMedia));
+
+    if (
+      isCoordinatorActive &&
+      event.payload.title &&
+      (event.payload.title !== prevMedia.title || event.payload.artist !== prevMedia.artist)
+    ) {
+      triggerCoordinatorFetch(event.payload.artist, event.payload.title, event.payload.duration);
+    }
   });
 
   // Listen to live media-progress to keep position & duration lockstep across windows
@@ -201,82 +306,7 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
 
     // If this window is the primary coordinator and lyrics are loading, perform the fetch
     if (isCoordinatorActive && payload.state === "loading" && payload.title) {
-      if (coordinatorFetchCancel) {
-        coordinatorFetchCancel();
-        coordinatorFetchCancel = null;
-      }
-
-      let isCancelled = false;
-      coordinatorFetchCancel = () => {
-        isCancelled = true;
-      };
-
-      const wantedArtist = payload.artist;
-      const wantedTitle = payload.title;
-
-      try {
-        const preferredProvider = (localStorage.getItem("notch_lyrics_provider") as LyricsProviderId) || "auto";
-        const res = await fetchLyrics(
-          wantedArtist,
-          wantedTitle,
-          currentMedia.duration || 0,
-          preferredProvider
-        );
-
-        if (isCancelled) return;
-
-        if (res && (res.lines.length > 0 || res.plainLyrics || res.instrumental)) {
-          const state: LyricsState = res.instrumental
-            ? "instrumental"
-            : res.synced
-            ? "synced"
-            : "plain";
-
-          const resultPayload: LyricsPayload = {
-            artist: wantedArtist,
-            title: wantedTitle,
-            state,
-            synced: !!res.synced,
-            lines: res.lines,
-            plain_lyrics: res.plainLyrics || null,
-            provider: res.provider || preferredProvider,
-            provider_name: res.providerName || "LRCLIB",
-            offset: payload.offset || 0,
-          };
-
-          await invoke("store_lyrics_result", { payload: resultPayload });
-        } else {
-          // Not found
-          const notFoundPayload: LyricsPayload = {
-            artist: wantedArtist,
-            title: wantedTitle,
-            state: "not_found",
-            synced: false,
-            lines: [],
-            plain_lyrics: null,
-            provider: preferredProvider,
-            provider_name: preferredProvider,
-            offset: payload.offset || 0,
-          };
-
-          await invoke("store_lyrics_result", { payload: notFoundPayload });
-        }
-      } catch (err) {
-        if (!isCancelled) {
-          const errorPayload: LyricsPayload = {
-            artist: wantedArtist,
-            title: wantedTitle,
-            state: "not_found",
-            synced: false,
-            lines: [],
-            plain_lyrics: null,
-            provider: "error",
-            provider_name: "Error",
-            offset: payload.offset || 0,
-          };
-          await invoke("store_lyrics_result", { payload: errorPayload });
-        }
-      }
+      triggerCoordinatorFetch(payload.artist, payload.title, currentMedia.duration);
     }
   });
 
