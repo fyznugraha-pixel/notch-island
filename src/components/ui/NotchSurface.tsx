@@ -376,7 +376,7 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
     };
 
     captureBackdrop();
-    const interval = setInterval(captureBackdrop, isExpanded ? 3500 : 7000);
+    const interval = setInterval(captureBackdrop, isExpanded ? 1200 : 1800);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -513,7 +513,7 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           <g clipPath="url(#notch-unified-clip)">
             {isTranslucent && (
               <>
-                {/* Real captured desktop wallpaper behind notch with rough blur */}
+                {/* Real captured desktop wallpaper behind notch with GPU blur */}
                 {desktopBackdropUrl ? (
                   <image
                     href={desktopBackdropUrl}
@@ -522,6 +522,11 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
                     width="100%"
                     height="100%"
                     preserveAspectRatio="none"
+                    style={{
+                      filter: "blur(26px) saturate(175%) brightness(1.05)",
+                      transform: "scale(1.08)",
+                      transformOrigin: "center",
+                    }}
                   />
                 ) : (
                   /* Ambient fallback tint before first capture frame */

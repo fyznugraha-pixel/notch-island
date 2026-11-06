@@ -388,7 +388,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       };
 
       captureDockBackdrop();
-      const interval = setInterval(captureDockBackdrop, 5000);
+      const interval = setInterval(captureDockBackdrop, 1500);
       return () => {
         isMounted = false;
         clearInterval(interval);
@@ -815,6 +815,10 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
                   src={desktopBackdropUrl}
                   alt=""
                   className="absolute inset-0 w-full h-full object-fill pointer-events-none"
+                  style={{
+                    filter: "blur(26px) saturate(175%) brightness(1.05)",
+                    transform: "scale(1.08)",
+                  }}
                 />
               )}
               {isLiquid && (
@@ -860,6 +864,10 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             src={desktopBackdropUrl}
             alt=""
             className="absolute inset-0 w-full h-full object-fill pointer-events-none rounded-[inherit] z-0"
+            style={{
+              filter: "blur(26px) saturate(175%) brightness(1.05)",
+              transform: "scale(1.08)",
+            }}
           />
         )}
 

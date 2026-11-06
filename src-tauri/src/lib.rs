@@ -3200,6 +3200,7 @@ pub fn run() {
             taskbar_flyout::toggle_taskbar_flyout,
             taskbar_flyout::close_taskbar_flyout,
             taskbar_flyout::is_taskbar_flyout_open,
+            taskbar_flyout::get_taskbar_flyout_state,
             taskbar_logger::get_taskbar_flyout_logs,
             get_master_mute,
             set_master_mute,

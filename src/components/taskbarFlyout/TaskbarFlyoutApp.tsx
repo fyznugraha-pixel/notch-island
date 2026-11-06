@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCachedNavbarConfigSync } from "../../services/navbarConfigService";
 import { SoundOutputMixerView } from "./views/SoundOutputMixerView";
 import { QuickSettingsView } from "./views/QuickSettingsView";
+import { NotificationsCalendarView } from "./views/NotificationsCalendarView";
+import { StartMenuView } from "./views/StartMenuView";
+import { SearchView } from "./views/SearchView";
 
 interface FlyoutStatePayload {
   isOpen: boolean;
@@ -20,8 +23,22 @@ export const TaskbarFlyoutApp: React.FC = () => {
     return cfg.style === "liquid" ? "liquid" : "solid";
   });
 
+  const syncStateFromRust = useCallback(async () => {
+    try {
+      const st = await invoke<{ isOpen: boolean; target: string }>(
+        "get_taskbar_flyout_state"
+      );
+      if (st && st.target) {
+        setTarget(st.target);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
-    // 1. Esc key dismiss handler
+    // 1. Immediately sync active target from Rust on mount
+    syncStateFromRust();
+
+    // 2. Esc key dismiss handler
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -30,7 +47,13 @@ export const TaskbarFlyoutApp: React.FC = () => {
     };
     window.addEventListener("keydown", handleKeyDown);
 
-    // 2. Listen to state changes from Rust window manager
+    // 3. Re-sync on window focus
+    const handleFocus = () => {
+      syncStateFromRust();
+    };
+    window.addEventListener("focus", handleFocus);
+
+    // 4. Listen to state changes from Rust window manager
     const unlisten = listen<FlyoutStatePayload>(
       "taskbar-flyout-state-changed",
       (event) => {
@@ -47,9 +70,14 @@ export const TaskbarFlyoutApp: React.FC = () => {
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("focus", handleFocus);
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [syncStateFromRust]);
+
+  const handleClose = () => {
+    invoke("close_taskbar_flyout").catch(() => {});
+  };
 
   return (
     <div
@@ -63,14 +91,23 @@ export const TaskbarFlyoutApp: React.FC = () => {
       >
         {target === "volume" ? (
           <SoundOutputMixerView
-            onClose={() => invoke("close_taskbar_flyout")}
+            onClose={handleClose}
             onBack={() => setTarget("quickSettings")}
           />
         ) : target === "quickSettings" ? (
           <QuickSettingsView
-            onClose={() => invoke("close_taskbar_flyout")}
+            onClose={handleClose}
             onSwitchToVolumeMixer={() => setTarget("volume")}
           />
+        ) : target === "notificationsCalendar" ? (
+          <NotificationsCalendarView onClose={handleClose} />
+        ) : target === "start" ? (
+          <StartMenuView
+            onClose={handleClose}
+            onOpenSearch={() => setTarget("search")}
+          />
+        ) : target === "search" ? (
+          <SearchView onClose={handleClose} />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
             <div className="gili-flyout-card p-5 flex flex-col items-center gap-2 max-w-xs">
@@ -82,7 +119,7 @@ export const TaskbarFlyoutApp: React.FC = () => {
               </span>
               <button
                 type="button"
-                onClick={() => invoke("close_taskbar_flyout")}
+                onClick={handleClose}
                 className="gili-flyout-chip px-3 py-1.5 rounded-lg text-[11px] font-medium mt-2 cursor-pointer text-[var(--taskbar-text)]"
               >
                 Tutup (Esc)
@@ -94,4 +131,5 @@ export const TaskbarFlyoutApp: React.FC = () => {
     </div>
   );
 };
+
 

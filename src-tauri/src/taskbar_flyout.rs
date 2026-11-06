@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder};
-use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, SetForegroundWindow};
 
 #[link(name = "dwmapi")]
 extern "system" {
@@ -93,6 +93,10 @@ pub fn ensure_flyout_window(app: &AppHandle) -> Option<WebviewWindow> {
                     _ => {}
                 }
             });
+            #[cfg(windows)]
+            if let Ok(raw_hwnd) = win.hwnd() {
+                crate::backdrop_capture::set_exclude_from_capture(HWND(raw_hwnd.0));
+            }
             Some(win)
         }
         Err(e) => {
@@ -197,16 +201,16 @@ pub fn open_taskbar_flyout_internal(
     FLYOUT_OPEN.store(true, Ordering::SeqCst);
     *ACTIVE_TARGET.lock().unwrap() = target.to_string();
 
-    let _ = app.emit(
-        "taskbar-flyout-state-changed",
-        serde_json::json!({
-            "isOpen": true,
-            "target": target,
-            "theme": if is_liquid { "liquid" } else { "solid" },
-            "width": desired_w,
-            "height": desired_h
-        }),
-    );
+    let state_payload = serde_json::json!({
+        "isOpen": true,
+        "target": target,
+        "theme": if is_liquid { "liquid" } else { "solid" },
+        "width": desired_w,
+        "height": desired_h
+    });
+
+    let _ = win.emit("taskbar-flyout-state-changed", state_payload.clone());
+    let _ = app.emit("taskbar-flyout-state-changed", state_payload);
 
     crate::taskbar_logger::log_taskbar_event(
         target,
@@ -222,8 +226,18 @@ pub fn open_taskbar_flyout_internal(
     );
 }
 
+#[tauri::command]
+pub fn get_taskbar_flyout_state() -> serde_json::Value {
+    let current_target = ACTIVE_TARGET.lock().unwrap().clone();
+    let is_open = FLYOUT_OPEN.load(Ordering::SeqCst);
+    serde_json::json!({
+        "isOpen": is_open,
+        "target": if current_target.is_empty() { "volume".to_string() } else { current_target },
+    })
+}
+
 fn calculate_anchored_position(
-    _win: &WebviewWindow,
+    win: &WebviewWindow,
     pos: &str,
     width: f64,
     height: f64,
@@ -232,13 +246,34 @@ fn calculate_anchored_position(
 ) -> (f64, f64) {
     let margin = 12.0;
 
-    let point = if let Some(t) = trigger {
-        POINT {
-            x: ((t.x + t.width / 2.0) * scale_factor) as i32,
-            y: ((t.y + t.height / 2.0) * scale_factor) as i32,
+    // Resolve navbar window's screen position in logical pixels
+    let (nav_x, nav_y) = if let Some(navbar_win) = win.app_handle().get_webview_window("navbar") {
+        if let Ok(raw_hwnd) = navbar_win.hwnd() {
+            let hwnd = HWND(raw_hwnd.0);
+            let mut r = RECT::default();
+            if unsafe { GetWindowRect(hwnd, &mut r).is_ok() } {
+                (r.left as f64 / scale_factor, r.top as f64 / scale_factor)
+            } else {
+                let p = navbar_win.outer_position().unwrap_or_default();
+                (p.x as f64 / scale_factor, p.y as f64 / scale_factor)
+            }
+        } else {
+            let p = navbar_win.outer_position().unwrap_or_default();
+            (p.x as f64 / scale_factor, p.y as f64 / scale_factor)
         }
     } else {
-        POINT { x: 500, y: 500 }
+        (0.0, 0.0)
+    };
+
+    let (trig_x, trig_y, trig_w, trig_h) = if let Some(t) = trigger {
+        (nav_x + t.x, nav_y + t.y, t.width, t.height)
+    } else {
+        (nav_x, nav_y, 40.0, 40.0)
+    };
+
+    let point = POINT {
+        x: ((trig_x + trig_w / 2.0) * scale_factor) as i32,
+        y: ((trig_y + trig_h / 2.0) * scale_factor) as i32,
     };
 
     let mut work_left = 0.0;
@@ -262,39 +297,39 @@ fn calculate_anchored_position(
 
     let (mut x, mut y) = match pos {
         "top" => {
-            let initial_y = if let Some(t) = trigger {
-                t.y + t.height + margin
+            let initial_y = if trigger.is_some() {
+                trig_y + trig_h + margin
             } else {
                 work_top + margin
             };
-            let initial_x = if let Some(t) = trigger {
-                t.x + (t.width - width) / 2.0
+            let initial_x = if trigger.is_some() {
+                trig_x + (trig_w - width) / 2.0
             } else {
                 (work_left + work_right - width) / 2.0
             };
             (initial_x, initial_y)
         }
         "left" => {
-            let initial_x = if let Some(t) = trigger {
-                t.x + t.width + margin
+            let initial_x = if trigger.is_some() {
+                trig_x + trig_w + margin
             } else {
                 work_left + margin
             };
-            let initial_y = if let Some(t) = trigger {
-                t.y + (t.height - height) / 2.0
+            let initial_y = if trigger.is_some() {
+                trig_y + (trig_h - height) / 2.0
             } else {
                 (work_top + work_bottom - height) / 2.0
             };
             (initial_x, initial_y)
         }
         "right" => {
-            let initial_x = if let Some(t) = trigger {
-                t.x - width - margin
+            let initial_x = if trigger.is_some() {
+                trig_x - width - margin
             } else {
                 work_right - width - margin
             };
-            let initial_y = if let Some(t) = trigger {
-                t.y + (t.height - height) / 2.0
+            let initial_y = if trigger.is_some() {
+                trig_y + (trig_h - height) / 2.0
             } else {
                 (work_top + work_bottom - height) / 2.0
             };
@@ -302,13 +337,13 @@ fn calculate_anchored_position(
         }
         _ => {
             // "bottom"
-            let initial_y = if let Some(t) = trigger {
-                t.y - height - margin
+            let initial_y = if trigger.is_some() {
+                trig_y - height - margin
             } else {
                 work_bottom - height - margin
             };
-            let initial_x = if let Some(t) = trigger {
-                t.x + (t.width - width) / 2.0
+            let initial_x = if trigger.is_some() {
+                trig_x + (trig_w - width) / 2.0
             } else {
                 (work_left + work_right - width) / 2.0
             };
