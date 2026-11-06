@@ -66,11 +66,13 @@ export const MiniPlayerApp: React.FC = () => {
   const [isFaded, setIsFaded] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
   const [positionBottom, setPositionBottom] = useState(false);
+  const [isInZone, setIsInZone] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dwellTimerRef = useRef<NodeJS.Timeout | null>(null);
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ctrlPollRef = useRef<NodeJS.Timeout | null>(null);
+  const dragCheckPollRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize media & lyrics store as listener (not coordinator)
   useEffect(() => {
@@ -158,11 +160,64 @@ export const MiniPlayerApp: React.FC = () => {
           "gili_miniplayer_pos",
           JSON.stringify({ x: snappedX, y: snappedY, w: currentW, h: currentH })
         );
+
+        // Check proximity to notch target zone (M5 Drag-to-merge)
+        const prox = await invoke<{ is_near: boolean; is_in_zone: boolean }>("check_notch_proximity", {
+          x,
+          y,
+          width: currentW,
+          height: currentH,
+        }).catch(() => ({ is_near: false, is_in_zone: false }));
+
+        setIsInZone(prox.is_in_zone);
+        await emit("miniplayer:drag-proximity", prox);
+
+        if (prox.is_near || prox.is_in_zone) {
+          if (!dragCheckPollRef.current) {
+            dragCheckPollRef.current = setInterval(async () => {
+              const isDown = await invoke<boolean>("is_lbutton_down").catch(() => false);
+              if (!isDown) {
+                if (dragCheckPollRef.current) {
+                  clearInterval(dragCheckPollRef.current);
+                  dragCheckPollRef.current = null;
+                }
+
+                const finalCheck = await invoke<{ is_near: boolean; is_in_zone: boolean }>(
+                  "check_notch_proximity",
+                  {
+                    x,
+                    y,
+                    width: currentW,
+                    height: currentH,
+                  }
+                ).catch(() => ({ is_near: false, is_in_zone: false }));
+
+                await emit("miniplayer:drag-proximity", { is_near: false, is_in_zone: false });
+                setIsInZone(false);
+
+                if (finalCheck.is_in_zone) {
+                  await invoke("close_miniplayer");
+                  await emit("miniplayer:return-to-notch");
+                }
+              }
+            }, 40);
+          }
+        } else {
+          setIsInZone(false);
+          if (dragCheckPollRef.current) {
+            clearInterval(dragCheckPollRef.current);
+            dragCheckPollRef.current = null;
+          }
+        }
       } catch {}
     });
 
     return () => {
       unlistenMove.then((f) => f());
+      if (dragCheckPollRef.current) {
+        clearInterval(dragCheckPollRef.current);
+        dragCheckPollRef.current = null;
+      }
     };
   }, [mode]);
 
@@ -303,7 +358,8 @@ export const MiniPlayerApp: React.FC = () => {
       onClick={handleClick}
       style={{
         opacity: isFaded ? fadeOpacity : 1,
-        transition: "opacity 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+        transform: isInZone ? "scale(0.85)" : "scale(1)",
+        transition: "opacity 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 200ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       className={`relative overflow-hidden select-none transition-[width,height] duration-200 ease-out ${
         mode === "card" ? "w-[380px] h-[440px]" : "w-[440px] h-[88px]"

@@ -322,3 +322,68 @@ pub fn is_ctrl_down() -> bool {
         false
     }
 }
+
+#[tauri::command]
+pub fn is_lbutton_down() -> bool {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+        unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 }
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct NotchProximity {
+    pub is_near: bool,
+    pub is_in_zone: bool,
+}
+
+#[tauri::command]
+pub fn check_notch_proximity(
+    _app: AppHandle,
+    x: i32,
+    y: i32,
+    width: i32,
+    _height: i32,
+) -> NotchProximity {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
+
+        let pt = POINT { x, y };
+        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+
+        if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+            let rc = mi.rcWork;
+            let mon_center_x = rc.left + (rc.right - rc.left) / 2;
+            let mini_center_x = x + width / 2;
+            let mini_top_y = y;
+
+            let dx = (mini_center_x - mon_center_x).abs();
+            let dy = (mini_top_y - rc.top).abs();
+
+            // Target notch zone: within 160px horizontally from center and 100px from top
+            let is_in_zone = dx <= 160 && dy <= 100;
+            // Near zone: radius 48px from target notch zone
+            let is_near = dx <= 220 && dy <= 160;
+
+            return NotchProximity { is_near, is_in_zone };
+        }
+    }
+
+    NotchProximity {
+        is_near: false,
+        is_in_zone: false,
+    }
+}

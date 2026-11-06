@@ -111,6 +111,7 @@ import {
 } from "./components/ui/IdleLayoutSetting";
 import type { QueueTrackItem } from "./components/ui/MediaQueueView";
 import { IdleLyrics } from "./components/ui/IdleLyrics";
+import { MiniPlayerDropTarget } from "./components/miniplayer/MiniPlayerDropTarget";
 import { IdleMascot } from "./components/ui/IdleMascot";
 
 const ControlCenterPanel = React.lazy(() =>
@@ -439,6 +440,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const [seekValue, setSeekValue] = useState(0);
   const [brightnessMode, setBrightnessMode] = useState<"auto" | "manual" | "reading">("manual");
   const isAdjustingVolumeRef = useRef(false);
+  const [miniPlayerProximity, setMiniPlayerProximity] = useState<{ is_near: boolean; is_in_zone: boolean }>({
+    is_near: false,
+    is_in_zone: false,
+  });
   const [showLyrics, setShowLyrics] = useState<boolean>(() => {
     try {
       return localStorage.getItem("island_show_lyrics") === "true";
@@ -3773,6 +3778,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setIsExpanded(false);
     });
 
+    const unlistenDragProx = listen<{ is_near: boolean; is_in_zone: boolean }>(
+      "miniplayer:drag-proximity",
+      (event) => {
+        setMiniPlayerProximity(event.payload || { is_near: false, is_in_zone: false });
+      }
+    );
+
     unlistenMedia.then(() => invoke("request_media_resync").catch(() => {}));
 
     return () => {
@@ -3794,6 +3806,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       unlistenSettingsSync.then((f) => f());
       unlistenTriggerAction.then((f) => f());
       unlistenReturnToNotch.then((f) => f());
+      unlistenDragProx.then((f) => f());
     };
   }, []);
 
@@ -4800,10 +4813,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   return (
     <div
-      className={`w-screen h-screen flex bg-transparent pointer-events-none ${
+      className={`relative w-screen h-screen flex bg-transparent pointer-events-none ${
         isLeftPos ? "justify-start" : isRightPos ? "justify-end" : "justify-center"
       } ${isTopPos ? "items-start" : isBot ? "items-end" : "items-center"}`}
     >
+      <MiniPlayerDropTarget
+        isNear={miniPlayerProximity.is_near}
+        isInZone={miniPlayerProximity.is_in_zone}
+        notchShape={notchShape}
+      />
       <motion.div
         ref={notchPillRef}
         id="notch-pill"
