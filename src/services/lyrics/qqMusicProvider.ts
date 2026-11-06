@@ -1,10 +1,11 @@
 import { LyricsProvider, LyricsData } from "./types";
-import { cleanTitle, cleanArtist, parseLrc, fetchJson, hasActualLyrics } from "./utils";
+import { cleanTitle, cleanArtist, parseLrc, hasActualLyrics, pickMatchingCandidate } from "./utils";
+import { fetchJson, rethrowIfFetchError } from "./lyricsHttp";
 
 export const qqMusicProvider: LyricsProvider = {
   id: "qqmusic",
   name: "QQ Music",
-  async fetchLyrics(artist: string, title: string): Promise<LyricsData | null> {
+  async fetchLyrics(artist: string, title: string, duration?: number): Promise<LyricsData | null> {
     const cleanedArtist = cleanArtist(artist);
     const cleanedTitle = cleanTitle(title) || title;
     const query = `${cleanedTitle} ${cleanedArtist}`.trim();
@@ -26,7 +27,14 @@ export const qqMusicProvider: LyricsProvider = {
       const songList = searchData?.data?.song?.list;
       if (!Array.isArray(songList) || songList.length === 0) return null;
 
-      const songmid = songList[0]?.songmid;
+      const matched = pickMatchingCandidate(
+        songList,
+        cleanedTitle,
+        duration,
+        (s: any) => s.songname,
+        (s: any) => Number(s.interval) || undefined
+      );
+      const songmid = matched?.songmid;
       if (!songmid) return null;
 
       const lyricUrl = `https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${encodeURIComponent(
@@ -62,7 +70,8 @@ export const qqMusicProvider: LyricsProvider = {
         provider: "qqmusic",
         providerName: "QQ Music",
       };
-    } catch {
+    } catch (err) {
+      rethrowIfFetchError(err);
       return null;
     }
   },

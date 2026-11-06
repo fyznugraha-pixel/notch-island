@@ -5,7 +5,7 @@ mod connectivity;
 mod system_monitor;
 mod audio_endpoints;
 mod migration;
-mod windows_dnd;
+mod install_repair;mod windows_dnd;
 mod toast_banners;
 pub mod shelf_server;
 
@@ -694,6 +694,9 @@ async fn fetch_external_lyrics_api(
             Ok(resp) => resp
                 .into_string()
                 .map_err(|e| format!("Failed to read response body: {}", e)),
+            // 404 means the provider simply has no entry — not a failure worth retrying
+            Err(ureq::Error::Status(404, _)) => Ok(String::new()),
+            Err(ureq::Error::Status(code, _)) => Err(format!("HTTP status {}", code)),
             Err(e) => Err(format!("HTTP request error: {}", e)),
         }
     })
@@ -3218,6 +3221,12 @@ pub fn run() {
             let mutex = CreateMutexW(None, true, w!("com_faiz_gili_single_instance_mutex"));
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE};
+                let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
+                install_repair::append_startup_log(&format!(
+                    "second instance v{} from '{}' exited: another Gili is already running",
+                    env!("CARGO_PKG_VERSION"),
+                    exe
+                ));
                 if let Ok(hwnd) = FindWindowW(None, w!("Gili")) {
                     if !hwnd.0.is_null() {
                         let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -3228,6 +3237,7 @@ pub fn run() {
             }
             let _ = mutex;
         }
+        install_repair::spawn_install_repair();
     }
 
     tauri::Builder::default()

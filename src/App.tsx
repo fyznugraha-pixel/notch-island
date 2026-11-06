@@ -515,21 +515,25 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
     let isCancelled = false;
     setIsLyricsLoading(true);
-    fetchLyrics(media.artist || "", media.title, media.duration || mediaProgress.duration, lyricsProvider)
-      .then((res) => {
-        if (!isCancelled) {
-          setLyricsData(res);
-          setIsLyricsLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!isCancelled) {
-          setLyricsData(null);
-          setIsLyricsLoading(false);
-        }
-      });
+    // SMTC often reports title and artist a moment apart; wait so we search once with both
+    const debounceTimer = window.setTimeout(() => {
+      fetchLyrics(media.artist || "", media.title, media.duration || mediaProgress.duration, lyricsProvider)
+        .then((res) => {
+          if (!isCancelled) {
+            setLyricsData(res);
+            setIsLyricsLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!isCancelled) {
+            setLyricsData(null);
+            setIsLyricsLoading(false);
+          }
+        });
+    }, 350);
     return () => {
       isCancelled = true;
+      window.clearTimeout(debounceTimer);
     };
   }, [showLyrics, media?.title, media?.artist, lyricsProvider]);
 

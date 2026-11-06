@@ -1,5 +1,6 @@
 import { LyricsProvider, LyricsData, LyricLine } from "./types";
-import { cleanTitle, cleanArtist, fetchJson, fetchText, hasActualLyrics } from "./utils";
+import { cleanTitle, cleanArtist, hasActualLyrics, isSameTrack } from "./utils";
+import { fetchJson, fetchText, rethrowIfFetchError } from "./lyricsHttp";
 
 export const geniusProvider: LyricsProvider = {
   id: "genius",
@@ -26,7 +27,8 @@ export const geniusProvider: LyricsProvider = {
       const hits = songSection?.hits;
       if (!Array.isArray(hits) || hits.length === 0) return null;
 
-      const path = hits[0]?.result?.path;
+      const hit = hits.find((h: any) => isSameTrack(h?.result?.title, cleanedTitle));
+      const path = hit?.result?.path;
       if (!path) return null;
 
       const songPageUrl = `https://genius.com${path}`;
@@ -95,7 +97,8 @@ export const geniusProvider: LyricsProvider = {
         provider: "genius",
         providerName: "Genius",
       };
-    } catch {
+    } catch (err) {
+      rethrowIfFetchError(err);
       return null;
     }
   },

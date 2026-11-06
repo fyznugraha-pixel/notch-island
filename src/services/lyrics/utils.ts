@@ -7,7 +7,44 @@ export function cleanTitle(title: string): string {
     .replace(/\s*[\(\[][^)\]]*\b(feat\.?|ft\.?|official|audio|video|lyric|lyrics|visualizer|mv|music video|performance|special clip|color coded|remix|version|remastered|deluxe|live|explicit|4k|hd)\b[\s\S]*?[\)\]]/gi, "")
     .replace(/\s+-\s+(official\s+(audio|video|music\s+video|lyric\s+video|visualizer)|lyric\s+video|music\s+video|visualizer|remastered(\s+\d{4})?|deluxe(\s+edition|\s+version)?|live(?:\s+(?:at|in|from|version|performance)\b|$)|\d{4}\s+remaster(ed)?)\b[\s\S]*$/gi, "")
     .replace(/\s*\|\s*[\s\S]*$/g, "")
+    .replace(/\s+(?:feat\.?|ft\.?|featuring)\s+.+$/i, "")
     .trim();
+}
+
+const DURATION_TOLERANCE_SEC = 6;
+
+function normalizeForMatch(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/** Loose title check so a provider's top search hit isn't blindly trusted. */
+export function isSameTrack(candidateTitle: string | undefined, wantedTitle: string): boolean {
+  const a = normalizeForMatch(candidateTitle || "");
+  const b = normalizeForMatch(wantedTitle);
+  if (!a || !b) return true;
+  return a.includes(b) || b.includes(a);
+}
+
+/**
+ * Picks the first search hit that matches by title and (when known) duration.
+ * `durationOf` must return seconds.
+ */
+export function pickMatchingCandidate<T>(
+  candidates: T[],
+  wantedTitle: string,
+  wantedDuration: number | undefined,
+  titleOf: (item: T) => string | undefined,
+  durationOf: (item: T) => number | undefined
+): T | null {
+  const titleMatches = candidates.filter((c) => isSameTrack(titleOf(c), wantedTitle));
+  if (titleMatches.length === 0) return null;
+  if (!wantedDuration || wantedDuration <= 0) return titleMatches[0];
+
+  const closeInDuration = titleMatches.find((c) => {
+    const d = durationOf(c);
+    return !d || Math.abs(d - wantedDuration) <= DURATION_TOLERANCE_SEC;
+  });
+  return closeInDuration ?? null;
 }
 
 export function cleanArtist(artist: string): string {

@@ -18,6 +18,36 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.4.6",
+    date: "6 Nov 2026",
+    highlights: [
+      {
+        icon: <Music size={14} />,
+        titleId: "Pencarian Lirik Lebih Andal",
+        titleEn: "More Reliable Lyrics Lookup",
+        descId: "LRCLIB kini menjadi sumber utama, lalu QQ Music, NetEase, KuGou, dan Genius dicari bersamaan hanya jika tidak ditemukan. Hasil dicocokkan dengan judul dan durasi lagu agar tidak salah lirik.",
+        descEn: "LRCLIB is now the primary source, with QQ Music, NetEase, KuGou, and Genius queried in parallel only when it has no match. Results are checked against track title and duration to avoid wrong lyrics.",
+        badge: "improve",
+      },
+      {
+        icon: <Bug size={14} />,
+        titleId: "Lirik Tidak Lagi Terkunci Kosong",
+        titleEn: "Lyrics No Longer Stuck Empty",
+        descId: "Gangguan jaringan sesaat tidak lagi membuat sebuah lagu dianggap tanpa lirik sampai aplikasi dibuka ulang, dan tiap sumber kini memiliki batas waktu agar tidak menggantung.",
+        descEn: "A brief network failure no longer marks a song as lyric-less until restart, and every source now has a timeout so lookups never hang.",
+        badge: "fix",
+      },
+      {
+        icon: <AppWindow size={14} />,
+        titleId: "Autostart & Shortcut Selalu Menuju Versi Terpasang",
+        titleEn: "Autostart & Shortcuts Always Target the Installed Version",
+        descId: "Gili memperbaiki otomatis entri autostart dan shortcut yang masih menunjuk ke file lama, sehingga setelah restart komputer tidak kembali ke versi lama.",
+        descEn: "Gili now auto-repairs autostart and shortcut entries that still point to an old copy, so restarting your PC no longer brings back an older version.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "4.4.5",
     date: "4 Nov 2026",
     highlights: [

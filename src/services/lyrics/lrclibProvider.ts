@@ -1,10 +1,13 @@
 import { LyricsProvider, LyricsData, LyricLine } from "./types";
-import { cleanTitle, cleanArtist, parseLrc, fetchJson, hasActualLyrics } from "./utils";
+import { cleanTitle, cleanArtist, parseLrc, hasActualLyrics, isSameTrack } from "./utils";
+import { fetchJson, rethrowIfFetchError } from "./lyricsHttp";
 
-function pickBestLrclibMatch(list: any[], duration?: number): any {
+function pickBestLrclibMatch(list: any[], wantedTitle: string, duration?: number): any {
   if (!Array.isArray(list) || list.length === 0) return null;
-  const syncedItems = list.filter((item: any) => item.syncedLyrics);
-  const pool = syncedItems.length > 0 ? syncedItems : list;
+  const sameTrack = list.filter((item: any) => isSameTrack(item.trackName, wantedTitle));
+  if (sameTrack.length === 0) return null;
+  const syncedItems = sameTrack.filter((item: any) => item.syncedLyrics);
+  const pool = syncedItems.length > 0 ? syncedItems : sameTrack;
 
   if (duration && duration > 0) {
     let best = pool[0];
@@ -109,7 +112,7 @@ export const lrclibProvider: LyricsProvider = {
       const searchQuery = encodeURIComponent(`${effectiveArtist} ${cleanedTitle}`.trim());
       const searchData = await fetchJson(`https://lrclib.net/api/search?q=${searchQuery}`, { headers });
       if (Array.isArray(searchData)) {
-        const bestMatch = pickBestLrclibMatch(searchData, duration);
+        const bestMatch = pickBestLrclibMatch(searchData, cleanedTitle, duration);
         if (bestMatch) {
           const result = processLrclibResponse(bestMatch);
           if (result) return result;
@@ -122,7 +125,7 @@ export const lrclibProvider: LyricsProvider = {
           { headers }
         );
         if (Array.isArray(titleData)) {
-          const bestMatch = pickBestLrclibMatch(titleData, duration);
+          const bestMatch = pickBestLrclibMatch(titleData, cleanedTitle, duration);
           if (bestMatch) {
             const result = processLrclibResponse(bestMatch);
             if (result) return result;
@@ -131,7 +134,8 @@ export const lrclibProvider: LyricsProvider = {
       }
 
       return null;
-    } catch {
+    } catch (err) {
+      rethrowIfFetchError(err);
       return null;
     }
   },

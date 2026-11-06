@@ -1,10 +1,11 @@
 import { LyricsProvider, LyricsData } from "./types";
-import { cleanTitle, cleanArtist, parseLrc, fetchJson, hasActualLyrics } from "./utils";
+import { cleanTitle, cleanArtist, parseLrc, hasActualLyrics, pickMatchingCandidate } from "./utils";
+import { fetchJson, rethrowIfFetchError } from "./lyricsHttp";
 
 export const neteaseProvider: LyricsProvider = {
   id: "netease",
   name: "NetEase",
-  async fetchLyrics(artist: string, title: string): Promise<LyricsData | null> {
+  async fetchLyrics(artist: string, title: string, duration?: number): Promise<LyricsData | null> {
     const cleanedArtist = cleanArtist(artist);
     const cleanedTitle = cleanTitle(title) || title;
     const query = `${cleanedTitle} ${cleanedArtist}`.trim();
@@ -32,7 +33,14 @@ export const neteaseProvider: LyricsProvider = {
       const songs = searchData?.result?.songs;
       if (!Array.isArray(songs) || songs.length === 0) return null;
 
-      const songId = songs[0].id;
+      const matched = pickMatchingCandidate(
+        songs,
+        cleanedTitle,
+        duration,
+        (s: any) => s.name,
+        (s: any) => (Number(s.duration) ? Number(s.duration) / 1000 : undefined)
+      );
+      const songId = matched?.id;
       if (!songId) return null;
 
       const lyricUrl = `https://music.163.com/api/song/lyric?id=${songId}&lv=-1&tv=-1`;
@@ -51,7 +59,8 @@ export const neteaseProvider: LyricsProvider = {
         provider: "netease",
         providerName: "NetEase",
       };
-    } catch {
+    } catch (err) {
+      rethrowIfFetchError(err);
       return null;
     }
   },

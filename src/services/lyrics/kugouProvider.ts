@@ -1,10 +1,11 @@
 import { LyricsProvider, LyricsData } from "./types";
-import { cleanTitle, cleanArtist, parseLrc, fetchJson, hasActualLyrics } from "./utils";
+import { cleanTitle, cleanArtist, parseLrc, hasActualLyrics, pickMatchingCandidate } from "./utils";
+import { fetchJson, rethrowIfFetchError } from "./lyricsHttp";
 
 export const kugouProvider: LyricsProvider = {
   id: "kugou",
   name: "KuGou",
-  async fetchLyrics(artist: string, title: string): Promise<LyricsData | null> {
+  async fetchLyrics(artist: string, title: string, duration?: number): Promise<LyricsData | null> {
     const cleanedArtist = cleanArtist(artist);
     const cleanedTitle = cleanTitle(title) || title;
     const query = `${cleanedTitle} ${cleanedArtist}`.trim();
@@ -22,7 +23,14 @@ export const kugouProvider: LyricsProvider = {
       const infoList = searchData?.data?.info;
       if (!Array.isArray(infoList) || infoList.length === 0) return null;
 
-      const songHash = infoList[0].hash;
+      const matched = pickMatchingCandidate(
+        infoList,
+        cleanedTitle,
+        duration,
+        (s: any) => s.songname,
+        (s: any) => Number(s.duration) || undefined
+      );
+      const songHash = matched?.hash;
       if (!songHash) return null;
 
       const candUrl = `http://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration=&hash=${songHash}&album_audio_id=`;
@@ -63,7 +71,8 @@ export const kugouProvider: LyricsProvider = {
         provider: "kugou",
         providerName: "KuGou",
       };
-    } catch {
+    } catch (err) {
+      rethrowIfFetchError(err);
       return null;
     }
   },
