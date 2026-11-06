@@ -501,15 +501,24 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
                     className="flex items-center gap-2.5 h-[42px]"
                   >
                     <span className="w-[30px] h-[30px] rounded-[9px] gili-flyout-card flex items-center justify-center shrink-0 overflow-hidden text-[var(--taskbar-text-2)]">
-                      {session.icon ? (
+                      {normalizeIconUrl(session.icon) ? (
                         <img
                           src={normalizeIconUrl(session.icon)}
                           alt={session.name}
                           className="w-5 h-5 object-contain"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                            const fb = e.currentTarget.parentElement?.querySelector(".session-icon-fallback") as HTMLElement;
+                            if (fb) fb.style.display = "flex";
+                          }}
                         />
-                      ) : (
-                        renderAppIcon(session.name)
-                      )}
+                      ) : null}
+                      <span
+                        className="session-icon-fallback"
+                        style={{ display: normalizeIconUrl(session.icon) ? "none" : "flex" }}
+                      >
+                        {renderAppIcon(session.name)}
+                      </span>
                     </span>
 
                     <span

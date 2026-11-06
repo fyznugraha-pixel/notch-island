@@ -182,17 +182,24 @@ export const SearchView: React.FC<SearchViewProps> = ({ onClose }) => {
                     className="h-16 rounded-xl bg-[var(--taskbar-card)] hover:bg-[var(--taskbar-item-hover)] active:scale-95 flex flex-col items-center justify-center gap-1 cursor-pointer transition-all p-1"
                   >
                     <div className="w-7 h-7 rounded-lg bg-[var(--taskbar-chip)] flex items-center justify-center overflow-hidden shrink-0">
-                      {app.icon_base64 ? (
+                      {normalizeIconUrl(app.icon_base64) ? (
                         <img
                           src={normalizeIconUrl(app.icon_base64)}
                           alt={app.name}
                           className="w-5 h-5 object-contain"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                            const fb = e.currentTarget.parentElement?.querySelector(".search-app-fallback") as HTMLElement;
+                            if (fb) fb.style.display = "inline";
+                          }}
                         />
-                      ) : (
-                        <span className="text-[var(--taskbar-accent)] text-[11px] font-bold">
-                          {app.name[0]}
-                        </span>
-                      )}
+                      ) : null}
+                      <span
+                        className="search-app-fallback text-[var(--taskbar-accent)] text-[11px] font-bold"
+                        style={{ display: normalizeIconUrl(app.icon_base64) ? "none" : "inline" }}
+                      >
+                        {app.name[0]}
+                      </span>
                     </div>
                     <span className="text-[10px] text-[var(--taskbar-text)] truncate w-full text-center px-1 font-medium">
                       {app.name}

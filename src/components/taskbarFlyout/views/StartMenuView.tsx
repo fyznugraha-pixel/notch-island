@@ -122,17 +122,24 @@ export const StartMenuView: React.FC<StartMenuViewProps> = ({
                 className="h-[74px] rounded-xl flex flex-col items-center justify-center gap-1.5 p-1 hover:bg-[var(--taskbar-item-hover)] active:scale-95 transition-all text-center group"
               >
                 <div className="w-9 h-9 rounded-lg bg-[var(--taskbar-chip)] flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
-                  {app.icon_base64 ? (
+                  {normalizeIconUrl(app.icon_base64) ? (
                     <img
                       src={normalizeIconUrl(app.icon_base64)}
                       alt={app.name}
                       className="w-7 h-7 object-contain"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                        const fb = e.currentTarget.parentElement?.querySelector(".app-initial-fallback") as HTMLElement;
+                        if (fb) fb.style.display = "flex";
+                      }}
                     />
-                  ) : (
-                    <div className="w-6 h-6 rounded bg-[var(--taskbar-accent)] text-white text-[11px] font-bold flex items-center justify-center">
-                      {app.name.slice(0, 1).toUpperCase()}
-                    </div>
-                  )}
+                  ) : null}
+                  <div
+                    className="app-initial-fallback w-6 h-6 rounded bg-[var(--taskbar-accent)] text-white text-[11px] font-bold flex items-center justify-center"
+                    style={{ display: normalizeIconUrl(app.icon_base64) ? "none" : "flex" }}
+                  >
+                    {app.name.slice(0, 1).toUpperCase()}
+                  </div>
                 </div>
                 <span className="text-[10.5px] text-[var(--taskbar-text)] truncate w-full px-1 font-medium leading-tight">
                   {app.name}

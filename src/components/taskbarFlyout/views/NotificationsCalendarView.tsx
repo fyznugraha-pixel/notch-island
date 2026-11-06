@@ -20,14 +20,24 @@ import {
 import { normalizeIconUrl } from "../../navbar/groups/appIcons";
 
 const renderNotificationAppIcon = (appName?: string, icon?: string) => {
-  if (icon) {
-    return (
-      <img
-        src={normalizeIconUrl(icon)}
-        alt=""
-        className="w-3.5 h-3.5 object-contain rounded-[3px] shrink-0"
-      />
-    );
+  const isDirectImage =
+    typeof icon === "string" &&
+    (icon.startsWith("data:") ||
+      icon.startsWith("/") ||
+      icon.startsWith("http") ||
+      icon.length > 40);
+
+  if (isDirectImage) {
+    const url = normalizeIconUrl(icon);
+    if (url) {
+      return (
+        <img
+          src={url}
+          alt=""
+          className="w-3.5 h-3.5 object-contain rounded-[3px] shrink-0"
+        />
+      );
+    }
   }
   const lower = (appName || "").toLowerCase();
   if (lower.includes("discord")) {

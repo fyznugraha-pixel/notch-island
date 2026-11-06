@@ -10,6 +10,7 @@ import { QuickSettingsView } from "./views/QuickSettingsView";
 import { NotificationsCalendarView } from "./views/NotificationsCalendarView";
 import { StartMenuView } from "./views/StartMenuView";
 import { SearchView } from "./views/SearchView";
+import { TrayFlyoutView } from "./views/TrayFlyoutView";
 
 interface FlyoutStatePayload {
   isOpen: boolean;
@@ -154,6 +155,8 @@ export const TaskbarFlyoutApp: React.FC = () => {
             />
           ) : target === "search" ? (
             <SearchView onClose={handleClose} />
+          ) : target === "tray" ? (
+            <TrayFlyoutView onClose={handleClose} />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
               <div className="gili-flyout-card p-5 flex flex-col items-center gap-2 max-w-xs">

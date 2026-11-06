@@ -18,7 +18,10 @@ export const normalizeIconUrl = (icon?: string | null): string | undefined => {
   if (trimmed.startsWith("data:") || trimmed.startsWith("/") || trimmed.startsWith("http")) {
     return trimmed;
   }
-  return `data:image/png;base64,${trimmed}`;
+  if (trimmed.length > 40 && (trimmed.startsWith("iVBOR") || trimmed.startsWith("/9j/") || /^[A-Za-z0-9+/=]+$/.test(trimmed))) {
+    return `data:image/png;base64,${trimmed}`;
+  }
+  return undefined;
 };
 
 // ==========================================
