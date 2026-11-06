@@ -221,10 +221,15 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     };
 
     syncWindows();
-    const interval = setInterval(syncWindows, 1200);
+    const interval = setInterval(syncWindows, 800);
+    const handleFastSync = () => {
+      syncWindows();
+    };
+    window.addEventListener("gili_sync_running_windows", handleFastSync);
     return () => {
       isCancelled = true;
       clearInterval(interval);
+      window.removeEventListener("gili_sync_running_windows", handleFastSync);
     };
   }, [isPreview]);
 
@@ -724,7 +729,11 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
                     setHoveredAppId(null);
                     onPreviewStateChange?.(false);
                     if (hwnd) {
-                      invoke("activate_or_toggle_window", { hwnd }).catch(() => {});
+                      invoke("activate_or_toggle_window", { hwnd })
+                        .then(() => {
+                          window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
+                        })
+                        .catch(() => {});
                     } else {
                       onAppClick?.(app, false);
                     }

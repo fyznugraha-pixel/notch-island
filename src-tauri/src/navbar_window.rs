@@ -1163,12 +1163,29 @@ pub fn get_running_windows() -> Vec<RunningAppInfo> {
     unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let ctx = &mut *(lparam.0 as *mut EnumCtx);
 
-        if !IsWindowVisible(hwnd).as_bool() {
+        let is_minimized = IsIconic(hwnd).as_bool();
+
+        // 1. Must be visible, or minimized (minimized windows remain running on taskbar)
+        if !IsWindowVisible(hwnd).as_bool() && !is_minimized {
             return BOOL(1);
         }
 
+        // 2. Cloaked check:
+        // 0x01 = DWM_CLOAKED_APP (app cloaked / minimized / suspended by system)
+        // 0x02 = DWM_CLOAKED_SHELL (window is on another virtual desktop)
+        // Windows on another virtual desktop (0x02) should not appear on this desktop.
+        // But minimized windows on the current desktop (0x01) MUST appear on the taskbar.
         if is_window_cloaked(hwnd) {
-            return BOOL(1);
+            let mut cloaked: u32 = 0;
+            let _ = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_CLOAKED,
+                &mut cloaked as *mut _ as *mut _,
+                std::mem::size_of::<u32>() as u32,
+            );
+            if (cloaked & 0x02) != 0 || !is_minimized {
+                return BOOL(1);
+            }
         }
 
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
@@ -1185,10 +1202,14 @@ pub fn get_running_windows() -> Vec<RunningAppInfo> {
             }
         }
 
-        let mut rect = RECT::default();
-        let _ = GetWindowRect(hwnd, &mut rect);
-        if (rect.right - rect.left) <= 32 || (rect.bottom - rect.top) <= 32 {
-            return BOOL(1);
+        // Size check: ONLY check dimensions if the window is NOT minimized!
+        // Minimized windows in Windows have rect at -32000 and width/height <= 0
+        if !is_minimized {
+            let mut rect = RECT::default();
+            let _ = GetWindowRect(hwnd, &mut rect);
+            if (rect.right - rect.left) <= 32 || (rect.bottom - rect.top) <= 32 {
+                return BOOL(1);
+            }
         }
 
         let mut title_buf = [0u16; 512];
@@ -1245,8 +1266,18 @@ pub fn get_running_windows() -> Vec<RunningAppInfo> {
                 None,
             ) {
                 if !core_hwnd.0.is_null() {
+                    let is_child_minimized = is_minimized || IsIconic(core_hwnd).as_bool();
                     if is_window_cloaked(core_hwnd) {
-                        return BOOL(1);
+                        let mut cloaked: u32 = 0;
+                        let _ = DwmGetWindowAttribute(
+                            core_hwnd,
+                            DWMWA_CLOAKED,
+                            &mut cloaked as *mut _ as *mut _,
+                            std::mem::size_of::<u32>() as u32,
+                        );
+                        if (cloaked & 0x02) != 0 || !is_child_minimized {
+                            return BOOL(1);
+                        }
                     }
                     let mut child_pid = 0u32;
                     GetWindowThreadProcessId(core_hwnd, Some(&mut child_pid));
@@ -1291,7 +1322,7 @@ pub fn get_running_windows() -> Vec<RunningAppInfo> {
             return BOOL(1);
         }
 
-        let is_active = hwnd == ctx.active_hwnd;
+        let is_active = hwnd == ctx.active_hwnd && !is_minimized;
         let is_minimized = IsIconic(hwnd).as_bool();
 
         let icon_base64 = if !full_path.is_empty() {

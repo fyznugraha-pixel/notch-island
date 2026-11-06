@@ -523,6 +523,10 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       if (!forceNewInstance && app.hwnd) {
         try {
           await invoke("activate_or_toggle_window", { hwnd: app.hwnd });
+          window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
+          }, 60);
           return;
         } catch {}
       }
