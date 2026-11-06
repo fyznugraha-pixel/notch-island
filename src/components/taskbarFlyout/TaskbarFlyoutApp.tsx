@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCachedNavbarConfigSync } from "../../services/navbarConfigService";
 import { SoundOutputMixerView } from "./views/SoundOutputMixerView";
+import { QuickSettingsView } from "./views/QuickSettingsView";
 
 interface FlyoutStatePayload {
   isOpen: boolean;
@@ -61,7 +62,15 @@ export const TaskbarFlyoutApp: React.FC = () => {
         className="gili-flyout-container w-full h-full flex flex-col relative p-3.5 box-border"
       >
         {target === "volume" ? (
-          <SoundOutputMixerView onClose={() => invoke("close_taskbar_flyout")} />
+          <SoundOutputMixerView
+            onClose={() => invoke("close_taskbar_flyout")}
+            onBack={() => setTarget("quickSettings")}
+          />
+        ) : target === "quickSettings" ? (
+          <QuickSettingsView
+            onClose={() => invoke("close_taskbar_flyout")}
+            onSwitchToVolumeMixer={() => setTarget("volume")}
+          />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
             <div className="gili-flyout-card p-5 flex flex-col items-center gap-2 max-w-xs">

@@ -1681,6 +1681,13 @@ fn _unused_marker() {
 
 
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SystemPowerInfo {
+    pub is_charging: bool,
+    pub percent: u8,
+    pub seconds_remaining: Option<u32>,
+}
+
 #[tauri::command]
 fn get_battery_status() -> Option<(bool, u8)> {
     use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
@@ -1694,6 +1701,31 @@ fn get_battery_status() -> Option<(bool, u8)> {
         let is_charging = power_status.ACLineStatus == 1;
         let percent = power_status.BatteryLifePercent;
         Some((is_charging, percent))
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
+fn get_system_power_info() -> Option<SystemPowerInfo> {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut power_status = SYSTEM_POWER_STATUS::default();
+    if unsafe { GetSystemPowerStatus(&mut power_status).is_ok() } {
+        if (power_status.BatteryFlag & 128 != 0) || power_status.BatteryLifePercent > 100 {
+            return None;
+        }
+        let is_charging = power_status.ACLineStatus == 1;
+        let percent = power_status.BatteryLifePercent;
+        let seconds_remaining = if power_status.BatteryLifeTime != 0xFFFFFFFF {
+            Some(power_status.BatteryLifeTime)
+        } else {
+            None
+        };
+        Some(SystemPowerInfo {
+            is_charging,
+            percent,
+            seconds_remaining,
+        })
     } else {
         None
     }
@@ -1922,6 +1954,12 @@ fn system_power_action(action: &str) {
         "bluetooth" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:bluetooth"]).spawn(); },
         "hotspot" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:network-mobilehotspot"]).spawn(); },
         "focus" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:quiethours"]).spawn(); },
+        "airplane" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:network-airplanemode"]).spawn(); },
+        "nightlight" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:nightlight"]).spawn(); },
+        "accessibility" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:easeofaccess-display"]).spawn(); },
+        "batterysaver" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:batterysaver"]).spawn(); },
+        "project" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings-connectslice:"]).spawn(); },
+        "quicksettings_edit" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:taskbar"]).spawn(); },
         _ => {}
     }
 }
@@ -3165,7 +3203,8 @@ pub fn run() {
             get_master_mute,
             set_master_mute,
             get_spatial_audio_status,
-            open_sound_settings
+            open_sound_settings,
+            get_system_power_info
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());

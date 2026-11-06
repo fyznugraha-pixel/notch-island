@@ -107,7 +107,7 @@ pub fn get_flyout_dimensions_for_target(target: &str) -> (f64, f64) {
         "start" => (600.0, 640.0),                 // Board 87/91
         "search" => (740.0, 700.0),                // Board 88/92
         "tray" => (260.0, 300.0),                  // Board 89/93
-        "quickSettings" => (400.0, 480.0),         // Board 90/94
+        "quickSettings" => (400.0, 540.0),         // Board 90/94
         "volume" => (400.0, 520.0),                // Board 95/97
         "notificationsCalendar" => (388.0, 600.0), // Board 96/98
         _ => (400.0, 500.0),

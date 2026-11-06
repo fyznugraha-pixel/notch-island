@@ -41,10 +41,12 @@ interface SpatialAudioInfo {
 
 interface SoundOutputMixerViewProps {
   onClose?: () => void;
+  onBack?: () => void;
 }
 
 export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
   onClose,
+  onBack,
 }) => {
   const [endpoints, setEndpoints] = useState<AudioEndpoint[]>([]);
   const [masterVolume, setMasterVolume] = useState<number>(1.0);
@@ -258,7 +260,7 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
       <div className="flex items-center gap-3 h-10 shrink-0">
         <button
           type="button"
-          onClick={onClose}
+          onClick={onBack || onClose}
           aria-label="Kembali"
           className="w-8 h-8 rounded-full gili-flyout-chip flex items-center justify-center p-0 cursor-pointer text-[var(--taskbar-text-2)] hover:text-white"
         >
