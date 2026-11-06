@@ -391,6 +391,24 @@ export const NavbarApp: React.FC = () => {
     }
   };
 
+  const handleVolumeClick = () => {
+    if (config.useGiliVolumeOutput) {
+      const rect =
+        getTriggerRect('[data-flyout-trigger="volume"]') ||
+        getTriggerRect('[data-flyout-trigger="control_center"]');
+      invoke("toggle_taskbar_flyout", {
+        payload: {
+          target: "volume",
+          trigger_rect: rect,
+          position: config.position || "bottom",
+          theme: config.style === "liquid" ? "liquid" : "solid",
+        },
+      }).catch(() => {});
+    } else {
+      invoke("trigger_volume_flyout").catch(() => {});
+    }
+  };
+
   const handleNotificationsClick = () => {
     if (config.useGiliNotificationsCalendar) {
       const rect = getTriggerRect('[data-flyout-trigger="notifications"]');
@@ -494,6 +512,7 @@ export const NavbarApp: React.FC = () => {
             onControlCenterClick={handleControlCenterClick}
             onNotificationsClick={handleNotificationsClick}
             onClockClick={handleClockClick}
+            onVolumeClick={handleVolumeClick}
             onPreviewStateChange={handlePreviewStateChange}
           />
         </div>

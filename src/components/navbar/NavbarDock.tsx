@@ -24,6 +24,7 @@ interface NavbarDockProps {
   onControlCenterClick?: () => void;
   onNotificationsClick?: () => void;
   onClockClick?: () => void;
+  onVolumeClick?: (e: React.MouseEvent) => void;
   onPreviewStateChange?: (isShowing: boolean) => void;
 }
 
@@ -53,6 +54,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       onControlCenterClick,
       onNotificationsClick,
       onClockClick,
+      onVolumeClick,
       onPreviewStateChange,
     },
     ref
@@ -647,6 +649,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             onControlCenterClick={onControlCenterClick}
             onNotificationsClick={onNotificationsClick}
             onClockClick={onClockClick}
+            onVolumeClick={onVolumeClick}
           />
         );
       }

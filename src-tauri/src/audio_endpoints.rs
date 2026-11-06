@@ -163,17 +163,47 @@ pub fn set_default_endpoint(id: &str) -> Result<(), String> {
 
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let policy_config: IPolicyConfig = CoCreateInstance(&CLSID_POLICY_CONFIG, None, CLSCTX_ALL)
-            .map_err(|e| format!("Failed to create IPolicyConfig: {}", e))?;
+        let policy_config_res: Result<IPolicyConfig, _> = CoCreateInstance(&CLSID_POLICY_CONFIG, None, CLSCTX_ALL);
+        match policy_config_res {
+            Ok(policy_config) => {
+                let id_wide: Vec<u16> = OsStr::new(id).encode_wide().chain(std::iter::once(0)).collect();
+                let pcwstr = PCWSTR(id_wide.as_ptr());
 
-        let id_wide: Vec<u16> = OsStr::new(id).encode_wide().chain(std::iter::once(0)).collect();
-        let pcwstr = PCWSTR(id_wide.as_ptr());
-
-        // Set default for Multimedia, Console, and Communications
-        let _ = policy_config.SetDefaultEndpoint(pcwstr, eMultimedia);
-        let _ = policy_config.SetDefaultEndpoint(pcwstr, eConsole);
-        let _ = policy_config.SetDefaultEndpoint(pcwstr, eCommunications);
+                // Set default for Multimedia, Console, and Communications
+                let _ = policy_config.SetDefaultEndpoint(pcwstr, eMultimedia);
+                let _ = policy_config.SetDefaultEndpoint(pcwstr, eConsole);
+                let _ = policy_config.SetDefaultEndpoint(pcwstr, eCommunications);
+                Ok(())
+            }
+            Err(err) => {
+                // Fallback to ms-settings:sound if IPolicyConfig fails on this Windows build
+                let _ = std::process::Command::new("explorer").arg("ms-settings:sound").spawn();
+                Err(format!("IPolicyConfig failed, falling back to ms-settings:sound: {}", err))
+            }
+        }
     }
+}
 
-    Ok(())
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SpatialAudioInfo {
+    pub format_name: String,
+    pub is_enabled: bool,
+    pub supported: bool,
+}
+
+pub fn get_spatial_audio_info() -> SpatialAudioInfo {
+    // Spatial Audio status on Windows 11
+    SpatialAudioInfo {
+        format_name: "Windows Sonic untuk Headphone".to_string(),
+        is_enabled: false,
+        supported: true,
+    }
+}
+
+pub fn open_sound_settings_page(page: Option<&str>) {
+    let target = match page {
+        Some("mixer") | Some("apps-volume") => "ms-settings:apps-volume",
+        _ => "ms-settings:sound",
+    };
+    let _ = std::process::Command::new("explorer").arg(target).spawn();
 }

@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Mutex, OnceLock};
-use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::Graphics::Gdi::{
@@ -104,12 +104,12 @@ pub fn ensure_flyout_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 pub fn get_flyout_dimensions_for_target(target: &str) -> (f64, f64) {
     match target {
-        "start" => (600.0, 640.0),                  // Board 87/91
-        "search" => (740.0, 700.0),                 // Board 88/92
-        "tray" => (260.0, 300.0),                   // Board 89/93
-        "quickSettings" => (400.0, 480.0),          // Board 90/94
-        "volume" => (400.0, 520.0),                 // Board 95/97
-        "notificationsCalendar" => (388.0, 600.0),  // Board 96/98
+        "start" => (600.0, 640.0),                 // Board 87/91
+        "search" => (740.0, 700.0),                // Board 88/92
+        "tray" => (260.0, 300.0),                  // Board 89/93
+        "quickSettings" => (400.0, 480.0),         // Board 90/94
+        "volume" => (400.0, 520.0),                // Board 95/97
+        "notificationsCalendar" => (388.0, 600.0), // Board 96/98
         _ => (400.0, 500.0),
     }
 }
@@ -367,10 +367,7 @@ pub fn hide_taskbar_flyout() {
 }
 
 #[tauri::command]
-pub fn toggle_taskbar_flyout(
-    app: AppHandle,
-    payload: FlyoutOpenPayload,
-) {
+pub fn toggle_taskbar_flyout(app: AppHandle, payload: FlyoutOpenPayload) {
     if FLYOUT_OPEN.load(Ordering::SeqCst) {
         let current = ACTIVE_TARGET.lock().unwrap().clone();
         if current == payload.target {

@@ -1407,6 +1407,18 @@ pub fn trigger_quick_settings() {
 }
 
 #[tauri::command]
+pub fn trigger_volume_flyout() {
+    unsafe {
+        keybd_event(VK_LWIN.0 as u8, 0, KEYEVENTF_EXTENDEDKEY, 0);
+        keybd_event(VK_CONTROL.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
+        keybd_event(b'V', 0, KEYBD_EVENT_FLAGS(0), 0);
+        keybd_event(b'V', 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_CONTROL.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_LWIN.0 as u8, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+    }
+}
+
+#[tauri::command]
 pub fn trigger_notification_center() {
     if crate::shell_surface_toggle::was_just_open(
         crate::shell_surface_toggle::Surface::Notifications,

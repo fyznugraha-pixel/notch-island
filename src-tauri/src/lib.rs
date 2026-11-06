@@ -24,6 +24,7 @@ struct AudioSessionInfo {
     name: String,
     volume: f32,
     muted: bool,
+    icon: Option<String>,
 }
 
 #[tauri::command]
@@ -97,9 +98,10 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                     if let Ok(muted) = volume_ctrl.GetMute() {
                                                         sessions.push(AudioSessionInfo {
                                                             pid,
-                                                            name: process_name,
+                                                            name: process_name.clone(),
                                                             volume: vol,
                                                             muted: muted.as_bool(),
+                                                            icon: Some(process_name),
                                                         });
                                                     }
                                                 }
@@ -1727,11 +1729,67 @@ fn set_master_volume(level: f32) {
                     if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
                         let level = level.clamp(0.0, 1.0);
                         let _ = volume_ctrl.SetMasterVolumeLevelScalar(level, std::ptr::null());
+                        if level > 0.0 {
+                            let _ = volume_ctrl.SetMute(windows::Win32::Foundation::BOOL::from(false), std::ptr::null());
+                        }
                     }
                 }
             }
         }
     });
+}
+
+#[tauri::command]
+async fn get_master_mute() -> bool {
+    tauri::async_runtime::spawn_blocking(|| {
+        use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
+        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+        use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
+                if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
+                    if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
+                        if let Ok(muted) = volume_ctrl.GetMute() {
+                            return muted.as_bool();
+                        }
+                    }
+                }
+            }
+        }
+        false
+    })
+    .await
+    .unwrap_or(false)
+}
+
+#[tauri::command]
+fn set_master_mute(mute: bool) {
+    tauri::async_runtime::spawn_blocking(move || {
+        use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
+        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+        use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
+                if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
+                    if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
+                        let _ = volume_ctrl.SetMute(windows::Win32::Foundation::BOOL::from(mute), std::ptr::null());
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[tauri::command]
+fn get_spatial_audio_status() -> audio_endpoints::SpatialAudioInfo {
+    audio_endpoints::get_spatial_audio_info()
+}
+
+#[tauri::command]
+fn open_sound_settings(page: Option<String>) {
+    audio_endpoints::open_sound_settings_page(page.as_deref());
 }
 
 
@@ -3082,6 +3140,7 @@ pub fn run() {
             navbar_window::trigger_start_menu,
             navbar_window::trigger_windows_search,
             navbar_window::trigger_quick_settings,
+            navbar_window::trigger_volume_flyout,
             navbar_window::trigger_notification_center,
             navbar_window::trigger_file_explorer,
             navbar_window::trigger_task_manager,
@@ -3102,7 +3161,11 @@ pub fn run() {
             taskbar_flyout::toggle_taskbar_flyout,
             taskbar_flyout::close_taskbar_flyout,
             taskbar_flyout::is_taskbar_flyout_open,
-            taskbar_logger::get_taskbar_flyout_logs
+            taskbar_logger::get_taskbar_flyout_logs,
+            get_master_mute,
+            set_master_mute,
+            get_spatial_audio_status,
+            open_sound_settings
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -3556,6 +3619,7 @@ pub fn run() {
                 let mut last_is_charging = false;
                 let mut last_battery_percent = 255;
                 let mut last_volume = -1.0;
+                let mut last_muted = false;
                 let mut last_progress_emit = std::time::Instant::now();
                 let mut last_position = -1.0;
                 let mut last_duration = -1.0;
@@ -3849,6 +3913,27 @@ pub fn run() {
                                     }
                                     last_audio_id = id_str;
                                 }
+                            }
+                        }
+                    }
+
+                    // Master volume & mute two-way synchronization
+                    if let Some(vol_ctrl) = &cached_volume_ctrl {
+                        if let Ok(cur_vol) = unsafe { vol_ctrl.GetMasterVolumeLevelScalar() } {
+                            let cur_mute = unsafe { vol_ctrl.GetMute().map(|m| m.as_bool()).unwrap_or(false) };
+                            if (cur_vol - last_volume).abs() > 0.005 || cur_mute != last_muted {
+                                last_volume = cur_vol;
+                                last_muted = cur_mute;
+
+                                #[derive(serde::Serialize, Clone)]
+                                struct VolumeUpdatePayload {
+                                    volume: f32,
+                                    muted: bool,
+                                }
+                                let _ = app_handle.emit("master-volume-changed", VolumeUpdatePayload {
+                                    volume: cur_vol,
+                                    muted: cur_mute,
+                                });
                             }
                         }
                     }

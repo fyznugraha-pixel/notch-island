@@ -19,6 +19,7 @@ interface SystemTrayGroupProps {
   onControlCenterClick?: () => void;
   onNotificationsClick?: () => void;
   onClockClick?: () => void;
+  onVolumeClick?: (e: React.MouseEvent) => void;
 }
 
 interface BatteryState {
@@ -80,6 +81,7 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
   onControlCenterClick,
   onNotificationsClick,
   onClockClick,
+  onVolumeClick,
 }) => {
   const renderSys = singleItem ? singleItem === "systemIcons" : showSystemIcons;
   const renderNotif = singleItem ? singleItem === "notifications" : showNotifications;
@@ -203,7 +205,19 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
               } items-center px-0.5`}
             >
               <Wifi size={15} strokeWidth={2} />
-              <Volume2 size={15} strokeWidth={2} />
+              <span
+                data-flyout-trigger="volume"
+                onClick={(e) => {
+                  if (onVolumeClick) {
+                    e.stopPropagation();
+                    onVolumeClick(e);
+                  }
+                }}
+                className="hover:text-white transition-colors cursor-pointer"
+                title="Output suara & volume"
+              >
+                <Volume2 size={15} strokeWidth={2} />
+              </span>
 
               {/* Original Battery Shape with Zap Inside */}
               <div
