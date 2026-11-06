@@ -61,13 +61,53 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         return Ok(true);
     }
 
-    // Build the miniplayer Tauri window
+    // Compute bottom-right position BEFORE building the window,
+    // so we can pass it to .position() in the builder (matches secondary notch pattern).
+    let (init_x, init_y) = {
+        #[cfg(windows)]
+        {
+            use windows::Win32::Foundation::POINT;
+            use windows::Win32::Graphics::Gdi::{
+                GetMonitorInfoW, MonitorFromPoint, GetDeviceCaps, CreateDCW,
+                MONITORINFO, MONITOR_DEFAULTTOPRIMARY, LOGPIXELSX,
+            };
+            let pt = POINT { x: 0, y: 0 };
+            let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+                let sf = unsafe {
+                    let display = windows::core::w!("DISPLAY");
+                    let hdc = CreateDCW(display, None, None, None);
+                    let dpi = GetDeviceCaps(hdc, LOGPIXELSX) as f64;
+                    dpi / 96.0
+                };
+                let rc = mi.rcWork;
+                // Convert physical work area to logical, then place bottom-right with 12px margin
+                let log_right = rc.right as f64 / sf;
+                let log_bottom = rc.bottom as f64 / sf;
+                ((log_right - 440.0 - 12.0), (log_bottom - 88.0 - 12.0))
+            } else {
+                (100.0, 100.0)
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            (100.0, 100.0)
+        }
+    };
+
+    // Build window with visible(true) and position set upfront.
+    // This matches the secondary notch window pattern that works reliably.
     let win = tauri::WebviewWindowBuilder::new(
         app,
         "miniplayer",
         tauri::WebviewUrl::App("index.html".into()),
     )
     .title("Gili Mini Player")
+    .position(init_x, init_y)
     .inner_size(440.0, 88.0)
     .decorations(false)
     .transparent(true)
@@ -75,63 +115,18 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
-    .visible(false)
+    .maximizable(false)
+    .minimizable(false)
+    .visible(true)
+    .focused(false)
     .initialization_script("window.__IS_MINIPLAYER_WINDOW__ = true;")
     .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
     .build()
     .map_err(|e| format!("Failed to create miniplayer window: {}", e))?;
 
-    // Show first so the window is attached to a monitor and scale factor is valid
-    let _ = win.show();
-
     #[cfg(windows)]
-    {
-        use windows::Win32::Foundation::{HWND, POINT};
-        use windows::Win32::Graphics::Gdi::{
-            GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
-        };
-
-        // Apply WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW after show
-        apply_no_activate_style(&win);
-
-        // Compute bottom-right position from primary monitor work area
-        let pt = POINT { x: 0, y: 0 };
-        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
-        let mut mi = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
-            let sf = win.scale_factor().unwrap_or(1.0);
-            let rc = mi.rcWork;
-            let phys_w = (440.0 * sf).round() as i32;
-            let phys_h = (88.0 * sf).round() as i32;
-            let default_x = rc.right - phys_w - (12.0 * sf) as i32;
-            let default_y = rc.bottom - phys_h - (12.0 * sf) as i32;
-
-            // Use Win32 SetWindowPos directly to bypass any Tauri scaling quirks
-            if let Ok(hwnd) = win.hwnd() {
-                unsafe {
-                    let _ = SetWindowPos(
-                        HWND(hwnd.0),
-                        None,
-                        default_x,
-                        default_y,
-                        phys_w,
-                        phys_h,
-                        SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
-                    );
-                }
-            }
-        }
-
-        // Set click-through AFTER window is shown and positioned.
-        // On WebView2, ignore_cursor_events only takes effect on a visible window.
-        let _ = win.set_ignore_cursor_events(true);
-    }
+    apply_no_activate_style(&win);
+    let _ = win.set_ignore_cursor_events(true);
 
     *is_open = true;
     let _ = app.emit("miniplayer:visibility-changed", true);
