@@ -43,7 +43,7 @@ pub fn prewarm_desktop_backdrop() {
     });
 }
 
-fn capture_screen_rect_to_cache(target_x: i32, target_y: i32, safe_w: i32, safe_h: i32) -> Result<String, String> {
+pub fn capture_screen_rect_to_cache(target_x: i32, target_y: i32, safe_w: i32, safe_h: i32) -> Result<String, String> {
     unsafe {
         let hdc_screen = GetDC(None);
         if hdc_screen.is_invalid() {

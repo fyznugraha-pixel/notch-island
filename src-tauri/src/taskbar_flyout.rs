@@ -165,11 +165,48 @@ pub fn open_taskbar_flyout_internal(
         scale_factor,
     );
 
+    let is_liquid = theme_opt.as_deref().unwrap_or("solid") == "liquid";
+
+    // Pre-capture exact physical rect behind the flyout before showing (0ms delay, no flash, 100% consistent)
+    let backdrop_url = if is_liquid {
+        let phys_x = (target_x * scale_factor).round() as i32;
+        let phys_y = (target_y * scale_factor).round() as i32;
+        let phys_w = (desired_w * scale_factor).round() as u32;
+        let phys_h = (desired_h * scale_factor).round() as u32;
+        crate::backdrop_capture::capture_desktop_backdrop(
+            app.clone(),
+            Some("taskbar_flyout".into()),
+            None,
+            Some(phys_x),
+            Some(phys_y),
+            Some(phys_w),
+            Some(phys_h),
+            Some(13.0),
+        ).ok()
+    } else {
+        None
+    };
+
+    let theme_str = if is_liquid { "liquid" } else { "solid" };
+    let escaped_target = target.replace('\'', "\\'");
+    let escaped_theme = theme_str.replace('\'', "\\'");
+    let b64_param = if let Some(ref url) = backdrop_url {
+        format!("'{}'", url.replace('\'', "\\'"))
+    } else {
+        "null".to_string()
+    };
+
+    // 1. Synchronously set webview state BEFORE show to eliminate any view flash/flicker
+    let _ = win.eval(&format!(
+        "if (window.__setTaskbarFlyoutState) {{ window.__setTaskbarFlyoutState('{}', '{}', {}); }}",
+        escaped_target, escaped_theme, b64_param
+    ));
+
+    // 2. Position and size window
     let _ = win.set_size(tauri::LogicalSize::new(desired_w, desired_h));
     let _ = win.set_position(tauri::LogicalPosition::new(target_x, target_y));
 
-    let is_liquid = theme_opt.as_deref().unwrap_or("solid") == "liquid";
-
+    // 3. Show window with target already rendered
     let _ = win.show();
     let _ = win.set_focus();
 
@@ -179,9 +216,10 @@ pub fn open_taskbar_flyout_internal(
     let state_payload = serde_json::json!({
         "isOpen": true,
         "target": target,
-        "theme": if is_liquid { "liquid" } else { "solid" },
+        "theme": theme_str,
         "width": desired_w,
-        "height": desired_h
+        "height": desired_h,
+        "backdropUrl": backdrop_url
     });
 
     let _ = win.emit("taskbar-flyout-state-changed", state_payload.clone());
@@ -357,7 +395,12 @@ pub fn hide_taskbar_flyout() {
 
     if let Some(app) = APP_HANDLE.get() {
         if let Some(win) = app.get_webview_window("taskbar_flyout") {
+            let _ = win.eval("if (window.__resetTaskbarFlyoutState) { window.__resetTaskbarFlyoutState(); }");
             let _ = win.hide();
+            let _ = win.emit(
+                "taskbar-flyout-state-changed",
+                serde_json::json!({ "isOpen": false, "target": target }),
+            );
         }
         let _ = app.emit(
             "taskbar-flyout-state-changed",

@@ -37,6 +37,15 @@ html.navbar-window #root {
   overflow: visible !important;
 }
 
+html.flyout-window,
+html.flyout-window body,
+body.flyout-window,
+html.flyout-window #root {
+  background-color: transparent !important;
+  background: transparent !important;
+  overflow: hidden !important;
+}
+
 * {
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;

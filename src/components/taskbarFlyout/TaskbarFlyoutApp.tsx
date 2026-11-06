@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -18,49 +18,42 @@ interface FlyoutStatePayload {
   theme?: "solid" | "liquid";
   width?: number;
   height?: number;
+  backdropUrl?: string | null;
 }
 
 export const TaskbarFlyoutApp: React.FC = () => {
-  const [target, setTarget] = useState<string>("volume");
+  const [target, setTarget] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState<boolean>(false);
   const [theme, setTheme] = useState<"solid" | "liquid">(() => {
     const cfg = getCachedNavbarConfigSync();
     return cfg.style === "liquid" ? "liquid" : "solid";
   });
+  const [opacity, setOpacity] = useState<number>(() => {
+    const cfg = getCachedNavbarConfigSync();
+    return cfg.opacity ?? 100;
+  });
   const [desktopBackdropUrl, setDesktopBackdropUrl] = useState<string | null>(null);
 
-  const refreshBackdrop = useCallback(() => {
-    // 1. Instant 0ms cached backdrop
-    invoke<string | null>("get_cached_desktop_backdrop")
-      .then((cached) => {
-        if (cached) setDesktopBackdropUrl(cached);
-      })
-      .catch(() => {});
-
-    // 2. Refresh frame behind flyout
-    invoke<string>("capture_desktop_backdrop", {
-      windowLabel: "taskbar_flyout",
-    })
-      .then((fresh) => {
-        if (fresh) setDesktopBackdropUrl(fresh);
-      })
-      .catch(() => {});
-  }, []);
-
-  const syncStateFromRust = useCallback(async () => {
-    try {
-      const st = await invoke<{ isOpen: boolean; target: string }>(
-        "get_taskbar_flyout_state"
-      );
-      if (st && st.target) {
-        setTarget(st.target);
-      }
-    } catch {}
-    refreshBackdrop();
-  }, [refreshBackdrop]);
-
   useEffect(() => {
-    // 1. Immediately sync active target from Rust on mount
-    syncStateFromRust();
+    // 1. Direct synchronous hook called from Rust before show() to guarantee zero view flicker
+    (window as any).__setTaskbarFlyoutState = (
+      newTarget: string,
+      newTheme: "solid" | "liquid",
+      backdrop?: string | null
+    ) => {
+      setTarget(newTarget);
+      if (newTheme) setTheme(newTheme);
+      if (backdrop) setDesktopBackdropUrl(backdrop);
+      const cfg = getCachedNavbarConfigSync();
+      if (cfg.opacity !== undefined) setOpacity(cfg.opacity);
+      setIsOpen(true);
+    };
+
+    (window as any).__resetTaskbarFlyoutState = () => {
+      setIsOpen(false);
+      setTarget(null);
+      setDesktopBackdropUrl(null);
+    };
 
     // 2. Esc key dismiss handler
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -71,44 +64,80 @@ export const TaskbarFlyoutApp: React.FC = () => {
     };
     window.addEventListener("keydown", handleKeyDown);
 
-    // 3. Re-sync on window focus
-    const handleFocus = () => {
-      syncStateFromRust();
-    };
-    window.addEventListener("focus", handleFocus);
-
-    // 4. Instant live sync from Settings
+    // 3. Instant live sync from Settings
     const unsubscribeConfig = subscribeToNavbarConfig((newCfg) => {
       setTheme(newCfg.style === "liquid" ? "liquid" : "solid");
+      if (newCfg.opacity !== undefined) {
+        setOpacity(newCfg.opacity);
+      }
     });
 
-    // 5. Listen to state changes from Rust window manager
+    // 4. Listen to state changes from Rust window manager
     const unlisten = listen<FlyoutStatePayload>(
       "taskbar-flyout-state-changed",
       (event) => {
         if (event.payload) {
-          if (event.payload.target) {
-            setTarget(event.payload.target);
+          if (event.payload.isOpen) {
+            if (event.payload.target) {
+              setTarget(event.payload.target);
+            }
+            if (event.payload.theme) {
+              setTheme(event.payload.theme);
+            }
+            if (event.payload.backdropUrl !== undefined) {
+              setDesktopBackdropUrl(event.payload.backdropUrl);
+            }
+            const cfg = getCachedNavbarConfigSync();
+            if (cfg.opacity !== undefined) setOpacity(cfg.opacity);
+            setIsOpen(true);
+          } else {
+            setIsOpen(false);
+            setTarget(null);
+            setDesktopBackdropUrl(null);
           }
-          if (event.payload.theme) {
-            setTheme(event.payload.theme);
-          }
-          refreshBackdrop();
         }
       }
     );
 
     return () => {
+      delete (window as any).__setTaskbarFlyoutState;
+      delete (window as any).__resetTaskbarFlyoutState;
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("focus", handleFocus);
       unsubscribeConfig();
       unlisten.then((fn) => fn());
     };
-  }, [syncStateFromRust, refreshBackdrop]);
+  }, []);
 
   const handleClose = () => {
     invoke("close_taskbar_flyout").catch(() => {});
   };
+
+  if (!isOpen || !target) {
+    return <div className="w-screen h-screen bg-transparent pointer-events-none" />;
+  }
+
+  const alpha = Math.max(0.12, Math.min(1, opacity / 100));
+
+  const dynamicSurfaceStyle: React.CSSProperties =
+    theme === "liquid"
+      ? {
+          background: `linear-gradient(180deg, rgba(255, 255, 255, ${(
+            0.2 * alpha
+          ).toFixed(3)}) 0%, rgba(255, 255, 255, ${(0.07 * alpha).toFixed(
+            3
+          )}) 50%, rgba(255, 255, 255, ${(0.1 * alpha).toFixed(
+            3
+          )}) 100%), rgba(22, 16, 72, ${(0.5 * alpha).toFixed(3)})`,
+          backdropFilter: "blur(26px) saturate(175%) brightness(1.05)",
+          WebkitBackdropFilter: "blur(26px) saturate(175%) brightness(1.05)",
+        }
+      : {
+          background: `rgba(17, 17, 20, ${alpha.toFixed(3)})`,
+          backdropFilter:
+            alpha < 0.98 ? "blur(24px) saturate(160%)" : "none",
+          WebkitBackdropFilter:
+            alpha < 0.98 ? "blur(24px) saturate(160%)" : "none",
+        };
 
   return (
     <div
@@ -118,9 +147,10 @@ export const TaskbarFlyoutApp: React.FC = () => {
       <div
         role="dialog"
         aria-label={`Gili ${target}`}
-        className="gili-flyout-container w-full h-full flex flex-col relative p-3.5 box-border overflow-hidden transition-all duration-150 ease-out"
+        style={dynamicSurfaceStyle}
+        className="gili-flyout-container w-full h-full flex flex-col relative p-3.5 box-border overflow-hidden"
       >
-        {/* Authentic Liquid Glass Wallpaper Blur (Zero Delay with cached frame) */}
+        {/* Authentic Liquid Glass Wallpaper Blur (Pre-captured, zero delay, zero jump) */}
         {theme === "liquid" && desktopBackdropUrl && (
           <div className="absolute inset-0 rounded-[inherit] overflow-hidden pointer-events-none z-0">
             <img
@@ -129,7 +159,8 @@ export const TaskbarFlyoutApp: React.FC = () => {
               className="w-full h-full object-cover select-none pointer-events-none"
               style={{
                 filter: "blur(26px) saturate(175%) brightness(1.05)",
-                transform: "scale(1.08)",
+                transform: "scale(1.06)",
+                opacity: Math.max(0.25, Math.min(1, alpha * 1.15)),
               }}
             />
           </div>
