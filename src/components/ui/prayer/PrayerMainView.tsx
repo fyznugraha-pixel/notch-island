@@ -75,16 +75,16 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
   return (
     <>
       {/* 2-Column Main Section */}
-      <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+      <div style={{ display: "flex", gap: 12, marginTop: 5 }}>
         {/* Left Column: Next Prayer Hero Card */}
         <div
           style={{
             position: "relative",
             width: 232,
-            height: 152,
+            height: 146,
             boxSizing: "border-box",
             borderRadius: 22,
-            padding: "12px 14px 10px",
+            padding: "10px 14px 9px",
             overflow: "hidden",
             background: "linear-gradient(155deg, #0E3B2C 0%, #0A2119 52%, #060B09 100%)",
             boxShadow:
@@ -225,12 +225,12 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
           <div
             style={{
               position: "relative",
-              marginTop: 6,
-              paddingTop: 6,
+              marginTop: 5,
+              paddingTop: 5,
               borderTop: "1px solid rgba(255,255,255,.1)",
               display: "flex",
               flexDirection: "column",
-              gap: 2.5,
+              gap: 2,
               fontSize: 11,
               color: "#9fb8ab",
             }}
@@ -257,7 +257,7 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
           style={{
             flex: 1,
             minWidth: 0,
-            height: 152,
+            height: 146,
             boxSizing: "border-box",
             borderRadius: 22,
             background: isLightMode ? "rgba(0,0,0,.045)" : "rgba(255,255,255,.055)",
@@ -289,9 +289,9 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
                   display: "flex",
                   alignItems: "center",
                   gap: 9,
-                  height: 28,
+                  height: 27,
                   padding: "0 2px 0 8px",
-                  borderRadius: 14,
+                  borderRadius: 13.5,
                   background: isNext ? "rgba(48,209,88,.13)" : "transparent",
                   boxShadow: isNext
                     ? "inset 0 0 0 1px rgba(48,209,88,.4)"
@@ -431,7 +431,7 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
       </div>
 
       {/* Bottom Day Progress Timeline Bar */}
-      <div style={{ position: "relative", margin: "10px 4px 0", height: 24 }}>
+      <div style={{ position: "relative", margin: "8px 8px 0", height: 24 }}>
         <div
           style={{
             position: "absolute",
@@ -463,57 +463,62 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
           const isFirst = prayerId === "Fajr";
           const isLast = prayerId === "Isha";
           const isMaghrib = prayerId === "Maghrib";
+          const isOverlappedByCelestial = Math.abs(pct - currentPct) < 2.8;
 
           return (
             <React.Fragment key={prayerId}>
-              <span
-                style={
-                  isCompleted
-                    ? {
-                        position: "absolute",
-                        left: `${pct}%`,
-                        top: -3,
-                        marginLeft: -6,
-                        width: 12,
-                        height: 12,
-                        borderRadius: 6,
-                        boxSizing: "border-box",
-                        background: PRAYER_ACCENT,
-                        boxShadow: `0 0 0 3px ${isLightMode ? "#fff" : "#000"}`,
-                      }
-                    : {
-                        position: "absolute",
-                        left: `${pct}%`,
-                        top: -3,
-                        marginLeft: -6,
-                        width: 12,
-                        height: 12,
-                        borderRadius: 6,
-                        boxSizing: "border-box",
-                        background: isLightMode ? "#fff" : "#000",
-                        border: isLightMode
-                          ? "2px solid rgba(0,0,0,.3)"
-                          : "2px solid rgba(255,255,255,.3)",
-                      }
-                }
-              />
+              {!isOverlappedByCelestial && (
+                <span
+                  style={
+                    isCompleted
+                      ? {
+                          position: "absolute",
+                          left: `${pct}%`,
+                          top: -3,
+                          marginLeft: -6,
+                          width: 12,
+                          height: 12,
+                          borderRadius: 6,
+                          boxSizing: "border-box",
+                          background: PRAYER_ACCENT,
+                          boxShadow: `0 0 0 3px ${isLightMode ? "#fff" : "#000"}`,
+                        }
+                      : {
+                          position: "absolute",
+                          left: `${pct}%`,
+                          top: -3,
+                          marginLeft: -6,
+                          width: 12,
+                          height: 12,
+                          borderRadius: 6,
+                          boxSizing: "border-box",
+                          background: isLightMode ? "#fff" : "#000",
+                          border: isLightMode
+                            ? "2px solid rgba(0,0,0,.3)"
+                            : "2px solid rgba(255,255,255,.3)",
+                        }
+                  }
+                />
+              )}
               <span
                 style={
                   isFirst
                     ? {
                         position: "absolute",
-                        left: 0,
-                        top: 12,
+                        left: -4,
+                        top: 10,
                         fontSize: 9.5,
+                        lineHeight: "12px",
                         fontWeight: 500,
                         color: "#8e8e93",
                       }
                     : isLast
                     ? {
                         position: "absolute",
-                        right: 0,
-                        top: 12,
+                        right: -4,
+                        top: 10,
                         fontSize: 9.5,
+                        lineHeight: "12px",
                         fontWeight: 500,
                         color: "#8e8e93",
                       }
@@ -521,8 +526,9 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
                         position: "absolute",
                         left: `${pct}%`,
                         marginLeft: isMaghrib ? -34 : -20,
-                        top: 12,
+                        top: 10,
                         fontSize: 9.5,
+                        lineHeight: "12px",
                         fontWeight: 500,
                         color: "#8e8e93",
                         letterSpacing: ".02em",
@@ -537,25 +543,27 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
           );
         })}
 
-        {/* Real-time Celestial Sun / Moon Indicator on Timeline (No circular border frame) */}
+        {/* Real-time Celestial Sun / Moon Indicator at exact tip of progress bar */}
         <span
           style={{
             position: "absolute",
             left: `${currentPct}%`,
-            top: -6,
-            marginLeft: -9,
+            top: 3,
+            transform: "translate(-50%, -50%)",
             width: 18,
             height: 18,
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            filter: `drop-shadow(0 0 2px ${
-              isLightMode ? "#fff" : "#000"
-            }) drop-shadow(0 0 6px ${celestialState.glowColor})`,
-            zIndex: 2,
+            filter: `drop-shadow(0 0 6px ${celestialState.glowColor})`,
+            zIndex: 3,
           }}
         >
-          <TimelineCelestialIcon state={celestialState} size={18} />
+          <TimelineCelestialIcon
+            state={celestialState}
+            size={18}
+            bgMaskColor={isLightMode ? "#fff" : "#000"}
+          />
         </span>
       </div>
     </>

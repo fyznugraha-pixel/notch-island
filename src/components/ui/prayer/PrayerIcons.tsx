@@ -104,22 +104,27 @@ export function getRealtimeCelestialState(
 export const TimelineCelestialIcon: React.FC<{
   state: CelestialIndicatorState;
   size?: number;
-}> = ({ state, size = 12 }) => {
+  bgMaskColor?: string;
+}> = ({ state, size = 18, bgMaskColor = "#000" }) => {
   if (state.isNight) {
     return (
       <svg
         width={size}
         height={size}
         viewBox="0 0 24 24"
-        fill={state.color}
-        stroke={state.color}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        fill="none"
         aria-hidden="true"
         style={{ display: "block" }}
       >
-        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z" />
+        <circle cx="12" cy="12" r="7" fill={bgMaskColor} />
+        <path
+          d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"
+          fill={state.color}
+          stroke={state.color}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     );
   }
@@ -137,6 +142,7 @@ export const TimelineCelestialIcon: React.FC<{
       aria-hidden="true"
       style={{ display: "block" }}
     >
+      <circle cx="12" cy="12" r="7.5" fill={bgMaskColor} stroke="none" />
       <circle cx="12" cy="12" r="4.5" fill={state.color} />
       <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.55 1.55M17.52 17.52l1.55 1.55M2 12h2.2M19.8 12H22M6.48 17.52l-1.55 1.55M19.07 4.93l-1.55 1.55" />
     </svg>
