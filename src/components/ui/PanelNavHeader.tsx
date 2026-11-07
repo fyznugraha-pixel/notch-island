@@ -288,7 +288,10 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
 
         {/* Title Bar: [ < ] Centered Title [ Settings ] [ > ] */}
         {!hideTitleBar && (
-          <div className="relative flex items-center justify-between gap-3 mt-2 w-full">
+          <div
+            data-tab-title-swipe="true"
+            className="relative flex items-center justify-between gap-3 mt-2 w-full"
+          >
             {/* Left Action Cluster: [ Prev ] [ Notification Button ] */}
             <div className="flex items-center gap-2 shrink-0 z-10">
               {hasPrev ? (
@@ -343,7 +346,10 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
             </div>
 
             {/* Centered Section Title */}
-            <div className="absolute inset-x-20 flex items-center justify-center overflow-hidden min-w-0 pointer-events-none">
+            <div
+              data-tab-title-swipe="true"
+              className="absolute inset-x-20 flex items-center justify-center overflow-hidden min-w-0"
+            >
               <AnimatePresence mode="wait" initial={false}>
                 <motion.span
                   key={title}
@@ -729,9 +735,13 @@ export const PanelFrame = React.memo<PanelFrameProps>(
 
       const absX = Math.abs(e.deltaX);
       const absY = Math.abs(e.deltaY);
+      const isOnTabTitle = Boolean(target?.closest('[data-tab-title-swipe="true"]'));
 
-      // Require horizontal motion to be dominant, allowing natural diagonal hand gestures (up to ~55 deg)
-      if (absX < 2 || absY > absX * 1.35) {
+      // Allow horizontal touchpad swipe anywhere on the panel, or vertical mouse wheel only when hovering the tab title bar
+      const isHorizontalSwipe = absX >= 2 && absY <= absX * 1.35;
+      const isTitleWheelSwipe = isOnTabTitle && absY >= 1 && !isHorizontalSwipe;
+
+      if (!isHorizontalSwipe && !isTitleWheelSwipe) {
         return;
       }
 
@@ -739,7 +749,11 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       e.stopPropagation();
 
       const now = Date.now();
-      const delta = getNormalizedHorizontalDelta(e);
+      const delta = isTitleWheelSwipe
+        ? e.deltaMode === 1
+          ? e.deltaY * 40
+          : e.deltaY
+        : getNormalizedHorizontalDelta(e);
       const absDelta = Math.abs(delta);
       const dir = Math.sign(delta);
       const timeSinceLastWheel = now - lastWheelEventTimeRef.current;
