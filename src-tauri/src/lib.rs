@@ -3235,7 +3235,8 @@ pub fn run() {
             miniplayer_window::set_miniplayer_ignore_cursor,
             miniplayer_window::is_ctrl_down,
             miniplayer_window::is_lbutton_down,
-            miniplayer_window::check_notch_proximity
+            miniplayer_window::check_notch_proximity,
+            miniplayer_window::resize_miniplayer
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};

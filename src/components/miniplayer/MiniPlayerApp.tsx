@@ -71,12 +71,17 @@ export const MiniPlayerApp: React.FC = () => {
   const [isFaded, setIsFaded] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
   const [isInZone, setIsInZone] = useState(false);
+  const [barWidth, setBarWidth] = useState<number>(440);
+
+  const handleBarWidthChange = useCallback((w: number) => {
+    setBarWidth((prev) => (prev !== w ? w : prev));
+  }, []);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ctrlPollRef = useRef<NodeJS.Timeout | null>(null);
   const dragCheckPollRef = useRef<NodeJS.Timeout | null>(null);
-  const latestPosRef = useRef({ x: 0, y: 0, w: 440, h: 88 });
+  const latestPosRef = useRef({ x: 0, y: 0, w: 440, h: 130 });
   const isInZoneRef = useRef(false);
   const inWindowRef = useRef(false);
 
@@ -149,11 +154,17 @@ export const MiniPlayerApp: React.FC = () => {
 
     restorePosition();
 
+    // Dynamic window resizing following active lyric width (auto layout like notch idle lyrics)
+    useEffect(() => {
+      if (mode !== "bar") return;
+      invoke("resize_miniplayer", { width: barWidth, height: 130 }).catch(() => {});
+    }, [mode, barWidth]);
+
     // Track window moves to check notch proximity and snap
     const unlistenMove = win.onMoved(async (event) => {
       try {
         const { x, y } = event.payload;
-        const currentW = mode === "card" ? 380 : 440;
+        const currentW = mode === "card" ? 380 : barWidth;
         const currentH = mode === "card" ? 340 : 130;
         latestPosRef.current = { x, y, w: currentW, h: currentH };
 
@@ -406,6 +417,8 @@ export const MiniPlayerApp: React.FC = () => {
     />
   );
 
+  const currentW = mode === "card" ? 380 : barWidth;
+
   return (
     <div
       ref={containerRef}
@@ -414,15 +427,16 @@ export const MiniPlayerApp: React.FC = () => {
       onMouseDown={handleMouseDown}
       onClick={handleClick}
       style={{
+        width: `${currentW}px`,
         opacity: isFaded ? fadeOpacity : isInZone ? 0.8 : 1,
         transform: isInZone ? "scale(0.6)" : "scale(1)",
         transformOrigin: "bottom center",
-        transition: "opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
+        transition: "width 200ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
-      className={`relative overflow-hidden select-none bg-transparent transition-[width,height] duration-200 ease-out ${
+      className={`relative overflow-hidden select-none bg-transparent transition-[height] duration-200 ease-out ${
         mode === "card"
-          ? "w-[380px] h-[340px]"
-          : "w-[440px] h-[130px] flex flex-col justify-end"
+          ? "h-[340px]"
+          : "h-[130px] flex flex-col justify-end items-end"
       }`}
     >
       {mode === "card" ? (
@@ -444,6 +458,7 @@ export const MiniPlayerApp: React.FC = () => {
           showToolbar={showToolbar}
           toolbarNode={toolbarNode}
           onToggleMode={() => handleSetMode("card")}
+          onWidthChange={handleBarWidthChange}
         />
       )}
     </div>

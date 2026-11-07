@@ -1,9 +1,10 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
 import { ScrollingText } from "../ui/ScrollingText";
 import { MiniPlayerBackground } from "./MiniPlayerBackground";
+import { getTextWidth } from "../../utils/text";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -13,6 +14,7 @@ export interface MiniPlayerBarModeProps {
   showToolbar: boolean;
   toolbarNode: React.ReactNode;
   onToggleMode?: () => void;
+  onWidthChange?: (width: number) => void;
 }
 
 export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
@@ -23,6 +25,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   showToolbar,
   toolbarNode,
   onToggleMode,
+  onWidthChange,
 }) => {
   const isPlaying = Boolean(media?.is_playing);
   const position = media?.position || 0;
@@ -58,6 +61,31 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     return "Lirik tidak tersedia";
   }, [media?.title, lyrics?.state, activeLine?.text, lyrics?.lines]);
 
+  // Dynamic width based on active lyric length (concept like notch idle lyrics)
+  const dynamicWidth = useMemo(() => {
+    const textToMeasure = activeLyricText || media?.title || "Gili Mini Player";
+    const lyricWidth = getTextWidth(textToMeasure, "600 13px 'Inter', sans-serif");
+    const titleText = media?.title ? `${media.title} · ${media.artist || "Artis tidak diketahui"}` : "";
+    const titleWidth = titleText ? getTextWidth(titleText, "400 11.5px 'Inter', sans-serif") : 0;
+    const maxText = Math.max(lyricWidth, titleWidth);
+
+    // UI footprint:
+    // Left padding (16px) + Album Art (56px) + Gap (12px) + Gap (12px) + Equalizer (20px) + Right padding (16px) + safety buffer (16px) = 148px
+    const basePadding = 148;
+    const rawWidth = Math.ceil(maxText + basePadding);
+
+    // Limits:
+    // Saat toolbar tampil (hover), sediakan minimal 380px agar tombol kontrol tidak sesak.
+    // Saat idle collapsed, dapat ramping hingga 260px. Maksimal 560px (sama dengan notch idle lirik).
+    const minW = showToolbar ? 380 : 260;
+    const maxW = 560;
+    return Math.min(maxW, Math.max(minW, rawWidth));
+  }, [activeLyricText, media?.title, media?.artist, showToolbar]);
+
+  useEffect(() => {
+    onWidthChange?.(dynamicWidth);
+  }, [dynamicWidth, onWidthChange]);
+
   const containerStyle = useMemo(() => {
     return {
       backdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
@@ -68,10 +96,13 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   return (
     <div
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[440px] text-white select-none rounded-[24px] shadow-none transition-[height] duration-200 ease-out p-[14px_16px_18px] overflow-hidden ${
+      className={`relative box-border text-white select-none rounded-[24px] shadow-none transition-[width,height] duration-200 ease-out p-[14px_16px_18px] overflow-hidden ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
       } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
-      style={containerStyle}
+      style={{
+        ...containerStyle,
+        width: `${dynamicWidth}px`,
+      }}
     >
       <MiniPlayerBackground
         thumbnail={media?.thumbnail}

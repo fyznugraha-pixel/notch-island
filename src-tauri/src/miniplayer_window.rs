@@ -542,6 +542,86 @@ pub async fn set_miniplayer_mode(app: AppHandle, mode: String) -> Result<(), Str
 }
 
 #[tauri::command]
+pub fn resize_miniplayer(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER,
+        };
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
+
+        // Jika tombol kiri mouse sedang ditekan (misal saat drag), lewati agar tidak mengganggu drag
+        let l_down = unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 };
+        if l_down {
+            return Ok(());
+        }
+
+        if let Some(w) = app.get_webview_window("miniplayer") {
+            if let Ok(hwnd) = w.hwnd() {
+                let h = HWND(hwnd.0);
+                if let (Ok(curr_pos), Ok(curr_size)) = (w.outer_position(), w.outer_size()) {
+                    let sf = w.scale_factor().unwrap_or(1.0);
+                    let target_phys_w = (width * sf).round() as i32;
+                    let target_phys_h = (height * sf).round() as i32;
+
+                    if curr_size.width as i32 == target_phys_w && curr_size.height as i32 == target_phys_h {
+                        return Ok(());
+                    }
+
+                    let monitor = unsafe { MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) };
+                    let mut mi = MONITORINFO {
+                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                        ..Default::default()
+                    };
+
+                    let mut new_x = curr_pos.x;
+                    let mut new_y = curr_pos.y;
+
+                    if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+                        let rc = mi.rcWork;
+                        let monitor_center_x = (rc.left + rc.right) / 2;
+                        let curr_center_x = curr_pos.x + (curr_size.width as i32) / 2;
+
+                        if curr_center_x > monitor_center_x {
+                            // Berada di paruh kanan layar: kunci tepi kanan
+                            let curr_right = curr_pos.x + curr_size.width as i32;
+                            new_x = curr_right - target_phys_w;
+                        } else {
+                            // Berada di paruh kiri layar: kunci tepi kiri
+                            new_x = curr_pos.x;
+                        }
+
+                        // Kunci tepi bawah agar ukuran selalu mengembang/menyusut dari bawah
+                        let curr_bottom = curr_pos.y + curr_size.height as i32;
+                        new_y = curr_bottom - target_phys_h;
+
+                        new_x = new_x.clamp(rc.left, (rc.right - target_phys_w).max(rc.left));
+                        new_y = new_y.clamp(rc.top, (rc.bottom - target_phys_h).max(rc.top));
+                    }
+
+                    unsafe {
+                        let _ = SetWindowPos(
+                            h,
+                            None,
+                            new_x,
+                            new_y,
+                            target_phys_w,
+                            target_phys_h,
+                            SWP_NOZORDER | SWP_NOACTIVATE,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn set_miniplayer_always_on_top(app: AppHandle, always_on_top: bool) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("miniplayer") {
         let _ = w.set_always_on_top(always_on_top);
