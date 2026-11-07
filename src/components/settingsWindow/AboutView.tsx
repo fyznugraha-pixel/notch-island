@@ -18,9 +18,17 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "4.5.0",
+    version: "4.5.1",
     date: "7 Nov 2026",
     highlights: [
+      {
+        icon: <Music size={14} />,
+        titleId: "Desktop Mini Player & Lirik Melayang Tembus (Click-Through)",
+        titleEn: "Desktop Mini Player & Click-Through Floating Lyrics",
+        descId: "Area lirik Mini Player sepenuhnya tembus klik ke aplikasi di belakangnya agar tidak mengganggu aktivitas desktop, dengan mode Bar & Card yang selalu aktif.",
+        descEn: "Mini Player lyrics area passes clicks seamlessly through to background applications without interrupting desktop workflows, always active by default.",
+        badge: "improve",
+      },
       {
         icon: <Bell size={14} />,
         titleId: "Desain Baru Pengingat Sholat & Notifikasi Adzan",

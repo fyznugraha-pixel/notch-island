@@ -2495,8 +2495,6 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   const handleShortcutToggleMiniPlayer = useCallback(async () => {
     try {
-      const isEnabled = localStorage.getItem("gili_miniplayer_enabled") !== "false";
-      if (!isEnabled) return;
       await invoke("toggle_miniplayer");
     } catch (e) {
       console.error("Failed to toggle miniplayer:", e);

@@ -101,13 +101,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
     : Math.max(0, mediaProgress.duration - currentMediaPosition);
 
   const [isMiniPlayerOpen, setIsMiniPlayerOpen] = React.useState(false);
-  const [isMiniPlayerFeatureEnabled, setIsMiniPlayerFeatureEnabled] = React.useState<boolean>(() => {
-    try {
-      return localStorage.getItem("gili_miniplayer_enabled") !== "false";
-    } catch {
-      return true;
-    }
-  });
+  const isMiniPlayerFeatureEnabled = true;
 
   React.useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -120,16 +114,8 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
     });
     invoke<boolean>("is_miniplayer_open").then(setIsMiniPlayerOpen).catch(() => {});
 
-    const handleSettingsUpdate = () => {
-      try {
-        setIsMiniPlayerFeatureEnabled(localStorage.getItem("gili_miniplayer_enabled") !== "false");
-      } catch {}
-    };
-    window.addEventListener("gili_miniplayer_settings_updated", handleSettingsUpdate);
-
     return () => {
       if (unlisten) unlisten();
-      window.removeEventListener("gili_miniplayer_settings_updated", handleSettingsUpdate);
     };
   }, []);
 

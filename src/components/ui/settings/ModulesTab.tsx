@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Volume2, ClipboardList, Timer, ScanText, Tv } from "lucide-react";
+import { Volume2, ClipboardList, Timer, ScanText } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { t } from "../../../services/i18n";
@@ -34,40 +34,6 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
   const [pomodoroIdle, setPomodoroIdle] = useState<boolean>(() => {
     return loadPomodoroSettings().showIdleTimer;
   });
-
-  const [miniplayerEnabled, setMiniplayerEnabled] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("gili_miniplayer_enabled") !== "false";
-    } catch {
-      return true;
-    }
-  });
-
-  const [fadeOnHover, setFadeOnHover] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("gili_miniplayer_fade_on_hover") === "true";
-    } catch {
-      return false;
-    }
-  });
-
-  const handleToggleMiniplayer = () => {
-    const next = !miniplayerEnabled;
-    setMiniplayerEnabled(next);
-    try {
-      localStorage.setItem("gili_miniplayer_enabled", String(next));
-      window.dispatchEvent(new CustomEvent("gili_miniplayer_settings_updated"));
-    } catch {}
-  };
-
-  const handleToggleFadeOnHover = () => {
-    const next = !fadeOnHover;
-    setFadeOnHover(next);
-    try {
-      localStorage.setItem("gili_miniplayer_fade_on_hover", String(next));
-      window.dispatchEvent(new CustomEvent("gili_miniplayer_settings_updated"));
-    } catch {}
-  };
 
   const handleTogglePomodoroIdle = () => {
     const next = !pomodoroIdle;
@@ -127,40 +93,6 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
           />
         }
       />
-
-      {/* 3. Mini Player */}
-      <SettingRow
-        icon={<Tv size={18} />}
-        iconBgClass="bg-[#1b263b]"
-        iconColorClass="text-[#38bdf8]"
-        title={t("settings_miniplayer")}
-        subtitle={t("settings_miniplayer_desc")}
-        control={
-          <IosSwitch
-            checked={miniplayerEnabled}
-            onChange={handleToggleMiniplayer}
-            activeColor="blue"
-          />
-        }
-      />
-
-      {/* 3b. Memudar saat kursor lewat */}
-      {miniplayerEnabled && (
-        <SettingRow
-          icon={<Tv size={18} />}
-          iconBgClass="bg-[#1b263b]"
-          iconColorClass="text-[#38bdf8]/80"
-          title={t("settings_miniplayer_fade")}
-          subtitle={t("settings_miniplayer_fade_desc")}
-          control={
-            <IosSwitch
-              checked={fadeOnHover}
-              onChange={handleToggleFadeOnHover}
-              activeColor="blue"
-            />
-          }
-        />
-      )}
 
       {/* 4. Efek suara */}
       <SettingRow

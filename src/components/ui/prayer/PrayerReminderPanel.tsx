@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -208,27 +208,6 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
 
   const mainTitle = t("tab_prayer_reminder") || (isId ? "Sholat" : "Prayer");
 
-  const lastHeaderWheelTimeRef = useRef(0);
-  const handleHeaderWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.stopPropagation();
-      const now = Date.now();
-      if (now - lastHeaderWheelTimeRef.current < 260) return;
-
-      const isDownOrRight = e.deltaY > 0 || e.deltaX > 0;
-      const isUpOrLeft = e.deltaY < 0 || e.deltaX < 0;
-
-      if (isDownOrRight && hasNext) {
-        lastHeaderWheelTimeRef.current = now;
-        onNext?.();
-      } else if (isUpOrLeft && hasPrev) {
-        lastHeaderWheelTimeRef.current = now;
-        onPrev?.();
-      }
-    },
-    [hasNext, hasPrev, onNext, onPrev]
-  );
-
   return (
     <div
       className="w-full h-full flex flex-col select-none overflow-hidden px-6 pb-0.5"
@@ -240,7 +219,6 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
       {subView === "main" ? (
         <div
           data-tab-title-swipe="true"
-          onWheel={handleHeaderWheel}
           className="relative flex items-center justify-between gap-2 mt-1 mb-1 h-8 w-full shrink-0"
         >
           {/* Left Cluster: [ Prev ] [ Notification Button ] + Location Pill */}

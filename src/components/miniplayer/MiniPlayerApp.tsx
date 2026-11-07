@@ -8,7 +8,6 @@ import {
   subscribeMedia,
   subscribeLyrics,
   setSongLyricsOffset,
-  requestLyricsRefresh,
   MediaPayload,
   LyricsPayload,
 } from "../../services/mediaLyricsStore";
@@ -23,7 +22,6 @@ import { prefetchArtwork } from "../../services/artworkService";
 interface MiniplayerCursorHoverPayload {
   in_window: boolean;
   in_toolbar: boolean;
-  is_anchored_right?: boolean;
 }
 
 export const MiniPlayerApp: React.FC = () => {
@@ -56,15 +54,9 @@ export const MiniPlayerApp: React.FC = () => {
     }
   });
 
-  const [fadeOnHover, setFadeOnHover] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("gili_miniplayer_fade_on_hover") === "true";
-    } catch {
-      return false;
-    }
-  });
+  const fadeOnHover = true;
 
-  const [fadeOpacity, setFadeOpacity] = useState<number>(() => {
+  const [fadeOpacity] = useState<number>(() => {
     try {
       const val = localStorage.getItem("gili_miniplayer_fade_opacity");
       return val ? parseFloat(val) : 0.3;
@@ -72,23 +64,6 @@ export const MiniPlayerApp: React.FC = () => {
       return 0.3;
     }
   });
-
-  useEffect(() => {
-    const handleSettingsSync = () => {
-      try {
-        setFadeOnHover(localStorage.getItem("gili_miniplayer_fade_on_hover") === "true");
-        const val = localStorage.getItem("gili_miniplayer_fade_opacity");
-        if (val) setFadeOpacity(parseFloat(val));
-      } catch {}
-    };
-
-    window.addEventListener("storage", handleSettingsSync);
-    window.addEventListener("gili_miniplayer_settings_updated", handleSettingsSync);
-    return () => {
-      window.removeEventListener("storage", handleSettingsSync);
-      window.removeEventListener("gili_miniplayer_settings_updated", handleSettingsSync);
-    };
-  }, []);
 
   const [isFaded, setIsFaded] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
@@ -204,13 +179,6 @@ export const MiniPlayerApp: React.FC = () => {
             if (m && (m.title || m.artist)) {
               prefetchArtwork(m);
               setMedia(m);
-            }
-          })
-          .catch(() => {});
-        invoke<LyricsPayload | null>("get_current_lyrics")
-          .then((l) => {
-            if (l && (l.lines.length > 0 || l.plain_lyrics || l.state === "instrumental")) {
-              setLyrics(l);
             }
           })
           .catch(() => {});
@@ -392,25 +360,12 @@ export const MiniPlayerApp: React.FC = () => {
     };
   }, []);
 
-  // Auto-request lyrics when media is playing or changed and lyrics are missing/empty
-  useEffect(() => {
-    if (media?.title) {
-      if (!lyrics || (lyrics.title !== media.title && lyrics.state !== "loading")) {
-        requestLyricsRefresh(media.artist || "", media.title);
-      }
-    }
-  }, [media?.title, media?.artist, lyrics?.title, lyrics?.state]);
-
   // Listen to Rust cursor hit-testing across click-through boundaries
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<MiniplayerCursorHoverPayload>("miniplayer:cursor-hover", (event) => {
-      const { in_window, in_toolbar, is_anchored_right } = event.payload;
+      const { in_window, in_toolbar } = event.payload;
       inWindowRef.current = in_window;
-
-      if (typeof is_anchored_right === "boolean") {
-        setIsAnchoredRight(is_anchored_right);
-      }
 
       if (in_window) {
         if (exitTimerRef.current) {
