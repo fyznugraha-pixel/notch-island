@@ -4587,12 +4587,18 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     water_reminder: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     prayer_reminder: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     prayer_toast: {
-      width: tabWidth,
-      height: Math.round((isBot ? 260 : 242) * tabHeightMultiplier),
+      width: prayerToast?.type === "prayer_time" ? tabWidth : 448,
+      height:
+        prayerToast?.type === "prayer_time"
+          ? Math.round((isBot ? 260 : 242) * tabHeightMultiplier)
+          : 68,
       x: 0,
       y: currentY,
       opacity: 1,
-      borderRadius: radius("32px"),
+      borderRadius:
+        prayerToast?.type === "prayer_time"
+          ? radius("32px")
+          : radius("20px", "24px"),
     },
     water_toast: {
       width: waterToast?.type === "time_to_drink" ? 440 : waterToast?.type === "streak_threatened" ? 430 : 380,

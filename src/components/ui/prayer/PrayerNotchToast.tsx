@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
+import { MapPin } from "lucide-react";
 import {
   PrayerScheduleData,
   PrayerToastPayload,
+  PRAYER_META,
   PRAYER_ORDER,
   getImmediatePrayerSchedule,
   getPrayerDisplayName,
@@ -38,23 +40,116 @@ export const PrayerNotchToast: React.FC<PrayerNotchToastProps> = ({
   const isEn = lang === "en";
   const activeSchedule = schedule || getImmediatePrayerSchedule();
   const prayerName = getPrayerDisplayName(toast.prayerId, lang);
+  const meta = PRAYER_META[toast.prayerId];
   const [isMuted, setIsMuted] = useState(false);
 
-  const isPre = toast.type === "pre_reminder";
-  const isDone = toast.type === "completed";
+  // ==========================================================================
+  // 1. PRE-REMINDER (-5m / -10m / -15m): Compact Notch Toast (448 x 68)
+  // ==========================================================================
+  if (toast.type !== "prayer_time") {
+    const textColor = isLightMode ? "#101828" : "#ffffff";
+    const textSub = isLightMode ? "#475467" : "#a1a1aa";
+    const borderPill = isLightMode ? "#CBD2DC" : "#2a2a31";
 
-  const statusBadgeText = isDone
-    ? isEn
-      ? "PRAYER COMPLETED"
-      : "SHOLAT TERCATAT"
-    : isPre
-    ? isEn
-      ? `${toast.minutesLeft || 5} MIN TO ADZAN`
-      : `${toast.minutesLeft || 5} MENIT MENUJU ADZAN`
-    : isEn
-    ? "ADZAN NOW"
-    : "ADZAN SEKARANG";
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: -10, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -10, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 450, damping: 30 }}
+        role="status"
+        className="relative w-full h-full px-3.5 py-1.5 flex items-center gap-2.5 select-none"
+        style={{ color: textColor }}
+      >
+        <span
+          className="w-[36px] h-[36px] rounded-[11px] flex items-center justify-center shrink-0"
+          style={{
+            background: "rgba(48, 209, 88, 0.14)",
+            boxShadow: "inset 0 0 0 1px rgba(48, 209, 88, 0.35)",
+          }}
+        >
+          <PrayerIcon prayerId={toast.prayerId} size={20} colored={true} />
+        </span>
 
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span
+              className="text-[9.5px] font-bold tracking-[0.06em] uppercase"
+              style={{ color: PRAYER_ACCENT }}
+            >
+              {isEn
+                ? `${toast.minutesLeft || 5} MIN TO PRAYER`
+                : `${toast.minutesLeft || 5} MENIT MENUJU SHOLAT`}
+            </span>
+            <span
+              className="inline-flex items-center gap-0.5 h-[15px] px-1.5 rounded-[4px] font-semibold text-[9.5px] truncate max-w-[110px]"
+              style={{
+                background: isLightMode
+                  ? "rgba(48,209,88,0.14)"
+                  : "rgba(48,209,88,0.16)",
+                color: isLightMode ? "#047857" : PRAYER_ACCENT,
+              }}
+            >
+              <MapPin size={8.5} />
+              {toast.locationName}
+            </span>
+          </div>
+
+          <div className="text-[12.5px] font-bold tracking-tight mt-[1px] leading-tight truncate">
+            {isEn
+              ? `Upcoming ${prayerName} at ${toast.prayerTime}`
+              : `Persiapan Sholat ${prayerName} pukul ${toast.prayerTime}`}
+          </div>
+
+          <div className="text-[10px] truncate mt-[1px]" style={{ color: textSub }}>
+            {isEn
+              ? `${meta.rakat} Rakaat · Prepare for prayer`
+              : `${meta.rakat} Rakaat · Bersiap menjelang waktu adzan`}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              onOpenPrayerTab();
+              onDismiss();
+            }}
+            style={{
+              height: 28,
+              padding: "0 11px",
+              borderRadius: 14,
+              border: 0,
+              background: "linear-gradient(180deg, #3BE07A, #22C55E)",
+              color: "#04210F",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {isEn ? "Schedule" : "Jadwal"}
+          </button>
+
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="h-[28px] px-2.5 rounded-[14px] border bg-transparent text-[11px] font-medium cursor-pointer active:scale-95 transition-transform"
+            style={{
+              borderColor: borderPill,
+              color: textColor,
+            }}
+          >
+            {isEn ? "Dismiss" : "Tutup"}
+          </button>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // ==========================================================================
+  // 2. EXACT PRAYER TIME (ADZAN MASUK): Full Hero Alert (680 x 242 - Board 3)
+  // ==========================================================================
   return (
     <motion.div
       initial={{ opacity: 0, y: -10, scale: 0.98 }}
@@ -141,7 +236,12 @@ export const PrayerNotchToast: React.FC<PrayerNotchToastProps> = ({
               color: PRAYER_ACCENT,
             }}
           >
-            <PrayerIcon prayerId={toast.prayerId} size={52} strokeWidth={1.5} />
+            <PrayerIcon
+              prayerId={toast.prayerId}
+              size={52}
+              strokeWidth={1.5}
+              colored={false}
+            />
           </div>
         </div>
 
@@ -168,7 +268,7 @@ export const PrayerNotchToast: React.FC<PrayerNotchToastProps> = ({
                 color: PRAYER_ACCENT,
               }}
             >
-              {statusBadgeText}
+              {isEn ? "ADZAN NOW" : "ADZAN SEKARANG"}
             </span>
           </div>
 
@@ -211,7 +311,7 @@ export const PrayerNotchToast: React.FC<PrayerNotchToastProps> = ({
         >
           <button
             type="button"
-            onClick={isDone ? onDismiss : onMarkCompleted}
+            onClick={onMarkCompleted}
             style={{
               height: 42,
               borderRadius: 21,
@@ -231,15 +331,7 @@ export const PrayerNotchToast: React.FC<PrayerNotchToastProps> = ({
             }}
           >
             <PrayerCheckIcon size={16} strokeWidth={3} />
-            <span>
-              {isDone
-                ? isEn
-                  ? "Done"
-                  : "Selesai"
-                : isEn
-                ? "Mark as prayed"
-                : "Sudah sholat"}
-            </span>
+            <span>{isEn ? "Mark as prayed" : "Sudah sholat"}</span>
           </button>
 
           <div style={{ display: "flex", gap: 8 }}>
