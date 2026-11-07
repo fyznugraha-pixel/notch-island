@@ -189,7 +189,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   return (
     <div
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[380px] text-white select-none rounded-[28px] p-[14px_18px_12px] flex flex-col justify-between overflow-hidden shadow-none transition-[height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`relative box-border w-[380px] text-white select-none rounded-[28px] p-[14px_18px_20px] flex flex-col justify-end overflow-hidden shadow-none transition-[height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
       } ${showToolbar ? "h-[340px]" : "h-[298px]"}`}
       style={containerStyle}
@@ -213,7 +213,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       </div>
 
       {/* Header: 60px Album Art + Title/Artist + Equalizer */}
-      <div className="flex items-center gap-3.5 shrink-0 pointer-events-none">
+      <div className="flex items-center gap-3.5 h-[60px] shrink-0 pointer-events-none">
         <div
           role="img"
           aria-label="Sampul album"
@@ -262,7 +262,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
           WebkitMaskImage:
             "linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%)",
         }}
-        className="h-[182px] min-h-[182px] max-h-[182px] shrink-0 my-1 overflow-hidden relative select-none"
+        className="h-[196px] min-h-[196px] max-h-[196px] mt-[8px] shrink-0 overflow-hidden relative select-none"
       >
         {lyrics?.state === "loading" ? (
           <div

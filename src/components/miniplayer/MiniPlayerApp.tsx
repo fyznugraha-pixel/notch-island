@@ -596,11 +596,11 @@ export const MiniPlayerApp: React.FC = () => {
       animate={exitState === "idle" ? "animate" : exitState}
       variants={motionVariants}
       style={{
-        width: "100%",
-        height: "100%",
+        width: "100vw",
+        height: "100vh",
         transformOrigin: anchorOrigin,
       }}
-      className={`relative w-full h-full overflow-hidden select-none bg-transparent flex flex-col justify-end ${
+      className={`relative w-screen h-screen overflow-hidden select-none bg-transparent flex flex-col justify-end ${
         isAnchoredRight ? "items-end" : "items-start"
       }`}
     >

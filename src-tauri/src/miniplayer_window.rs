@@ -161,7 +161,6 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                         let in_x = pt.x >= win_pos.x && pt.x < win_pos.x + win_size.width as i32;
                         let in_y_full = pt.y >= win_pos.y && pt.y < win_pos.y + win_size.height as i32;
 
-                        let current_mode = get_mode().lock().unwrap().clone();
                         let rel_y = if in_x && in_y_full {
                             (pt.y - win_pos.y) as f64 / scale_factor
                         } else {
@@ -181,8 +180,8 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                             false
                         };
 
-                        let toolbar_height = if current_mode == "card" { 52.0 } else { 52.0 };
-                        let bottom_progress_height = if current_mode == "card" { 34.0 } else { 20.0 };
+                        let toolbar_height = 52.0;
+                        let bottom_progress_height = 22.0;
                         let in_top_toolbar = in_window && (rel_y >= 0.0 && rel_y < toolbar_height);
                         let in_bottom_progress = in_window
                             && (rel_y >= (win_h_logical - bottom_progress_height) && rel_y <= win_h_logical);
