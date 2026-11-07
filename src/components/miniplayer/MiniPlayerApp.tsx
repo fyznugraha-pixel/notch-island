@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { motion, type Variants } from "framer-motion";
+import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
@@ -100,6 +100,7 @@ export const MiniPlayerApp: React.FC = () => {
   }, []);
 
   const resizeTimerRef = useRef<number | null>(null);
+  const modeTransitionTimerRef = useRef<number | null>(null);
   const currentWinWidthRef = useRef<number>(440);
 
   const checkAnchor = useCallback((x: number, w: number) => {
@@ -196,13 +197,28 @@ export const MiniPlayerApp: React.FC = () => {
   }, []);
 
   const handleSetMode = useCallback(async (nextMode: "bar" | "card") => {
-    setMode(nextMode);
+    if (modeTransitionTimerRef.current) {
+      window.clearTimeout(modeTransitionTimerRef.current);
+      modeTransitionTimerRef.current = null;
+    }
+
     try {
       localStorage.setItem("gili_miniplayer_mode", nextMode);
-      await invoke("set_miniplayer_mode", { mode: nextMode });
-    } catch (e) {
-      console.error("Failed to switch miniplayer mode:", e);
-    }
+      // Expand window canvas to 440x340 anchored at bottom so both Card (380x340)
+      // and Bar (440x130) can morph smoothly without horizontal or vertical clipping
+      await invoke("resize_miniplayer", { width: 440, height: 340 });
+    } catch {}
+
+    setMode(nextMode);
+
+    modeTransitionTimerRef.current = window.setTimeout(async () => {
+      modeTransitionTimerRef.current = null;
+      try {
+        await invoke("set_miniplayer_mode", { mode: nextMode });
+      } catch (e) {
+        console.error("Failed to switch miniplayer mode:", e);
+      }
+    }, 280);
   }, []);
 
   // Extract dominant color when media thumbnail changes
@@ -350,6 +366,9 @@ export const MiniPlayerApp: React.FC = () => {
       if (resizeTimerRef.current) {
         window.clearTimeout(resizeTimerRef.current);
       }
+      if (modeTransitionTimerRef.current) {
+        window.clearTimeout(modeTransitionTimerRef.current);
+      }
     };
   }, []);
 
@@ -418,7 +437,8 @@ export const MiniPlayerApp: React.FC = () => {
     if (
       target.closest("button") ||
       target.closest("input") ||
-      target.closest("a")
+      target.closest("a") ||
+      target.closest("[data-no-drag]")
     ) {
       return;
     }
@@ -562,6 +582,8 @@ export const MiniPlayerApp: React.FC = () => {
         },
   };
 
+  const anchorOrigin = isAnchoredRight ? "bottom right" : "bottom left";
+
   return (
     <motion.div
       key={enterKey}
@@ -574,37 +596,111 @@ export const MiniPlayerApp: React.FC = () => {
       animate={exitState === "idle" ? "animate" : exitState}
       variants={motionVariants}
       style={{
-        width: mode === "card" ? "380px" : "100%",
-        transformOrigin: isAnchoredRight ? "bottom right" : "bottom left",
+        width: "100%",
+        height: "100%",
+        transformOrigin: anchorOrigin,
       }}
-      className={`relative overflow-hidden select-none bg-transparent ${
-        mode === "card"
-          ? "h-[340px] w-[380px]"
-          : `h-[130px] w-full flex flex-col justify-end ${isAnchoredRight ? "items-end" : "items-start"}`
+      className={`relative w-full h-full overflow-hidden select-none bg-transparent flex flex-col justify-end ${
+        isAnchoredRight ? "items-end" : "items-start"
       }`}
     >
-      {mode === "card" ? (
-        <MiniPlayerCardMode
-          media={media}
-          lyrics={lyrics}
-          theme={theme}
-          tintColor={tintColor}
-          showToolbar={showToolbar}
-          toolbarNode={toolbarNode}
-          onToggleMode={() => handleSetMode("bar")}
-        />
-      ) : (
-        <MiniPlayerBarMode
-          media={media}
-          lyrics={lyrics}
-          theme={theme}
-          tintColor={tintColor}
-          showToolbar={showToolbar}
-          toolbarNode={toolbarNode}
-          onToggleMode={() => handleSetMode("card")}
-          onWidthChange={handleBarWidthChange}
-        />
-      )}
+      <AnimatePresence mode="popLayout" initial={false}>
+        {mode === "card" ? (
+          <motion.div
+            key="card-mode"
+            style={{ transformOrigin: anchorOrigin }}
+            initial={
+              prefersReducedMotion
+                ? { opacity: 0 }
+                : { opacity: 0, scale: 0.88, y: 20, filter: "blur(6px)" }
+            }
+            animate={{
+              opacity: 1,
+              scale: 1,
+              y: 0,
+              filter: "blur(0px)",
+              transition: prefersReducedMotion
+                ? { duration: 0.12 }
+                : {
+                    opacity: { duration: 0.22, ease: "easeOut" },
+                    scale: { type: "spring", stiffness: 330, damping: 26, mass: 0.72 },
+                    y: { type: "spring", stiffness: 330, damping: 26, mass: 0.72 },
+                    filter: { duration: 0.2, ease: "easeOut" },
+                  },
+            }}
+            exit={
+              prefersReducedMotion
+                ? { opacity: 0 }
+                : {
+                    opacity: 0,
+                    scaleY: 0.55,
+                    scaleX: 0.94,
+                    y: 22,
+                    filter: "blur(6px)",
+                    transition: { duration: 0.22, ease: [0.32, 0, 0.67, 0] as const },
+                  }
+            }
+          >
+            <MiniPlayerCardMode
+              media={media}
+              lyrics={lyrics}
+              theme={theme}
+              tintColor={tintColor}
+              showToolbar={showToolbar}
+              toolbarNode={toolbarNode}
+              onToggleMode={() => handleSetMode("bar")}
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="bar-mode"
+            style={{ transformOrigin: anchorOrigin }}
+            initial={
+              prefersReducedMotion
+                ? { opacity: 0 }
+                : { opacity: 0, scaleY: 1.25, scaleX: 0.9, y: -14, filter: "blur(6px)" }
+            }
+            animate={{
+              opacity: 1,
+              scaleY: 1,
+              scaleX: 1,
+              y: 0,
+              filter: "blur(0px)",
+              transition: prefersReducedMotion
+                ? { duration: 0.12 }
+                : {
+                    opacity: { duration: 0.22, ease: "easeOut" },
+                    scaleY: { type: "spring", stiffness: 330, damping: 26, mass: 0.72 },
+                    scaleX: { type: "spring", stiffness: 330, damping: 26, mass: 0.72 },
+                    y: { type: "spring", stiffness: 330, damping: 26, mass: 0.72 },
+                    filter: { duration: 0.2, ease: "easeOut" },
+                  },
+            }}
+            exit={
+              prefersReducedMotion
+                ? { opacity: 0 }
+                : {
+                    opacity: 0,
+                    scale: 0.9,
+                    y: 14,
+                    filter: "blur(6px)",
+                    transition: { duration: 0.2, ease: [0.32, 0, 0.67, 0] as const },
+                  }
+            }
+          >
+            <MiniPlayerBarMode
+              media={media}
+              lyrics={lyrics}
+              theme={theme}
+              tintColor={tintColor}
+              showToolbar={showToolbar}
+              toolbarNode={toolbarNode}
+              onToggleMode={() => handleSetMode("card")}
+              onWidthChange={handleBarWidthChange}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };

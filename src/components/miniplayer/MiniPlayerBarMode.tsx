@@ -9,6 +9,7 @@ import {
 } from "./lyricsLayout";
 import { BarLyricSlot } from "./BarLyricSlot";
 import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
+import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -38,7 +39,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   const position = media?.position || 0;
   const duration = media?.duration || 0;
 
-  const { activeIndex, activeLine, livePosition, liveDuration } = useLyricsSync(
+  const { activeIndex, activeLine, livePosition, liveDuration, seekLocal } = useLyricsSync(
     lyrics,
     position,
     duration,
@@ -64,10 +65,9 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   }, [onWidthChange]);
 
   const totalDuration = liveDuration || duration;
-  const progressPercent = useMemo(() => {
-    if (!totalDuration || totalDuration <= 0) return 0;
-    return Math.min(100, Math.max(0, (livePosition / totalDuration) * 100));
-  }, [livePosition, totalDuration]);
+  const canSeek = Boolean(
+    media?.title && totalDuration > 0 && media?.can_seek !== false
+  );
 
   // Compute active text, context text, and line timestamps ONLY when active line or state changes
   const { activeText, contextText, currentLineTime, nextLineTime, lineKey } = useMemo(() => {
@@ -201,7 +201,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   return (
     <div
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[440px] text-white select-none rounded-[24px] shadow-none p-[14px_16px_18px] overflow-hidden ${
+      className={`relative box-border w-[440px] text-white select-none rounded-[24px] shadow-none p-[14px_16px_18px] overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
       } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
       style={containerStyle}
@@ -215,7 +215,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       {/* Top Slot for Toolbar on Hover */}
       <div
         data-tauri-drag-region
-        className={`w-full flex items-center overflow-hidden ${
+        className={`w-full flex items-center overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
           showToolbar
             ? "opacity-100 h-[36px] mb-[6px] pointer-events-auto cursor-move"
             : "opacity-0 h-0 mb-0 pointer-events-none"
@@ -269,21 +269,15 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         <MiniPlayerEqualizer isPlaying={isPlaying} />
       </div>
 
-      {/* Bottom: 3px Progress Bar */}
-      <div
-        role="progressbar"
-        aria-label="Posisi lagu"
-        aria-valuenow={Math.round(progressPercent)}
-        className="absolute left-4 right-4 bottom-[9px] h-[3px] rounded-full bg-white/20 overflow-hidden pointer-events-none"
-      >
-        <div
-          className="h-full bg-white w-full origin-left rounded-full"
-          style={{
-            transform: `scaleX(${progressPercent / 100})`,
-            transition: prefersReducedMotion ? "none" : "transform 150ms linear",
-          }}
-        />
-      </div>
+      {/* Bottom: Interactive Adjustable Progress Bar */}
+      <MiniPlayerProgressBar
+        variant="bar"
+        position={livePosition}
+        duration={totalDuration}
+        canSeek={canSeek}
+        prefersReducedMotion={prefersReducedMotion}
+        onSeek={seekLocal}
+      />
     </div>
   );
 };

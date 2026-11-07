@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { LyricLine, LyricsPayload, subscribeProgress } from "../../services/mediaLyricsStore";
 
 export function findActiveLyricIndex(lines: LyricLine[], liveTime: number): number {
@@ -110,6 +110,22 @@ export function useLyricsSync(
     }
   }, [lyrics?.title, lyrics?.artist, lyrics?.synced, lyrics?.offset, offset]);
 
+  const seekLocal = useCallback(
+    (newPositionSec: number) => {
+      const clamped = Math.max(0, Math.min(liveDuration || 9999, newPositionSec));
+      anchorRef.current = { time: clamped, timestamp: performance.now() };
+      setLivePosition(clamped);
+
+      const effectiveOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
+      if (lyrics?.synced && lyrics.lines && lyrics.lines.length > 0) {
+        const idx = findActiveLyricIndex(lyrics.lines, clamped + effectiveOffset);
+        activeIndexRef.current = idx;
+        setActiveIndex(idx);
+      }
+    },
+    [liveDuration, lyrics?.offset, lyrics?.synced, lyrics?.lines, offset]
+  );
+
   const activeLine =
     lyrics?.synced && activeIndex >= 0 && activeIndex < (lyrics.lines?.length || 0)
       ? lyrics.lines[activeIndex]
@@ -120,5 +136,6 @@ export function useLyricsSync(
     activeLine,
     livePosition,
     liveDuration,
+    seekLocal,
   };
 }

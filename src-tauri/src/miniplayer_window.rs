@@ -168,11 +168,12 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                             -1.0
                         };
 
+                        let win_h_logical = win_size.height as f64 / scale_factor;
                         let in_window = if in_x && in_y_full {
-                            if current_mode == "bar" && !last_state.in_window {
-                                // Saat collapsed di mode bar (tinggi 88px di dasar window 130px),
-                                // area bar ada di 40..130px. Area kosong di atasnya tidak mentrigger hover.
-                                rel_y >= 40.0 && rel_y <= 130.0
+                            if !last_state.in_window {
+                                // Saat collapsed (toolbar tersembunyi), area kosong 42px di bagian atas
+                                // (baik di mode bar 88/130px maupun mode card 298/340px) tidak mentrigger hover.
+                                rel_y >= 40.0 && rel_y <= win_h_logical
                             } else {
                                 true
                             }
@@ -180,8 +181,12 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                             false
                         };
 
-                        let toolbar_height = if current_mode == "card" { 48.0 } else { 52.0 };
-                        let mut in_toolbar = in_window && (rel_y >= 0.0 && rel_y < toolbar_height);
+                        let toolbar_height = if current_mode == "card" { 52.0 } else { 52.0 };
+                        let bottom_progress_height = if current_mode == "card" { 34.0 } else { 20.0 };
+                        let in_top_toolbar = in_window && (rel_y >= 0.0 && rel_y < toolbar_height);
+                        let in_bottom_progress = in_window
+                            && (rel_y >= (win_h_logical - bottom_progress_height) && rel_y <= win_h_logical);
+                        let mut in_toolbar = in_top_toolbar || in_bottom_progress;
 
                         if l_down && (was_dragging || (in_toolbar && !is_click_through)) {
                             was_dragging = true;
@@ -496,66 +501,27 @@ pub fn snap_miniplayer_position(
 pub async fn set_miniplayer_mode(app: AppHandle, mode: String) -> Result<(), String> {
     *get_mode().lock().unwrap() = mode.clone();
     ensure_miniplayer_tracker(&app);
-    if let Some(w) = app.get_webview_window("miniplayer") {
-        let (new_w, new_h) = if mode == "card" {
-            (380.0, 340.0)
-        } else {
-            (440.0, 130.0)
-        };
-
-        if let (Ok(curr_pos), Ok(curr_size)) = (w.outer_position(), w.outer_size()) {
-            let scale_factor = w.scale_factor().unwrap_or(1.0);
-            let phys_w = (new_w * scale_factor).round() as u32;
-            let phys_h = (new_h * scale_factor).round() as u32;
-
-            let mut new_x = curr_pos.x;
-            let mut new_y = curr_pos.y;
-
-            #[cfg(windows)]
-            {
-                use windows::Win32::Foundation::POINT;
-                use windows::Win32::Graphics::Gdi::{
-                    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-                };
-                let pt = POINT { x: curr_pos.x, y: curr_pos.y };
-                let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
-                let mut mi = MONITORINFO {
-                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                    ..Default::default()
-                };
-                if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
-                    let rc = mi.rcWork;
-                    let curr_right = curr_pos.x + curr_size.width as i32;
-                    let curr_bottom = curr_pos.y + curr_size.height as i32;
-
-                    // If close to right edge (< 48px from margin), anchor right edge
-                    if (rc.right - 12 - curr_right).abs() < 48 {
-                        new_x = curr_right - phys_w as i32;
-                    }
-                    // If close to bottom edge (< 48px from margin), anchor bottom edge
-                    if (rc.bottom - 12 - curr_bottom).abs() < 48 {
-                        new_y = curr_bottom - phys_h as i32;
-                    }
-
-                    // Clamp within screen work area
-                    new_x = new_x.clamp(rc.left, (rc.right - phys_w as i32).max(rc.left));
-                    new_y = new_y.clamp(rc.top, (rc.bottom - phys_h as i32).max(rc.top));
-                }
-            }
-
-            let _ = w.set_size(tauri::PhysicalSize::new(phys_w, phys_h));
-            let _ = w.set_position(tauri::PhysicalPosition::new(new_x, new_y));
-        } else {
-            let _ = w.set_size(tauri::LogicalSize::new(new_w, new_h));
-        }
-
-        let _ = app.emit("miniplayer:mode-changed", mode);
-    }
+    let (new_w, new_h) = if mode == "card" {
+        (380.0, 340.0)
+    } else {
+        (440.0, 130.0)
+    };
+    let _ = resize_miniplayer_internal(&app, new_w, new_h, false);
+    let _ = app.emit("miniplayer:mode-changed", mode);
     Ok(())
 }
 
 #[tauri::command]
 pub fn resize_miniplayer(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+    resize_miniplayer_internal(&app, width, height, false)
+}
+
+fn resize_miniplayer_internal(
+    app: &AppHandle,
+    width: f64,
+    height: f64,
+    skip_if_lbutton: bool,
+) -> Result<(), String> {
     #[cfg(windows)]
     {
         use windows::Win32::Foundation::HWND;
@@ -567,10 +533,11 @@ pub fn resize_miniplayer(app: AppHandle, width: f64, height: f64) -> Result<(), 
             GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
         };
 
-        // Jika tombol kiri mouse sedang ditekan (misal saat drag), lewati agar tidak mengganggu drag
-        let l_down = unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 };
-        if l_down {
-            return Ok(());
+        if skip_if_lbutton {
+            let l_down = unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 };
+            if l_down {
+                return Ok(());
+            }
         }
 
         if let Some(w) = app.get_webview_window("miniplayer") {

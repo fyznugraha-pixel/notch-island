@@ -4,6 +4,7 @@ import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
 import { MiniPlayerBackground } from "./MiniPlayerBackground";
 import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
+import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
 import {
   sanitizeLyricText,
   clampExtremeText,
@@ -36,7 +37,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   const duration = media?.duration || 0;
   const offset = lyrics?.offset || 0;
 
-  const { activeIndex } = useLyricsSync(
+  const { activeIndex, livePosition, liveDuration, seekLocal } = useLyricsSync(
     lyrics,
     position,
     duration,
@@ -49,8 +50,9 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     window.matchMedia &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  const totalDuration = liveDuration || duration;
   const canSeek = Boolean(
-    media?.title && duration > 0 && media?.can_seek !== false
+    media?.title && totalDuration > 0 && media?.can_seek !== false
   );
 
   const containerStyle = useMemo(() => {
@@ -173,22 +175,23 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         window.clearTimeout(manualTimeoutRef.current);
         manualTimeoutRef.current = null;
       }
+      seekLocal(lineTime);
       try {
         await invoke("smtc_seek", { positionSec: lineTime });
       } catch {}
     },
-    [canSeek]
+    [canSeek, seekLocal]
   );
 
   const currentTranslateY = isManualScrolling ? manualTranslateY : autoTranslateY;
-  const effectivePosition = position - offset;
+  const effectivePosition = livePosition - offset;
 
   return (
     <div
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[380px] h-[340px] text-white select-none rounded-[28px] p-[6px_18px_14px] flex flex-col justify-between overflow-hidden shadow-none ${
+      className={`relative box-border w-[380px] text-white select-none rounded-[28px] p-[14px_18px_12px] flex flex-col justify-between overflow-hidden shadow-none transition-[height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
-      }`}
+      } ${showToolbar ? "h-[340px]" : "h-[298px]"}`}
       style={containerStyle}
     >
       <MiniPlayerBackground
@@ -197,23 +200,20 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         theme={theme}
       />
 
-      {/* Top 36px Slot: Grab Handle (normal) or Toolbar (hover) */}
+      {/* Top Slot for Toolbar on Hover (expands upward just like Bar Mode) */}
       <div
         data-tauri-drag-region
-        className="h-9 w-full shrink-0 flex items-center justify-center cursor-move"
+        className={`w-full shrink-0 flex items-center overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          showToolbar
+            ? "opacity-100 h-[36px] mb-[6px] pointer-events-auto cursor-move"
+            : "opacity-0 h-0 mb-0 pointer-events-none"
+        }`}
       >
-        {showToolbar ? (
-          <div className="w-full h-full flex items-center">{toolbarNode}</div>
-        ) : (
-          <span
-            aria-hidden="true"
-            className="w-9 h-1 rounded-full bg-white/20 pointer-events-none"
-          />
-        )}
+        {toolbarNode}
       </div>
 
       {/* Header: 60px Album Art + Title/Artist + Equalizer */}
-      <div className="flex items-center gap-3.5 shrink-0 mt-1 pointer-events-none">
+      <div className="flex items-center gap-3.5 shrink-0 pointer-events-none">
         <div
           role="img"
           aria-label="Sampul album"
@@ -262,7 +262,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
           WebkitMaskImage:
             "linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%)",
         }}
-        className="flex-1 my-1 overflow-hidden relative select-none"
+        className="h-[182px] min-h-[182px] max-h-[182px] shrink-0 my-1 overflow-hidden relative select-none"
       >
         {lyrics?.state === "loading" ? (
           <div
@@ -402,6 +402,16 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
           </div>
         )}
       </div>
+
+      {/* Bottom: Interactive Adjustable Music Progress Bar */}
+      <MiniPlayerProgressBar
+        variant="card"
+        position={livePosition}
+        duration={totalDuration}
+        canSeek={canSeek}
+        prefersReducedMotion={prefersReducedMotion}
+        onSeek={seekLocal}
+      />
     </div>
   );
 };
