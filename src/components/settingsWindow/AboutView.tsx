@@ -31,11 +31,11 @@ const CHANGELOG: ChangelogEntry[] = [
       },
       {
         icon: <Music size={14} />,
-        titleId: "Mini Player & Tampilan Lirik Interaktif",
-        titleEn: "Mini Player & Interactive Lyrics Display",
-        descId: "Perbaikan bug lirik tidak muncul saat lagu berganti atau jendela dibuka. Area lirik kini sepenuhnya interaktif untuk scroll mouse wheel dan lompat timestamp (seek), serta penanganan tepi monitor yang presisi.",
-        descEn: "Fixed issue where lyrics did not load on track change or initial open. Lyric area is now fully interactive for mouse wheel scrolling and timestamp seeking, with accurate monitor anchor handling.",
-        badge: "fix",
+        titleId: "Mini Player Desktop & Lirik Interaktif",
+        titleEn: "Desktop Mini Player & Interactive Lyrics",
+        descId: "Putar dan nikmati musik langsung di desktop dengan mode bar ringkas atau kartu, lirik tersinkronisasi real-time yang interaktif (klik baris untuk lompat lagu & scroll wheel), kalibrasi offset, serta integrasi drag-to-notch.",
+        descEn: "Play and enjoy music on your desktop with compact bar or card modes, interactive real-time synchronized lyrics (click lines to seek & mouse wheel scroll), offset calibration, and drag-to-notch integration.",
+        badge: "new",
       },
       {
         icon: <MousePointerClick size={14} />,
