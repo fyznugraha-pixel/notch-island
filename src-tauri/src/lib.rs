@@ -2294,6 +2294,51 @@ fn open_shelf_received_folder() {
     show_in_folder(dir.to_string_lossy().to_string());
 }
 
+#[tauri::command]
+fn clear_shelf_received_folder() -> Result<(), String> {
+    let dir = shelf_server::get_shelf_received_dir();
+    if !dir.exists() {
+        return Ok(());
+    }
+    let entries = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_shelf_received_files(paths: Vec<String>) -> Result<(), String> {
+    let dir = shelf_server::get_shelf_received_dir();
+    if !dir.exists() {
+        return Ok(());
+    }
+    let canonical_dir = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+    let dir_norm = dir.to_string_lossy().replace('/', "\\").to_lowercase();
+
+    for raw_path in paths {
+        let p = std::path::Path::new(&raw_path);
+        if !p.exists() || !p.is_file() {
+            continue;
+        }
+        let is_inside_shelf_dir = if let Ok(canon_file) = std::fs::canonicalize(p) {
+            canon_file.starts_with(&canonical_dir)
+        } else {
+            let file_norm = raw_path.replace('/', "\\").to_lowercase();
+            file_norm.starts_with(&dir_norm)
+        };
+        if is_inside_shelf_dir {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+    Ok(())
+}
+
 static INTERNAL_CLIPBOARD_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[tauri::command]
@@ -3170,6 +3215,8 @@ pub fn run() {
             set_default_audio_endpoint,
             show_in_folder,
             open_shelf_received_folder,
+            clear_shelf_received_folder,
+            delete_shelf_received_files,
             copy_file_to_clipboard,
             copy_files_to_clipboard,
             pick_files_dialog,

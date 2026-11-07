@@ -1215,17 +1215,27 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   };
 
 
-  const removeStashedFile = (id: string) => {
+  const removeStashedFile = (id: string, deleteFromDisk = true) => {
     setStashedFiles((prev) => {
+      const target = prev.find((f) => f.id === id);
+      if (deleteFromDisk && target?.path) {
+        invoke("delete_shelf_received_files", { paths: [target.path] }).catch(console.error);
+      }
       const updated = prev.filter((f) => f.id !== id);
       persistShelfFiles(updated, true);
       return updated;
     });
   };
 
-  const removeStashedFiles = (ids: string[]) => {
+  const removeStashedFiles = (ids: string[], deleteFromDisk = true) => {
     const idSet = new Set(ids);
     setStashedFiles((prev) => {
+      if (deleteFromDisk) {
+        const removedPaths = prev.filter((f) => idSet.has(f.id) && f.path).map((f) => f.path);
+        if (removedPaths.length > 0) {
+          invoke("delete_shelf_received_files", { paths: removedPaths }).catch(console.error);
+        }
+      }
       const updated = prev.filter((f) => !idSet.has(f.id));
       persistShelfFiles(updated, true);
       return updated;
@@ -1236,6 +1246,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     clearShelfPreviewCache();
     setStashedFiles([]);
     persistShelfFiles([], true);
+    invoke("clear_shelf_received_folder").catch(console.error);
   };
 
   type ExpandedTab =
@@ -5704,12 +5715,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                             <React.Suspense fallback={null}>
                               <DropShelfPanel
                                 files={stashedFiles}
-                                onRemoveFile={removeStashedFile}
-                                onRemoveFiles={removeStashedFiles}
+                                onRemoveFile={(id) => removeStashedFile(id, true)}
+                                onRemoveFiles={(ids) => removeStashedFiles(ids, true)}
                                 onClearAll={clearAllStashedFiles}
                                 onAddFiles={addStashedFiles}
-                                onFileTransferred={removeStashedFile}
-                                onFilesTransferred={removeStashedFiles}
+                                onFileTransferred={(id) => removeStashedFile(id, false)}
+                                onFilesTransferred={(ids) => removeStashedFiles(ids, false)}
                                 isLightMode={isLightMode}
                                 showSettings={isShelfSettingsOpen}
                                 onToggleSettings={() => setIsShelfSettingsOpen((prev) => !prev)}
