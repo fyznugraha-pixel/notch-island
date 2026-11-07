@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
+import { ScrollingText } from "../ui/ScrollingText";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -113,22 +114,26 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
 
         {/* Title, Artist, and Live Lyric */}
         <div className="min-w-0 flex-1">
-          <div
-            className="text-[11.5px] text-white/60 truncate leading-tight"
-            title={`${media?.title || "Gili"} · ${media?.artist || ""}`}
-          >
-            {media?.title ? `${media.title} · ${media.artist || "Artis tidak diketahui"}` : "Gili Mini Player"}
+          <div className="h-4 relative overflow-hidden flex items-center">
+            <ScrollingText
+              text={media?.title ? `${media.title} · ${media.artist || "Artis tidak diketahui"}` : "Gili Mini Player"}
+              speed={24}
+              pauseSeconds={2}
+              align="left"
+              className="w-full text-[11.5px] text-white/60 leading-tight"
+            />
           </div>
 
           <div className="h-[22px] mt-[3px] relative overflow-hidden flex items-center">
             {prefersReducedMotion ? (
-              <div
+              <ScrollingText
                 key={activeLyricText}
-                className="text-[14.5px] font-bold text-white truncate tracking-[-0.005em]"
-                title={activeLyricText}
-              >
-                {activeLyricText}
-              </div>
+                text={activeLyricText}
+                speed={28}
+                pauseSeconds={1.5}
+                align="left"
+                className="w-full text-[13px] font-semibold text-white tracking-[-0.01em]"
+              />
             ) : (
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div
@@ -137,10 +142,16 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
                   animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                   exit={{ opacity: 0, y: -10, filter: "blur(3px)" }}
                   transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                  className="text-[14.5px] font-bold text-white truncate tracking-[-0.005em] absolute inset-x-0"
+                  className="w-full h-full flex items-center absolute inset-0"
                   title={activeLyricText}
                 >
-                  {activeLyricText}
+                  <ScrollingText
+                    text={activeLyricText}
+                    speed={28}
+                    pauseSeconds={1.5}
+                    align="left"
+                    className="w-full text-[13px] font-semibold text-white tracking-[-0.01em]"
+                  />
                 </motion.div>
               </AnimatePresence>
             )}

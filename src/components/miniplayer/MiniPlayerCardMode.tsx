@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
 import { formatMediaTime } from "../../utils/time";
+import { ScrollingText } from "../ui/ScrollingText";
 
 export interface MiniPlayerCardModeProps {
   media: MediaPayload | null;
@@ -296,7 +297,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
             Lirik tidak ditemukan
           </div>
         ) : lyrics?.synced && lyrics.lines && lyrics.lines.length > 0 ? (
-          <div className="flex flex-col items-center text-center space-y-3 pt-[96px] pb-[105px] px-2">
+          <div className="flex flex-col items-center space-y-2 pt-[96px] pb-[105px] px-2 w-full">
             {lyrics.lines.map((line, index) => {
               const distance = Math.abs(index - activeIndex);
               const isActive = index === activeIndex;
@@ -308,28 +309,40 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
                   key={`${index}-${line.time}`}
                   ref={isActive ? activeLineRef : null}
                   onClick={(e) => handleLineClick(e, line.time)}
-                  className={`cursor-pointer transition-all duration-300 ease-out px-3 py-1 rounded-xl select-none max-w-full ${
+                  className={`cursor-pointer transition-all duration-300 ease-out h-[32px] flex items-center justify-center w-full max-w-[340px] px-2 rounded-xl select-none ${
                     isActive
-                      ? "text-[18.5px] font-bold text-white scale-100 leading-snug"
+                      ? "text-[14px] font-bold text-white scale-100"
                       : isNear
-                      ? "text-[15px] font-semibold text-white/50 hover:text-white/80 scale-[0.96] leading-snug"
+                      ? "text-[13px] font-medium text-white/50 hover:text-white/80 scale-[0.98]"
                       : isMid
-                      ? "text-[13.5px] font-medium text-white/30 hover:text-white/60 scale-[0.92] leading-snug"
-                      : "text-[12.5px] font-normal text-white/18 hover:text-white/50 scale-[0.88] leading-snug"
+                      ? "text-[12.5px] font-normal text-white/30 hover:text-white/60 scale-[0.96]"
+                      : "text-[12px] font-normal text-white/18 hover:text-white/50 scale-[0.94]"
                   }`}
                   style={
                     isActive
-                      ? { textShadow: "0 0 16px rgba(255, 255, 255, 0.45)" }
+                      ? { textShadow: "0 0 14px rgba(255, 255, 255, 0.4)" }
                       : undefined
                   }
                 >
-                  {line.text || "•••"}
+                  {isActive ? (
+                    <ScrollingText
+                      text={line.text || "•••"}
+                      speed={28}
+                      pauseSeconds={1.5}
+                      align="center"
+                      className="w-full text-center text-[14px] font-bold text-white"
+                    />
+                  ) : (
+                    <span className="truncate w-full text-center whitespace-nowrap">
+                      {line.text || "•••"}
+                    </span>
+                  )}
                 </div>
               );
             })}
           </div>
         ) : lyrics?.plain_lyrics ? (
-          <div className="text-center text-white/70 text-[14px] py-6 px-3 overflow-y-auto max-h-[200px] leading-relaxed whitespace-pre-wrap">
+          <div className="text-center text-white/70 text-[13px] py-4 px-3 overflow-y-auto max-h-[190px] leading-relaxed whitespace-pre-wrap">
             {lyrics.plain_lyrics}
           </div>
         ) : (

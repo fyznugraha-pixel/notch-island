@@ -6,6 +6,7 @@ export interface ScrollingTextProps {
   style?: React.CSSProperties;
   speed?: number;
   pauseSeconds?: number;
+  align?: "left" | "center";
 }
 
 export const ScrollingText = ({
@@ -14,6 +15,7 @@ export const ScrollingText = ({
   style,
   speed = 28,
   pauseSeconds = 1.8,
+  align = "left",
 }: ScrollingTextProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -70,6 +72,7 @@ export const ScrollingText = ({
       className={`overflow-hidden whitespace-nowrap py-[1px] group/marquee ${className}`}
       style={{
         ...style,
+        textAlign: shouldScroll ? "left" : align === "center" ? "center" : undefined,
         maskImage: shouldScroll
           ? "linear-gradient(to right, transparent 0%, black 8px, black calc(100% - 8px), transparent 100%)"
           : undefined,
