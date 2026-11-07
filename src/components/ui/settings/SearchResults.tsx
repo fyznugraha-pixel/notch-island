@@ -12,7 +12,6 @@ import {
   Layout,
   Layers,
   ClipboardList,
-  Music,
   Timer,
   RefreshCw,
   Trash2,
@@ -183,8 +182,6 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onToggleClipboard,
   optOcr,
   onToggleOcr,
-  optMedia,
-  onToggleMedia,
   optSoundFx = true,
   onToggleSoundFx,
   currentAppVersion,
@@ -799,24 +796,6 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           onChange={onToggleOcr}
           activeColor="blue"
           disabled={!optClipboard}
-        />
-      ),
-    },
-    {
-      id: "media_player",
-      tab: "modules",
-      tabLabel: t("settings_subtab_modules"),
-      title: t("settings_media_player"),
-      subtitle: t("settings_media_player_desc"),
-      keywords: ["media", "music", "pemutar", "lagu", "spotify", "lyrics", "lirik", "player"],
-      icon: <Music size={18} />,
-      iconBgClass: "bg-[#2d1815]",
-      iconColorClass: "text-[#ff453a]",
-      control: (
-        <IosSwitch
-          checked={optMedia}
-          onChange={onToggleMedia}
-          activeColor="blue"
         />
       ),
     },

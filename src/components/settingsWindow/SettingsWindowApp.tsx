@@ -359,8 +359,7 @@ export const SettingsWindowApp: React.FC = () => {
         if (typeof c === "boolean") setOptClipboard(c);
         const ocr = await s.get("opt_ocr");
         if (typeof ocr === "boolean") setOptOcr(ocr);
-        const m = await s.get("opt_media");
-        if (typeof m === "boolean") setOptMedia(m);
+        setOptMedia(true);
 
         const p = await s.get("opt_position");
         if (isValidNotchPosition(p)) setOptPosition(p);

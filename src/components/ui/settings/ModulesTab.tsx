@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Volume2, ClipboardList, Music, Timer, ScanText, Tv } from "lucide-react";
+import { Volume2, ClipboardList, Timer, ScanText, Tv } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { t } from "../../../services/i18n";
@@ -28,8 +28,6 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
   onToggleClipboard,
   optOcr,
   onToggleOcr,
-  optMedia,
-  onToggleMedia,
   optSoundFx = true,
   onToggleSoundFx,
 }) => {
@@ -130,41 +128,24 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
         }
       />
 
-      {/* 3. Pemutar media */}
-      <SettingRow
-        icon={<Music size={18} />}
-        iconBgClass="bg-[#2d1815]"
-        iconColorClass="text-[#ff453a]"
-        title={t("settings_media_player")}
-        subtitle={t("settings_media_player_desc")}
-        control={
-          <IosSwitch
-            checked={optMedia}
-            onChange={onToggleMedia}
-            activeColor="blue"
-          />
-        }
-      />
-
-      {/* 3b. Mini Player */}
+      {/* 3. Mini Player */}
       <SettingRow
         icon={<Tv size={18} />}
         iconBgClass="bg-[#1b263b]"
-        iconColorClass={optMedia ? "text-[#38bdf8]" : "text-[#38bdf8]/40"}
+        iconColorClass="text-[#38bdf8]"
         title={t("settings_miniplayer")}
         subtitle={t("settings_miniplayer_desc")}
         control={
           <IosSwitch
-            checked={miniplayerEnabled && optMedia}
+            checked={miniplayerEnabled}
             onChange={handleToggleMiniplayer}
             activeColor="blue"
-            disabled={!optMedia}
           />
         }
       />
 
-      {/* 3c. Memudar saat kursor lewat */}
-      {miniplayerEnabled && optMedia && (
+      {/* 3b. Memudar saat kursor lewat */}
+      {miniplayerEnabled && (
         <SettingRow
           icon={<Tv size={18} />}
           iconBgClass="bg-[#1b263b]"

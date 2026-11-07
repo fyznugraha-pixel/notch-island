@@ -2622,7 +2622,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const v = await s.get('opt_volume'); if (v !== null) setOptVolume(v as boolean);
         const c = await s.get('opt_clipboard'); if (c !== null) setOptClipboard(c as boolean);
         const ocr = await s.get('opt_ocr'); if (ocr !== null) setOptOcr(ocr as boolean);
-        const m = await s.get('opt_media'); if (m !== null) setOptMedia(m as boolean);
+        setOptMedia(true);
         const p = await s.get('opt_position');
         if (isValidNotchPosition(p)) {
           setOptPosition(p);
@@ -3709,7 +3709,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             setOptOcr(Boolean(value));
             break;
           case "opt_media":
-            setOptMedia(Boolean(value));
+            setOptMedia(true);
             break;
           case "opt_sound_fx":
             setOptSoundFx(Boolean(value));
