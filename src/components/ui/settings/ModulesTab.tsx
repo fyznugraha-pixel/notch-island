@@ -45,9 +45,9 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
 
   const [fadeOnHover, setFadeOnHover] = useState<boolean>(() => {
     try {
-      return localStorage.getItem("gili_miniplayer_fade_on_hover") !== "false";
+      return localStorage.getItem("gili_miniplayer_fade_on_hover") === "true";
     } catch {
-      return true;
+      return false;
     }
   });
 

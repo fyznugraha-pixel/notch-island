@@ -156,8 +156,32 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
       </Tooltip>
     );
 
+    const lastHeaderWheelTimeRef = React.useRef(0);
+    const handleHeaderWheel = React.useCallback(
+      (e: React.WheelEvent) => {
+        // Prevent wheel from bubbling to parent notch pill (which adjusts volume)
+        e.stopPropagation();
+        const now = Date.now();
+        if (now - lastHeaderWheelTimeRef.current < 260) return;
+
+        const isDownOrRight = e.deltaY > 0 || e.deltaX > 0;
+        const isUpOrLeft = e.deltaY < 0 || e.deltaX < 0;
+
+        if (isDownOrRight && hasNext) {
+          lastHeaderWheelTimeRef.current = now;
+          onNext?.();
+        } else if (isUpOrLeft && hasPrev) {
+          lastHeaderWheelTimeRef.current = now;
+          onPrev?.();
+        }
+      },
+      [hasNext, hasPrev, onNext, onPrev]
+    );
+
     return (
       <div
+        data-tab-title-swipe="true"
+        onWheel={handleHeaderWheel}
         className="flex flex-col shrink-0 select-none w-full px-6 pt-2.5 pb-1"
         onClick={(e) => e.stopPropagation()}
       >

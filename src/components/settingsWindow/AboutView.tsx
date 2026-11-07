@@ -30,6 +30,22 @@ const CHANGELOG: ChangelogEntry[] = [
         badge: "new",
       },
       {
+        icon: <Music size={14} />,
+        titleId: "Mini Player & Tampilan Lirik Interaktif",
+        titleEn: "Mini Player & Interactive Lyrics Display",
+        descId: "Perbaikan bug lirik tidak muncul saat lagu berganti atau jendela dibuka. Area lirik kini sepenuhnya interaktif untuk scroll mouse wheel dan lompat timestamp (seek), serta penanganan tepi monitor yang presisi.",
+        descEn: "Fixed issue where lyrics did not load on track change or initial open. Lyric area is now fully interactive for mouse wheel scrolling and timestamp seeking, with accurate monitor anchor handling.",
+        badge: "fix",
+      },
+      {
+        icon: <MousePointerClick size={14} />,
+        titleId: "Navigasi Tab Roda Mouse di Bagian Header",
+        titleEn: "Mouse Wheel Tab Switching on Header Bar",
+        descId: "Beralih antar tab secara cepat dan mulus cukup dengan memutar roda wheel mouse (scroll atas/bawah) di area baris header seluruh tab.",
+        descEn: "Quickly and smoothly switch between tabs simply by rolling your mouse wheel (scroll up/down) anywhere over the header bar across all tabs.",
+        badge: "new",
+      },
+      {
         icon: <SlidersHorizontal size={14} />,
         titleId: "Metode Hisab & Pengaturan Audio Interaktif",
         titleEn: "Calculation Methods & Interactive Audio Settings",

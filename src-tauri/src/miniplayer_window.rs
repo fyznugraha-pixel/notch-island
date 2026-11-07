@@ -119,6 +119,7 @@ fn nudge_cursor() {
 pub struct MiniplayerCursorHoverPayload {
     pub in_window: bool,
     pub in_toolbar: bool,
+    pub is_anchored_right: bool,
 }
 
 pub fn ensure_miniplayer_tracker(app: &AppHandle) {
@@ -139,6 +140,7 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
         let mut last_state = MiniplayerCursorHoverPayload {
             in_window: false,
             in_toolbar: false,
+            is_anchored_right: true,
         };
 
         loop {
@@ -150,6 +152,7 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                     last_state = MiniplayerCursorHoverPayload {
                         in_window: false,
                         in_toolbar: false,
+                        is_anchored_right: true,
                     };
                     let _ = app_handle.emit("miniplayer:cursor-hover", last_state);
                 }
@@ -257,6 +260,7 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                         let current_state = MiniplayerCursorHoverPayload {
                             in_window,
                             in_toolbar,
+                            is_anchored_right: is_right_half,
                         };
 
                         if current_state != last_state {
@@ -269,18 +273,18 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                             continue;
                         }
 
-                        if in_window && !in_toolbar {
-                            // All window except toolbar: pass clicks through to background apps
-                            if !is_click_through {
-                                let _ = win.set_ignore_cursor_events(true);
-                                is_click_through = true;
-                            }
-                        } else {
-                            // On toolbar or outside window: ensure window receives clicks
+                        if in_window {
+                            // Cursor over visible player: allow all interactions (lyrics click/scroll, controls, drag)
                             if is_click_through {
                                 let _ = win.set_ignore_cursor_events(false);
                                 is_click_through = false;
                                 nudge_cursor();
+                            }
+                        } else {
+                            // Cursor in transparent margin / outside window: pass clicks through to background apps
+                            if !is_click_through {
+                                let _ = win.set_ignore_cursor_events(true);
+                                is_click_through = true;
                             }
                         }
                     }

@@ -101,7 +101,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     const initialY = computeCenteredTranslateY(activeIndex);
     setAutoTranslateY(initialY);
     setManualTranslateY(initialY);
-  }, [lyrics?.title, lyrics?.artist]);
+  }, [media?.title, media?.artist, lyrics?.title, lyrics?.artist]);
 
   useEffect(() => {
     return () => {

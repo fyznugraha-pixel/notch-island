@@ -98,17 +98,22 @@ export function useLyricsSync(
 
   // When lyrics track changes or offset changes, re-evaluate immediately
   useEffect(() => {
+    anchorRef.current = { time: initialPosition, timestamp: performance.now() };
+    setLivePosition(initialPosition);
+    if (initialDuration > 0) {
+      setLiveDuration(initialDuration);
+    }
     const effectiveOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
     if (!lyrics?.synced || !lyrics.lines.length) {
       activeIndexRef.current = -1;
       setActiveIndex(-1);
     } else {
-      const effective = anchorRef.current.time + effectiveOffset;
+      const effective = initialPosition + effectiveOffset;
       const idx = findActiveLyricIndex(lyrics.lines, effective);
       activeIndexRef.current = idx;
       setActiveIndex(idx);
     }
-  }, [lyrics?.title, lyrics?.artist, lyrics?.synced, lyrics?.offset, offset]);
+  }, [lyrics?.title, lyrics?.artist, lyrics?.synced, lyrics?.offset, initialPosition, initialDuration, offset]);
 
   const seekLocal = useCallback(
     (newPositionSec: number) => {
