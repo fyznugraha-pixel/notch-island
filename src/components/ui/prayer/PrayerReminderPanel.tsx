@@ -28,7 +28,7 @@ import {
   PrayerPinIcon,
 } from "./PrayerIcons";
 import { PrayerMainView } from "./PrayerMainView";
-import { PrayerRemindersView } from "./PrayerRemindersView";
+import { PrayerRemindersView, CALC_METHODS } from "./PrayerRemindersView";
 import { PrayerLocationView } from "./PrayerLocationView";
 
 export interface PrayerReminderPanelProps {
@@ -483,6 +483,45 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
           </div>
 
           <span style={{ flex: 1 }} />
+
+          <div
+            style={{
+              display: "flex",
+              gap: 2,
+              padding: 2,
+              borderRadius: 10,
+              background: "rgba(118,118,128,.24)",
+            }}
+          >
+            {CALC_METHODS.map((m) => {
+              const isActive = settings.calculationMethod === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={async () => {
+                    handleUpdateSettings({ calculationMethod: m.id });
+                    await onRefreshSchedule(true);
+                  }}
+                  style={{
+                    height: 24,
+                    padding: "0 9px",
+                    border: 0,
+                    borderRadius: 8,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    background: isActive ? "#636366" : "transparent",
+                    color: isLightMode && !isActive ? "#27272a" : "#fff",
+                    boxShadow: isActive ? "0 2px 6px rgba(0,0,0,.35)" : "none",
+                  }}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
 
           <button
             type="button"

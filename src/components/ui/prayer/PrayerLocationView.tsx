@@ -156,3 +156,4 @@ export const PrayerLocationView: React.FC<PrayerLocationViewProps> = ({
     </div>
   );
 };
+

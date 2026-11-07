@@ -267,3 +267,4 @@ export function getDayTimelinePositions(
 
   return { currentPct, milestones };
 }
+

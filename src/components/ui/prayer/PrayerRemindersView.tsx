@@ -20,10 +20,10 @@ interface PrayerRemindersViewProps {
   onPlayPreview: () => void;
 }
 
-const CALC_METHODS = [
-  { id: 4, label: "Makkah" },
+export const CALC_METHODS = [
   { id: 20, label: "Kemenag RI" },
   { id: 3, label: "MWL" },
+  { id: 4, label: "Makkah" },
 ];
 
 export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
@@ -38,13 +38,7 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
 }) => {
   const isId = optLanguage === "id";
   const currentMethod =
-    CALC_METHODS.find((m) => m.id === settings.calculationMethod) || CALC_METHODS[1];
-
-  const handleCycleMethod = () => {
-    const idx = CALC_METHODS.findIndex((m) => m.id === settings.calculationMethod);
-    const next = CALC_METHODS[(idx + 1) % CALC_METHODS.length];
-    onChangeCalculationMethod(next.id);
-  };
+    CALC_METHODS.find((m) => m.id === settings.calculationMethod) || CALC_METHODS[0];
 
   const volume = settings.adzanVolume ?? 70;
   const alsoAtAdzan = settings.alsoAtAdzan ?? true;
@@ -59,9 +53,9 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
   const textPrimary = isLightMode ? "#18181b" : "#f5f5f7";
 
   return (
-    <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
+    <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
       {/* Left Column: 5-Prayer Toggle Card */}
-      <div style={{ width: 300, flexShrink: 0 }}>
+      <div style={{ width: 290, flexShrink: 0 }}>
         <div
           style={{
             borderRadius: 20,
@@ -83,7 +77,7 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                   display: "flex",
                   alignItems: "center",
                   gap: 10,
-                  height: 33,
+                  height: 36,
                   boxShadow: !isLast ? rowBorder : "none",
                 }}
               >
@@ -158,29 +152,29 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
         </div>
       </div>
 
-      {/* Right Column: Pre-reminder + Sound/Method + Volume */}
+      {/* Right Column: Pre-reminder + Sound/Volume + Calculation Method */}
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Card 1: Remind me before + Also at adzan time */}
         <div
           style={{
-            borderRadius: 20,
+            borderRadius: 18,
             background: cardBg,
             boxShadow: cardShadow,
-            padding: "0 14px",
+            padding: "0 13px",
           }}
         >
           <div
             style={{
-              padding: "8px 0 9px",
+              padding: "6px 0 7px",
               boxShadow: rowBorder,
             }}
           >
             <div
               style={{
-                fontSize: 13.5,
+                fontSize: 13,
                 fontWeight: 600,
                 color: textPrimary,
-                marginBottom: 6,
+                marginBottom: 5,
               }}
             >
               {isId ? "Ingatkan sebelum" : "Remind me before"}
@@ -190,7 +184,7 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                 display: "flex",
                 gap: 2,
                 padding: 2,
-                borderRadius: 10,
+                borderRadius: 9,
                 background: "rgba(118,118,128,.24)",
               }}
             >
@@ -221,10 +215,10 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                     }}
                     style={{
                       flex: 1,
-                      height: 28,
+                      height: 25,
                       border: 0,
-                      borderRadius: 8,
-                      fontSize: 12,
+                      borderRadius: 7,
+                      fontSize: 11.5,
                       fontWeight: 600,
                       cursor: "pointer",
                       fontFamily: "inherit",
@@ -246,12 +240,12 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
               display: "flex",
               alignItems: "center",
               gap: 10,
-              height: 33,
+              height: 29,
             }}
           >
             <span
               style={{
-                fontSize: 13.5,
+                fontSize: 13,
                 fontWeight: 600,
                 color: textPrimary,
               }}
@@ -267,10 +261,10 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
               onClick={() => onUpdateSettings({ alsoAtAdzan: !alsoAtAdzan })}
               style={{
                 position: "relative",
-                width: 40,
-                height: 24,
+                width: 38,
+                height: 22,
                 border: 0,
-                borderRadius: 12,
+                borderRadius: 11,
                 background: alsoAtAdzan ? PRAYER_ACCENT : "#39393d",
                 padding: 0,
                 cursor: "pointer",
@@ -283,9 +277,9 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                   position: "absolute",
                   top: 2,
                   left: alsoAtAdzan ? 18 : 2,
-                  width: 20,
-                  height: 20,
-                  borderRadius: 10,
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
                   background: "#fff",
                   boxShadow: "0 2px 4px rgba(0,0,0,.35)",
                   transition: "left 150ms ease",
@@ -295,31 +289,32 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
           </div>
         </div>
 
-        <div style={{ height: 8 }} />
+        <div style={{ height: 6 }} />
 
-        {/* Card 2: Adzan (Calculation Method & Preview) + Volume Slider */}
+        {/* Card 2: Adzan Preview + Volume Slider + Calculation Method */}
         <div
           style={{
-            borderRadius: 20,
+            borderRadius: 18,
             background: cardBg,
             boxShadow: cardShadow,
-            padding: "0 14px",
+            padding: "0 13px",
           }}
         >
+          {/* Row 1: Adzan + Play Preview */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 10,
-              height: 33,
+              gap: 9,
+              height: 30,
               boxShadow: rowBorder,
             }}
           >
             <span
               style={{
-                width: 26,
-                height: 26,
-                borderRadius: 8,
+                width: 22,
+                height: 22,
+                borderRadius: 7,
                 background: "linear-gradient(145deg, #64D2FF, #0A84FF)",
                 display: "inline-flex",
                 alignItems: "center",
@@ -328,11 +323,11 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                 flexShrink: 0,
               }}
             >
-              <PrayerSpeakerIcon size={15} />
+              <PrayerSpeakerIcon size={13} />
             </span>
             <span
               style={{
-                fontSize: 13.5,
+                fontSize: 13,
                 fontWeight: 600,
                 color: textPrimary,
               }}
@@ -340,34 +335,18 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
               Adzan
             </span>
             <span style={{ flex: 1 }} />
-            <button
-              type="button"
-              onClick={handleCycleMethod}
-              title={
-                isId
-                  ? "Klik untuk ganti metode hisab (Kemenag RI / Makkah / MWL)"
-                  : "Click to cycle calculation method (Kemenag RI / Makkah / MWL)"
-              }
-              style={{
-                fontSize: 13,
-                color: "#8e8e93",
-                background: "transparent",
-                border: 0,
-                padding: "2px 4px",
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
+            <span style={{ fontSize: 12, color: "#8e8e93" }}>
               {currentMethod.label}
-            </button>
+            </span>
             <button
               type="button"
               aria-label="Play preview"
               onClick={onPlayPreview}
+              title={isId ? "Tes tampilan & suara pengingat adzan" : "Preview adzan alert"}
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: 14,
+                width: 24,
+                height: 24,
+                borderRadius: 12,
                 border: 0,
                 background: "rgba(48,209,88,.18)",
                 color: PRAYER_ACCENT,
@@ -380,8 +359,8 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
               }}
             >
               <svg
-                width="12"
-                height="12"
+                width="11"
+                height="11"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -395,17 +374,19 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
             </button>
           </div>
 
+          {/* Row 2: Volume Slider */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
               gap: 10,
-              height: 33,
+              height: 29,
+              boxShadow: rowBorder,
             }}
           >
             <span
               style={{
-                fontSize: 13.5,
+                fontSize: 13,
                 fontWeight: 600,
                 color: textPrimary,
               }}
@@ -438,11 +419,11 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                 style={{
                   position: "absolute",
                   left: `${volume}%`,
-                  top: -8,
-                  marginLeft: -10,
-                  width: 21,
-                  height: 21,
-                  borderRadius: 11,
+                  top: -7,
+                  marginLeft: -9,
+                  width: 19,
+                  height: 19,
+                  borderRadius: 10,
                   background: "#fff",
                   boxShadow: "0 2px 6px rgba(0,0,0,.45)",
                   pointerEvents: "none",
@@ -463,14 +444,78 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                 aria-label="Volume"
                 style={{
                   position: "absolute",
-                  inset: "-10px 0",
+                  inset: "-8px 0",
                   width: "100%",
-                  height: 25,
+                  height: 22,
                   opacity: 0,
                   cursor: "pointer",
                   margin: 0,
                 }}
               />
+            </div>
+          </div>
+
+          {/* Row 3: Calculation Method Segmented Control */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              height: 31,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: textPrimary,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {isId ? "Metode Hisab" : "Method"}
+            </span>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 2,
+                padding: 2,
+                borderRadius: 8,
+                background: "rgba(118,118,128,.24)",
+              }}
+            >
+              {CALC_METHODS.map((m) => {
+                const isActive = settings.calculationMethod === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => onChangeCalculationMethod(m.id)}
+                    style={{
+                      height: 21,
+                      padding: "0 8px",
+                      border: 0,
+                      borderRadius: 6,
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      background: isActive ? PRAYER_ACCENT : "transparent",
+                      color: isActive
+                        ? "#04210F"
+                        : isLightMode
+                        ? "#27272a"
+                        : "#e4e4e7",
+                      boxShadow: isActive ? "0 1px 4px rgba(0,0,0,.25)" : "none",
+                      transition: "all 140ms ease",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
