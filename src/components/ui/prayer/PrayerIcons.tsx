@@ -8,11 +8,148 @@ import {
 
 export const PRAYER_ACCENT = "#30D158";
 
+export const PRAYER_ICON_COLORS: Record<PrayerId, string> = {
+  Fajr: "#FB923C", // Sunrise warm peach-orange
+  Dhuhr: "#FACC15", // Midday bright sun yellow
+  Asr: "#F59E0B", // Afternoon golden amber
+  Maghrib: "#F97316", // Sunset deep coral-orange
+  Isha: "#818CF8", // Night crescent indigo-violet
+};
+
+export interface CelestialIndicatorState {
+  phase: "dawn" | "morning" | "noon" | "afternoon" | "sunset" | "night";
+  isNight: boolean;
+  color: string;
+  bgColor: string;
+  glowColor: string;
+}
+
+export function getRealtimeCelestialState(
+  schedule: PrayerScheduleData,
+  now: Date
+): CelestialIndicatorState {
+  const currentMins = now.getHours() * 60 + now.getMinutes();
+  const fajrMins = timeStringToMinutes(schedule.timings.Fajr);
+  const sunriseMins = timeStringToMinutes(schedule.timings.Sunrise);
+  const dhuhrMins = timeStringToMinutes(schedule.timings.Dhuhr);
+  const asrMins = timeStringToMinutes(schedule.timings.Asr);
+  const maghribMins = timeStringToMinutes(schedule.timings.Maghrib);
+  const ishaMins = timeStringToMinutes(schedule.timings.Isha);
+
+  // Night: before Fajr or at/after Isha
+  if (currentMins < fajrMins || currentMins >= ishaMins) {
+    return {
+      phase: "night",
+      isNight: true,
+      color: "#A5B4FC",
+      bgColor: "#1E1B4B",
+      glowColor: "rgba(129, 140, 248, 0.75)",
+    };
+  }
+
+  // Dawn / Subuh (Fajr -> Sunrise + 45m)
+  if (currentMins < sunriseMins + 45) {
+    return {
+      phase: "dawn",
+      isNight: false,
+      color: "#FB923C",
+      bgColor: "#431407",
+      glowColor: "rgba(251, 146, 60, 0.8)",
+    };
+  }
+
+  // Morning (Sunrise+45m -> Dhuhr)
+  if (currentMins < dhuhrMins) {
+    return {
+      phase: "morning",
+      isNight: false,
+      color: "#FBBF24",
+      bgColor: "#422006",
+      glowColor: "rgba(251, 191, 36, 0.8)",
+    };
+  }
+
+  // Midday / Siang (Dhuhr -> Asr)
+  if (currentMins < asrMins) {
+    return {
+      phase: "noon",
+      isNight: false,
+      color: "#FDE047",
+      bgColor: "#422006",
+      glowColor: "rgba(250, 204, 21, 0.85)",
+    };
+  }
+
+  // Afternoon / Sore (Asr -> Maghrib)
+  if (currentMins < maghribMins) {
+    return {
+      phase: "afternoon",
+      isNight: false,
+      color: "#F59E0B",
+      bgColor: "#451A03",
+      glowColor: "rgba(245, 158, 11, 0.85)",
+    };
+  }
+
+  // Sunset / Maghrib -> Isha
+  return {
+    phase: "sunset",
+    isNight: false,
+    color: "#F97316",
+    bgColor: "#431407",
+    glowColor: "rgba(249, 115, 22, 0.85)",
+  };
+}
+
+export const TimelineCelestialIcon: React.FC<{
+  state: CelestialIndicatorState;
+  size?: number;
+}> = ({ state, size = 12 }) => {
+  if (state.isNight) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill={state.color}
+        stroke={state.color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        style={{ display: "block" }}
+      >
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={state.color}
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={{ display: "block" }}
+    >
+      <circle cx="12" cy="12" r="4.5" fill={state.color} />
+      <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.55 1.55M17.52 17.52l1.55 1.55M2 12h2.2M19.8 12H22M6.48 17.52l-1.55 1.55M19.07 4.93l-1.55 1.55" />
+    </svg>
+  );
+};
+
 export const PrayerIcon: React.FC<{
   prayerId: PrayerId;
   size?: number;
   strokeWidth?: number;
-}> = ({ prayerId, size = 19, strokeWidth = 1.8 }) => {
+  colored?: boolean;
+}> = ({ prayerId, size = 19, strokeWidth = 1.8, colored = true }) => {
+  const strokeColor = colored ? PRAYER_ICON_COLORS[prayerId] : "currentColor";
   switch (prayerId) {
     case "Fajr":
       return (
@@ -21,7 +158,7 @@ export const PrayerIcon: React.FC<{
           height={size}
           viewBox="0 0 24 24"
           fill="none"
-          stroke="currentColor"
+          stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -38,7 +175,7 @@ export const PrayerIcon: React.FC<{
           height={size}
           viewBox="0 0 24 24"
           fill="none"
-          stroke="currentColor"
+          stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -56,7 +193,7 @@ export const PrayerIcon: React.FC<{
           height={size}
           viewBox="0 0 24 24"
           fill="none"
-          stroke="currentColor"
+          stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -73,7 +210,7 @@ export const PrayerIcon: React.FC<{
           height={size}
           viewBox="0 0 24 24"
           fill="none"
-          stroke="currentColor"
+          stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -90,7 +227,7 @@ export const PrayerIcon: React.FC<{
           height={size}
           viewBox="0 0 24 24"
           fill="none"
-          stroke="currentColor"
+          stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -219,7 +356,10 @@ export function getNextPrayerProgressFraction(
     const pMins = timeStringToMinutes(schedule.timings[PRAYER_ORDER[i]]);
     if (currentMins < pMins) {
       nextMins = pMins;
-      prevMins = i === 0 ? pMins - (24 * 60 - ishaMins + fajrMins) : timeStringToMinutes(schedule.timings[PRAYER_ORDER[i - 1]]);
+      prevMins =
+        i === 0
+          ? pMins - (24 * 60 - ishaMins + fajrMins)
+          : timeStringToMinutes(schedule.timings[PRAYER_ORDER[i - 1]]);
       foundNext = true;
       break;
     }
@@ -230,7 +370,8 @@ export function getNextPrayerProgressFraction(
     nextMins = 24 * 60 + fajrMins;
   }
 
-  const adjCurrent = !foundNext && currentMins < fajrMins ? currentMins + 24 * 60 : currentMins;
+  const adjCurrent =
+    !foundNext && currentMins < fajrMins ? currentMins + 24 * 60 : currentMins;
   const span = Math.max(1, nextMins - prevMins);
   const elapsed = Math.max(0, Math.min(span, adjCurrent - prevMins));
   return Math.max(0.06, Math.min(0.98, elapsed / span));
@@ -267,4 +408,3 @@ export function getDayTimelinePositions(
 
   return { currentPct, milestones };
 }
-

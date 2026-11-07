@@ -15,6 +15,8 @@ import {
   PrayerBellIcon,
   PrayerBellOffIcon,
   PrayerCheckIcon,
+  TimelineCelestialIcon,
+  getRealtimeCelestialState,
   getNextPrayerProgressFraction,
   getDayTimelinePositions,
 } from "./PrayerIcons";
@@ -51,6 +53,7 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
   const totalCirc = Number(circumference.toFixed(1));
 
   const { currentPct, milestones } = getDayTimelinePositions(schedule, now);
+  const celestialState = getRealtimeCelestialState(schedule, now);
   const currentMins = now.getHours() * 60 + now.getMinutes();
 
   const notifSummaryText = settings.reminderEnabled
@@ -285,10 +288,10 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
+                  gap: 9,
                   height: 28,
-                  padding: "0 10px 0 7px",
-                  borderRadius: 13,
+                  padding: "0 2px 0 8px",
+                  borderRadius: 14,
                   background: isNext ? "rgba(48,209,88,.13)" : "transparent",
                   boxShadow: isNext
                     ? "inset 0 0 0 1px rgba(48,209,88,.4)"
@@ -308,10 +311,9 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
                     alignItems: "center",
                     justifyContent: "center",
                     flexShrink: 0,
-                    color: isNext ? PRAYER_ACCENT : isLightMode ? "#52525b" : "#a1a1aa",
                   }}
                 >
-                  <PrayerIcon prayerId={prayerId} size={19} />
+                  <PrayerIcon prayerId={prayerId} size={19} colored={true} />
                 </span>
 
                 <span
@@ -535,23 +537,30 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
           );
         })}
 
-        {/* Current Time Glowing Indicator Dot */}
+        {/* Real-time Celestial Sun / Moon Indicator on Timeline */}
         <span
           style={{
             position: "absolute",
             left: `${currentPct}%`,
-            top: -5,
-            marginLeft: -8,
-            width: 16,
-            height: 16,
-            borderRadius: 8,
-            background: "#fff",
-            boxShadow:
-              "0 0 0 4px rgba(255,255,255,.18), 0 0 14px rgba(255,255,255,.6)",
+            top: -8,
+            marginLeft: -11,
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            background: celestialState.bgColor,
+            border: `1.5px solid ${celestialState.color}`,
+            boxShadow: `0 0 0 3px ${
+              isLightMode ? "rgba(255,255,255,.8)" : "rgba(0,0,0,.75)"
+            }, 0 0 14px ${celestialState.glowColor}`,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 2,
           }}
-        />
+        >
+          <TimelineCelestialIcon state={celestialState} size={13} />
+        </span>
       </div>
     </>
   );
 };
-
