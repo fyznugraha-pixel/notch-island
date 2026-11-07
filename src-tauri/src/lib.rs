@@ -3057,15 +3057,7 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
         .build()
         {
-            Ok(win) => {
-                let sw = win.clone();
-                win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = sw.hide();
-                    }
-                });
-            }
+            Ok(_win) => {}
             Err(e) => {
                 eprintln!("Failed to create settings window: {:?}", e);
             }

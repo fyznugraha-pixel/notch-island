@@ -981,7 +981,7 @@ export const SettingsWindowApp: React.FC = () => {
 
   const handleCloseWindow = () => {
     const win = getCurrentWindow();
-    win.close().catch(() => win.destroy().catch(() => {}));
+    win.destroy().catch(() => win.close().catch(() => {}));
   };
 
   return (
