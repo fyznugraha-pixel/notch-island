@@ -4564,12 +4564,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     water_reminder: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     prayer_reminder: { width: tabWidth, height: unifiedTabHeight, x: 0, y: currentY, opacity: 1, borderRadius: radius("32px") },
     prayer_toast: {
-      width: 448,
-      height: 68,
+      width: tabWidth,
+      height: Math.round((isBot ? 260 : 242) * tabHeightMultiplier),
       x: 0,
       y: currentY,
       opacity: 1,
-      borderRadius: radius("20px", "24px"),
+      borderRadius: radius("32px"),
     },
     water_toast: {
       width: waterToast?.type === "time_to_drink" ? 440 : waterToast?.type === "streak_threatened" ? 430 : 380,
@@ -4652,7 +4652,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       dpr: window.devicePixelRatio || 1.0,
     }).catch(console.error);
     invoke("enforce_always_on_top").catch(console.error);
-  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, idleSideWidth, idleSideHeight, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast, isQuickTodoSaved, isQuickTodoHasDue, isQuickNoteSaved]);
+  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, idleSideWidth, idleSideHeight, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast, prayerToast, isQuickTodoSaved, isQuickTodoHasDue, isQuickNoteSaved]);
 
   useEffect(() => {
     const handleDprOrResize = () => {
@@ -5245,17 +5245,20 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             {variant === "prayer_toast" && prayerToast && (
               <PrayerNotchToast
                 toast={prayerToast}
+                schedule={prayerSchedule}
                 isLightMode={isLightMode}
                 onMarkCompleted={() => {
-                  const res = togglePrayerCompleted(prayerToast.prayerId);
-                  if (res.isNowCompleted) {
-                    setPrayerToast({
-                      ...prayerToast,
-                      type: "completed",
-                    });
-                  } else {
-                    setPrayerToast(null);
-                  }
+                  togglePrayerCompleted(prayerToast.prayerId);
+                  playTaskCompleteSound();
+                  setPrayerToast(null);
+                }}
+                onSnooze={(mins) => {
+                  const snapshot = prayerToast;
+                  setPrayerToast(null);
+                  setTimeout(() => {
+                    setPrayerToast(snapshot);
+                    playReminderSound();
+                  }, mins * 60 * 1000);
                 }}
                 onOpenPrayerTab={() => {
                   setPrayerToast(null);
@@ -5543,7 +5546,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                     onToggleNotifications={handleToggleNotifications}
                     isNotificationsActive={currentTab === "notif_center"}
                     unreadNotificationsCount={unreadNotifCount}
-                    hideTitleBar={currentTab === "mini_note" && isNoteEditing}
+                    hideTitleBar={(currentTab === "mini_note" && isNoteEditing) || currentTab === "prayer_reminder"}
                     totalPages={!tabsPrefs.showPageDots || isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) || (currentTab === "mini_note" && isNoteEditing) ? 0 : availableTabs.length}
                     currentPageIndex={isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) ? -1 : currentTabIndex}
                     onSelectPage={handleSelectTab}
@@ -5816,6 +5819,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                                 }}
                                 optLanguage={optLanguage}
                                 isLightMode={isLightMode}
+                                hasPrev={currentTabIndex > 0}
+                                hasNext={currentTabIndex < availableTabs.length - 1}
+                                onPrev={handlePrevTab}
+                                onNext={handleNextTab}
+                                onToggleSettings={handleToggleSettings}
+                                onToggleNotifications={handleToggleNotifications}
+                                unreadNotificationsCount={unreadNotifCount}
                               />
                             </React.Suspense>
                           </motion.div>

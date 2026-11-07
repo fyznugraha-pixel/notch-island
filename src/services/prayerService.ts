@@ -84,6 +84,8 @@ export interface PrayerSettings {
   reminderEnabled: boolean;
   preReminderEnabled: boolean;
   preReminderMinutes: number; // 5 | 10 | 15
+  alsoAtAdzan: boolean;
+  adzanVolume: number; // 0..100
   enabledPrayers: Record<PrayerId, boolean>;
   calculationMethod: number; // 20 = Kemenag RI, 3 = MWL, 4 = Umm al-Qura, 11 = MUIS
   soundEnabled: boolean;
@@ -108,7 +110,9 @@ const CONFIG_FLAG_KEY = "gili_prayer_reminder_configured_v1";
 export const DEFAULT_PRAYER_SETTINGS: PrayerSettings = {
   reminderEnabled: false,
   preReminderEnabled: false,
-  preReminderMinutes: 10,
+  preReminderMinutes: 5,
+  alsoAtAdzan: true,
+  adzanVolume: 70,
   enabledPrayers: {
     Fajr: true,
     Dhuhr: true,

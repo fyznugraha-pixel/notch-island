@@ -132,7 +132,9 @@ export function usePrayerReminder({
 
         // 2. Exact Prayer Time (Adzan time).
         // Tight 1-minute window so waking up or booting after adzan time never fires late.
-        if (diff <= 0 && diff >= -1) {
+        const shouldNotifyAtAdzan =
+          settings.alsoAtAdzan !== false || !settings.preReminderEnabled;
+        if (shouldNotifyAtAdzan && diff <= 0 && diff >= -1) {
           const exactKey = `${todayKey}_${prayerId}_exact`;
           if (!triggeredSetRef.current.has(exactKey)) {
             triggeredSetRef.current.add(exactKey);
