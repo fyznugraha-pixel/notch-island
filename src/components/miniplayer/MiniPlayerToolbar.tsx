@@ -54,6 +54,15 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
     }
   });
 
+  React.useEffect(() => {
+    const handleSync = (e: Event) => {
+      const next = (e as CustomEvent<LyricsProviderId>).detail;
+      if (next) setCurrentProvider(next);
+    };
+    window.addEventListener("notch_lyrics_provider_changed", handleSync);
+    return () => window.removeEventListener("notch_lyrics_provider_changed", handleSync);
+  }, []);
+
   const handleMediaControl = async (e: React.MouseEvent, action: "prev" | "toggle" | "next") => {
     e.stopPropagation();
     try {

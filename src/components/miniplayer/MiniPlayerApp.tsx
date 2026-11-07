@@ -149,17 +149,13 @@ export const MiniPlayerApp: React.FC = () => {
 
   // Initialize media & lyrics store as listener
   useEffect(() => {
-    let unlistenLyrics: (() => void) | null = null;
-    let unlistenMedia: (() => void) | null = null;
-
-    initMediaLyricsStore(false).then(() => {
-      unlistenMedia = subscribeMedia((m) => setMedia(m));
-      unlistenLyrics = subscribeLyrics((l) => setLyrics(l));
-    });
+    const unlistenMedia = subscribeMedia((m) => setMedia(m));
+    const unlistenLyrics = subscribeLyrics((l) => setLyrics(l));
+    initMediaLyricsStore(false);
 
     return () => {
-      if (unlistenMedia) unlistenMedia();
-      if (unlistenLyrics) unlistenLyrics();
+      unlistenMedia();
+      unlistenLyrics();
     };
   }, []);
 

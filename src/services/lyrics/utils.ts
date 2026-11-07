@@ -47,7 +47,21 @@ export function pickMatchingCandidate<T>(
     const d = durationOf(c);
     return !d || Math.abs(d - wantedDuration) <= DURATION_TOLERANCE_SEC;
   });
-  return closeInDuration ?? null;
+  if (closeInDuration) return closeInDuration;
+
+  let best = titleMatches[0];
+  let bestDiff = Infinity;
+  for (const item of titleMatches) {
+    const d = durationOf(item);
+    if (d && d > 0) {
+      const diff = Math.abs(d - wantedDuration);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = item;
+      }
+    }
+  }
+  return best;
 }
 
 export function cleanArtist(artist: string): string {

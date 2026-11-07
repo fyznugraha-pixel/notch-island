@@ -521,42 +521,44 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   // Unified Single Source of Truth for Lyrics & Media Store
   useEffect(() => {
-    let isCleanedUp = false;
-    let unsubscribeLyrics: (() => void) | null = null;
-
-    initMediaLyricsStore(!isSecondaryWindow).then(() => {
-      if (isCleanedUp) return;
-      unsubscribeLyrics = subscribeLyrics((payload) => {
-        if (payload.state === "loading") {
-          setIsLyricsLoading(true);
-        } else if (payload.state === "synced" || payload.state === "plain" || payload.state === "instrumental") {
-          setLyricsData({
-            synced: payload.synced,
-            lines: payload.lines,
-            plainLyrics: payload.plain_lyrics || undefined,
-            instrumental: payload.state === "instrumental",
-            provider: payload.provider as LyricsProviderId,
-            providerName: payload.provider_name,
-          });
-          setIsLyricsLoading(false);
-        } else if (payload.state === "not_found") {
-          setLyricsData({
-            synced: false,
-            lines: [],
-            provider: payload.provider as LyricsProviderId,
-            providerName: payload.provider_name,
-          });
-          setIsLyricsLoading(false);
-        } else if (payload.state === "empty") {
-          setLyricsData(null);
-          setIsLyricsLoading(false);
-        }
-      });
+    const unsubscribeLyrics = subscribeLyrics((payload) => {
+      if (payload.state === "loading") {
+        setIsLyricsLoading(true);
+      } else if (payload.state === "synced" || payload.state === "plain" || payload.state === "instrumental") {
+        setLyricsData({
+          synced: payload.synced,
+          lines: payload.lines,
+          plainLyrics: payload.plain_lyrics || undefined,
+          instrumental: payload.state === "instrumental",
+          provider: payload.provider as LyricsProviderId,
+          providerName: payload.provider_name,
+        });
+        setIsLyricsLoading(false);
+      } else if (payload.state === "not_found") {
+        setLyricsData({
+          synced: false,
+          lines: [],
+          provider: payload.provider as LyricsProviderId,
+          providerName: payload.provider_name,
+        });
+        setIsLyricsLoading(false);
+      } else if (payload.state === "empty") {
+        setLyricsData(null);
+        setIsLyricsLoading(false);
+      }
     });
 
+    const handleProviderSync = (e: Event) => {
+      const next = (e as CustomEvent<LyricsProviderId>).detail;
+      if (next) setLyricsProvider(next);
+    };
+    window.addEventListener("notch_lyrics_provider_changed", handleProviderSync);
+
+    initMediaLyricsStore(!isSecondaryWindow);
+
     return () => {
-      isCleanedUp = true;
-      if (unsubscribeLyrics) unsubscribeLyrics();
+      unsubscribeLyrics();
+      window.removeEventListener("notch_lyrics_provider_changed", handleProviderSync);
     };
   }, [isSecondaryWindow]);
 

@@ -213,6 +213,18 @@ fn enforce_cache_limits(cache_dir: &PathBuf) {
     }
 }
 
+pub fn remove_disk_cached_lyrics(app: &AppHandle, artist: &str, title: &str) {
+    let key = normalize_track_key(artist, title);
+    if key.is_empty() {
+        return;
+    }
+    let filename = track_key_to_filename(&key);
+    let path = get_lyrics_cache_dir(app).join(filename);
+    if path.exists() {
+        let _ = fs::remove_file(&path);
+    }
+}
+
 pub fn get_disk_cached_lyrics(app: &AppHandle, artist: &str, title: &str) -> Option<LyricsPayload> {
     let key = normalize_track_key(artist, title);
     if key.is_empty() {
@@ -226,6 +238,18 @@ pub fn get_disk_cached_lyrics(app: &AppHandle, artist: &str, title: &str) -> Opt
 
     let content = fs::read_to_string(&path).ok()?;
     let entry: CachedLyricsEntry = serde_json::from_str(&content).ok()?;
+
+    let is_valid = match entry.state.as_str() {
+        "synced" | "plain" => !entry.lines.is_empty() || entry.plain_lyrics.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false),
+        "instrumental" => true,
+        _ => false,
+    };
+
+    if !is_valid {
+        let _ = fs::remove_file(&path);
+        return None;
+    }
+
     let offset = get_song_offset(app, artist, title);
 
     Some(LyricsPayload {
@@ -242,6 +266,15 @@ pub fn get_disk_cached_lyrics(app: &AppHandle, artist: &str, title: &str) -> Opt
 }
 
 pub fn save_disk_cached_lyrics(app: &AppHandle, payload: &LyricsPayload) -> Result<(), String> {
+    let is_cacheable = match payload.state.as_str() {
+        "synced" | "plain" => !payload.lines.is_empty() || payload.plain_lyrics.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false),
+        "instrumental" => true,
+        _ => false,
+    };
+    if !is_cacheable {
+        return Ok(());
+    }
+
     let key = normalize_track_key(&payload.artist, &payload.title);
     if key.is_empty() {
         return Ok(());
@@ -443,8 +476,15 @@ pub fn store_lyrics_result(app: AppHandle, mut payload: LyricsPayload) -> Result
 }
 
 #[tauri::command]
-pub fn broadcast_lyrics_loading(app: AppHandle, artist: String, title: String) -> Result<(), String> {
+pub fn broadcast_lyrics_loading(
+    app: AppHandle,
+    artist: String,
+    title: String,
+    provider: Option<String>,
+) -> Result<(), String> {
+    remove_disk_cached_lyrics(&app, &artist, &title);
     let offset = get_song_offset(&app, &artist, &title);
+    let req_provider = provider.unwrap_or_default();
     let payload = LyricsPayload {
         artist,
         title,
@@ -452,8 +492,8 @@ pub fn broadcast_lyrics_loading(app: AppHandle, artist: String, title: String) -
         synced: false,
         lines: Vec::new(),
         plain_lyrics: None,
-        provider: String::new(),
-        provider_name: String::new(),
+        provider: req_provider.clone(),
+        provider_name: req_provider,
         offset,
     };
     {

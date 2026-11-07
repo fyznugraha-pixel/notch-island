@@ -75,6 +75,8 @@ let currentLyrics: LyricsPayload = {
 let isStoreInitialized = false;
 let isCoordinatorActive = false;
 let coordinatorFetchCancel: (() => void) | null = null;
+let lastFetchedDuration = 0;
+let lastFetchedTrackKey = "";
 
 export function getCurrentMedia(): MediaPayload {
   return currentMedia;
@@ -132,19 +134,34 @@ export async function getSongLyricsOffset(artist: string, title: string): Promis
 
 export async function requestLyricsRefresh(artist: string, title: string, provider?: LyricsProviderId): Promise<void> {
   clearLyricsCacheForTrack(artist, title);
-  if (provider && typeof localStorage !== "undefined") {
+  const chosenProvider =
+    provider ||
+    (typeof localStorage !== "undefined"
+      ? ((localStorage.getItem("notch_lyrics_provider") as LyricsProviderId) || "auto")
+      : "auto");
+
+  if (typeof localStorage !== "undefined") {
     try {
-      localStorage.setItem("notch_lyrics_provider", provider);
+      localStorage.setItem("notch_lyrics_provider", chosenProvider);
     } catch {}
   }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("notch_lyrics_provider_changed", { detail: chosenProvider }));
+  }
   try {
-    await invoke("broadcast_lyrics_loading", { artist, title });
+    await invoke("broadcast_lyrics_loading", { artist, title, provider: chosenProvider });
   } catch (e) {
     console.error("Failed to broadcast lyrics loading:", e);
   }
 }
 
-async function triggerCoordinatorFetch(wantedArtist: string, wantedTitle: string, duration?: number): Promise<void> {
+async function triggerCoordinatorFetch(
+  wantedArtist: string,
+  wantedTitle: string,
+  duration?: number,
+  bypassCache: boolean = false,
+  explicitProvider?: LyricsProviderId
+): Promise<void> {
   if (!wantedTitle) return;
 
   if (coordinatorFetchCancel) {
@@ -157,17 +174,27 @@ async function triggerCoordinatorFetch(wantedArtist: string, wantedTitle: string
     isCancelled = true;
   };
 
+  const resolvedDuration = duration || currentMedia.duration || 0;
+  lastFetchedDuration = resolvedDuration;
+  lastFetchedTrackKey = `${wantedArtist.trim().toLowerCase()} - ${wantedTitle.trim().toLowerCase()}`;
+
   try {
-    const preferredProvider =
+    const preferredProvider: LyricsProviderId =
+      explicitProvider ||
       (typeof localStorage !== "undefined" &&
         (localStorage.getItem("notch_lyrics_provider") as LyricsProviderId)) ||
       "auto";
 
+    if (bypassCache) {
+      clearLyricsCacheForTrack(wantedArtist, wantedTitle);
+    }
+
     const res = await fetchLyrics(
       wantedArtist,
       wantedTitle,
-      duration || currentMedia.duration || 0,
-      preferredProvider
+      resolvedDuration,
+      preferredProvider,
+      bypassCache
     );
 
     if (isCancelled) return;
@@ -238,9 +265,12 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
       if (
         currentMedia &&
         currentMedia.title &&
-        (!currentLyrics.title || currentLyrics.state === "loading" || currentLyrics.state === "empty")
+        (!currentLyrics.title ||
+          currentLyrics.state === "loading" ||
+          currentLyrics.state === "not_found" ||
+          currentLyrics.state === "empty")
       ) {
-        triggerCoordinatorFetch(currentMedia.artist, currentMedia.title, currentMedia.duration);
+        triggerCoordinatorFetch(currentMedia.artist, currentMedia.title, currentMedia.duration, true);
       }
     }
     return () => {};
@@ -260,11 +290,16 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
       currentLyrics = initialLyrics;
       lyricsSubscribers.forEach((s) => s(currentLyrics));
 
-      if (isCoordinatorActive && initialLyrics.state === "loading") {
-        triggerCoordinatorFetch(initialLyrics.artist, initialLyrics.title, currentMedia.duration);
+      if (
+        isCoordinatorActive &&
+        (initialLyrics.state === "loading" ||
+          initialLyrics.state === "not_found" ||
+          initialLyrics.state === "empty")
+      ) {
+        triggerCoordinatorFetch(initialLyrics.artist, initialLyrics.title, currentMedia.duration, true);
       }
     } else if (isCoordinatorActive && initialMedia && initialMedia.title) {
-      triggerCoordinatorFetch(initialMedia.artist, initialMedia.title, initialMedia.duration);
+      triggerCoordinatorFetch(initialMedia.artist, initialMedia.title, initialMedia.duration, true);
     }
   } catch (e) {
     console.error("Failed to hydrate media/lyrics store:", e);
@@ -281,7 +316,21 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
       event.payload.title &&
       (event.payload.title !== prevMedia.title || event.payload.artist !== prevMedia.artist)
     ) {
-      triggerCoordinatorFetch(event.payload.artist, event.payload.title, event.payload.duration);
+      const wantedArtist = event.payload.artist;
+      const wantedTitle = event.payload.title;
+      const wantedDuration = event.payload.duration;
+      // Fallback in case lyrics:update ("loading") did not already start a fetch for this track
+      window.setTimeout(() => {
+        const expectedKey = `${wantedArtist.trim().toLowerCase()} - ${wantedTitle.trim().toLowerCase()}`;
+        const currentLyricsKey = `${(currentLyrics.artist || "").trim().toLowerCase()} - ${(currentLyrics.title || "").trim().toLowerCase()}`;
+        if (
+          isCoordinatorActive &&
+          lastFetchedTrackKey !== expectedKey &&
+          (currentLyricsKey !== expectedKey || currentLyrics.state === "loading" || currentLyrics.state === "empty")
+        ) {
+          triggerCoordinatorFetch(wantedArtist, wantedTitle, currentMedia.duration || wantedDuration);
+        }
+      }, 120);
     }
   });
 
@@ -291,6 +340,17 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
     currentMedia.position = event.payload.position;
     currentMedia.duration = event.payload.duration;
     progressSubscribers.forEach((s) => s(event.payload));
+
+    // If initial track change had stale/zero duration and failed to find lyrics, retry once real duration arrives
+    if (
+      isCoordinatorActive &&
+      currentMedia.title &&
+      event.payload.duration > 0 &&
+      currentLyrics.state === "not_found" &&
+      Math.abs(event.payload.duration - lastFetchedDuration) > 3
+    ) {
+      triggerCoordinatorFetch(currentMedia.artist, currentMedia.title, event.payload.duration, true);
+    }
   });
 
   // Listen to offset changes broadcast
@@ -307,7 +367,24 @@ export async function initMediaLyricsStore(isCoordinator: boolean = false): Prom
 
     // If this window is the primary coordinator and lyrics are loading, perform the fetch
     if (isCoordinatorActive && payload.state === "loading" && payload.title) {
-      triggerCoordinatorFetch(payload.artist, payload.title, currentMedia.duration);
+      const explicitProvider = payload.provider
+        ? (payload.provider as LyricsProviderId)
+        : undefined;
+      if (explicitProvider && typeof localStorage !== "undefined") {
+        try {
+          localStorage.setItem("notch_lyrics_provider", explicitProvider);
+        } catch {}
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("notch_lyrics_provider_changed", { detail: explicitProvider }));
+        }
+      }
+      triggerCoordinatorFetch(
+        payload.artist,
+        payload.title,
+        currentMedia.duration,
+        Boolean(explicitProvider),
+        explicitProvider
+      );
     }
   });
 
