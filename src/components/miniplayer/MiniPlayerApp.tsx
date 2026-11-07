@@ -72,10 +72,45 @@ export const MiniPlayerApp: React.FC = () => {
   const [showToolbar, setShowToolbar] = useState(false);
   const [isInZone, setIsInZone] = useState(false);
   const [barWidth, setBarWidth] = useState<number>(440);
+  const [isAnchoredRight, setIsAnchoredRight] = useState(true);
 
-  const handleBarWidthChange = useCallback((w: number) => {
-    setBarWidth((prev) => (prev !== w ? w : prev));
+  const resizeTimerRef = useRef<number | null>(null);
+  const currentWinWidthRef = useRef<number>(440);
+
+  const checkAnchor = useCallback((x: number, w: number) => {
+    const screenW = window.screen.availWidth || 1920;
+    const centerX = x + w / 2;
+    setIsAnchoredRight(centerX > screenW / 2);
   }, []);
+
+  const handleBarWidthChange = useCallback(
+    (newWidth: number) => {
+      setBarWidth(newWidth);
+
+      if (mode !== "bar") return;
+
+      if (resizeTimerRef.current) {
+        window.clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = null;
+      }
+
+      const currentWinW = currentWinWidthRef.current;
+
+      if (newWidth > currentWinW) {
+        // Expand immediately so Framer Motion spring has full space without clipping
+        currentWinWidthRef.current = newWidth;
+        invoke("resize_miniplayer", { width: newWidth, height: 130 }).catch(() => {});
+      } else if (newWidth < currentWinW) {
+        // Delay shrinking native window until spring animation finishes (~400ms)
+        resizeTimerRef.current = window.setTimeout(() => {
+          currentWinWidthRef.current = newWidth;
+          invoke("resize_miniplayer", { width: newWidth, height: 130 }).catch(() => {});
+          resizeTimerRef.current = null;
+        }, 420);
+      }
+    },
+    [mode]
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -138,6 +173,8 @@ export const MiniPlayerApp: React.FC = () => {
         const saved = localStorage.getItem("gili_miniplayer_pos");
         if (saved) {
           const { x, y, w = 440, h = 130 } = JSON.parse(saved);
+          checkAnchor(x, w);
+          currentWinWidthRef.current = w;
           const [snappedX, snappedY] = await invoke<[number, number]>("snap_miniplayer_position", {
             x,
             y,
@@ -154,19 +191,14 @@ export const MiniPlayerApp: React.FC = () => {
 
     restorePosition();
 
-    // Dynamic window resizing following active lyric width (auto layout like notch idle lyrics)
-    useEffect(() => {
-      if (mode !== "bar") return;
-      invoke("resize_miniplayer", { width: barWidth, height: 130 }).catch(() => {});
-    }, [mode, barWidth]);
-
     // Track window moves to check notch proximity and snap
     const unlistenMove = win.onMoved(async (event) => {
       try {
         const { x, y } = event.payload;
-        const currentW = mode === "card" ? 380 : barWidth;
+        const currentW = mode === "card" ? 380 : currentWinWidthRef.current;
         const currentH = mode === "card" ? 340 : 130;
         latestPosRef.current = { x, y, w: currentW, h: currentH };
+        checkAnchor(x, currentW);
 
         const [snappedX, snappedY] = await invoke<[number, number]>("snap_miniplayer_position", {
           x,
@@ -248,7 +280,28 @@ export const MiniPlayerApp: React.FC = () => {
         dragCheckPollRef.current = null;
       }
     };
-  }, [mode]);
+  }, [mode, checkAnchor]);
+
+  // Keep window width ref in sync across mode switches
+  useEffect(() => {
+    if (mode === "card") {
+      if (resizeTimerRef.current) {
+        window.clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = null;
+      }
+      currentWinWidthRef.current = 380;
+    } else {
+      currentWinWidthRef.current = barWidth;
+    }
+  }, [mode, barWidth]);
+
+  useEffect(() => {
+    return () => {
+      if (resizeTimerRef.current) {
+        window.clearTimeout(resizeTimerRef.current);
+      }
+    };
+  }, []);
 
   // Listen to Rust cursor hit-testing across click-through boundaries
   useEffect(() => {
@@ -417,8 +470,6 @@ export const MiniPlayerApp: React.FC = () => {
     />
   );
 
-  const currentW = mode === "card" ? 380 : barWidth;
-
   return (
     <div
       ref={containerRef}
@@ -427,16 +478,16 @@ export const MiniPlayerApp: React.FC = () => {
       onMouseDown={handleMouseDown}
       onClick={handleClick}
       style={{
-        width: `${currentW}px`,
+        width: mode === "card" ? "380px" : "100%",
         opacity: isFaded ? fadeOpacity : isInZone ? 0.8 : 1,
         transform: isInZone ? "scale(0.6)" : "scale(1)",
         transformOrigin: "bottom center",
-        transition: "width 200ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
+        transition: "opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
-      className={`relative overflow-hidden select-none bg-transparent transition-[height] duration-200 ease-out ${
+      className={`relative overflow-hidden select-none bg-transparent ${
         mode === "card"
-          ? "h-[340px]"
-          : "h-[130px] flex flex-col justify-end items-end"
+          ? "h-[340px] w-[380px]"
+          : `h-[130px] w-full flex flex-col justify-end ${isAnchoredRight ? "items-end" : "items-start"}`
       }`}
     >
       {mode === "card" ? (

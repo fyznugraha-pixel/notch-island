@@ -94,15 +94,25 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   }, [theme]);
 
   return (
-    <div
+    <motion.div
       onDoubleClick={onToggleMode}
-      className={`relative box-border text-white select-none rounded-[24px] shadow-none transition-[width,height] duration-200 ease-out p-[14px_16px_18px] overflow-hidden ${
-        theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
-      } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
-      style={{
-        ...containerStyle,
-        width: `${dynamicWidth}px`,
+      initial={false}
+      animate={{
+        width: dynamicWidth,
+        height: showToolbar ? 130 : 88,
       }}
+      transition={
+        prefersReducedMotion
+          ? { duration: 0 }
+          : {
+              width: { type: "spring", stiffness: 280, damping: 26, mass: 0.75 },
+              height: { duration: 0.32, ease: [0.16, 1, 0.3, 1] },
+            }
+      }
+      className={`relative box-border text-white select-none rounded-[24px] shadow-none p-[14px_16px_18px] overflow-hidden ${
+        theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
+      }`}
+      style={containerStyle}
     >
       <MiniPlayerBackground
         thumbnail={media?.thumbnail}
@@ -112,7 +122,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       {/* Top Slot for Toolbar on Hover */}
       <div
         data-tauri-drag-region
-        className={`w-full flex items-center transition-all duration-200 ease-out overflow-hidden ${
+        className={`w-full flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden ${
           showToolbar
             ? "opacity-100 max-h-10 mb-1.5 -mt-1 pointer-events-auto cursor-move"
             : "opacity-0 max-h-0 mb-0 -mt-0 pointer-events-none"
@@ -257,6 +267,6 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
           style={{ width: `${progressPercent}%` }}
         />
       </div>
-    </div>
+    </motion.div>
   );
 };
