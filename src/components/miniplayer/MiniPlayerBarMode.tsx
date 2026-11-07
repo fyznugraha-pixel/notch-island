@@ -67,9 +67,8 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
 
   return (
     <div
-      data-tauri-drag-region
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[440px] text-white select-none cursor-move rounded-[24px] shadow-none transition-[height] duration-200 ease-out p-[14px_16px_18px] overflow-hidden ${
+      className={`relative box-border w-[440px] text-white select-none rounded-[24px] shadow-none transition-[height] duration-200 ease-out p-[14px_16px_18px] overflow-hidden ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
       } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
       style={containerStyle}
@@ -81,9 +80,10 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       />
       {/* Top Slot for Toolbar on Hover */}
       <div
-        className={`transition-all duration-150 ease-out overflow-hidden ${
+        data-tauri-drag-region
+        className={`w-full flex items-center transition-all duration-200 ease-out overflow-hidden ${
           showToolbar
-            ? "opacity-100 max-h-10 mb-1.5 -mt-1 pointer-events-auto"
+            ? "opacity-100 max-h-10 mb-1.5 -mt-1 pointer-events-auto cursor-move"
             : "opacity-0 max-h-0 mb-0 -mt-0 pointer-events-none"
         }`}
       >
@@ -91,7 +91,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       </div>
 
       {/* Media Row: 56px Album Art + Title/Artist + Equalizer */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 pointer-events-none">
         {/* Album Art: 56px, radius 12px */}
         <div
           role="img"
@@ -219,7 +219,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         role="progressbar"
         aria-label="Posisi lagu"
         aria-valuenow={Math.round(progressPercent)}
-        className="absolute left-4 right-4 bottom-[9px] h-[3px] rounded-full bg-white/20 overflow-hidden"
+        className="absolute left-4 right-4 bottom-[9px] h-[3px] rounded-full bg-white/20 overflow-hidden pointer-events-none"
       >
         <div
           className="h-full bg-white transition-[width] duration-150 ease-linear rounded-full"

@@ -132,7 +132,7 @@ export const MiniPlayerApp: React.FC = () => {
       try {
         const saved = localStorage.getItem("gili_miniplayer_pos");
         if (saved) {
-          const { x, y, w = 440, h = 88 } = JSON.parse(saved);
+          const { x, y, w = 440, h = 130 } = JSON.parse(saved);
           const [snappedX, snappedY] = await invoke<[number, number]>("snap_miniplayer_position", {
             x,
             y,
@@ -154,7 +154,7 @@ export const MiniPlayerApp: React.FC = () => {
       try {
         const { x, y } = event.payload;
         const currentW = mode === "card" ? 380 : 440;
-        const currentH = mode === "card" ? 340 : 88;
+        const currentH = mode === "card" ? 340 : 130;
         latestPosRef.current = { x, y, w: currentW, h: currentH };
 
         const [snappedX, snappedY] = await invoke<[number, number]>("snap_miniplayer_position", {
@@ -409,7 +409,6 @@ export const MiniPlayerApp: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      data-tauri-drag-region
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onMouseDown={handleMouseDown}
@@ -417,11 +416,13 @@ export const MiniPlayerApp: React.FC = () => {
       style={{
         opacity: isFaded ? fadeOpacity : isInZone ? 0.8 : 1,
         transform: isInZone ? "scale(0.6)" : "scale(1)",
-        transformOrigin: "top center",
+        transformOrigin: "bottom center",
         transition: "opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       className={`relative overflow-hidden select-none bg-transparent transition-[width,height] duration-200 ease-out ${
-        mode === "card" ? "w-[380px] h-[340px]" : showToolbar ? "w-[440px] h-[130px]" : "w-[440px] h-[88px]"
+        mode === "card"
+          ? "w-[380px] h-[340px]"
+          : "w-[440px] h-[130px] flex flex-col justify-end"
       }`}
     >
       {mode === "card" ? (

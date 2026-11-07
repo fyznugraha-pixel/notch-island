@@ -125,9 +125,8 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
 
   return (
     <div
-      data-tauri-drag-region
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[380px] h-[340px] text-white select-none cursor-move rounded-[28px] p-[6px_18px_14px] flex flex-col justify-between overflow-hidden shadow-none ${
+      className={`relative box-border w-[380px] h-[340px] text-white select-none rounded-[28px] p-[6px_18px_14px] flex flex-col justify-between overflow-hidden shadow-none ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
       }`}
       style={containerStyle}

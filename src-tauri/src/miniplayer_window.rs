@@ -50,7 +50,7 @@ pub fn get_bottom_right_position(mode: &str) -> (f64, f64) {
             let (w, h) = if mode == "card" {
                 (380.0, 340.0)
             } else {
-                (440.0, 88.0)
+                (440.0, 130.0)
             };
             let margin = 16.0;
             return (log_right - w - margin, log_bottom - h - margin);
@@ -158,16 +158,26 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
 
                     if let (Ok(win_pos), Ok(win_size)) = (win.outer_position(), win.outer_size()) {
                         let scale_factor = win.scale_factor().unwrap_or(1.0);
-                        let in_window = pt.x >= win_pos.x
-                            && pt.x < win_pos.x + win_size.width as i32
-                            && pt.y >= win_pos.y
-                            && pt.y < win_pos.y + win_size.height as i32;
+                        let in_x = pt.x >= win_pos.x && pt.x < win_pos.x + win_size.width as i32;
+                        let in_y_full = pt.y >= win_pos.y && pt.y < win_pos.y + win_size.height as i32;
 
                         let current_mode = get_mode().lock().unwrap().clone();
-                        let rel_y = if in_window {
+                        let rel_y = if in_x && in_y_full {
                             (pt.y - win_pos.y) as f64 / scale_factor
                         } else {
                             -1.0
+                        };
+
+                        let in_window = if in_x && in_y_full {
+                            if current_mode == "bar" && !last_state.in_window {
+                                // Saat collapsed di mode bar (tinggi 88px di dasar window 130px),
+                                // area bar ada di 40..130px. Area kosong di atasnya tidak mentrigger hover.
+                                rel_y >= 40.0 && rel_y <= 130.0
+                            } else {
+                                true
+                            }
+                        } else {
+                            false
                         };
 
                         let toolbar_height = if current_mode == "card" { 48.0 } else { 52.0 };
@@ -190,28 +200,19 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                             let _ = app_handle.emit("miniplayer:cursor-hover", current_state);
                         }
 
-                        if current_mode == "card" {
-                            if was_dragging {
-                                // Keep drag active without altering click-through
-                                continue;
-                            }
+                        if was_dragging {
+                            // Keep drag active without altering click-through
+                            continue;
+                        }
 
-                            if in_window && !in_toolbar {
-                                // All window except toolbar: pass clicks through to background apps
-                                if !is_click_through {
-                                    let _ = win.set_ignore_cursor_events(true);
-                                    is_click_through = true;
-                                }
-                            } else {
-                                // On toolbar or outside window: ensure window receives clicks
-                                if is_click_through {
-                                    let _ = win.set_ignore_cursor_events(false);
-                                    is_click_through = false;
-                                    nudge_cursor();
-                                }
+                        if in_window && !in_toolbar {
+                            // All window except toolbar: pass clicks through to background apps
+                            if !is_click_through {
+                                let _ = win.set_ignore_cursor_events(true);
+                                is_click_through = true;
                             }
                         } else {
-                            was_dragging = false;
+                            // On toolbar or outside window: ensure window receives clicks
                             if is_click_through {
                                 let _ = win.set_ignore_cursor_events(false);
                                 is_click_through = false;
