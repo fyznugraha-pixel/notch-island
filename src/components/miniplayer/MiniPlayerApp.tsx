@@ -16,6 +16,8 @@ import { MiniPlayerCardMode } from "./MiniPlayerCardMode";
 import { MiniPlayerToolbar } from "./MiniPlayerToolbar";
 import { MiniPlayerBackground } from "./MiniPlayerBackground";
 import { extractDominantColor } from "./colorExtractor";
+import { useResolvedThumbnail } from "../ui/MediaThumbnail";
+import { prefetchArtwork } from "../../services/artworkService";
 
 interface MiniplayerCursorHoverPayload {
   in_window: boolean;
@@ -152,7 +154,12 @@ export const MiniPlayerApp: React.FC = () => {
 
   // Initialize media & lyrics store as listener
   useEffect(() => {
-    const unlistenMedia = subscribeMedia((m) => setMedia(m));
+    const unlistenMedia = subscribeMedia((m) => {
+      if (m && (m.title || m.artist)) {
+        prefetchArtwork(m);
+      }
+      setMedia(m);
+    });
     const unlistenLyrics = subscribeLyrics((l) => setLyrics(l));
     initMediaLyricsStore(false);
 
@@ -173,6 +180,14 @@ export const MiniPlayerApp: React.FC = () => {
         setExitState("idle");
         setIsAnchoredRight(true);
         setEnterKey((k) => k + 1);
+        invoke<MediaPayload>("get_current_media")
+          .then((m) => {
+            if (m && (m.title || m.artist)) {
+              prefetchArtwork(m);
+              setMedia(m);
+            }
+          })
+          .catch(() => {});
       } else {
         try {
           localStorage.removeItem("gili_miniplayer_pos");
@@ -209,16 +224,19 @@ export const MiniPlayerApp: React.FC = () => {
     }
   }, []);
 
+  const resolvedThumbnail = useResolvedThumbnail(media);
+  const effectiveThumbnail = resolvedThumbnail || media?.thumbnail;
+
   // Extract dominant color when media thumbnail changes
   useEffect(() => {
     let isCancelled = false;
-    extractDominantColor(media?.thumbnail).then((color) => {
+    extractDominantColor(effectiveThumbnail).then((color) => {
       if (!isCancelled) setTintColor(color);
     });
     return () => {
       isCancelled = true;
     };
-  }, [media?.thumbnail]);
+  }, [effectiveThumbnail]);
 
   // Track dragging and check notch proximity
   useEffect(() => {

@@ -4,6 +4,7 @@ import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
 import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
+import { MediaThumbnail } from "../ui/MediaThumbnail";
 import {
   sanitizeLyricText,
   clampExtremeText,
@@ -202,12 +203,8 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
           aria-label="Sampul album"
           className="w-[60px] h-[60px] rounded-[13px] overflow-hidden bg-white/5 shrink-0 shadow-lg border border-white/10 flex items-center justify-center"
         >
-          {media?.thumbnail ? (
-            <img
-              src={media.thumbnail}
-              alt={media.title || "Album Art"}
-              className="w-full h-full object-cover select-none pointer-events-none"
-            />
+          {media && (media.title || media.artist) ? (
+            <MediaThumbnail media={media} />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/5 text-white/40 text-xl">
               🎵

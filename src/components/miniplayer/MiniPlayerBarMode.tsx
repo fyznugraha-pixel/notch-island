@@ -9,6 +9,7 @@ import {
 import { BarLyricSlot } from "./BarLyricSlot";
 import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
+import { MediaThumbnail } from "../ui/MediaThumbnail";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -214,12 +215,8 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
           aria-label="Sampul album"
           className="w-14 h-14 rounded-xl overflow-hidden bg-white/5 shrink-0 border border-white/10 flex items-center justify-center shadow-md"
         >
-          {media?.thumbnail ? (
-            <img
-              src={media.thumbnail}
-              alt={media.title || "Album Art"}
-              className="w-full h-full object-cover select-none pointer-events-none"
-            />
+          {media && (media.title || media.artist) ? (
+            <MediaThumbnail media={media} />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/5 text-white/40 text-lg">
               🎵
