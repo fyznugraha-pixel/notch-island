@@ -53,6 +53,10 @@ export function usePrayerReminder({
   const [schedule, setSchedule] = useState<PrayerScheduleData>(() =>
     getImmediatePrayerSchedule()
   );
+  const scheduleRef = useRef<PrayerScheduleData>(schedule);
+  useEffect(() => {
+    scheduleRef.current = schedule;
+  }, [schedule]);
   const currentTodayKeyRef = useRef<string>(getTodayDateKey());
   const triggeredSetRef = useRef<Set<string>>(loadTriggeredKeys(currentTodayKeyRef.current));
 
@@ -69,7 +73,13 @@ export function usePrayerReminder({
       refreshSchedule(true);
     });
     const handlePrayerUpdate = () => {
-      refreshSchedule(false);
+      const latestSettings = loadPrayerSettings();
+      if (
+        scheduleRef.current.calculationMethod &&
+        scheduleRef.current.calculationMethod !== latestSettings.calculationMethod
+      ) {
+        refreshSchedule(false);
+      }
     };
     window.addEventListener("gili_prayer_updated", handlePrayerUpdate);
     return () => {

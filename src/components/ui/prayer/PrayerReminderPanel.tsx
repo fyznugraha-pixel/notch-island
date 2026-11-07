@@ -135,13 +135,47 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
   };
 
   const handleToggleSinglePrayerNotif = (prayerId: PrayerId) => {
+    if (!settings.reminderEnabled) {
+      handleUpdateSettings({
+        reminderEnabled: true,
+        enabledPrayers: {
+          ...settings.enabledPrayers,
+          [prayerId]: true,
+        },
+      });
+      return;
+    }
     const nextEnabled = !settings.enabledPrayers[prayerId];
+    const nextEnabledMap = {
+      ...settings.enabledPrayers,
+      [prayerId]: nextEnabled,
+    };
+    const anyStillOn = PRAYER_ORDER.some((id) => nextEnabledMap[id]);
     handleUpdateSettings({
-      enabledPrayers: {
-        ...settings.enabledPrayers,
-        [prayerId]: nextEnabled,
-      },
+      reminderEnabled: anyStillOn,
+      enabledPrayers: nextEnabledMap,
     });
+  };
+
+  const handleToggleAllReminders = () => {
+    const nextMaster = !settings.reminderEnabled;
+    if (nextMaster) {
+      const anyOn = PRAYER_ORDER.some((id) => settings.enabledPrayers[id]);
+      if (!anyOn) {
+        handleUpdateSettings({
+          reminderEnabled: true,
+          enabledPrayers: {
+            Fajr: true,
+            Dhuhr: true,
+            Asr: true,
+            Maghrib: true,
+            Isha: true,
+          },
+        });
+        return;
+      }
+    }
+    handleUpdateSettings({ reminderEnabled: nextMaster });
   };
 
   const handleSelectCity = async (loc: WeatherLocation) => {
@@ -159,8 +193,11 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
   };
 
   const enabledPrayersCount = useMemo(
-    () => PRAYER_ORDER.filter((id) => settings.enabledPrayers[id]).length,
-    [settings.enabledPrayers]
+    () =>
+      settings.reminderEnabled
+        ? PRAYER_ORDER.filter((id) => settings.enabledPrayers[id]).length
+        : 0,
+    [settings.enabledPrayers, settings.reminderEnabled]
   );
 
   // Exact same button classes as PanelNavHeader.tsx
@@ -397,9 +434,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               role="switch"
               aria-checked={settings.reminderEnabled}
               aria-label="All reminders"
-              onClick={() =>
-                handleUpdateSettings({ reminderEnabled: !settings.reminderEnabled })
-              }
+              onClick={handleToggleAllReminders}
               style={{
                 position: "relative",
                 width: 40,

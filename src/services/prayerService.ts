@@ -68,6 +68,7 @@ export interface PrayerScheduleData {
   latitude: number;
   longitude: number;
   hijriDate: string;
+  calculationMethod?: number;
   timings: {
     Imsak: string;
     Fajr: string;
@@ -145,7 +146,7 @@ export function stopAdzanAudio(): void {
 }
 
 export const DEFAULT_PRAYER_SETTINGS: PrayerSettings = {
-  reminderEnabled: false,
+  reminderEnabled: true,
   preReminderEnabled: false,
   preReminderMinutes: 5,
   alsoAtAdzan: true,
@@ -195,8 +196,10 @@ export function loadPrayerSettings(): PrayerSettings {
         ...DEFAULT_PRAYER_SETTINGS,
         ...parsed,
         reminderEnabled: isUserConfigured
-          ? Boolean(parsed.reminderEnabled)
-          : false,
+          ? parsed.reminderEnabled !== undefined
+            ? Boolean(parsed.reminderEnabled)
+            : true
+          : true,
         preReminderEnabled: isUserConfigured
           ? Boolean(parsed.preReminderEnabled)
           : false,
@@ -220,11 +223,9 @@ export function savePrayerSettings(next: PrayerSettings): void {
 }
 
 export function updatePrayerSettings(partial: Partial<PrayerSettings>): PrayerSettings {
-  if (partial.reminderEnabled !== undefined || partial.preReminderEnabled !== undefined) {
-    try {
-      localStorage.setItem(CONFIG_FLAG_KEY, "true");
-    } catch {}
-  }
+  try {
+    localStorage.setItem(CONFIG_FLAG_KEY, "true");
+  } catch {}
   const current = loadPrayerSettings();
   const updated: PrayerSettings = {
     ...current,
@@ -297,7 +298,8 @@ function cleanTimeStr(raw: string | undefined, fallback: string): string {
  */
 export function calculateOfflinePrayerSchedule(
   date: Date,
-  loc: WeatherLocation
+  loc: WeatherLocation,
+  calculationMethod = 20
 ): PrayerScheduleData {
   const rad = Math.PI / 180;
   const deg = 180 / Math.PI;
@@ -342,11 +344,13 @@ export function calculateOfflinePrayerSchedule(
   const asrAltRad = Math.atan(1 / (1 + Math.tan(Math.abs(latRad - decl))));
   const asrHours = hourAngleForAltitude(asrAltRad * deg);
 
-  const fajrHours = hourAngleForAltitude(-20);
+  const fajrAngle = calculationMethod === 3 ? -18 : calculationMethod === 4 ? -18.5 : -20;
+  const ishaAngle = calculationMethod === 3 ? -17 : -18;
+  const fajrHours = hourAngleForAltitude(fajrAngle);
   const sunriseHours = hourAngleForAltitude(-0.833);
-  const ishaHours = hourAngleForAltitude(-18);
+  const ishaHours = hourAngleForAltitude(ishaAngle);
 
-  const ihtiyat = 2 / 60; // +2 minutes Kemenag RI safety margin
+  const ihtiyat = calculationMethod === 20 ? 2 / 60 : 0; // +2 minutes Kemenag RI safety margin
 
   const toHHMM = (h: number): string => {
     const wrapped = ((h % 24) + 24) % 24;
@@ -362,7 +366,10 @@ export function calculateOfflinePrayerSchedule(
   const dhuhrVal = solarNoonHours + ihtiyat;
   const asrVal = solarNoonHours + asrHours + ihtiyat;
   const maghribVal = solarNoonHours + sunriseHours + ihtiyat;
-  const ishaVal = solarNoonHours + ishaHours + ihtiyat;
+  const ishaVal =
+    calculationMethod === 4
+      ? maghribVal + 1.5
+      : solarNoonHours + ishaHours + ihtiyat;
 
   let hijriDate = "";
   try {
@@ -381,6 +388,7 @@ export function calculateOfflinePrayerSchedule(
     latitude: loc.latitude,
     longitude: loc.longitude,
     hijriDate,
+    calculationMethod,
     timings: {
       Imsak: toHHMM(imsakVal),
       Fajr: toHHMM(fajrVal),
@@ -409,17 +417,19 @@ export function getCachedPrayerSchedule(): PrayerScheduleData | null {
 export function getImmediatePrayerSchedule(): PrayerScheduleData {
   const cached = getCachedPrayerSchedule();
   const custom = getSavedCustomCity();
+  const settings = loadPrayerSettings();
   const lastLoc = custom || getSavedLastLocation() || INDONESIAN_PRESET_CITIES[0];
 
   if (
     cached &&
     Math.abs(cached.latitude - lastLoc.latitude) < 0.08 &&
-    Math.abs(cached.longitude - lastLoc.longitude) < 0.08
+    Math.abs(cached.longitude - lastLoc.longitude) < 0.08 &&
+    (!cached.calculationMethod || cached.calculationMethod === settings.calculationMethod)
   ) {
     return cached;
   }
 
-  return calculateOfflinePrayerSchedule(new Date(), lastLoc);
+  return calculateOfflinePrayerSchedule(new Date(), lastLoc, settings.calculationMethod);
 }
 
 export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerScheduleData> {
@@ -443,7 +453,8 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
       cached.dateKey === todayKey &&
       Math.abs(cached.latitude - loc.latitude) < 0.05 &&
       Math.abs(cached.longitude - loc.longitude) < 0.05 &&
-      cached.source === "aladhan"
+      cached.source === "aladhan" &&
+      (!cached.calculationMethod || cached.calculationMethod === settings.calculationMethod)
     ) {
       return { ...cached, locationName: loc.name };
     }
@@ -469,13 +480,14 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
         const hijriStr = hijri
           ? `${hijri.day} ${hijri.month?.en || ""} ${hijri.year} H`
           : "";
-        const fallback = calculateOfflinePrayerSchedule(now, loc);
+        const fallback = calculateOfflinePrayerSchedule(now, loc, settings.calculationMethod);
         const schedule: PrayerScheduleData = {
           dateKey: todayKey,
           locationName: loc.name,
           latitude: loc.latitude,
           longitude: loc.longitude,
           hijriDate: hijriStr || fallback.hijriDate,
+          calculationMethod: settings.calculationMethod,
           timings: {
             Imsak: cleanTimeStr(tData.Imsak, fallback.timings.Imsak),
             Fajr: cleanTimeStr(tData.Fajr, fallback.timings.Fajr),
@@ -497,7 +509,7 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
     clearTimeout(timer);
   }
 
-  const offline = calculateOfflinePrayerSchedule(now, loc);
+  const offline = calculateOfflinePrayerSchedule(now, loc, settings.calculationMethod);
   try {
     localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(offline));
   } catch {}

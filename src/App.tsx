@@ -81,6 +81,7 @@ import { PrayerNotchToast } from "./components/ui/prayer/PrayerNotchToast";
 import {
   PrayerToastPayload,
   togglePrayerCompleted,
+  getCompletedPrayersForDate,
   getPrayerDisplayName,
   playAdzanAudio,
   stopAdzanAudio,
@@ -1346,11 +1347,20 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     return () => clearTimeout(timer);
   }, [waterToast]);
 
+  const prayerSnoozeTimerRef = useRef<number | null>(null);
+  const clearPrayerSnoozeTimer = useCallback(() => {
+    if (prayerSnoozeTimerRef.current !== null) {
+      window.clearTimeout(prayerSnoozeTimerRef.current);
+      prayerSnoozeTimerRef.current = null;
+    }
+  }, []);
+
   const { schedule: prayerSchedule, refreshSchedule: refreshPrayerSchedule } = usePrayerReminder({
     enabled: isPrayerTabEnabled,
     isFocusMode: focusMode === "DND" || pomodoro.isRunning,
     onTriggerToast: useCallback((toast: PrayerToastPayload) => {
       if (!isPrayerTabEnabledRef.current) return;
+      clearPrayerSnoozeTimer();
       if (!isPlayingRef.current) {
         clearPausedMediaTimer();
         isPausedMediaCollapsedRef.current = true;
@@ -1382,18 +1392,19 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         });
         setNotificationsHistory((prev) => [saved, ...prev.filter((i) => i.id !== saved.id)].slice(0, 50));
       }
-    }, []),
+    }, [clearPrayerSnoozeTimer]),
   });
 
   useEffect(() => {
     if (!isPrayerTabEnabled) {
+      clearPrayerSnoozeTimer();
+      stopAdzanAudio();
       setPrayerToast(null);
     }
-  }, [isPrayerTabEnabled]);
+  }, [isPrayerTabEnabled, clearPrayerSnoozeTimer]);
 
   useEffect(() => {
     if (!prayerToast) {
-      stopAdzanAudio();
       return;
     }
     const timeoutMs =
@@ -5277,6 +5288,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 schedule={prayerSchedule}
                 isLightMode={isLightMode}
                 onMarkCompleted={() => {
+                  clearPrayerSnoozeTimer();
                   stopAdzanAudio();
                   togglePrayerCompleted(prayerToast.prayerId);
                   playTaskCompleteSound();
@@ -5284,10 +5296,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 }}
                 onSnooze={(mins) => {
                   const snapshot = prayerToast;
+                  clearPrayerSnoozeTimer();
                   stopAdzanAudio();
                   setPrayerToast(null);
-                  setTimeout(() => {
+                  prayerSnoozeTimerRef.current = window.setTimeout(() => {
+                    prayerSnoozeTimerRef.current = null;
+                    if (!isPrayerTabEnabledRef.current) return;
+                    if (getCompletedPrayersForDate().includes(snapshot.prayerId)) return;
                     setPrayerToast(snapshot);
+                    setIsHidden(false);
                     if (snapshot.type === "prayer_time") {
                       playAdzanAudio(() => setPrayerToast(null));
                     } else {

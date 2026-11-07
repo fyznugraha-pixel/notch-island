@@ -275,7 +275,9 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
             const isCompleted = completedList.includes(prayerId);
             const pMins = timeStringToMinutes(schedule.timings[prayerId]);
             const isPast = !isNext && currentMins >= pMins && !nextStatus.isTomorrow;
-            const isNotifOn = Boolean(settings.enabledPrayers[prayerId]);
+            const isNotifOn = Boolean(
+              settings.reminderEnabled && settings.enabledPrayers[prayerId]
+            );
             const pName = getPrayerDisplayName(prayerId, optLanguage);
             const pTime = schedule.timings[prayerId];
             const isLast = idx === PRAYER_ORDER.length - 1;

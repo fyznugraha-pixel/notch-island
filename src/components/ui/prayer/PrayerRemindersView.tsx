@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   PrayerId,
   PrayerScheduleData,
   PrayerSettings,
   PRAYER_ORDER,
   getPrayerDisplayName,
+  playAdzanAudio,
+  stopAdzanAudio,
 } from "../../../services/prayerService";
 import { Language } from "../../../services/i18n";
 import { PRAYER_ACCENT, PrayerIcon, PrayerSpeakerIcon } from "./PrayerIcons";
@@ -37,11 +39,47 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
   onPlayPreview,
 }) => {
   const isId = optLanguage === "id";
-  const currentMethod =
-    CALC_METHODS.find((m) => m.id === settings.calculationMethod) || CALC_METHODS[0];
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const isPreviewPlayingRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (isPreviewPlayingRef.current) {
+        stopAdzanAudio();
+        isPreviewPlayingRef.current = false;
+      }
+    };
+  }, []);
 
   const volume = settings.adzanVolume ?? 70;
   const alsoAtAdzan = settings.alsoAtAdzan ?? true;
+  const effectiveAlsoAtAdzan = !settings.preReminderEnabled ? true : alsoAtAdzan;
+
+  const handleToggleAudioPreview = () => {
+    if (isPreviewPlayingRef.current) {
+      stopAdzanAudio();
+      isPreviewPlayingRef.current = false;
+      setIsPreviewPlaying(false);
+    } else {
+      if (volume <= 0) {
+        onUpdateSettings({ adzanVolume: 70, soundEnabled: true });
+      } else if (!settings.soundEnabled) {
+        onUpdateSettings({ soundEnabled: true });
+      }
+      isPreviewPlayingRef.current = true;
+      setIsPreviewPlaying(true);
+      playAdzanAudio(() => {
+        isPreviewPlayingRef.current = false;
+        setIsPreviewPlaying(false);
+      });
+    }
+  };
+
+  const handleTriggerAlertPreview = () => {
+    isPreviewPlayingRef.current = false;
+    setIsPreviewPlaying(false);
+    onPlayPreview();
+  };
 
   const cardBg = isLightMode ? "rgba(0,0,0,.045)" : "rgba(255,255,255,.055)";
   const cardShadow = isLightMode
@@ -65,7 +103,9 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
           }}
         >
           {PRAYER_ORDER.map((prayerId, idx) => {
-            const isEnabled = Boolean(settings.enabledPrayers[prayerId]);
+            const isEnabled = Boolean(
+              settings.reminderEnabled && settings.enabledPrayers[prayerId]
+            );
             const pName = getPrayerDisplayName(prayerId, optLanguage);
             const pTime = schedule.timings[prayerId];
             const isLast = idx === PRAYER_ORDER.length - 1;
@@ -205,7 +245,7 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                     type="button"
                     onClick={() => {
                       if (opt.mins === 0) {
-                        onUpdateSettings({ preReminderEnabled: false });
+                        onUpdateSettings({ preReminderEnabled: false, alsoAtAdzan: true });
                       } else {
                         onUpdateSettings({
                           preReminderEnabled: true,
@@ -241,6 +281,7 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
               alignItems: "center",
               gap: 10,
               height: 29,
+              opacity: !settings.preReminderEnabled ? 0.65 : 1,
             }}
           >
             <span
@@ -256,18 +297,21 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
             <button
               type="button"
               role="switch"
-              aria-checked={alsoAtAdzan}
+              aria-checked={effectiveAlsoAtAdzan}
               aria-label="Also at adzan"
-              onClick={() => onUpdateSettings({ alsoAtAdzan: !alsoAtAdzan })}
+              onClick={() => {
+                if (!settings.preReminderEnabled) return;
+                onUpdateSettings({ alsoAtAdzan: !alsoAtAdzan });
+              }}
               style={{
                 position: "relative",
                 width: 38,
                 height: 22,
                 border: 0,
                 borderRadius: 11,
-                background: alsoAtAdzan ? PRAYER_ACCENT : "#39393d",
+                background: effectiveAlsoAtAdzan ? PRAYER_ACCENT : "#39393d",
                 padding: 0,
-                cursor: "pointer",
+                cursor: !settings.preReminderEnabled ? "default" : "pointer",
                 flexShrink: 0,
                 transition: "background-color 150ms ease",
               }}
@@ -276,7 +320,7 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                 style={{
                   position: "absolute",
                   top: 2,
-                  left: alsoAtAdzan ? 18 : 2,
+                  left: effectiveAlsoAtAdzan ? 18 : 2,
                   width: 18,
                   height: 18,
                   borderRadius: 9,
@@ -300,12 +344,12 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
             padding: "0 13px",
           }}
         >
-          {/* Row 1: Adzan + Play Preview */}
+          {/* Row 1: Adzan + Test Alert + Play/Stop Audio Preview */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 9,
+              gap: 8,
               height: 30,
               boxShadow: rowBorder,
             }}
@@ -335,42 +379,80 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
               Adzan
             </span>
             <span style={{ flex: 1 }} />
-            <span style={{ fontSize: 12, color: "#8e8e93" }}>
-              {currentMethod.label}
-            </span>
             <button
               type="button"
-              aria-label="Play preview"
-              onClick={onPlayPreview}
-              title={isId ? "Tes tampilan & suara pengingat adzan" : "Preview adzan alert"}
+              onClick={handleTriggerAlertPreview}
+              title={isId ? "Tes pop-up notifikasi adzan" : "Test adzan alert pop-up"}
+              style={{
+                height: 22,
+                padding: "0 8px",
+                borderRadius: 11,
+                border: 0,
+                background: isLightMode ? "rgba(0,0,0,.07)" : "rgba(255,255,255,.09)",
+                color: isLightMode ? "#3f3f46" : "#d4d4d8",
+                fontSize: 10.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                flexShrink: 0,
+              }}
+            >
+              {isId ? "Tes Notif" : "Test Alert"}
+            </button>
+            <button
+              type="button"
+              aria-label={isPreviewPlaying ? "Stop adzan preview" : "Play adzan preview"}
+              onClick={handleToggleAudioPreview}
+              title={
+                isPreviewPlaying
+                  ? isId
+                    ? "Hentikan suara adzan"
+                    : "Stop adzan audio"
+                  : isId
+                  ? "Putar suara adzan"
+                  : "Play adzan audio"
+              }
               style={{
                 width: 24,
                 height: 24,
                 borderRadius: 12,
                 border: 0,
-                background: "rgba(48,209,88,.18)",
-                color: PRAYER_ACCENT,
+                background: isPreviewPlaying ? PRAYER_ACCENT : "rgba(48,209,88,.18)",
+                color: isPreviewPlaying ? "#04210F" : PRAYER_ACCENT,
                 padding: 0,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
                 flexShrink: 0,
+                transition: "all 140ms ease",
               }}
             >
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M7 4.5v15l12-7.5z" fill="currentColor" />
-              </svg>
+              {isPreviewPlaying ? (
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <rect x="5" y="5" width="14" height="14" rx="2.5" />
+                </svg>
+              ) : (
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M7 4.5v15l12-7.5z" fill="currentColor" />
+                </svg>
+              )}
             </button>
           </div>
 
@@ -436,6 +518,10 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                 value={volume}
                 onChange={(e) => {
                   const nextVol = Number(e.target.value);
+                  if (nextVol <= 0 && isPreviewPlayingRef.current) {
+                    isPreviewPlayingRef.current = false;
+                    setIsPreviewPlaying(false);
+                  }
                   onUpdateSettings({
                     adzanVolume: nextVol,
                     soundEnabled: nextVol > 0,
