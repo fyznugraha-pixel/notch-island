@@ -55,12 +55,40 @@ pub fn get_bottom_right_position(_mode: &str) -> (f64, f64) {
     (800.0, 500.0)
 }
 
+pub fn set_window_to_bottom_right(w: &WebviewWindow) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+        };
+        let sf = w.scale_factor().unwrap_or(1.0);
+        let pt = POINT { x: 0, y: 0 };
+        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+            let rc = mi.rcWork;
+            let phys_w = (440.0 * sf).round() as i32;
+            let phys_h = (340.0 * sf).round() as i32;
+            let phys_margin = (16.0 * sf).round() as i32;
+            let x = rc.right - phys_w - phys_margin;
+            let y = rc.bottom - phys_h - phys_margin;
+            let _ = w.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+            return;
+        }
+    }
+    let mode = get_mode().lock().unwrap().clone();
+    let (x, y) = get_bottom_right_position(&mode);
+    let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+}
+
 pub fn reset_miniplayer_position_to_bottom_right(app: &AppHandle) {
     *get_returned_to_notch_state().lock().unwrap() = true;
     if let Some(w) = app.get_webview_window("miniplayer") {
-        let mode = get_mode().lock().unwrap().clone();
-        let (x, y) = get_bottom_right_position(&mode);
-        let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        set_window_to_bottom_right(&w);
     }
 }
 
@@ -307,6 +335,8 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
                     if let Ok(is_v) = w_clone.is_visible() {
                         if is_v {
                             let _ = w_clone.hide();
+                            set_window_to_bottom_right(&w_clone);
+                            *get_returned_to_notch_state().lock().unwrap() = true;
                             *get_open_state().lock().unwrap() = false;
                             let _ = app_clone.emit("miniplayer:visibility-changed", false);
                         }
@@ -315,14 +345,8 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
                 return Ok(false);
             }
         }
-        let returned_arc = get_returned_to_notch_state();
-        let mut was_returned = returned_arc.lock().unwrap();
-        if *was_returned {
-            *was_returned = false;
-            let mode = get_mode().lock().unwrap().clone();
-            let (x, y) = get_bottom_right_position(&mode);
-            let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
+        *get_returned_to_notch_state().lock().unwrap() = false;
+        set_window_to_bottom_right(&w);
         let _ = w.show();
         #[cfg(windows)]
         apply_no_activate_style(&w);
@@ -362,6 +386,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
 
         match win {
             Ok(w) => {
+                set_window_to_bottom_right(&w);
                 #[cfg(windows)]
                 apply_no_activate_style(&w);
                 let _ = app_clone.emit("miniplayer:visibility-changed", true);
@@ -379,8 +404,10 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
 pub fn close_miniplayer_window(app: &AppHandle) -> Result<(), String> {
     let open_arc = get_open_state();
     let mut is_open = open_arc.lock().unwrap();
+    *get_returned_to_notch_state().lock().unwrap() = true;
     if let Some(w) = app.get_webview_window("miniplayer") {
         let _ = w.hide();
+        set_window_to_bottom_right(&w);
     }
     *is_open = false;
     let _ = app.emit("miniplayer:visibility-changed", false);
@@ -681,7 +708,7 @@ pub struct NotchProximity {
 
 #[tauri::command]
 pub fn check_notch_proximity(
-    _app: AppHandle,
+    app: AppHandle,
     x: i32,
     y: i32,
     width: i32,
@@ -690,12 +717,32 @@ pub fn check_notch_proximity(
     #[cfg(windows)]
     {
         use windows::Win32::Foundation::POINT;
+        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
         use windows::Win32::Graphics::Gdi::{
             GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
         };
 
-        let pt = POINT { x, y };
-        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+        let mut cursor_pt = POINT { x: 0, y: 0 };
+        let has_cursor = unsafe { GetCursorPos(&mut cursor_pt).is_ok() };
+
+        let (win_x, win_y, win_w, _win_h, sf) = if let Some(w) = app.get_webview_window("miniplayer") {
+            let sf = w.scale_factor().unwrap_or(1.0);
+            let pos = w.outer_position().unwrap_or(tauri::PhysicalPosition { x, y });
+            let size = w.outer_size().unwrap_or(tauri::PhysicalSize {
+                width: (width as f64 * sf).round() as u32,
+                height: (height as f64 * sf).round() as u32,
+            });
+            (pos.x, pos.y, size.width as i32, size.height as i32, sf)
+        } else {
+            (x, y, width, height, 1.0)
+        };
+
+        let ref_pt = if has_cursor {
+            cursor_pt
+        } else {
+            POINT { x: win_x + win_w / 2, y: win_y.max(0) }
+        };
+        let monitor = unsafe { MonitorFromPoint(ref_pt, MONITOR_DEFAULTTONEAREST) };
         let mut mi = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
@@ -704,18 +751,30 @@ pub fn check_notch_proximity(
         if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
             let rc = mi.rcWork;
             let mon_center_x = rc.left + (rc.right - rc.left) / 2;
-            let mini_center_x = x + width / 2;
+            let mini_center_x = win_x + win_w / 2;
             let is_bar = get_mode().lock().map(|m| *m == "bar").unwrap_or(false);
-            let visible_top_offset = if is_bar { (height * 210) / 340 } else { 0 };
-            let mini_top_y = y + visible_top_offset;
+            let visible_top_offset = if is_bar { (210.0 * sf).round() as i32 } else { 0 };
+            let mini_top_y = win_y + visible_top_offset;
 
-            let dx = (mini_center_x - mon_center_x).abs();
-            let dy = (mini_top_y - rc.top).abs();
+            let dx_win_log = ((mini_center_x - mon_center_x).abs() as f64) / sf;
+            let dy_win_log = ((mini_top_y - rc.top).abs() as f64) / sf;
 
-            // Target notch zone: within 200px horizontally from center and 120px from top
-            let is_in_zone = dx <= 200 && dy <= 120;
-            // Near zone: radius 80px from target notch zone
-            let is_near = dx <= 280 && dy <= 180;
+            let (dx_cur_log, dy_cur_log) = if has_cursor {
+                (
+                    ((cursor_pt.x - mon_center_x).abs() as f64) / sf,
+                    ((cursor_pt.y - rc.top).max(0) as f64) / sf,
+                )
+            } else {
+                (9999.0, 9999.0)
+            };
+
+            // Target notch zone: within 220px horizontally from center and 120px from top (logical)
+            let is_in_zone =
+                (dx_win_log <= 220.0 && dy_win_log <= 130.0) || (dx_cur_log <= 220.0 && dy_cur_log <= 115.0);
+            // Near zone: radius around target notch zone
+            let is_near = is_in_zone
+                || (dx_win_log <= 300.0 && dy_win_log <= 190.0)
+                || (dx_cur_log <= 300.0 && dy_cur_log <= 175.0);
 
             return NotchProximity { is_near, is_in_zone };
         }

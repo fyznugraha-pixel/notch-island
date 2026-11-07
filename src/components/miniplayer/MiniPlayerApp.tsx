@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import {
@@ -84,12 +83,16 @@ export const MiniPlayerApp: React.FC = () => {
     isExitingRef.current = true;
     setExitState(type);
 
+    try {
+      localStorage.removeItem("gili_miniplayer_pos");
+    } catch {}
+
     const durationMs = 240;
     window.setTimeout(async () => {
       try {
         await invoke("close_miniplayer");
+        await invoke("reset_miniplayer_position");
         if (type === "to-notch") {
-          await invoke("reset_miniplayer_position");
           await emit("miniplayer:return-to-notch");
         }
       } catch (e) {
@@ -168,7 +171,12 @@ export const MiniPlayerApp: React.FC = () => {
       if (event.payload) {
         isExitingRef.current = false;
         setExitState("idle");
+        setIsAnchoredRight(true);
         setEnterKey((k) => k + 1);
+      } else {
+        try {
+          localStorage.removeItem("gili_miniplayer_pos");
+        } catch {}
       }
     }).then((un) => {
       unlistenVis = un;
@@ -212,55 +220,41 @@ export const MiniPlayerApp: React.FC = () => {
     };
   }, [media?.thumbnail]);
 
-  // Restore position and track dragging
+  // Track dragging and check notch proximity
   useEffect(() => {
     const win = getCurrentWindow();
-
-    const restorePosition = async () => {
-      try {
-        const saved = localStorage.getItem("gili_miniplayer_pos");
-        if (saved) {
-          const { x, y } = JSON.parse(saved);
-          const w = 440;
-          const h = 340;
-          checkAnchor(x, w);
-          currentWinWidthRef.current = w;
-          const [snappedX, snappedY] = await invoke<[number, number]>("snap_miniplayer_position", {
-            x,
-            y,
-            width: w,
-            height: h,
-          });
-          await win.setPosition(new LogicalPosition(snappedX, snappedY));
-          latestPosRef.current = { x: snappedX, y: snappedY, w, h };
-        }
-      } catch (e) {
-        console.error("Failed to restore miniplayer position:", e);
-      }
-    };
-
-    restorePosition();
+    try {
+      localStorage.removeItem("gili_miniplayer_pos");
+    } catch {}
 
     // Track window moves to check notch proximity and snap
     const unlistenMove = win.onMoved(async (event) => {
+      if (isExitingRef.current) return;
       try {
         const { x, y } = event.payload;
         const currentW = 440;
         const currentH = 340;
         latestPosRef.current = { x, y, w: currentW, h: currentH };
-        checkAnchor(x, currentW);
 
-        const [snappedX, snappedY] = await invoke<[number, number]>("snap_miniplayer_position", {
-          x,
-          y,
-          width: currentW,
-          height: currentH,
-        });
+        const dpr = window.devicePixelRatio || 1;
+        checkAnchor(x / dpr, currentW);
 
-        localStorage.setItem(
-          "gili_miniplayer_pos",
-          JSON.stringify({ x: snappedX, y: snappedY, w: currentW, h: currentH })
-        );
+        // If user was in the Notch zone and just released LButton, Windows OS may snap y < 0 back to y = 0.
+        // Detect that release immediately before any snapped coordinates overwrite isInZoneRef.
+        const isDownNow = await invoke<boolean>("is_lbutton_down").catch(() => false);
+        if (!isDownNow) {
+          if (isInZoneRef.current) {
+            if (dragCheckPollRef.current) {
+              clearInterval(dragCheckPollRef.current);
+              dragCheckPollRef.current = null;
+            }
+            isInZoneRef.current = false;
+            setIsInZone(false);
+            await emit("miniplayer:drag-proximity", { is_near: false, is_in_zone: false });
+            triggerExit("to-notch");
+          }
+          return;
+        }
 
         // Check proximity to notch target zone (M5 Drag-to-merge)
         const prox = await invoke<{ is_near: boolean; is_in_zone: boolean }>("check_notch_proximity", {
@@ -328,7 +322,7 @@ export const MiniPlayerApp: React.FC = () => {
         dragCheckPollRef.current = null;
       }
     };
-  }, [mode, checkAnchor]);
+  }, [checkAnchor, triggerExit]);
 
   // Keep window width ref in sync across mode switches
   useEffect(() => {
