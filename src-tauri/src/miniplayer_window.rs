@@ -341,14 +341,14 @@ pub fn check_fullscreen_and_autohide(app: &AppHandle) {
     #[cfg(windows)]
     {
         use windows::Win32::UI::Shell::{
-            SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
-            QUNS_RUNNING_D3D_FULL_SCREEN,
+            SHQueryUserNotificationState, QUNS_RUNNING_D3D_FULL_SCREEN,
         };
+        // Hanya trigger fullscreen auto-hide untuk game DirectX exclusive fullscreen nyata.
+        // QUNS_BUSY dan QUNS_PRESENTATION_MODE sengaja tidak dipakai karena Windows otomatis
+        // mengaktifkan QUNS_BUSY saat screenshot (Snipping Tool / Win+Shift+S) atau screen recording.
         let is_fullscreen = unsafe {
             if let Ok(state) = SHQueryUserNotificationState() {
                 state == QUNS_RUNNING_D3D_FULL_SCREEN
-                    || state == QUNS_BUSY
-                    || state == QUNS_PRESENTATION_MODE
             } else {
                 false
             }
