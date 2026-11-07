@@ -1,12 +1,5 @@
 import React, { useState } from "react";
-import {
-  SkipBack,
-  Play,
-  Pause,
-  SkipForward,
-  RotateCw,
-} from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import { RotateCw } from "lucide-react";
 import { MediaPayload, LyricsPayload, requestLyricsRefresh } from "../../services/mediaLyricsStore";
 import { LyricsProviderId } from "../../services/lyrics/types";
 
@@ -42,7 +35,6 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
   media,
   lyrics,
 }) => {
-  const isPlaying = Boolean(media?.is_playing);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [currentProvider, setCurrentProvider] = useState<LyricsProviderId>(() => {
@@ -62,13 +54,6 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
     window.addEventListener("notch_lyrics_provider_changed", handleSync);
     return () => window.removeEventListener("notch_lyrics_provider_changed", handleSync);
   }, []);
-
-  const handleMediaControl = async (e: React.MouseEvent, action: "prev" | "toggle" | "next") => {
-    e.stopPropagation();
-    try {
-      await invoke("smtc_action", { action });
-    } catch {}
-  };
 
   const handleCycleProvider = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -158,38 +143,7 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
         </button>
       </div>
 
-      {/* Center: Playback Controls (Bar Mode only) */}
-      {mode === "bar" && (
-        <div data-no-drag onMouseDown={(e) => e.stopPropagation()} className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={(e) => handleMediaControl(e, "prev")}
-            className="w-[30px] h-[30px] flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors"
-            aria-label="Sebelumnya"
-          >
-            <SkipBack size={14} fill="currentColor" />
-          </button>
-          <button
-            onClick={(e) => handleMediaControl(e, "toggle")}
-            className="w-[30px] h-[30px] rounded-full bg-white text-[#111] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-md"
-            aria-label={isPlaying ? "Jeda" : "Putar"}
-          >
-            {isPlaying ? (
-              <Pause size={13} fill="currentColor" />
-            ) : (
-              <Play size={13} fill="currentColor" className="ml-0.5" />
-            )}
-          </button>
-          <button
-            onClick={(e) => handleMediaControl(e, "next")}
-            className="w-[30px] h-[30px] flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors"
-            aria-label="Berikutnya"
-          >
-            <SkipForward size={14} fill="currentColor" />
-          </button>
-        </div>
-      )}
-
-      {/* Right Controls: Provider, Refresh, Offset, Pin, Return to Notch, Close */}
+      {/* Right Controls: Provider, Refresh, Offset, Pin, Return to Notch */}
       <div data-no-drag onMouseDown={(e) => e.stopPropagation()} className="flex items-center gap-1.5 shrink-0">
         {/* Lyrics Provider Selector Pill */}
         <button
