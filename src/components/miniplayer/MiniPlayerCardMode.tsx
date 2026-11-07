@@ -151,7 +151,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       </div>
 
       {/* Header: 60px Album Art + Title/Artist + Equalizer */}
-      <div data-tauri-drag-region className="flex items-center gap-3.5 shrink-0 mt-1 cursor-move">
+      <div className="flex items-center gap-3.5 shrink-0 mt-1 pointer-events-none">
         <div
           role="img"
           aria-label="Sampul album"

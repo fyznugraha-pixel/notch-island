@@ -16,6 +16,11 @@ import { MiniPlayerCardMode } from "./MiniPlayerCardMode";
 import { MiniPlayerToolbar } from "./MiniPlayerToolbar";
 import { extractDominantColor } from "./colorExtractor";
 
+interface MiniplayerCursorHoverPayload {
+  in_window: boolean;
+  in_toolbar: boolean;
+}
+
 export const MiniPlayerApp: React.FC = () => {
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const [lyrics, setLyrics] = useState<LyricsPayload | null>(null);
@@ -73,6 +78,7 @@ export const MiniPlayerApp: React.FC = () => {
   const dragCheckPollRef = useRef<NodeJS.Timeout | null>(null);
   const latestPosRef = useRef({ x: 0, y: 0, w: 440, h: 88 });
   const isInZoneRef = useRef(false);
+  const inWindowRef = useRef(false);
 
   // Initialize media & lyrics store as listener
   useEffect(() => {
@@ -235,17 +241,25 @@ export const MiniPlayerApp: React.FC = () => {
   // Listen to Rust cursor hit-testing across click-through boundaries
   useEffect(() => {
     let unlisten: (() => void) | null = null;
-    listen<boolean>("miniplayer:cursor-hover", (event) => {
-      const isHovered = event.payload;
-      if (isHovered) {
+    listen<MiniplayerCursorHoverPayload>("miniplayer:cursor-hover", (event) => {
+      const { in_window, in_toolbar } = event.payload;
+      inWindowRef.current = in_window;
+
+      if (in_window) {
         if (exitTimerRef.current) {
           clearTimeout(exitTimerRef.current);
           exitTimerRef.current = null;
         }
-        if (fadeOnHover) {
-          setIsFaded(true);
-        }
         setShowToolbar(true);
+        if (in_toolbar) {
+          // Cursor is directly over toolbar: 100% opacity for clear viewing & dragging
+          setIsFaded(false);
+        } else {
+          // Cursor is over any window part except toolbar: lowered opacity for click-through
+          if (fadeOnHover) {
+            setIsFaded(true);
+          }
+        }
       } else {
         if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
         exitTimerRef.current = setTimeout(() => {
@@ -263,19 +277,19 @@ export const MiniPlayerApp: React.FC = () => {
     };
   }, [fadeOnHover]);
 
-  // Hover behavior: immediately lowers opacity and shows toolbar as long as cursor is over the mini player
+  // Hover behavior: shows toolbar when entering window
   const handleMouseEnter = useCallback(() => {
     if (exitTimerRef.current) {
       clearTimeout(exitTimerRef.current);
       exitTimerRef.current = null;
     }
-    if (fadeOnHover) {
-      setIsFaded(true);
-    }
     setShowToolbar(true);
-  }, [fadeOnHover]);
+  }, []);
 
   const handleMouseLeave = useCallback(() => {
+    // If Win32 cursor tracking says cursor is still inside window, ignore DOM mouseleave
+    if (inWindowRef.current) return;
+
     if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
     exitTimerRef.current = setTimeout(() => {
       setShowToolbar(false);
@@ -300,11 +314,8 @@ export const MiniPlayerApp: React.FC = () => {
   }, []);
 
   const handleClick = useCallback(() => {
-    if (fadeOnHover) {
-      setIsFaded(true);
-    }
     setShowToolbar(true);
-  }, [fadeOnHover]);
+  }, []);
 
   // Ctrl key temporary click-through
   useEffect(() => {
@@ -373,7 +384,8 @@ export const MiniPlayerApp: React.FC = () => {
       if (!media?.title) return;
       const current = lyrics?.offset ?? 0;
       const next = Math.round((current + delta) * 10) / 10;
-      await setSongLyricsOffset(media.artist || "", media.title, next);
+      const clamped = Math.max(-5, Math.min(5, next));
+      await setSongLyricsOffset(media.artist || "", media.title, clamped);
     },
     [media?.artist, media?.title, lyrics?.offset]
   );

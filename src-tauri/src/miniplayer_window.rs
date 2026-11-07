@@ -41,6 +41,12 @@ fn nudge_cursor() {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct MiniplayerCursorHoverPayload {
+    pub in_window: bool,
+    pub in_toolbar: bool,
+}
+
 pub fn ensure_miniplayer_tracker(app: &AppHandle) {
     if TRACKER_STARTED.get().is_some() {
         return;
@@ -51,16 +57,22 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
     std::thread::spawn(move || {
         let mut is_click_through = false;
         let mut was_dragging = false;
-        let mut was_in_window = false;
+        let mut last_state = MiniplayerCursorHoverPayload {
+            in_window: false,
+            in_toolbar: false,
+        };
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(30));
 
             let is_open = *get_open_state().lock().unwrap();
             if !is_open {
-                if was_in_window {
-                    was_in_window = false;
-                    let _ = app_handle.emit("miniplayer:cursor-hover", false);
+                if last_state.in_window {
+                    last_state = MiniplayerCursorHoverPayload {
+                        in_window: false,
+                        in_toolbar: false,
+                    };
+                    let _ = app_handle.emit("miniplayer:cursor-hover", last_state);
                 }
                 if is_click_through {
                     if let Some(w) = app_handle.get_webview_window("miniplayer") {
@@ -96,36 +108,51 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                             && pt.y >= win_pos.y
                             && pt.y < win_pos.y + win_size.height as i32;
 
-                        if in_window != was_in_window {
-                            was_in_window = in_window;
-                            let _ = app_handle.emit("miniplayer:cursor-hover", in_window);
+                        let current_mode = get_mode().lock().unwrap().clone();
+                        let rel_y = if in_window {
+                            (pt.y - win_pos.y) as f64 / scale_factor
+                        } else {
+                            -1.0
+                        };
+
+                        let toolbar_height = if current_mode == "card" { 48.0 } else { 52.0 };
+                        let mut in_toolbar = in_window && (rel_y >= 0.0 && rel_y < toolbar_height);
+
+                        if l_down && (was_dragging || (in_toolbar && !is_click_through)) {
+                            was_dragging = true;
+                            in_toolbar = true;
+                        } else {
+                            was_dragging = false;
                         }
 
-                        let current_mode = get_mode().lock().unwrap().clone();
+                        let current_state = MiniplayerCursorHoverPayload {
+                            in_window,
+                            in_toolbar,
+                        };
 
-                        if in_window && current_mode == "card" {
-                            let rel_y = (pt.y - win_pos.y) as f64 / scale_factor;
-                            // Top 102px contains the grab handle/toolbar (36px) and album/title header (64px)
-                            let in_top_control_area = rel_y < 102.0;
+                        if current_state != last_state {
+                            last_state = current_state;
+                            let _ = app_handle.emit("miniplayer:cursor-hover", current_state);
+                        }
 
-                            if l_down && (was_dragging || !is_click_through) {
-                                // Keep drag active
-                                was_dragging = true;
+                        if current_mode == "card" {
+                            if was_dragging {
+                                // Keep drag active without altering click-through
                                 continue;
                             }
-                            was_dragging = false;
 
-                            if in_top_control_area {
+                            if in_window && !in_toolbar {
+                                // All window except toolbar: pass clicks through to background apps
+                                if !is_click_through {
+                                    let _ = win.set_ignore_cursor_events(true);
+                                    is_click_through = true;
+                                }
+                            } else {
+                                // On toolbar or outside window: ensure window receives clicks
                                 if is_click_through {
                                     let _ = win.set_ignore_cursor_events(false);
                                     is_click_through = false;
                                     nudge_cursor();
-                                }
-                            } else {
-                                // Lyrics area: pass clicks through to background apps
-                                if !is_click_through {
-                                    let _ = win.set_ignore_cursor_events(true);
-                                    is_click_through = true;
                                 }
                             }
                         } else {

@@ -210,11 +210,11 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onOffsetChange(-0.5);
+              onOffsetChange(-0.2);
             }}
-            className="text-white/60 hover:text-white text-[13px] font-bold leading-none p-0.5"
+            className="text-white/60 hover:text-white text-[13px] font-bold leading-none p-0.5 cursor-pointer"
             aria-label="Mundurkan lirik"
-            title="Mundurkan 0.5s"
+            title="Mundurkan 0.2s"
           >
             -
           </button>
@@ -231,11 +231,11 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onOffsetChange(0.5);
+              onOffsetChange(0.2);
             }}
-            className="text-white/60 hover:text-white text-[13px] font-bold leading-none p-0.5"
+            className="text-white/60 hover:text-white text-[13px] font-bold leading-none p-0.5 cursor-pointer"
             aria-label="Majukan lirik"
-            title="Majukan 0.5s"
+            title="Majukan 0.2s"
           >
             +
           </button>
