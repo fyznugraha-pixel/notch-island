@@ -10,6 +10,7 @@ import { BarLyricSlot } from "./BarLyricSlot";
 import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
 import { MediaThumbnail } from "../ui/MediaThumbnail";
+import { ScrollingText } from "../ui/ScrollingText";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -225,13 +226,16 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         </div>
 
         {/* Left-Aligned Title/Artist + Fixed 2-Line Lyric Slot */}
-        <div className="min-w-0 flex-1 h-14 flex flex-col justify-between items-start text-start">
+        <div className="min-w-0 flex-1 h-14 flex flex-col justify-between items-start overflow-hidden text-start">
           <div
             dir="auto"
-            className="w-full h-4 flex items-center text-[11.5px] text-white/60 leading-none truncate text-start"
+            className="w-full h-4 flex items-center overflow-hidden text-start"
             title={titleArtistText}
           >
-            {titleArtistText}
+            <ScrollingText
+              text={titleArtistText}
+              className="text-[11.5px] text-white/60 leading-none w-full"
+            />
           </div>
 
           <BarLyricSlot

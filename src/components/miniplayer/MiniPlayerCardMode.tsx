@@ -5,6 +5,7 @@ import { useLyricsSync } from "./lyricsSync";
 import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
 import { MediaThumbnail } from "../ui/MediaThumbnail";
+import { ScrollingText } from "../ui/ScrollingText";
 import {
   sanitizeLyricText,
   clampExtremeText,
@@ -212,19 +213,15 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
           )}
         </div>
 
-        <div className="flex flex-col min-w-0 flex-1 text-start" dir="auto">
-          <span
-            className="text-[15px] font-semibold text-white truncate leading-snug tracking-[-0.01em]"
-            title={media?.title || "Gili Mini Player"}
-          >
-            {media?.title || "Gili Mini Player"}
-          </span>
-          <span
-            className="text-[12px] text-white/60 truncate leading-snug mt-[3px]"
-            title={media?.artist || "Belum ada media aktif"}
-          >
-            {media?.artist || "Belum ada media aktif"}
-          </span>
+        <div className="flex flex-col min-w-0 flex-1 overflow-hidden text-start" dir="auto">
+          <ScrollingText
+            text={media?.title || "Gili Mini Player"}
+            className="text-[15px] font-semibold text-white leading-snug tracking-[-0.01em] w-full"
+          />
+          <ScrollingText
+            text={media?.artist || "Belum ada media aktif"}
+            className="text-[12px] text-white/60 leading-snug mt-[2px] w-full"
+          />
         </div>
 
         {/* Right: Equalizer 5 bars (Blue #3B9DF8) */}
