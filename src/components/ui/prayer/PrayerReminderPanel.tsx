@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Navigation } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Settings,
+  Bell,
+  Navigation,
+} from "lucide-react";
+import { motion } from "framer-motion";
 import {
   PrayerId,
   PrayerScheduleData,
@@ -21,7 +28,9 @@ import {
   getSavedCustomCity,
 } from "../../../services/weatherService";
 import { playTaskCompleteSound } from "../../../services/soundService";
-import { Language } from "../../../services/i18n";
+import { Language, t } from "../../../services/i18n";
+import { iosSpring } from "../../../utils/iosMotion";
+import { Tooltip } from "../Tooltip";
 import {
   PRAYER_ACCENT,
   PrayerBellIcon,
@@ -154,397 +163,339 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
     [settings.enabledPrayers]
   );
 
-  const circleBtnStyle = (disabled = false): React.CSSProperties => ({
-    position: "relative",
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    border: 0,
-    background: isLightMode ? "rgba(0,0,0,.07)" : "rgba(255,255,255,.09)",
-    color: isLightMode ? "#18181b" : "#e8e8ed",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 0,
-    cursor: disabled ? "default" : "pointer",
-    opacity: disabled ? 0.35 : 1,
-    pointerEvents: disabled ? "none" : "auto",
-    flexShrink: 0,
-    boxShadow: isLightMode
-      ? "inset 0 0 0 1px rgba(0,0,0,.06)"
-      : "inset 0 0 0 1px rgba(255,255,255,.06)",
-  });
+  // Exact same button classes as PanelNavHeader.tsx
+  const navButtonClass =
+    "w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] flex items-center justify-center text-[#e4e4e7] hover:text-white transition-colors cursor-pointer shrink-0";
+  const navDisabledClass =
+    "w-8 h-8 rounded-full bg-[#17171c]/50 flex items-center justify-center text-white/25 shrink-0 pointer-events-none";
 
   return (
     <div
-      className="w-full h-full flex flex-col select-none overflow-hidden"
+      className="w-full h-full flex flex-col select-none overflow-hidden px-6 pb-0.5"
       style={{
-        padding: "0 28px 2px",
-        color: isLightMode ? "#18181b" : "#fff",
+        color: isLightMode ? "#101828" : "#fff",
       }}
     >
-      {/* Custom Title Bar Row matching prayer-desain.html */}
+      {/* Header Row matching PanelNavHeader exact dimensions (mt-1 after status bar pb-1 = 8px, w-8 h-8 buttons, 18px title) */}
       {subView === "main" ? (
         <div
           data-tab-title-swipe="true"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            height: 36,
-            position: "relative",
-            flexShrink: 0,
-          }}
+          className="relative flex items-center justify-between gap-2 mt-1 w-full shrink-0"
         >
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              type="button"
-              aria-label="Back"
-              onClick={onPrev}
-              style={circleBtnStyle(!hasPrev)}
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-
-            <button
-              type="button"
-              aria-label="Notifications"
-              onClick={onToggleNotifications}
-              style={circleBtnStyle(false)}
-            >
-              <PrayerBellIcon size={15} strokeWidth={2} />
-              {unreadNotificationsCount > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    right: 4,
-                    top: 4,
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    background: "#0A84FF",
-                    boxShadow: `0 0 0 2px ${isLightMode ? "#fff" : "#000"}`,
+          {/* Left Cluster: [ Prev ] [ Notification Button ] + Title & Location */}
+          <div className="flex items-center gap-2 min-w-0 z-10">
+            {hasPrev ? (
+              <Tooltip content={t("nav_prev")} side="bottom" align="start">
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  transition={iosSpring.press}
+                  aria-label={t("nav_prev")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPrev?.();
                   }}
-                />
-              )}
-            </button>
+                  className={navButtonClass}
+                >
+                  <ChevronLeft size={16} strokeWidth={2} className="shrink-0" />
+                </motion.button>
+              </Tooltip>
+            ) : (
+              <div className={navDisabledClass} role="button" aria-disabled="true">
+                <ChevronLeft size={16} strokeWidth={2} />
+              </div>
+            )}
+
+            {onToggleNotifications && (
+              <Tooltip content={t("tab_notifications")} side="bottom" align="start">
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  transition={iosSpring.press}
+                  aria-label={t("nav_notifications")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleNotifications();
+                  }}
+                  className={`${navButtonClass} relative`}
+                >
+                  <Bell size={15} strokeWidth={2} />
+                  {unreadNotificationsCount > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6]" />
+                  )}
+                </motion.button>
+              </Tooltip>
+            )}
+
+            <div className="flex flex-col min-w-0 ml-1">
+              <span
+                className={`text-[18px] font-semibold tracking-[-0.01em] leading-none truncate ${
+                  isLightMode ? "text-[#101828]" : "text-white"
+                }`}
+              >
+                {t("tab_prayer_reminder") || (isId ? "Sholat" : "Prayer")}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSubView("location")}
+                title={isId ? "Klik untuk ubah kota/lokasi" : "Click to change city/location"}
+                style={{
+                  fontSize: 11,
+                  color: "#8e8e93",
+                  marginTop: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "flex-start",
+                  gap: 5,
+                  whiteSpace: "nowrap",
+                  background: "transparent",
+                  border: 0,
+                  padding: 0,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                <PrayerPinIcon size={10} />
+                <span>{schedule.locationName}</span>
+                <span style={{ color: "#636366" }}>{customCity ? "Custom" : "GPS"}</span>
+                {schedule.hijriDate && (
+                  <>
+                    <span style={{ color: "#48484a" }}>·</span>
+                    <span>{schedule.hijriDate}</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
-          <div style={{ marginLeft: 4, whiteSpace: "nowrap", minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 17,
-                fontWeight: 700,
-                letterSpacing: "-.02em",
-                lineHeight: "20px",
-              }}
-            >
-              {isId ? "Sholat" : "Prayer"}
-            </div>
+          {/* Right Cluster: [ Reminders Pill ] [ Settings ] [ Next ] */}
+          <div className="flex items-center gap-2 shrink-0 z-10">
             <button
               type="button"
-              onClick={() => setSubView("location")}
-              title={isId ? "Klik untuk ubah kota/lokasi" : "Click to change city/location"}
+              onClick={() => setSubView("settings")}
               style={{
-                fontSize: 11,
-                color: "#8e8e93",
-                marginTop: 2,
+                height: 30,
+                padding: "0 13px 0 10px",
+                borderRadius: 15,
+                border: 0,
+                background: "linear-gradient(180deg, #3BE07A, #22C55E)",
+                color: "#04210F",
+                fontSize: 12,
+                fontWeight: 700,
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "flex-start",
-                gap: 5,
-                whiteSpace: "nowrap",
-                background: "transparent",
+                gap: 6,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                boxShadow:
+                  "0 4px 14px rgba(48,209,88,.35), inset 0 1px 0 rgba(255,255,255,.4)",
+                flexShrink: 0,
+              }}
+            >
+              <PrayerBellIcon size={13} strokeWidth={2.3} />
+              <span>{isId ? "Pengingat" : "Reminders"}</span>
+            </button>
+
+            {onToggleSettings && (
+              <Tooltip content={t("tab_settings")} side="bottom" align="end">
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  transition={iosSpring.press}
+                  aria-label={t("tab_settings")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleSettings();
+                  }}
+                  className={navButtonClass}
+                >
+                  <Settings size={15} strokeWidth={2} />
+                </motion.button>
+              </Tooltip>
+            )}
+
+            {hasNext ? (
+              <Tooltip content={t("nav_next")} side="bottom" align="end">
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  transition={iosSpring.press}
+                  aria-label={t("nav_next")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNext?.();
+                  }}
+                  className={navButtonClass}
+                >
+                  <ChevronRight size={16} strokeWidth={2} className="shrink-0" />
+                </motion.button>
+              </Tooltip>
+            ) : (
+              <div className={navDisabledClass} role="button" aria-disabled="true">
+                <ChevronRight size={16} strokeWidth={2} />
+              </div>
+            )}
+          </div>
+        </div>
+      ) : subView === "settings" ? (
+        <div className="relative flex items-center justify-between gap-2.5 mt-1 w-full shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              transition={iosSpring.press}
+              type="button"
+              aria-label="Back to prayer times"
+              onClick={() => setSubView("main")}
+              className={navButtonClass}
+            >
+              <ChevronLeft size={16} strokeWidth={2} className="shrink-0" />
+            </motion.button>
+
+            <div className="flex flex-col min-w-0">
+              <span
+                className={`text-[18px] font-semibold tracking-[-0.01em] leading-none truncate ${
+                  isLightMode ? "text-[#101828]" : "text-white"
+                }`}
+              >
+                {isId ? "Pengingat" : "Reminders"}
+              </span>
+              <span style={{ fontSize: 11, color: "#8e8e93", marginTop: 2 }}>
+                {isId
+                  ? `${enabledPrayersCount} dari 5 waktu sholat aktif`
+                  : `${enabledPrayersCount} of 5 prayers on`}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#8e8e93" }}>
+              {isId ? "Semua pengingat" : "All reminders"}
+            </span>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.reminderEnabled}
+              aria-label="All reminders"
+              onClick={() =>
+                handleUpdateSettings({ reminderEnabled: !settings.reminderEnabled })
+              }
+              style={{
+                position: "relative",
+                width: 40,
+                height: 24,
                 border: 0,
+                borderRadius: 12,
+                background: settings.reminderEnabled ? PRAYER_ACCENT : "#39393d",
                 padding: 0,
+                cursor: "pointer",
+                flexShrink: 0,
+                transition: "background-color 150ms ease",
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  left: settings.reminderEnabled ? 18 : 2,
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  background: "#fff",
+                  boxShadow: "0 2px 4px rgba(0,0,0,.35)",
+                  transition: "left 150ms ease",
+                }}
+              />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="relative flex items-center justify-between gap-2.5 mt-1 w-full shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              transition={iosSpring.press}
+              type="button"
+              aria-label="Back to prayer times"
+              onClick={() => setSubView("main")}
+              className={navButtonClass}
+            >
+              <ChevronLeft size={16} strokeWidth={2} className="shrink-0" />
+            </motion.button>
+
+            <div className="flex flex-col min-w-0">
+              <span
+                className={`text-[18px] font-semibold tracking-[-0.01em] leading-none truncate ${
+                  isLightMode ? "text-[#101828]" : "text-white"
+                }`}
+              >
+                {isId ? "Lokasi Jadwal Sholat" : "Prayer Location"}
+              </span>
+              <span style={{ fontSize: 11, color: "#8e8e93", marginTop: 2 }}>
+                {schedule.locationName} ({customCity ? "Custom" : "GPS"})
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <div
+              style={{
+                display: "flex",
+                gap: 2,
+                padding: 2,
+                borderRadius: 10,
+                background: "rgba(118,118,128,.24)",
+              }}
+            >
+              {CALC_METHODS.map((m) => {
+                const isActive = settings.calculationMethod === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={async () => {
+                      handleUpdateSettings({ calculationMethod: m.id });
+                      await onRefreshSchedule(true);
+                    }}
+                    style={{
+                      height: 24,
+                      padding: "0 9px",
+                      border: 0,
+                      borderRadius: 8,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      background: isActive ? "#636366" : "transparent",
+                      color: isLightMode && !isActive ? "#27272a" : "#fff",
+                      boxShadow: isActive ? "0 2px 6px rgba(0,0,0,.35)" : "none",
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleUseAutoLocation}
+              style={{
+                height: 28,
+                padding: "0 12px",
+                borderRadius: 14,
+                border: 0,
+                background: "linear-gradient(180deg, #3BE07A, #22C55E)",
+                color: "#04210F",
+                fontSize: 11.5,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
                 cursor: "pointer",
                 fontFamily: "inherit",
               }}
             >
-              <PrayerPinIcon size={10} />
-              <span>{schedule.locationName}</span>
-              <span style={{ color: "#636366" }}>{customCity ? "Custom" : "GPS"}</span>
-              {schedule.hijriDate && (
-                <>
-                  <span style={{ color: "#48484a" }}>·</span>
-                  <span>{schedule.hijriDate}</span>
-                </>
-              )}
+              <Navigation size={11} />
+              <span>{isId ? "Otomatis (GPS)" : "Auto (GPS)"}</span>
             </button>
           </div>
-
-          <div style={{ flex: 1 }} />
-
-          <button
-            type="button"
-            onClick={() => setSubView("settings")}
-            style={{
-              height: 28,
-              padding: "0 13px 0 10px",
-              borderRadius: 15,
-              border: 0,
-              background: "linear-gradient(180deg, #3BE07A, #22C55E)",
-              color: "#04210F",
-              fontSize: 12,
-              fontWeight: 700,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              boxShadow:
-                "0 4px 14px rgba(48,209,88,.35), inset 0 1px 0 rgba(255,255,255,.4)",
-              flexShrink: 0,
-            }}
-          >
-            <PrayerBellIcon size={13} strokeWidth={2.3} />
-            <span>{isId ? "Pengingat" : "Reminders"}</span>
-          </button>
-
-          {onToggleSettings && (
-            <button
-              type="button"
-              aria-label="Settings"
-              onClick={onToggleSettings}
-              style={circleBtnStyle(false)}
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
-              </svg>
-            </button>
-          )}
-
-          <button
-            type="button"
-            aria-label="Next page"
-            onClick={onNext}
-            style={circleBtnStyle(!hasNext)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </button>
-        </div>
-      ) : subView === "settings" ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            height: 36,
-            flexShrink: 0,
-          }}
-        >
-          <button
-            type="button"
-            aria-label="Back to prayer times"
-            onClick={() => setSubView("main")}
-            style={circleBtnStyle(false)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-.02em" }}>
-              {isId ? "Pengingat" : "Reminders"}
-            </div>
-            <div style={{ fontSize: 11, color: "#8e8e93" }}>
-              {isId
-                ? `${enabledPrayersCount} dari 5 waktu sholat aktif`
-                : `${enabledPrayersCount} of 5 prayers on`}
-            </div>
-          </div>
-
-          <span style={{ flex: 1 }} />
-
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: "#8e8e93" }}>
-            {isId ? "Semua pengingat" : "All reminders"}
-          </span>
-
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.reminderEnabled}
-            aria-label="All reminders"
-            onClick={() =>
-              handleUpdateSettings({ reminderEnabled: !settings.reminderEnabled })
-            }
-            style={{
-              position: "relative",
-              width: 40,
-              height: 24,
-              border: 0,
-              borderRadius: 12,
-              background: settings.reminderEnabled ? PRAYER_ACCENT : "#39393d",
-              padding: 0,
-              cursor: "pointer",
-              flexShrink: 0,
-              transition: "background-color 150ms ease",
-            }}
-          >
-            <span
-              style={{
-                position: "absolute",
-                top: 2,
-                left: settings.reminderEnabled ? 18 : 2,
-                width: 20,
-                height: 20,
-                borderRadius: 10,
-                background: "#fff",
-                boxShadow: "0 2px 4px rgba(0,0,0,.35)",
-                transition: "left 150ms ease",
-              }}
-            />
-          </button>
-        </div>
-      ) : (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            height: 36,
-            flexShrink: 0,
-          }}
-        >
-          <button
-            type="button"
-            aria-label="Back to prayer times"
-            onClick={() => setSubView("main")}
-            style={circleBtnStyle(false)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-.02em" }}>
-              {isId ? "Lokasi Jadwal Sholat" : "Prayer Location"}
-            </div>
-            <div style={{ fontSize: 11, color: "#8e8e93" }}>
-              {schedule.locationName} ({customCity ? "Custom" : "GPS"})
-            </div>
-          </div>
-
-          <span style={{ flex: 1 }} />
-
-          <div
-            style={{
-              display: "flex",
-              gap: 2,
-              padding: 2,
-              borderRadius: 10,
-              background: "rgba(118,118,128,.24)",
-            }}
-          >
-            {CALC_METHODS.map((m) => {
-              const isActive = settings.calculationMethod === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={async () => {
-                    handleUpdateSettings({ calculationMethod: m.id });
-                    await onRefreshSchedule(true);
-                  }}
-                  style={{
-                    height: 24,
-                    padding: "0 9px",
-                    border: 0,
-                    borderRadius: 8,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    background: isActive ? "#636366" : "transparent",
-                    color: isLightMode && !isActive ? "#27272a" : "#fff",
-                    boxShadow: isActive ? "0 2px 6px rgba(0,0,0,.35)" : "none",
-                  }}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <button
-            type="button"
-            onClick={handleUseAutoLocation}
-            style={{
-              height: 28,
-              padding: "0 12px",
-              borderRadius: 14,
-              border: 0,
-              background: "linear-gradient(180deg, #3BE07A, #22C55E)",
-              color: "#04210F",
-              fontSize: 11.5,
-              fontWeight: 700,
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            <Navigation size={11} />
-            <span>{isId ? "Otomatis (GPS)" : "Auto (GPS)"}</span>
-          </button>
         </div>
       )}
 
