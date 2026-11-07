@@ -61,3 +61,4 @@ export const MiniPlayerBackground: React.FC<MiniPlayerBackgroundProps> = ({
     </div>
   );
 };
+

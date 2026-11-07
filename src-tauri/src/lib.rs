@@ -3227,6 +3227,7 @@ pub fn run() {
             media_lyrics_store::clear_lyrics_disk_cache,
             miniplayer_window::toggle_miniplayer,
             miniplayer_window::close_miniplayer,
+            miniplayer_window::reset_miniplayer_position,
             miniplayer_window::is_miniplayer_open,
             miniplayer_window::snap_miniplayer_position,
             miniplayer_window::set_miniplayer_mode,

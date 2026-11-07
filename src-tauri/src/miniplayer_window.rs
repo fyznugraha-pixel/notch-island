@@ -1,9 +1,10 @@
 use std::sync::{Arc, Mutex, OnceLock};
-use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Listener, Manager, WebviewWindow};
 
 static IS_MINIPLAYER_OPEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static WAS_OPEN_BEFORE_FULLSCREEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static CURRENT_MODE: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
+static WAS_RETURNED_TO_NOTCH: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static TRACKER_STARTED: OnceLock<bool> = OnceLock::new();
 
 fn get_open_state() -> &'static Arc<Mutex<bool>> {
@@ -16,6 +17,55 @@ fn get_fs_state() -> &'static Arc<Mutex<bool>> {
 
 fn get_mode() -> &'static Arc<Mutex<String>> {
     CURRENT_MODE.get_or_init(|| Arc::new(Mutex::new("bar".into())))
+}
+
+fn get_returned_to_notch_state() -> &'static Arc<Mutex<bool>> {
+    WAS_RETURNED_TO_NOTCH.get_or_init(|| Arc::new(Mutex::new(false)))
+}
+
+pub fn get_bottom_left_position(mode: &str) -> (f64, f64) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromPoint, GetDeviceCaps, CreateDCW,
+            MONITORINFO, MONITOR_DEFAULTTOPRIMARY, LOGPIXELSX,
+        };
+        let pt = POINT { x: 0, y: 0 };
+        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
+            let sf = unsafe {
+                let display = windows::core::w!("DISPLAY");
+                let hdc = CreateDCW(display, None, None, None);
+                let dpi = GetDeviceCaps(hdc, LOGPIXELSX) as f64;
+                if dpi > 0.0 { dpi / 96.0 } else { 1.0 }
+            };
+            let rc = mi.rcWork;
+            let log_left = rc.left as f64 / sf;
+            let log_bottom = rc.bottom as f64 / sf;
+            let (_, h) = if mode == "card" {
+                (380.0, 340.0)
+            } else {
+                (440.0, 88.0)
+            };
+            let margin = 16.0;
+            return (log_left + margin, log_bottom - h - margin);
+        }
+    }
+    (16.0, 500.0)
+}
+
+pub fn reset_miniplayer_position_to_bottom_left(app: &AppHandle) {
+    *get_returned_to_notch_state().lock().unwrap() = true;
+    if let Some(w) = app.get_webview_window("miniplayer") {
+        let mode = get_mode().lock().unwrap().clone();
+        let (x, y) = get_bottom_left_position(&mode);
+        let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+    }
 }
 
 #[cfg(windows)]
@@ -52,6 +102,11 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
         return;
     }
     let _ = TRACKER_STARTED.set(true);
+
+    let app_handle_return = app.clone();
+    let _ = app.listen("miniplayer:return-to-notch", move |_| {
+        reset_miniplayer_position_to_bottom_left(&app_handle_return);
+    });
 
     let app_handle = app.clone();
     std::thread::spawn(move || {
@@ -210,6 +265,14 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
                 return Ok(false);
             }
         }
+        let returned_arc = get_returned_to_notch_state();
+        let mut was_returned = returned_arc.lock().unwrap();
+        if *was_returned {
+            *was_returned = false;
+            let mode = get_mode().lock().unwrap().clone();
+            let (x, y) = get_bottom_left_position(&mode);
+            let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
         let _ = w.show();
         #[cfg(windows)]
         apply_no_activate_style(&w);
@@ -222,39 +285,8 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
     // Tauri command handler threads cannot create WebView windows reliably.
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        // Compute bottom-right position before building
-        let (init_x, init_y) = {
-            #[cfg(windows)]
-            {
-                use windows::Win32::Foundation::POINT;
-                use windows::Win32::Graphics::Gdi::{
-                    GetMonitorInfoW, MonitorFromPoint, GetDeviceCaps, CreateDCW,
-                    MONITORINFO, MONITOR_DEFAULTTOPRIMARY, LOGPIXELSX,
-                };
-                let pt = POINT { x: 0, y: 0 };
-                let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY) };
-                let mut mi = MONITORINFO {
-                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                    ..Default::default()
-                };
-                if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
-                    let sf = unsafe {
-                        let display = windows::core::w!("DISPLAY");
-                        let hdc = CreateDCW(display, None, None, None);
-                        let dpi = GetDeviceCaps(hdc, LOGPIXELSX) as f64;
-                        dpi / 96.0
-                    };
-                    let rc = mi.rcWork;
-                    let log_right = rc.right as f64 / sf;
-                    let log_bottom = rc.bottom as f64 / sf;
-                    ((log_right - 440.0 - 12.0), (log_bottom - 130.0 - 12.0))
-                } else {
-                    (100.0, 100.0)
-                }
-            }
-            #[cfg(not(windows))]
-            { (100.0, 100.0) }
-        };
+        let mode = get_mode().lock().unwrap().clone();
+        let (init_x, init_y) = get_bottom_left_position(&mode);
 
         let win = tauri::WebviewWindowBuilder::new(
             &app_clone,
@@ -400,6 +432,12 @@ pub fn toggle_miniplayer(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub fn close_miniplayer(app: AppHandle) -> Result<(), String> {
     close_miniplayer_window(&app)
+}
+
+#[tauri::command]
+pub fn reset_miniplayer_position(app: AppHandle) -> Result<(), String> {
+    reset_miniplayer_position_to_bottom_left(&app);
+    Ok(())
 }
 
 #[tauri::command]

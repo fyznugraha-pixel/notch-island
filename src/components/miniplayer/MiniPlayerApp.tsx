@@ -213,6 +213,7 @@ export const MiniPlayerApp: React.FC = () => {
 
                 if (shouldMerge) {
                   await invoke("close_miniplayer");
+                  await invoke("reset_miniplayer_position");
                   await emit("miniplayer:return-to-notch");
                 }
               }
@@ -365,6 +366,7 @@ export const MiniPlayerApp: React.FC = () => {
   const handleReturnToNotch = useCallback(async () => {
     try {
       await invoke("close_miniplayer");
+      await invoke("reset_miniplayer_position");
       await emit("miniplayer:return-to-notch");
     } catch (e) {
       console.error("Failed to return to notch:", e);
