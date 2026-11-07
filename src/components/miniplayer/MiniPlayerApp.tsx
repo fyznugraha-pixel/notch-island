@@ -402,7 +402,7 @@ export const MiniPlayerApp: React.FC = () => {
         transformOrigin: "top center",
         transition: "opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
-      className={`relative overflow-hidden select-none transition-[width,height] duration-200 ease-out ${
+      className={`relative overflow-hidden select-none bg-transparent transition-[width,height] duration-200 ease-out ${
         mode === "card" ? "w-[380px] h-[440px]" : showToolbar ? "w-[440px] h-[130px]" : "w-[440px] h-[88px]"
       }`}
     >

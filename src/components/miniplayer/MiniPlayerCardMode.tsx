@@ -1,5 +1,4 @@
-import React, { useMemo } from "react";
-import { motion } from "framer-motion";
+import React, { useMemo, useRef, useEffect, useCallback } from "react";
 import { SkipBack, Play, Pause, SkipForward } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
@@ -45,33 +44,6 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
 
   const remainingSeconds = Math.max(0, totalDuration - livePosition);
 
-  // Five lines of lyrics window around activeIndex
-  const fiveLines = useMemo(() => {
-    if (!lyrics?.synced || !lyrics.lines || lyrics.lines.length === 0) return [];
-    const lines = lyrics.lines;
-    const center = Math.max(0, activeIndex);
-
-    // Indices: center - 2, center - 1, center, center + 1, center + 2
-    const result = [];
-    for (let offset = -2; offset <= 2; offset++) {
-      const idx = center + offset;
-      if (idx >= 0 && idx < lines.length) {
-        result.push({
-          index: idx,
-          offset,
-          line: lines[idx],
-        });
-      } else {
-        result.push({
-          index: idx,
-          offset,
-          line: null,
-        });
-      }
-    }
-    return result;
-  }, [lyrics?.synced, lyrics?.lines, activeIndex]);
-
   const containerStyle = useMemo(() => {
     if (theme === "solid") {
       return {
@@ -86,11 +58,92 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     };
   }, [theme, tintColor]);
 
+  // Smooth lyrics auto-scroll refs
+  const lyricsContainerRef = useRef<HTMLDivElement>(null);
+  const activeLineRef = useRef<HTMLDivElement>(null);
+  const userScrollingRef = useRef(false);
+  const userScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-scroll to center active lyric line
+  useEffect(() => {
+    if (userScrollingRef.current) return;
+    if (activeIndex >= 0 && lyricsContainerRef.current && activeLineRef.current) {
+      const container = lyricsContainerRef.current;
+      const line = activeLineRef.current;
+      const containerRect = container.getBoundingClientRect();
+      const lineRect = line.getBoundingClientRect();
+
+      const targetScrollTop =
+        container.scrollTop +
+        (lineRect.top - containerRect.top) -
+        containerRect.height / 2 +
+        lineRect.height / 2;
+
+      container.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: "smooth",
+      });
+    }
+  }, [activeIndex]);
+
+  // Reset scroll when track changes
+  useEffect(() => {
+    userScrollingRef.current = false;
+    if (userScrollTimeoutRef.current) {
+      clearTimeout(userScrollTimeoutRef.current);
+      userScrollTimeoutRef.current = null;
+    }
+    if (lyricsContainerRef.current) {
+      lyricsContainerRef.current.scrollTo({ top: 0, behavior: "auto" });
+    }
+  }, [lyrics?.title, lyrics?.artist]);
+
+  // Wheel interaction: temporarily pause auto-scroll, then resume after 2.5s
+  const handleWheel = useCallback(() => {
+    userScrollingRef.current = true;
+    if (userScrollTimeoutRef.current) {
+      clearTimeout(userScrollTimeoutRef.current);
+    }
+    userScrollTimeoutRef.current = setTimeout(() => {
+      userScrollingRef.current = false;
+      if (activeIndex >= 0 && lyricsContainerRef.current && activeLineRef.current) {
+        const container = lyricsContainerRef.current;
+        const line = activeLineRef.current;
+        const containerRect = container.getBoundingClientRect();
+        const lineRect = line.getBoundingClientRect();
+
+        const targetScrollTop =
+          container.scrollTop +
+          (lineRect.top - containerRect.top) -
+          containerRect.height / 2 +
+          lineRect.height / 2;
+
+        container.scrollTo({
+          top: Math.max(0, targetScrollTop),
+          behavior: "smooth",
+        });
+      }
+    }, 2500);
+  }, [activeIndex]);
+
+  const handleLineClick = useCallback(async (e: React.MouseEvent, lineTime: number) => {
+    e.stopPropagation();
+    userScrollingRef.current = false;
+    if (userScrollTimeoutRef.current) {
+      clearTimeout(userScrollTimeoutRef.current);
+      userScrollTimeoutRef.current = null;
+    }
+    try {
+      await invoke("smtc_seek", { positionSec: lineTime });
+    } catch {}
+  }, []);
+
   const handleSeek = async (e: React.MouseEvent<HTMLDivElement>) => {
     if (!totalDuration || totalDuration <= 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const targetTime = ratio * totalDuration;
+    userScrollingRef.current = false;
     try {
       await invoke("smtc_seek", { positionSec: targetTime });
     } catch {}
@@ -107,7 +160,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     <div
       data-tauri-drag-region
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[380px] h-[440px] text-white select-none cursor-move rounded-[28px] shadow-[0_18px_40px_rgba(0,0,0,0.55)] p-[6px_18px_18px] flex flex-col justify-between overflow-hidden ${
+      className={`relative box-border w-[380px] h-[440px] text-white select-none cursor-move rounded-[28px] p-[6px_18px_18px] flex flex-col justify-between overflow-hidden shadow-none ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
       }`}
       style={containerStyle}
@@ -216,68 +269,71 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         </svg>
       </div>
 
-      {/* Center: 5 Lines of Synced Lyrics with Mask Fade */}
+      {/* Center: Synced Lyrics with Smooth Auto-Scroll and Mask Fade */}
       <div
-        className="flex-1 my-2 flex flex-col justify-center gap-3.5 overflow-hidden relative"
+        ref={lyricsContainerRef}
+        onWheel={handleWheel}
+        data-no-drag
         style={{
           maskImage:
-            "linear-gradient(to bottom, transparent 0%, black 18%, black 82%, transparent 100%)",
+            "linear-gradient(to bottom, transparent 0%, black 16%, black 84%, transparent 100%)",
           WebkitMaskImage:
-            "linear-gradient(to bottom, transparent 0%, black 18%, black 82%, transparent 100%)",
+            "linear-gradient(to bottom, transparent 0%, black 16%, black 84%, transparent 100%)",
         }}
+        className="flex-1 my-1 overflow-y-auto overflow-x-hidden relative select-none scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
         {lyrics?.state === "loading" ? (
-          <div className="flex flex-col items-center justify-center gap-2 text-white/50 text-sm py-8">
+          <div className="h-full flex flex-col items-center justify-center gap-2 text-white/50 text-sm py-12">
             <div className="w-5 h-5 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
             <span>Memuat lirik...</span>
           </div>
         ) : lyrics?.state === "instrumental" ? (
-          <div className="text-center text-white/60 text-[15px] font-medium py-8">
+          <div className="h-full flex items-center justify-center text-center text-white/60 text-[15px] font-medium py-12">
             ♪ Lagu Instrumental ♪
           </div>
         ) : lyrics?.state === "not_found" ? (
-          <div className="text-center text-white/50 text-[13.5px] py-8">
+          <div className="h-full flex items-center justify-center text-center text-white/50 text-[13.5px] py-12">
             Lirik tidak ditemukan
           </div>
-        ) : lyrics?.synced && fiveLines.length > 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2.5 py-1 text-center">
-            {fiveLines.map(({ index, offset, line }) => {
-              if (!line) {
-                return <div key={`empty-${offset}`} className="h-6" />;
-              }
-
-              const isActive = offset === 0;
-              const isNear = Math.abs(offset) === 1;
+        ) : lyrics?.synced && lyrics.lines && lyrics.lines.length > 0 ? (
+          <div className="flex flex-col items-center text-center space-y-3 pt-[96px] pb-[105px] px-2">
+            {lyrics.lines.map((line, index) => {
+              const distance = Math.abs(index - activeIndex);
+              const isActive = index === activeIndex;
+              const isNear = distance === 1;
+              const isMid = distance === 2;
 
               return (
-                <motion.div
+                <div
                   key={`${index}-${line.time}`}
-                  layout="position"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    try {
-                      await invoke("smtc_seek", { positionSec: line.time });
-                    } catch {}
-                  }}
-                  className={`cursor-pointer transition-all duration-200 px-2 select-none ${
+                  ref={isActive ? activeLineRef : null}
+                  onClick={(e) => handleLineClick(e, line.time)}
+                  className={`cursor-pointer transition-all duration-300 ease-out px-3 py-1 rounded-xl select-none max-w-full ${
                     isActive
-                      ? "text-[20px] font-bold text-white scale-100 line-clamp-3 leading-snug"
+                      ? "text-[18.5px] font-bold text-white scale-100 leading-snug"
                       : isNear
-                      ? "text-[15px] font-medium text-white/50 hover:text-white/80 leading-snug"
-                      : "text-[14px] font-normal text-white/30 hover:text-white/60 leading-snug"
+                      ? "text-[15px] font-semibold text-white/50 hover:text-white/80 scale-[0.96] leading-snug"
+                      : isMid
+                      ? "text-[13.5px] font-medium text-white/30 hover:text-white/60 scale-[0.92] leading-snug"
+                      : "text-[12.5px] font-normal text-white/18 hover:text-white/50 scale-[0.88] leading-snug"
                   }`}
+                  style={
+                    isActive
+                      ? { textShadow: "0 0 16px rgba(255, 255, 255, 0.45)" }
+                      : undefined
+                  }
                 >
-                  {line.text}
-                </motion.div>
+                  {line.text || "•••"}
+                </div>
               );
             })}
           </div>
         ) : lyrics?.plain_lyrics ? (
-          <div className="text-center text-white/70 text-[14px] py-4 px-3 overflow-y-auto max-h-[180px] leading-relaxed whitespace-pre-wrap">
+          <div className="text-center text-white/70 text-[14px] py-6 px-3 overflow-y-auto max-h-[200px] leading-relaxed whitespace-pre-wrap">
             {lyrics.plain_lyrics}
           </div>
         ) : (
-          <div className="text-center text-white/40 text-[13.5px] py-8">
+          <div className="h-full flex items-center justify-center text-center text-white/40 text-[13.5px] py-12">
             {media?.title ? "Lirik tidak tersedia" : "Menunggu pemutaran musik..."}
           </div>
         )}

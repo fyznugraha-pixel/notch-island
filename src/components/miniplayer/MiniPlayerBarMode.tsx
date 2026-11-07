@@ -74,7 +74,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     <div
       data-tauri-drag-region
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[440px] text-white select-none cursor-move rounded-[24px] shadow-[0_18px_40px_rgba(0,0,0,0.55)] transition-[height] duration-200 ease-out p-[14px_16px_18px] overflow-hidden ${
+      className={`relative box-border w-[440px] text-white select-none cursor-move rounded-[24px] shadow-none transition-[height] duration-200 ease-out p-[14px_16px_18px] overflow-hidden ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
       } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
       style={containerStyle}
@@ -130,13 +130,13 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
                 {activeLyricText}
               </div>
             ) : (
-              <AnimatePresence mode="wait">
+              <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div
                   key={activeLyricText}
-                  initial={{ opacity: 0, y: 3 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -3 }}
-                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  initial={{ opacity: 0, y: 10, filter: "blur(3px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: -10, filter: "blur(3px)" }}
+                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
                   className="text-[14.5px] font-bold text-white truncate tracking-[-0.005em] absolute inset-x-0"
                   title={activeLyricText}
                 >
