@@ -18,6 +18,36 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.5.0",
+    date: "7 Nov 2026",
+    highlights: [
+      {
+        icon: <Bell size={14} />,
+        titleId: "Desain Baru Pengingat Sholat & Notifikasi Adzan",
+        titleEn: "Redesigned Prayer Reminders & Adzan Alert",
+        descId: "Tampilan Pengingat Sholat kini lebih modern dengan hero card, timeline matahari/bulan real-time, audio adzan saat waktu sholat tiba, dan notifikasi pre-reminder yang lebih ringkas.",
+        descEn: "Prayer Reminder now features a modern hero card, real-time celestial sun/moon timeline indicator, adzan audio alert at prayer time, and a sleek compact pre-reminder notification.",
+        badge: "new",
+      },
+      {
+        icon: <SlidersHorizontal size={14} />,
+        titleId: "Metode Hisab & Pengaturan Audio Interaktif",
+        titleEn: "Calculation Methods & Interactive Audio Settings",
+        descId: "Pilihan metode hisab Kemenag RI, MWL, dan Makkah dengan kalkulasi offline yang akurat, slider volume real-time dengan tombol pratinjau suara adzan langsung di menu.",
+        descEn: "Selectable calculation methods for Kemenag RI, MWL, and Makkah with accurate offline solar calculations, real-time volume slider, and in-place adzan preview.",
+        badge: "improve",
+      },
+      {
+        icon: <Zap size={14} />,
+        titleId: "Sinkronisasi Master Pengingat & Snooze",
+        titleEn: "Master Reminder Sync & Snooze Handling",
+        descId: "Master switch pengingat tersinkronisasi otomatis dengan toggle per-sholat, notifikasi snooze 5 menit lebih pintar, dan cache jadwal otomatis diperbarui saat mengubah metode hisab.",
+        descEn: "Master reminder switch now stays fully in sync with individual prayer toggles, smarter 5-minute snooze handling, and automatic schedule cache invalidation on method changes.",
+        badge: "improve",
+      },
+    ],
+  },
+  {
     version: "4.4.6",
     date: "6 Nov 2026",
     highlights: [
