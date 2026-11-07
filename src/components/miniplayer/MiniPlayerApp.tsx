@@ -568,7 +568,7 @@ export const MiniPlayerApp: React.FC = () => {
       : showToolbar
       ? 130
       : 88;
-  const targetShellRadius = mode === "card" ? 28 : 24;
+  const targetShellRadius = mode === "card" ? 20 : 24;
 
   return (
     <motion.div
