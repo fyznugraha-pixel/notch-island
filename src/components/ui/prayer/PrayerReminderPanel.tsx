@@ -169,6 +169,8 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
   const navDisabledClass =
     "w-8 h-8 rounded-full bg-[#17171c]/50 flex items-center justify-center text-white/25 shrink-0 pointer-events-none";
 
+  const mainTitle = t("tab_prayer_reminder") || (isId ? "Sholat" : "Prayer");
+
   return (
     <div
       className="w-full h-full flex flex-col select-none overflow-hidden px-6 pb-0.5"
@@ -176,14 +178,14 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
         color: isLightMode ? "#101828" : "#fff",
       }}
     >
-      {/* Header Row matching PanelNavHeader exact dimensions (mt-1 after status bar pb-1 = 8px, w-8 h-8 buttons, 18px title) */}
+      {/* Header Row: exact h-8 (32px), mt-1 + mb-1 so height & position match PanelNavHeader 100%, with centered title */}
       {subView === "main" ? (
         <div
           data-tab-title-swipe="true"
-          className="relative flex items-center justify-between gap-2 mt-1 w-full shrink-0"
+          className="relative flex items-center justify-between gap-2 mt-1 mb-1 h-8 w-full shrink-0"
         >
-          {/* Left Cluster: [ Prev ] [ Notification Button ] + Title & Location */}
-          <div className="flex items-center gap-2 min-w-0 z-10">
+          {/* Left Cluster: [ Prev ] [ Notification Button ] + Location Pill */}
+          <div className="flex items-center gap-2 shrink-0 z-10">
             {hasPrev ? (
               <Tooltip content={t("nav_prev")} side="bottom" align="start">
                 <motion.button
@@ -225,45 +227,65 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               </Tooltip>
             )}
 
-            <div className="flex flex-col min-w-0 ml-1">
-              <span
-                className={`text-[18px] font-semibold tracking-[-0.01em] leading-none truncate ${
-                  isLightMode ? "text-[#101828]" : "text-white"
-                }`}
-              >
-                {t("tab_prayer_reminder") || (isId ? "Sholat" : "Prayer")}
-              </span>
+            <Tooltip
+              content={
+                schedule.hijriDate
+                  ? `${schedule.locationName} (${customCity ? "Custom" : "GPS"}) · ${schedule.hijriDate}`
+                  : isId
+                  ? "Klik untuk ubah kota/lokasi"
+                  : "Click to change city/location"
+              }
+              side="bottom"
+              align="start"
+            >
               <button
                 type="button"
                 onClick={() => setSubView("location")}
-                title={isId ? "Klik untuk ubah kota/lokasi" : "Click to change city/location"}
                 style={{
-                  fontSize: 11,
-                  color: "#8e8e93",
-                  marginTop: 2,
+                  height: 28,
+                  padding: "0 10px",
+                  borderRadius: 14,
+                  background: isLightMode ? "rgba(0,0,0,.06)" : "rgba(255,255,255,.07)",
+                  boxShadow: isLightMode
+                    ? "inset 0 0 0 1px rgba(0,0,0,.06)"
+                    : "inset 0 0 0 1px rgba(255,255,255,.06)",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  color: isLightMode ? "#27272a" : "#d4d4d8",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "flex-start",
                   gap: 5,
                   whiteSpace: "nowrap",
-                  background: "transparent",
                   border: 0,
-                  padding: 0,
                   cursor: "pointer",
                   fontFamily: "inherit",
+                  maxWidth: 175,
                 }}
               >
-                <PrayerPinIcon size={10} />
-                <span>{schedule.locationName}</span>
-                <span style={{ color: "#636366" }}>{customCity ? "Custom" : "GPS"}</span>
-                {schedule.hijriDate && (
-                  <>
-                    <span style={{ color: "#48484a" }}>·</span>
-                    <span>{schedule.hijriDate}</span>
-                  </>
-                )}
+                <span style={{ color: PRAYER_ACCENT, display: "inline-flex", flexShrink: 0 }}>
+                  <PrayerPinIcon size={11} />
+                </span>
+                <span className="truncate">{schedule.locationName}</span>
+                <span style={{ color: "#71717a", fontSize: 10.5, flexShrink: 0 }}>
+                  {customCity ? "Custom" : "GPS"}
+                </span>
               </button>
-            </div>
+            </Tooltip>
+          </div>
+
+          {/* Centered Section Title (Identical to PanelNavHeader.tsx) */}
+          <div
+            data-tab-title-swipe="true"
+            className="absolute inset-x-44 flex items-center justify-center overflow-hidden min-w-0 pointer-events-none"
+          >
+            <span
+              title={mainTitle}
+              className={`text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${
+                isLightMode ? "text-[#101828]" : "text-white"
+              }`}
+            >
+              {mainTitle}
+            </span>
           </div>
 
           {/* Right Cluster: [ Reminders Pill ] [ Settings ] [ Next ] */}
@@ -272,17 +294,17 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               type="button"
               onClick={() => setSubView("settings")}
               style={{
-                height: 30,
-                padding: "0 13px 0 10px",
-                borderRadius: 15,
+                height: 28,
+                padding: "0 12px 0 9px",
+                borderRadius: 14,
                 border: 0,
                 background: "linear-gradient(180deg, #3BE07A, #22C55E)",
                 color: "#04210F",
-                fontSize: 12,
+                fontSize: 11.5,
                 fontWeight: 700,
                 display: "flex",
                 alignItems: "center",
-                gap: 6,
+                gap: 5,
                 cursor: "pointer",
                 fontFamily: "inherit",
                 boxShadow:
@@ -290,7 +312,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                 flexShrink: 0,
               }}
             >
-              <PrayerBellIcon size={13} strokeWidth={2.3} />
+              <PrayerBellIcon size={12.5} strokeWidth={2.3} />
               <span>{isId ? "Pengingat" : "Reminders"}</span>
             </button>
 
@@ -334,8 +356,8 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
           </div>
         </div>
       ) : subView === "settings" ? (
-        <div className="relative flex items-center justify-between gap-2.5 mt-1 w-full shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="relative flex items-center justify-between gap-2.5 mt-1 mb-1 h-8 w-full shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0 z-10">
             <motion.button
               whileTap={{ scale: 0.9 }}
               transition={iosSpring.press}
@@ -347,24 +369,26 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               <ChevronLeft size={16} strokeWidth={2} className="shrink-0" />
             </motion.button>
 
-            <div className="flex flex-col min-w-0">
-              <span
-                className={`text-[18px] font-semibold tracking-[-0.01em] leading-none truncate ${
-                  isLightMode ? "text-[#101828]" : "text-white"
-                }`}
-              >
-                {isId ? "Pengingat" : "Reminders"}
-              </span>
-              <span style={{ fontSize: 11, color: "#8e8e93", marginTop: 2 }}>
-                {isId
-                  ? `${enabledPrayersCount} dari 5 waktu sholat aktif`
-                  : `${enabledPrayersCount} of 5 prayers on`}
-              </span>
-            </div>
+            <span style={{ fontSize: 11.5, fontWeight: 500, color: "#8e8e93" }}>
+              {isId
+                ? `${enabledPrayersCount} dari 5 aktif`
+                : `${enabledPrayersCount} of 5 prayers on`}
+            </span>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#8e8e93" }}>
+          {/* Centered Title */}
+          <div className="absolute inset-x-36 flex items-center justify-center overflow-hidden min-w-0 pointer-events-none">
+            <span
+              className={`text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${
+                isLightMode ? "text-[#101828]" : "text-white"
+              }`}
+            >
+              {isId ? "Pengingat" : "Reminders"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5 shrink-0 z-10">
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#8e8e93" }}>
               {isId ? "Semua pengingat" : "All reminders"}
             </span>
 
@@ -406,8 +430,8 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
           </div>
         </div>
       ) : (
-        <div className="relative flex items-center justify-between gap-2.5 mt-1 w-full shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="relative flex items-center justify-between gap-2.5 mt-1 mb-1 h-8 w-full shrink-0">
+          <div className="flex items-center gap-2 min-w-0 z-10">
             <motion.button
               whileTap={{ scale: 0.9 }}
               transition={iosSpring.press}
@@ -419,21 +443,26 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               <ChevronLeft size={16} strokeWidth={2} className="shrink-0" />
             </motion.button>
 
-            <div className="flex flex-col min-w-0">
-              <span
-                className={`text-[18px] font-semibold tracking-[-0.01em] leading-none truncate ${
-                  isLightMode ? "text-[#101828]" : "text-white"
-                }`}
-              >
-                {isId ? "Lokasi Jadwal Sholat" : "Prayer Location"}
-              </span>
-              <span style={{ fontSize: 11, color: "#8e8e93", marginTop: 2 }}>
-                {schedule.locationName} ({customCity ? "Custom" : "GPS"})
-              </span>
-            </div>
+            <span
+              className="truncate"
+              style={{ fontSize: 11.5, fontWeight: 500, color: "#8e8e93", maxWidth: 140 }}
+            >
+              {schedule.locationName} ({customCity ? "Custom" : "GPS"})
+            </span>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Centered Title */}
+          <div className="absolute inset-x-48 flex items-center justify-center overflow-hidden min-w-0 pointer-events-none">
+            <span
+              className={`text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${
+                isLightMode ? "text-[#101828]" : "text-white"
+              }`}
+            >
+              {isId ? "Lokasi Sholat" : "Location"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 z-10">
             <div
               style={{
                 display: "flex",
@@ -455,7 +484,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                     }}
                     style={{
                       height: 24,
-                      padding: "0 9px",
+                      padding: "0 8px",
                       border: 0,
                       borderRadius: 8,
                       fontSize: 11,
@@ -478,22 +507,22 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
               onClick={handleUseAutoLocation}
               style={{
                 height: 28,
-                padding: "0 12px",
+                padding: "0 11px",
                 borderRadius: 14,
                 border: 0,
                 background: "linear-gradient(180deg, #3BE07A, #22C55E)",
                 color: "#04210F",
-                fontSize: 11.5,
+                fontSize: 11,
                 fontWeight: 700,
                 display: "flex",
                 alignItems: "center",
-                gap: 5,
+                gap: 4,
                 cursor: "pointer",
                 fontFamily: "inherit",
               }}
             >
               <Navigation size={11} />
-              <span>{isId ? "Otomatis (GPS)" : "Auto (GPS)"}</span>
+              <span>GPS</span>
             </button>
           </div>
         </div>
