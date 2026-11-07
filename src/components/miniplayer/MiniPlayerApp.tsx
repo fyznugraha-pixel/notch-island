@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { motion, type Variants } from "framer-motion";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
@@ -73,6 +74,30 @@ export const MiniPlayerApp: React.FC = () => {
   const [isInZone, setIsInZone] = useState(false);
   const [barWidth, setBarWidth] = useState<number>(440);
   const [isAnchoredRight, setIsAnchoredRight] = useState(true);
+  const [exitState, setExitState] = useState<"idle" | "closing" | "to-notch">("idle");
+  const [enterKey, setEnterKey] = useState(1);
+  const isExitingRef = useRef(false);
+
+  const triggerExit = useCallback((type: "closing" | "to-notch") => {
+    if (isExitingRef.current) return;
+    isExitingRef.current = true;
+    setExitState(type);
+
+    const durationMs = 240;
+    window.setTimeout(async () => {
+      try {
+        await invoke("close_miniplayer");
+        if (type === "to-notch") {
+          await invoke("reset_miniplayer_position");
+          await emit("miniplayer:return-to-notch");
+        }
+      } catch (e) {
+        console.error("Failed to close miniplayer:", e);
+      } finally {
+        isExitingRef.current = false;
+      }
+    }, durationMs);
+  }, []);
 
   const resizeTimerRef = useRef<number | null>(null);
   const currentWinWidthRef = useRef<number>(440);
@@ -135,6 +160,33 @@ export const MiniPlayerApp: React.FC = () => {
       if (unlistenLyrics) unlistenLyrics();
     };
   }, []);
+
+  // Listen for window visibility to trigger enter animation and close requests
+  useEffect(() => {
+    let unlistenVis: (() => void) | null = null;
+    let unlistenCloseReq: (() => void) | null = null;
+
+    listen<boolean>("miniplayer:visibility-changed", (event) => {
+      if (event.payload) {
+        isExitingRef.current = false;
+        setExitState("idle");
+        setEnterKey((k) => k + 1);
+      }
+    }).then((un) => {
+      unlistenVis = un;
+    });
+
+    listen("miniplayer:request-close", () => {
+      triggerExit("closing");
+    }).then((un) => {
+      unlistenCloseReq = un;
+    });
+
+    return () => {
+      if (unlistenVis) unlistenVis();
+      if (unlistenCloseReq) unlistenCloseReq();
+    };
+  }, [triggerExit]);
 
   // Sync mode with window size on initial mount
   useEffect(() => {
@@ -255,9 +307,7 @@ export const MiniPlayerApp: React.FC = () => {
                 isInZoneRef.current = false;
 
                 if (shouldMerge) {
-                  await invoke("close_miniplayer");
-                  await invoke("reset_miniplayer_position");
-                  await emit("miniplayer:return-to-notch");
+                  triggerExit("to-notch");
                 }
               }
             }, 35);
@@ -427,15 +477,9 @@ export const MiniPlayerApp: React.FC = () => {
     }
   }, [isPinned]);
 
-  const handleReturnToNotch = useCallback(async () => {
-    try {
-      await invoke("close_miniplayer");
-      await invoke("reset_miniplayer_position");
-      await emit("miniplayer:return-to-notch");
-    } catch (e) {
-      console.error("Failed to return to notch:", e);
-    }
-  }, []);
+  const handleReturnToNotch = useCallback(() => {
+    triggerExit("to-notch");
+  }, [triggerExit]);
 
   const handleOffsetChange = useCallback(
     async (delta: number) => {
@@ -470,19 +514,68 @@ export const MiniPlayerApp: React.FC = () => {
     />
   );
 
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const motionVariants: Variants = {
+    initial: prefersReducedMotion
+      ? { opacity: 0 }
+      : {
+          opacity: 0,
+          scale: 0.88,
+          y: 20,
+          filter: "blur(8px)",
+        },
+    animate: {
+      opacity: isFaded ? fadeOpacity : isInZone ? 0.8 : 1,
+      scale: isInZone ? 0.6 : 1,
+      y: 0,
+      filter: "blur(0px)",
+      transition: prefersReducedMotion
+        ? { duration: 0.15 }
+        : {
+            opacity: { duration: 0.22, ease: "easeOut" },
+            scale: { type: "spring", stiffness: 320, damping: 25, mass: 0.72 },
+            y: { type: "spring", stiffness: 320, damping: 25, mass: 0.72 },
+            filter: { duration: 0.22, ease: "easeOut" },
+          },
+    },
+    closing: prefersReducedMotion
+      ? { opacity: 0 }
+      : {
+          opacity: 0,
+          scale: 0.88,
+          y: 16,
+          filter: "blur(6px)",
+          transition: { duration: 0.2, ease: [0.32, 0, 0.67, 0] as const },
+        },
+    "to-notch": prefersReducedMotion
+      ? { opacity: 0 }
+      : {
+          opacity: 0,
+          scale: 0.45,
+          y: -44,
+          filter: "blur(6px)",
+          transition: { duration: 0.22, ease: [0.32, 0, 0.67, 0] as const },
+        },
+  };
+
   return (
-    <div
+    <motion.div
+      key={enterKey}
       ref={containerRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onMouseDown={handleMouseDown}
       onClick={handleClick}
+      initial="initial"
+      animate={exitState === "idle" ? "animate" : exitState}
+      variants={motionVariants}
       style={{
         width: mode === "card" ? "380px" : "100%",
-        opacity: isFaded ? fadeOpacity : isInZone ? 0.8 : 1,
-        transform: isInZone ? "scale(0.6)" : "scale(1)",
-        transformOrigin: "bottom center",
-        transition: "opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
+        transformOrigin: isAnchoredRight ? "bottom right" : "bottom left",
       }}
       className={`relative overflow-hidden select-none bg-transparent ${
         mode === "card"
@@ -512,6 +605,6 @@ export const MiniPlayerApp: React.FC = () => {
           onWidthChange={handleBarWidthChange}
         />
       )}
-    </div>
+    </motion.div>
   );
 };

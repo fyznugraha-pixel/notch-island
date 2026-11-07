@@ -260,9 +260,22 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
     if let Some(w) = app.get_webview_window("miniplayer") {
         if let Ok(is_vis) = w.is_visible() {
             if is_vis {
-                let _ = w.hide();
-                *is_open = false;
-                let _ = app.emit("miniplayer:visibility-changed", false);
+                // Emit request-close agar frontend bisa memainkan animasi exit yang smooth
+                let _ = app.emit("miniplayer:request-close", ());
+
+                // Fallback: jika frontend tidak menyelesaikan penutupan dalam 350ms, sembunyikan secara aman
+                let w_clone = w.clone();
+                let app_clone = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(350));
+                    if let Ok(is_v) = w_clone.is_visible() {
+                        if is_v {
+                            let _ = w_clone.hide();
+                            *get_open_state().lock().unwrap() = false;
+                            let _ = app_clone.emit("miniplayer:visibility-changed", false);
+                        }
+                    }
+                });
                 return Ok(false);
             }
         }
