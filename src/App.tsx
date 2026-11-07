@@ -78,7 +78,13 @@ import {
 } from "./services/waterService";
 import { useWaterReminder } from "./hooks/useWaterReminder";
 import { PrayerNotchToast } from "./components/ui/prayer/PrayerNotchToast";
-import { PrayerToastPayload, togglePrayerCompleted, getPrayerDisplayName } from "./services/prayerService";
+import {
+  PrayerToastPayload,
+  togglePrayerCompleted,
+  getPrayerDisplayName,
+  playAdzanAudio,
+  stopAdzanAudio,
+} from "./services/prayerService";
 import { usePrayerReminder } from "./hooks/usePrayerReminder";
 import { fetchHotspotStatus, toggleHotspotState } from "./services/connectivityService";
 import { usePomodoro } from "./hooks/usePomodoro";
@@ -1352,7 +1358,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       }
       setPrayerToast(toast);
       setIsHidden(false);
-      playReminderSound();
+      if (toast.type === "prayer_time") {
+        playAdzanAudio(() => setPrayerToast(null));
+      } else {
+        stopAdzanAudio();
+        playReminderSound();
+      }
       if (toast.type === "prayer_time" || toast.type === "pre_reminder") {
         const isId = getLanguage() === "id";
         const pName = getPrayerDisplayName(toast.prayerId, isId ? "id" : "en");
@@ -1381,12 +1392,24 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   }, [isPrayerTabEnabled]);
 
   useEffect(() => {
-    if (!prayerToast) return;
-    const timeoutMs = prayerToast.type === "completed" ? 4500 : 15000;
+    if (!prayerToast) {
+      stopAdzanAudio();
+      return;
+    }
+    const timeoutMs =
+      prayerToast.type === "completed"
+        ? 4500
+        : prayerToast.type === "prayer_time"
+        ? 180000
+        : 15000;
     const timer = setTimeout(() => {
+      stopAdzanAudio();
       setPrayerToast(null);
     }, timeoutMs);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      stopAdzanAudio();
+    };
   }, [prayerToast]);
 
   const [isPomodoro, setIsPomodoro] = useState(false);
@@ -5248,23 +5271,33 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 schedule={prayerSchedule}
                 isLightMode={isLightMode}
                 onMarkCompleted={() => {
+                  stopAdzanAudio();
                   togglePrayerCompleted(prayerToast.prayerId);
                   playTaskCompleteSound();
                   setPrayerToast(null);
                 }}
                 onSnooze={(mins) => {
                   const snapshot = prayerToast;
+                  stopAdzanAudio();
                   setPrayerToast(null);
                   setTimeout(() => {
                     setPrayerToast(snapshot);
-                    playReminderSound();
+                    if (snapshot.type === "prayer_time") {
+                      playAdzanAudio(() => setPrayerToast(null));
+                    } else {
+                      playReminderSound();
+                    }
                   }, mins * 60 * 1000);
                 }}
                 onOpenPrayerTab={() => {
+                  stopAdzanAudio();
                   setPrayerToast(null);
                   goToTab("prayer_reminder", 0);
                 }}
-                onDismiss={() => setPrayerToast(null)}
+                onDismiss={() => {
+                  stopAdzanAudio();
+                  setPrayerToast(null);
+                }}
               />
             )}
 
@@ -5815,7 +5848,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                                 onRefreshSchedule={refreshPrayerSchedule}
                                 onTriggerToast={(toast) => {
                                   setPrayerToast(toast);
-                                  playReminderSound();
+                                  if (toast.type === "prayer_time") {
+                                    playAdzanAudio(() => setPrayerToast(null));
+                                  } else {
+                                    stopAdzanAudio();
+                                    playReminderSound();
+                                  }
                                 }}
                                 optLanguage={optLanguage}
                                 isLightMode={isLightMode}

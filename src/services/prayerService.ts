@@ -107,6 +107,43 @@ const COMPLETED_KEY = "gili_prayer_completed_v1";
 const SCHEDULE_CACHE_KEY = "gili_prayer_schedule_cache_v1";
 const CONFIG_FLAG_KEY = "gili_prayer_reminder_configured_v1";
 
+let adzanAudioInstance: HTMLAudioElement | null = null;
+
+export function playAdzanAudio(onEnded?: () => void): void {
+  try {
+    if (typeof window === "undefined") return;
+    const settings = loadPrayerSettings();
+    const vol = settings.adzanVolume ?? 70;
+    if (!settings.soundEnabled || vol <= 0) return;
+
+    if (!adzanAudioInstance) {
+      adzanAudioInstance = new Audio("/azan2.mp3");
+      adzanAudioInstance.preload = "auto";
+    } else {
+      adzanAudioInstance.pause();
+      adzanAudioInstance.currentTime = 0;
+    }
+
+    adzanAudioInstance.volume = Math.max(0, Math.min(1, vol / 100));
+    adzanAudioInstance.onended = () => {
+      onEnded?.();
+    };
+    adzanAudioInstance.play().catch((err) => {
+      console.warn("Failed to play adzan audio:", err);
+    });
+  } catch {}
+}
+
+export function stopAdzanAudio(): void {
+  try {
+    if (adzanAudioInstance) {
+      adzanAudioInstance.onended = null;
+      adzanAudioInstance.pause();
+      adzanAudioInstance.currentTime = 0;
+    }
+  } catch {}
+}
+
 export const DEFAULT_PRAYER_SETTINGS: PrayerSettings = {
   reminderEnabled: false,
   preReminderEnabled: false,
@@ -197,6 +234,14 @@ export function updatePrayerSettings(partial: Partial<PrayerSettings>): PrayerSe
       : current.enabledPrayers,
   };
   savePrayerSettings(updated);
+  if (adzanAudioInstance && !adzanAudioInstance.paused) {
+    const vol = updated.adzanVolume ?? 70;
+    if (!updated.soundEnabled || vol <= 0) {
+      stopAdzanAudio();
+    } else {
+      adzanAudioInstance.volume = Math.max(0, Math.min(1, vol / 100));
+    }
+  }
   return updated;
 }
 
