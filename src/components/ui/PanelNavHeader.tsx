@@ -691,9 +691,19 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     contentClassName = "flex-1 min-h-0 min-w-0 w-full relative z-10 overflow-hidden flex flex-col",
   }) => {
     const lastSwipeTimeRef = React.useRef(0);
+    const lastWheelEventTimeRef = React.useRef(0);
     const accumulatedDeltaRef = React.useRef(0);
+    const swipeLockedDirRef = React.useRef<number>(0);
+    const minAbsSinceLockRef = React.useRef<number>(Infinity);
+    const lastAbsDeltaRef = React.useRef<number>(0);
     const swipeResetTimerRef = React.useRef<number | null>(null);
     const isPanIgnoredRef = React.useRef(false);
+
+    React.useEffect(() => {
+      return () => {
+        if (swipeResetTimerRef.current) clearTimeout(swipeResetTimerRef.current);
+      };
+    }, []);
 
     const handleWheel = (e: React.WheelEvent) => {
       if (disableSwipe) {
@@ -729,26 +739,56 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       e.stopPropagation();
 
       const now = Date.now();
-      // Cooldown between tab transitions to prevent skipping multiple tabs on one flick
-      if (now - lastSwipeTimeRef.current < 280) {
-        accumulatedDeltaRef.current = 0;
-        return;
-      }
-
-      // Windows Touchpad / Mouse Wheel:
-      // Swiping 2 fingers LEFT (deltaX > 0) -> reveal next tab on the right
-      // Swiping 2 fingers RIGHT (deltaX < 0) -> reveal previous tab on the left
-      accumulatedDeltaRef.current += getNormalizedHorizontalDelta(e);
+      const delta = getNormalizedHorizontalDelta(e);
+      const absDelta = Math.abs(delta);
+      const dir = Math.sign(delta);
+      const timeSinceLastWheel = now - lastWheelEventTimeRef.current;
+      lastWheelEventTimeRef.current = now;
 
       if (swipeResetTimerRef.current) clearTimeout(swipeResetTimerRef.current);
       swipeResetTimerRef.current = window.setTimeout(() => {
         accumulatedDeltaRef.current = 0;
-      }, 220);
+        swipeLockedDirRef.current = 0;
+        minAbsSinceLockRef.current = Infinity;
+        lastAbsDeltaRef.current = 0;
+      }, 150);
 
-      if (Math.abs(accumulatedDeltaRef.current) >= 20) {
+      // Unlock if the gesture paused briefly or the user reversed swipe direction
+      if (swipeLockedDirRef.current !== 0) {
+        const isOppositeDirection = dir !== 0 && dir !== swipeLockedDirRef.current;
+        const isNewFlickAfterDecay =
+          now - lastSwipeTimeRef.current > 240 &&
+          minAbsSinceLockRef.current <= 5 &&
+          absDelta >= 16 &&
+          absDelta > lastAbsDeltaRef.current * 2;
+
+        if (timeSinceLastWheel > 140 || isOppositeDirection || isNewFlickAfterDecay) {
+          swipeLockedDirRef.current = 0;
+          accumulatedDeltaRef.current = 0;
+          minAbsSinceLockRef.current = Infinity;
+        } else {
+          minAbsSinceLockRef.current = Math.min(minAbsSinceLockRef.current, absDelta);
+          lastAbsDeltaRef.current = absDelta;
+          return;
+        }
+      }
+
+      lastAbsDeltaRef.current = absDelta;
+
+      // Windows Touchpad / Mouse Wheel:
+      // Swiping 2 fingers LEFT (deltaX > 0) -> reveal next tab on the right
+      // Swiping 2 fingers RIGHT (deltaX < 0) -> reveal previous tab on the left
+      if (accumulatedDeltaRef.current !== 0 && Math.sign(accumulatedDeltaRef.current) !== dir) {
+        accumulatedDeltaRef.current = 0;
+      }
+      accumulatedDeltaRef.current += delta;
+
+      if (Math.abs(accumulatedDeltaRef.current) >= 24) {
         const isNext = accumulatedDeltaRef.current > 0;
         accumulatedDeltaRef.current = 0;
         lastSwipeTimeRef.current = now;
+        swipeLockedDirRef.current = isNext ? 1 : -1;
+        minAbsSinceLockRef.current = absDelta;
 
         if (isNext && hasNext) {
           onNext();
