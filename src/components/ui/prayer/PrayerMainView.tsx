@@ -537,28 +537,25 @@ export const PrayerMainView: React.FC<PrayerMainViewProps> = ({
           );
         })}
 
-        {/* Real-time Celestial Sun / Moon Indicator on Timeline */}
+        {/* Real-time Celestial Sun / Moon Indicator on Timeline (No circular border frame) */}
         <span
           style={{
             position: "absolute",
             left: `${currentPct}%`,
-            top: -8,
-            marginLeft: -11,
-            width: 22,
-            height: 22,
-            borderRadius: 11,
-            background: celestialState.bgColor,
-            border: `1.5px solid ${celestialState.color}`,
-            boxShadow: `0 0 0 3px ${
-              isLightMode ? "rgba(255,255,255,.8)" : "rgba(0,0,0,.75)"
-            }, 0 0 14px ${celestialState.glowColor}`,
+            top: -6,
+            marginLeft: -9,
+            width: 18,
+            height: 18,
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
+            filter: `drop-shadow(0 0 2px ${
+              isLightMode ? "#fff" : "#000"
+            }) drop-shadow(0 0 6px ${celestialState.glowColor})`,
             zIndex: 2,
           }}
         >
-          <TimelineCelestialIcon state={celestialState} size={13} />
+          <TimelineCelestialIcon state={celestialState} size={18} />
         </span>
       </div>
     </>
