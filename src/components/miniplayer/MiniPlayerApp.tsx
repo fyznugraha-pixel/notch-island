@@ -373,14 +373,6 @@ export const MiniPlayerApp: React.FC = () => {
     }
   }, []);
 
-  const handleClose = useCallback(async () => {
-    try {
-      await invoke("close_miniplayer");
-    } catch (e) {
-      console.error("Failed to close miniplayer:", e);
-    }
-  }, []);
-
   const handleOffsetChange = useCallback(
     async (delta: number) => {
       if (!media?.title) return;
@@ -409,7 +401,6 @@ export const MiniPlayerApp: React.FC = () => {
       isPinned={isPinned}
       onTogglePin={handleTogglePin}
       onReturnToNotch={handleReturnToNotch}
-      onClose={handleClose}
       media={media}
       lyrics={lyrics}
     />

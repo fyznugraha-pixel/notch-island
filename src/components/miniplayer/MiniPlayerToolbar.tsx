@@ -19,7 +19,6 @@ export interface MiniPlayerToolbarProps {
   isPinned: boolean;
   onTogglePin: () => void;
   onReturnToNotch: () => void;
-  onClose: () => void;
   media: MediaPayload | null;
   lyrics: LyricsPayload | null;
 }
@@ -40,7 +39,6 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
   isPinned,
   onTogglePin,
   onReturnToNotch,
-  onClose,
   media,
   lyrics,
 }) => {
@@ -277,7 +275,7 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
               e.stopPropagation();
               onReturnToNotch();
             }}
-            className="w-7 h-7 rounded-[9px] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-colors"
+            className="w-7 h-7 rounded-[9px] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
             aria-label="Kembali ke notch"
             title="Kembali ke notch"
           >
@@ -292,30 +290,6 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
               strokeLinejoin="round"
             >
               <path d="M4 4h16M12 20V8M8 12l4-4 4 4" />
-            </svg>
-          </button>
-
-          {/* Close */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-            className="w-7 h-7 rounded-[9px] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-colors"
-            aria-label="Tutup"
-            title="Tutup mini player"
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
         </div>
