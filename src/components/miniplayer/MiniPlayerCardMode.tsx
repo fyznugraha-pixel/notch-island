@@ -1,8 +1,7 @@
-import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
-import { MiniPlayerBackground } from "./MiniPlayerBackground";
 import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
 import {
@@ -26,8 +25,8 @@ const MANUAL_SCROLL_HOLD_MS = 3000;
 export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   media,
   lyrics,
-  theme,
-  tintColor,
+  theme: _theme,
+  tintColor: _tintColor,
   showToolbar,
   toolbarNode,
   onToggleMode,
@@ -54,13 +53,6 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   const canSeek = Boolean(
     media?.title && totalDuration > 0 && media?.can_seek !== false
   );
-
-  const containerStyle = useMemo(() => {
-    return {
-      backdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
-      WebkitBackdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
-    };
-  }, [theme]);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -189,17 +181,8 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   return (
     <div
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[380px] text-white select-none rounded-[28px] p-[14px_18px_20px] flex flex-col justify-end overflow-hidden shadow-none transition-[height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-        theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
-      } ${showToolbar ? "h-[340px]" : "h-[298px]"}`}
-      style={containerStyle}
+      className="relative box-border w-[380px] h-full text-white select-none p-[14px_18px_20px] flex flex-col justify-end overflow-hidden"
     >
-      <MiniPlayerBackground
-        thumbnail={media?.thumbnail}
-        tintColor={tintColor}
-        theme={theme}
-      />
-
       {/* Top Slot for Toolbar on Hover (expands upward just like Bar Mode) */}
       <div
         data-tauri-drag-region

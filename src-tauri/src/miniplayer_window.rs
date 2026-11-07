@@ -23,7 +23,7 @@ fn get_returned_to_notch_state() -> &'static Arc<Mutex<bool>> {
     WAS_RETURNED_TO_NOTCH.get_or_init(|| Arc::new(Mutex::new(false)))
 }
 
-pub fn get_bottom_right_position(mode: &str) -> (f64, f64) {
+pub fn get_bottom_right_position(_mode: &str) -> (f64, f64) {
     #[cfg(windows)]
     {
         use windows::Win32::Foundation::POINT;
@@ -47,11 +47,7 @@ pub fn get_bottom_right_position(mode: &str) -> (f64, f64) {
             let rc = mi.rcWork;
             let log_right = rc.right as f64 / sf;
             let log_bottom = rc.bottom as f64 / sf;
-            let (w, h) = if mode == "card" {
-                (380.0, 340.0)
-            } else {
-                (440.0, 130.0)
-            };
+            let (w, h) = (440.0, 340.0);
             let margin = 16.0;
             return (log_right - w - margin, log_bottom - h - margin);
         }
@@ -158,31 +154,67 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
 
                     if let (Ok(win_pos), Ok(win_size)) = (win.outer_position(), win.outer_size()) {
                         let scale_factor = win.scale_factor().unwrap_or(1.0);
-                        let in_x = pt.x >= win_pos.x && pt.x < win_pos.x + win_size.width as i32;
+                        let in_x_raw = pt.x >= win_pos.x && pt.x < win_pos.x + win_size.width as i32;
                         let in_y_full = pt.y >= win_pos.y && pt.y < win_pos.y + win_size.height as i32;
 
-                        let rel_y = if in_x && in_y_full {
+                        let current_mode = get_mode().lock().unwrap().clone();
+                        let rel_x = if in_x_raw && in_y_full {
+                            (pt.x - win_pos.x) as f64 / scale_factor
+                        } else {
+                            -1.0
+                        };
+                        let rel_y = if in_x_raw && in_y_full {
                             (pt.y - win_pos.y) as f64 / scale_factor
                         } else {
                             -1.0
                         };
 
+                        let win_w_logical = win_size.width as f64 / scale_factor;
                         let win_h_logical = win_size.height as f64 / scale_factor;
-                        let in_window = if in_x && in_y_full {
-                            if !last_state.in_window {
-                                // Saat collapsed (toolbar tersembunyi), area kosong 42px di bagian atas
-                                // (baik di mode bar 88/130px maupun mode card 298/340px) tidak mentrigger hover.
-                                rel_y >= 40.0 && rel_y <= win_h_logical
+
+                        // Tentukan apakah window berada di paruh kanan monitor (anchor kanan)
+                        let is_right_half = {
+                            use windows::Win32::Graphics::Gdi::{
+                                GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+                            };
+                            let m_pt = POINT { x: win_pos.x, y: win_pos.y };
+                            let mon = unsafe { MonitorFromPoint(m_pt, MONITOR_DEFAULTTONEAREST) };
+                            let mut mi = MONITORINFO {
+                                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                                ..Default::default()
+                            };
+                            if unsafe { GetMonitorInfoW(mon, &mut mi).as_bool() } {
+                                let mon_center_x = (mi.rcWork.left + mi.rcWork.right) / 2;
+                                (win_pos.x + (win_size.width as i32) / 2) > mon_center_x
                             } else {
                                 true
                             }
-                        } else {
-                            false
                         };
+
+                        let in_mode_x = if !in_x_raw || !in_y_full {
+                            false
+                        } else if current_mode == "card" && win_w_logical > 382.0 {
+                            if is_right_half {
+                                rel_x >= (win_w_logical - 380.0) && rel_x <= win_w_logical
+                            } else {
+                                rel_x >= 0.0 && rel_x <= 380.0
+                            }
+                        } else {
+                            true
+                        };
+
+                        // Di dalam kanvas 440x340 (atau 130px lama), komponen selalu menempel di dasar (win_h_logical).
+                        // Bar mode: collapsed 88px (expanded 130px). Card mode: collapsed 298px (expanded 340px).
+                        let collapsed_h = if current_mode == "card" { 298.0 } else { 88.0 };
+                        let expanded_h = if current_mode == "card" { 340.0 } else { 130.0 };
+                        let active_top_y = (win_h_logical - if last_state.in_window { expanded_h } else { collapsed_h }).max(0.0);
+                        let expanded_top_y = (win_h_logical - expanded_h).max(0.0);
+
+                        let in_window = in_mode_x && rel_y >= active_top_y && rel_y <= win_h_logical;
 
                         let toolbar_height = 52.0;
                         let bottom_progress_height = 22.0;
-                        let in_top_toolbar = in_window && (rel_y >= 0.0 && rel_y < toolbar_height);
+                        let in_top_toolbar = in_window && (rel_y >= expanded_top_y && rel_y < expanded_top_y + toolbar_height);
                         let in_bottom_progress = in_window
                             && (rel_y >= (win_h_logical - bottom_progress_height) && rel_y <= win_h_logical);
                         let mut in_toolbar = in_top_toolbar || in_bottom_progress;
@@ -313,7 +345,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         )
         .title("Gili Mini Player")
         .position(init_x, init_y)
-        .inner_size(440.0, 130.0)
+        .inner_size(440.0, 340.0)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -421,8 +453,11 @@ pub fn clamp_and_snap_rect(
         x = snap_right;
     }
 
-    // Top edge snapping
-    let snap_top = work_top + MARGIN;
+    // Top edge snapping (allow Bar Mode's visible top at +210/340 of window height to reach top of monitor)
+    let is_bar = get_mode().lock().map(|m| *m == "bar").unwrap_or(false);
+    let top_empty_offset = if is_bar { (h * 210) / 340 } else { 0 };
+    let min_top = work_top - top_empty_offset;
+    let snap_top = min_top + MARGIN;
     if (y - snap_top).abs() <= ATTRACTION {
         y = snap_top;
     }
@@ -435,7 +470,7 @@ pub fn clamp_and_snap_rect(
 
     // Strict clamping within work area
     let clamped_x = x.clamp(work_left, (work_right - w).max(work_left));
-    let clamped_y = y.clamp(work_top, (work_bottom - h).max(work_top));
+    let clamped_y = y.clamp(min_top, (work_bottom - h).max(min_top));
 
     (clamped_x, clamped_y)
 }
@@ -500,19 +535,15 @@ pub fn snap_miniplayer_position(
 pub async fn set_miniplayer_mode(app: AppHandle, mode: String) -> Result<(), String> {
     *get_mode().lock().unwrap() = mode.clone();
     ensure_miniplayer_tracker(&app);
-    let (new_w, new_h) = if mode == "card" {
-        (380.0, 340.0)
-    } else {
-        (440.0, 130.0)
-    };
-    let _ = resize_miniplayer_internal(&app, new_w, new_h, false);
+    // Pertahankan ukuran kanvas tetap 440x340 agar transisi Card <-> Bar bebas glitch Win32/WebView2
+    let _ = resize_miniplayer_internal(&app, 440.0, 340.0, false);
     let _ = app.emit("miniplayer:mode-changed", mode);
     Ok(())
 }
 
 #[tauri::command]
-pub fn resize_miniplayer(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
-    resize_miniplayer_internal(&app, width, height, false)
+pub fn resize_miniplayer(app: AppHandle, _width: f64, _height: f64) -> Result<(), String> {
+    resize_miniplayer_internal(&app, 440.0, 340.0, false)
 }
 
 fn resize_miniplayer_internal(
@@ -654,7 +685,7 @@ pub fn check_notch_proximity(
     x: i32,
     y: i32,
     width: i32,
-    _height: i32,
+    height: i32,
 ) -> NotchProximity {
     #[cfg(windows)]
     {
@@ -674,7 +705,9 @@ pub fn check_notch_proximity(
             let rc = mi.rcWork;
             let mon_center_x = rc.left + (rc.right - rc.left) / 2;
             let mini_center_x = x + width / 2;
-            let mini_top_y = y;
+            let is_bar = get_mode().lock().map(|m| *m == "bar").unwrap_or(false);
+            let visible_top_offset = if is_bar { (height * 210) / 340 } else { 0 };
+            let mini_top_y = y + visible_top_offset;
 
             let dx = (mini_center_x - mon_center_x).abs();
             let dy = (mini_top_y - rc.top).abs();

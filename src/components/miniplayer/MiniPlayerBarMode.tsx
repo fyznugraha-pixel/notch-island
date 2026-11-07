@@ -1,7 +1,6 @@
 import React, { useMemo, useEffect, useState } from "react";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
-import { MiniPlayerBackground } from "./MiniPlayerBackground";
 import {
   computeBarLyricLayout,
   findContextLineText,
@@ -28,8 +27,8 @@ const LYRIC_SLOT_WIDTH = 304;
 export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   media,
   lyrics,
-  theme,
-  tintColor,
+  theme: _theme,
+  tintColor: _tintColor,
   showToolbar,
   toolbarNode,
   onToggleMode,
@@ -186,14 +185,6 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     });
   }, [activeText, contextText, prefersReducedMotion]);
 
-  const containerStyle = useMemo(() => {
-    return {
-      width: `${BAR_WIDTH}px`,
-      backdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
-      WebkitBackdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
-    };
-  }, [theme]);
-
   const titleArtistText = media?.title
     ? `${media.title} · ${media.artist || "Artis tidak diketahui"}`
     : "Gili Mini Player";
@@ -201,21 +192,12 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   return (
     <div
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[440px] text-white select-none rounded-[24px] shadow-none p-[14px_16px_18px] overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-        theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
-      } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
-      style={containerStyle}
+      className="relative box-border w-[440px] h-full text-white select-none p-[14px_16px_18px] flex flex-col justify-end overflow-hidden"
     >
-      <MiniPlayerBackground
-        thumbnail={media?.thumbnail}
-        tintColor={tintColor}
-        theme={theme}
-      />
-
       {/* Top Slot for Toolbar on Hover */}
       <div
         data-tauri-drag-region
-        className={`w-full flex items-center overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+        className={`w-full shrink-0 flex items-center overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
           showToolbar
             ? "opacity-100 h-[36px] mb-[6px] pointer-events-auto cursor-move"
             : "opacity-0 h-0 mb-0 pointer-events-none"
@@ -225,7 +207,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       </div>
 
       {/* Media Row: 56px Album Art + Left-Aligned Title/Lyrics + Equalizer */}
-      <div className="flex items-center gap-3 h-14 pointer-events-none">
+      <div className="flex items-center gap-3 h-14 shrink-0 pointer-events-none">
         {/* Album Art: 56px, radius 12px */}
         <div
           role="img"
