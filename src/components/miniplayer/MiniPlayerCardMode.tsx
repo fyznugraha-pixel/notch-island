@@ -1,9 +1,13 @@
-import React, { useMemo, useRef, useEffect, useCallback } from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
-import { ScrollingText } from "../ui/ScrollingText";
 import { MiniPlayerBackground } from "./MiniPlayerBackground";
+import {
+  sanitizeLyricText,
+  clampExtremeText,
+  preventOrphanWord,
+} from "./lyricsLayout";
 
 export interface MiniPlayerCardModeProps {
   media: MediaPayload | null;
@@ -14,6 +18,8 @@ export interface MiniPlayerCardModeProps {
   toolbarNode: React.ReactNode;
   onToggleMode?: () => void;
 }
+
+const MANUAL_SCROLL_HOLD_MS = 3000;
 
 export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   media,
@@ -27,13 +33,23 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   const isPlaying = Boolean(media?.is_playing);
   const position = media?.position || 0;
   const duration = media?.duration || 0;
+  const offset = lyrics?.offset || 0;
 
   const { activeIndex } = useLyricsSync(
     lyrics,
     position,
     duration,
     isPlaying,
-    lyrics?.offset || 0
+    offset
+  );
+
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const canSeek = Boolean(
+    media?.title && duration > 0 && media?.can_seek !== false
   );
 
   const containerStyle = useMemo(() => {
@@ -43,85 +59,128 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     };
   }, [theme]);
 
-  // Smooth lyrics auto-scroll refs
-  const lyricsContainerRef = useRef<HTMLDivElement>(null);
-  const activeLineRef = useRef<HTMLDivElement>(null);
-  const userScrollingRef = useRef(false);
-  const userScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const plainRef = useRef<HTMLDivElement>(null);
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // Auto-scroll to center active lyric line
+  const [autoTranslateY, setAutoTranslateY] = useState<number>(0);
+  const [manualTranslateY, setManualTranslateY] = useState<number>(0);
+  const [isManualScrolling, setIsManualScrolling] = useState<boolean>(false);
+  const [plainTranslateY, setPlainTranslateY] = useState<number>(0);
+  const manualTimeoutRef = useRef<number | null>(null);
+
+  const computeCenteredTranslateY = useCallback((index: number): number => {
+    const viewport = viewportRef.current;
+    const list = listRef.current;
+    if (!viewport || !list) return 0;
+
+    const viewportH = viewport.clientHeight;
+    const targetIdx = index >= 0 ? index : 0;
+    const activeEl = lineRefs.current[targetIdx];
+    if (!activeEl) return 0;
+
+    const lineCenter = activeEl.offsetTop + activeEl.offsetHeight / 2;
+    return Math.round(viewportH / 2 - lineCenter);
+  }, []);
+
+  // Recalculate centered transform when activeIndex or lyrics lines change
   useEffect(() => {
-    if (userScrollingRef.current) return;
-    if (activeIndex >= 0 && lyricsContainerRef.current && activeLineRef.current) {
-      const container = lyricsContainerRef.current;
-      const line = activeLineRef.current;
-      const containerRect = container.getBoundingClientRect();
-      const lineRect = line.getBoundingClientRect();
-
-      const targetScrollTop =
-        container.scrollTop +
-        (lineRect.top - containerRect.top) -
-        containerRect.height / 2 +
-        lineRect.height / 2;
-
-      container.scrollTo({
-        top: Math.max(0, targetScrollTop),
-        behavior: "smooth",
-      });
+    const nextY = computeCenteredTranslateY(activeIndex);
+    setAutoTranslateY(nextY);
+    if (!isManualScrolling) {
+      setManualTranslateY(nextY);
     }
-  }, [activeIndex]);
+  }, [activeIndex, lyrics?.lines, computeCenteredTranslateY, isManualScrolling]);
 
-  // Reset scroll when track changes
+  // Reset scroll state when track changes
   useEffect(() => {
-    userScrollingRef.current = false;
-    if (userScrollTimeoutRef.current) {
-      clearTimeout(userScrollTimeoutRef.current);
-      userScrollTimeoutRef.current = null;
+    setIsManualScrolling(false);
+    setPlainTranslateY(0);
+    if (manualTimeoutRef.current) {
+      window.clearTimeout(manualTimeoutRef.current);
+      manualTimeoutRef.current = null;
     }
-    if (lyricsContainerRef.current) {
-      lyricsContainerRef.current.scrollTo({ top: 0, behavior: "auto" });
-    }
+    const initialY = computeCenteredTranslateY(activeIndex);
+    setAutoTranslateY(initialY);
+    setManualTranslateY(initialY);
   }, [lyrics?.title, lyrics?.artist]);
 
-  // Wheel interaction: temporarily pause auto-scroll, then resume after 2.5s
-  const handleWheel = useCallback(() => {
-    userScrollingRef.current = true;
-    if (userScrollTimeoutRef.current) {
-      clearTimeout(userScrollTimeoutRef.current);
-    }
-    userScrollTimeoutRef.current = setTimeout(() => {
-      userScrollingRef.current = false;
-      if (activeIndex >= 0 && lyricsContainerRef.current && activeLineRef.current) {
-        const container = lyricsContainerRef.current;
-        const line = activeLineRef.current;
-        const containerRect = container.getBoundingClientRect();
-        const lineRect = line.getBoundingClientRect();
-
-        const targetScrollTop =
-          container.scrollTop +
-          (lineRect.top - containerRect.top) -
-          containerRect.height / 2 +
-          lineRect.height / 2;
-
-        container.scrollTo({
-          top: Math.max(0, targetScrollTop),
-          behavior: "smooth",
-        });
+  useEffect(() => {
+    return () => {
+      if (manualTimeoutRef.current) {
+        window.clearTimeout(manualTimeoutRef.current);
       }
-    }, 2500);
-  }, [activeIndex]);
-
-  const handleLineClick = useCallback(async (e: React.MouseEvent, lineTime: number) => {
-    e.stopPropagation();
-    userScrollingRef.current = false;
-    if (userScrollTimeoutRef.current) {
-      clearTimeout(userScrollTimeoutRef.current);
-      userScrollTimeoutRef.current = null;
-    }
-    try {
-      await invoke("smtc_seek", { positionSec: lineTime });
-    } catch {}
+    };
   }, []);
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+      const viewportH = viewport.clientHeight;
+
+      if (lyrics?.plain_lyrics && (!lyrics.synced || lyrics.lines.length === 0)) {
+        const plainEl = plainRef.current;
+        if (!plainEl) return;
+        const contentH = plainEl.offsetHeight;
+        const minPlainY = Math.min(0, viewportH - contentH - 16);
+        setPlainTranslateY((prev) =>
+          Math.max(minPlainY, Math.min(0, Math.round(prev - e.deltaY * 0.75)))
+        );
+        return;
+      }
+
+      if (!lyrics?.synced || !lyrics.lines.length) return;
+      const list = listRef.current;
+      if (!list) return;
+
+      const listH = list.offsetHeight;
+      const minY = Math.min(0, Math.round(viewportH / 2 - listH + 24));
+      const maxY = Math.round(viewportH / 2 - 16);
+
+      setIsManualScrolling(true);
+      setManualTranslateY((prev) => {
+        const base = isManualScrolling ? prev : autoTranslateY;
+        return Math.max(minY, Math.min(maxY, Math.round(base - e.deltaY * 0.75)));
+      });
+
+      if (manualTimeoutRef.current) {
+        window.clearTimeout(manualTimeoutRef.current);
+      }
+      manualTimeoutRef.current = window.setTimeout(() => {
+        setIsManualScrolling(false);
+        manualTimeoutRef.current = null;
+      }, MANUAL_SCROLL_HOLD_MS);
+    },
+    [
+      lyrics?.plain_lyrics,
+      lyrics?.synced,
+      lyrics?.lines?.length,
+      isManualScrolling,
+      autoTranslateY,
+    ]
+  );
+
+  const handleLineClick = useCallback(
+    async (e: React.MouseEvent, lineTime: number) => {
+      e.stopPropagation();
+      if (!canSeek) return;
+
+      setIsManualScrolling(false);
+      if (manualTimeoutRef.current) {
+        window.clearTimeout(manualTimeoutRef.current);
+        manualTimeoutRef.current = null;
+      }
+      try {
+        await invoke("smtc_seek", { positionSec: lineTime });
+      } catch {}
+    },
+    [canSeek]
+  );
+
+  const currentTranslateY = isManualScrolling ? manualTranslateY : autoTranslateY;
+  const effectivePosition = position - offset;
 
   return (
     <div
@@ -136,8 +195,12 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         tintColor={tintColor}
         theme={theme}
       />
+
       {/* Top 36px Slot: Grab Handle (normal) or Toolbar (hover) */}
-      <div data-tauri-drag-region className="h-9 w-full shrink-0 flex items-center justify-center cursor-move">
+      <div
+        data-tauri-drag-region
+        className="h-9 w-full shrink-0 flex items-center justify-center cursor-move"
+      >
         {showToolbar ? (
           <div className="w-full h-full flex items-center">{toolbarNode}</div>
         ) : (
@@ -168,7 +231,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
           )}
         </div>
 
-        <div className="flex flex-col min-w-0 flex-1">
+        <div className="flex flex-col min-w-0 flex-1 text-start" dir="auto">
           <span
             className="text-[15px] font-semibold text-white truncate leading-snug tracking-[-0.01em]"
             title={media?.title || "Gili Mini Player"}
@@ -240,83 +303,153 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         </svg>
       </div>
 
-      {/* Center: Synced Lyrics Display */}
+      {/* Fixed-Height Lyric Slot Viewport (transform-driven scroll, zero CLS) */}
       <div
-        ref={lyricsContainerRef}
+        ref={viewportRef}
         onWheel={handleWheel}
         data-no-drag
         style={{
           maskImage:
-            "linear-gradient(to bottom, transparent 0%, black 16%, black 84%, transparent 100%)",
+            "linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%)",
           WebkitMaskImage:
-            "linear-gradient(to bottom, transparent 0%, black 16%, black 84%, transparent 100%)",
+            "linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%)",
         }}
-        className="flex-1 my-1 overflow-y-auto overflow-x-hidden relative select-none scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="flex-1 my-1 overflow-hidden relative select-none"
       >
         {lyrics?.state === "loading" ? (
-          <div className="h-full flex flex-col items-center justify-center gap-2 text-white/50 text-sm py-12">
-            <div className="w-5 h-5 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+          <div
+            dir="auto"
+            className="h-full flex items-center justify-start gap-2.5 text-white/55 text-[13.5px] text-start"
+          >
+            <div className="w-4 h-4 border-2 border-white/20 border-t-white/80 rounded-full animate-spin shrink-0" />
             <span>Memuat lirik...</span>
           </div>
         ) : lyrics?.state === "instrumental" ? (
-          <div className="h-full flex items-center justify-center text-center text-white/60 text-[15px] font-medium py-12">
-            ♪ Lagu Instrumental ♪
+          <div
+            dir="auto"
+            className="h-full flex items-center justify-start text-start text-white/65 text-[14.5px] font-medium"
+          >
+            ♪ Lagu Instrumental
           </div>
         ) : lyrics?.state === "not_found" ? (
-          <div className="h-full flex items-center justify-center text-center text-white/50 text-[13.5px] py-12">
+          <div
+            dir="auto"
+            className="h-full flex items-center justify-start text-start text-white/50 text-[13.5px]"
+          >
             Lirik tidak ditemukan
           </div>
         ) : lyrics?.synced && lyrics.lines && lyrics.lines.length > 0 ? (
-          <div className="flex flex-col items-center space-y-2 pt-[92px] pb-[100px] px-2 w-full">
+          <div
+            ref={listRef}
+            style={{
+              transform: `translate3d(0, ${currentTranslateY}px, 0)`,
+              transition:
+                prefersReducedMotion || isManualScrolling
+                  ? "none"
+                  : "transform 280ms cubic-bezier(0.22, 1, 0.36, 1)",
+              willChange: "transform",
+            }}
+            className="flex flex-col items-start w-full py-2"
+          >
             {lyrics.lines.map((line, index) => {
-              const distance = Math.abs(index - activeIndex);
+              const effectiveIdx = activeIndex >= 0 ? activeIndex : 0;
+              const distance = Math.abs(index - effectiveIdx);
               const isActive = index === activeIndex;
-              const isNear = distance === 1;
-              const isMid = distance === 2;
+
+              const lineOpacity = isActive
+                ? 1
+                : distance === 1
+                ? 0.55
+                : distance === 2
+                ? 0.3
+                : 0.16;
+
+              const lineScale = prefersReducedMotion
+                ? 1
+                : isActive
+                ? 1
+                : distance === 1
+                ? 0.97
+                : distance === 2
+                ? 0.95
+                : 0.93;
+
+              const cleaned = sanitizeLyricText(line.text);
+              const displayLine = cleaned
+                ? preventOrphanWord(clampExtremeText(cleaned, 200))
+                : "♪ •••";
 
               return (
                 <div
                   key={`${index}-${line.time}`}
-                  ref={isActive ? activeLineRef : null}
+                  ref={(el) => {
+                    lineRefs.current[index] = el;
+                  }}
+                  dir="auto"
                   onClick={(e) => handleLineClick(e, line.time)}
-                  className={`cursor-pointer transition-all duration-300 ease-out h-[32px] flex items-center justify-center w-full max-w-[340px] px-2 rounded-xl select-none ${
+                  style={{
+                    opacity: lineOpacity,
+                    transform: `scale(${lineScale})`,
+                    transformOrigin: "left center",
+                    transition: prefersReducedMotion
+                      ? "none"
+                      : "transform 270ms cubic-bezier(0.22, 1, 0.36, 1), opacity 270ms cubic-bezier(0.22, 1, 0.36, 1)",
+                    textWrap: "balance",
+                    textShadow: isActive
+                      ? "0 1px 10px rgba(0, 0, 0, 0.45)"
+                      : "0 1px 4px rgba(0, 0, 0, 0.3)",
+                  }}
+                  className={`w-full py-[5px] pr-2 text-start select-none line-clamp-3 break-words ${
+                    canSeek ? "cursor-pointer hover:opacity-90" : "cursor-default"
+                  } ${
                     isActive
-                      ? "text-[14px] font-bold text-white scale-100"
-                      : isNear
-                      ? "text-[13px] font-medium text-white/50 hover:text-white/80 scale-[0.98]"
-                      : isMid
-                      ? "text-[12.5px] font-normal text-white/30 hover:text-white/60 scale-[0.96]"
-                      : "text-[12px] font-normal text-white/18 hover:text-white/50 scale-[0.94]"
+                      ? "text-[14.5px] font-bold text-white leading-[1.35]"
+                      : "text-[13px] font-medium text-white leading-[1.35]"
                   }`}
-                  style={
-                    isActive
-                      ? { textShadow: "0 0 14px rgba(255, 255, 255, 0.4)" }
-                      : undefined
-                  }
                 >
-                  {isActive ? (
-                    <ScrollingText
-                      text={line.text || "•••"}
-                      speed={28}
-                      pauseSeconds={1.5}
-                      align="center"
-                      className="w-full text-center text-[14px] font-bold text-white"
-                    />
+                  {isActive && line.words && line.words.length > 0 ? (
+                    line.words.map((word, wIdx) => {
+                      const wordActive = effectivePosition >= word.time;
+                      return (
+                        <span
+                          key={`${wIdx}-${word.time}`}
+                          style={{
+                            opacity: wordActive ? 1 : 0.45,
+                            transition: prefersReducedMotion
+                              ? "none"
+                              : "opacity 160ms ease-out",
+                          }}
+                        >
+                          {word.text}
+                          {wIdx < line.words!.length - 1 ? " " : ""}
+                        </span>
+                      );
+                    })
                   ) : (
-                    <span className="truncate w-full text-center whitespace-nowrap">
-                      {line.text || "•••"}
-                    </span>
+                    displayLine
                   )}
                 </div>
               );
             })}
           </div>
         ) : lyrics?.plain_lyrics ? (
-          <div className="text-center text-white/70 text-[13px] py-4 px-3 overflow-y-auto max-h-[190px] leading-relaxed whitespace-pre-wrap">
+          <div
+            ref={plainRef}
+            dir="auto"
+            style={{
+              transform: `translate3d(0, ${plainTranslateY}px, 0)`,
+              transition: prefersReducedMotion ? "none" : "transform 180ms ease-out",
+              textWrap: "balance",
+            }}
+            className="text-start text-white/75 text-[13px] py-2 pr-2 leading-relaxed whitespace-pre-wrap w-full"
+          >
             {lyrics.plain_lyrics}
           </div>
         ) : (
-          <div className="h-full flex items-center justify-center text-center text-white/40 text-[13.5px] py-12">
+          <div
+            dir="auto"
+            className="h-full flex items-center justify-start text-start text-white/45 text-[13.5px]"
+          >
             {media?.title ? "Lirik tidak tersedia" : "Menunggu pemutaran musik..."}
           </div>
         )}

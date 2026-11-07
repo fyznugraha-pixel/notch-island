@@ -17,6 +17,7 @@ export interface MediaPayload {
   app_id?: string | null;
   web_source?: string | null;
   is_browser: boolean;
+  can_seek?: boolean;
 }
 
 export type LyricsState = "loading" | "synced" | "plain" | "not_found" | "instrumental" | "empty";

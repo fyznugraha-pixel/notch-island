@@ -1,10 +1,13 @@
-import React, { useMemo, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useMemo, useEffect, useState } from "react";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
-import { ScrollingText } from "../ui/ScrollingText";
 import { MiniPlayerBackground } from "./MiniPlayerBackground";
-import { getTextWidth } from "../../utils/text";
+import {
+  computeBarLyricLayout,
+  findContextLineText,
+  sanitizeLyricText,
+} from "./lyricsLayout";
+import { BarLyricSlot } from "./BarLyricSlot";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -16,6 +19,9 @@ export interface MiniPlayerBarModeProps {
   onToggleMode?: () => void;
   onWidthChange?: (width: number) => void;
 }
+
+const BAR_WIDTH = 440;
+const LYRIC_SLOT_WIDTH = 304;
 
 export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   media,
@@ -31,7 +37,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   const position = media?.position || 0;
   const duration = media?.duration || 0;
 
-  const { activeLine, livePosition, liveDuration } = useLyricsSync(
+  const { activeIndex, activeLine, livePosition, liveDuration } = useLyricsSync(
     lyrics,
     position,
     duration,
@@ -39,10 +45,22 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     lyrics?.offset || 0
   );
 
-  const prefersReducedMotion = useMemo(() => {
-    if (typeof window === "undefined") return false;
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handleChange = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mq.addEventListener("change", handleChange);
+    return () => mq.removeEventListener("change", handleChange);
   }, []);
+
+  useEffect(() => {
+    onWidthChange?.(BAR_WIDTH);
+  }, [onWidthChange]);
 
   const totalDuration = liveDuration || duration;
   const progressPercent = useMemo(() => {
@@ -50,68 +68,141 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     return Math.min(100, Math.max(0, (livePosition / totalDuration) * 100));
   }, [livePosition, totalDuration]);
 
-  // Determine active lyric text to display
-  const activeLyricText = useMemo(() => {
-    if (!media?.title) return "Gili Mini Player";
-    if (lyrics?.state === "loading") return "Memuat lirik...";
-    if (lyrics?.state === "instrumental") return "♪ Lagu Instrumental ♪";
-    if (lyrics?.state === "not_found") return "Lirik tidak ditemukan";
-    if (activeLine?.text) return activeLine.text;
-    if (lyrics?.lines && lyrics.lines.length > 0) return lyrics.lines[0].text;
-    return "Lirik tidak tersedia";
-  }, [media?.title, lyrics?.state, activeLine?.text, lyrics?.lines]);
+  // Compute active text, context text, and line timestamps ONLY when active line or state changes
+  const { activeText, contextText, currentLineTime, nextLineTime, lineKey } = useMemo(() => {
+    const fallbackArtist = media?.artist || "Artis tidak diketahui";
 
-  // Dynamic width based on active lyric length (concept like notch idle lyrics)
-  const dynamicWidth = useMemo(() => {
-    const textToMeasure = activeLyricText || media?.title || "Gili Mini Player";
-    const lyricWidth = getTextWidth(textToMeasure, "600 13px 'Inter', sans-serif");
-    const titleText = media?.title ? `${media.title} · ${media.artist || "Artis tidak diketahui"}` : "";
-    const titleWidth = titleText ? getTextWidth(titleText, "400 11.5px 'Inter', sans-serif") : 0;
-    const maxText = Math.max(lyricWidth, titleWidth);
+    if (!media?.title) {
+      return {
+        activeText: "Gili Mini Player",
+        contextText: "Menunggu pemutaran musik...",
+        currentLineTime: null,
+        nextLineTime: null,
+        lineKey: "idle",
+      };
+    }
 
-    // UI footprint:
-    // Left padding (16px) + Album Art (56px) + Gap (12px) + Gap (12px) + Equalizer (20px) + Right padding (16px) + safety buffer (16px) = 148px
-    const basePadding = 148;
-    const rawWidth = Math.ceil(maxText + basePadding);
+    if (lyrics?.state === "loading") {
+      return {
+        activeText: "Memuat lirik...",
+        contextText: fallbackArtist,
+        currentLineTime: null,
+        nextLineTime: null,
+        lineKey: "loading",
+      };
+    }
 
-    // Limits:
-    // Saat toolbar tampil (hover), sediakan minimal 380px agar tombol kontrol tidak sesak.
-    // Saat idle collapsed, dapat ramping hingga 260px. Maksimal 560px (sama dengan notch idle lirik).
-    const minW = showToolbar ? 380 : 260;
-    const maxW = 560;
-    return Math.min(maxW, Math.max(minW, rawWidth));
-  }, [activeLyricText, media?.title, media?.artist, showToolbar]);
+    if (lyrics?.state === "instrumental") {
+      return {
+        activeText: "♪ Lagu Instrumental ♪",
+        contextText: fallbackArtist,
+        currentLineTime: null,
+        nextLineTime: null,
+        lineKey: "instrumental",
+      };
+    }
 
-  useEffect(() => {
-    onWidthChange?.(dynamicWidth);
-  }, [dynamicWidth, onWidthChange]);
+    if (lyrics?.state === "not_found") {
+      return {
+        activeText: "Lirik tidak ditemukan",
+        contextText: fallbackArtist,
+        currentLineTime: null,
+        nextLineTime: null,
+        lineKey: "not_found",
+      };
+    }
+
+    if (lyrics?.synced && lyrics.lines && lyrics.lines.length > 0) {
+      const lines = lyrics.lines;
+      if (activeIndex < 0) {
+        const firstLine = sanitizeLyricText(lines[0]?.text) || fallbackArtist;
+        return {
+          activeText: "♪ •••",
+          contextText: firstLine,
+          currentLineTime: 0,
+          nextLineTime: lines[0]?.time ?? null,
+          lineKey: `intro-${lyrics.title}`,
+        };
+      }
+
+      const rawActive = sanitizeLyricText(activeLine?.text);
+      const effectiveActive = rawActive || "♪ •••";
+      const ctx = findContextLineText(lines, activeIndex, fallbackArtist);
+      const currTime = lines[activeIndex]?.time ?? null;
+      const nextTime =
+        activeIndex + 1 < lines.length ? lines[activeIndex + 1].time : (totalDuration || null);
+
+      return {
+        activeText: effectiveActive,
+        contextText: ctx,
+        currentLineTime: currTime,
+        nextLineTime: nextTime,
+        lineKey: `line-${activeIndex}-${currTime}`,
+      };
+    }
+
+    if (lyrics?.plain_lyrics) {
+      const plainLines = lyrics.plain_lyrics
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      return {
+        activeText: plainLines[0] || media.title,
+        contextText: plainLines[1] || fallbackArtist,
+        currentLineTime: null,
+        nextLineTime: null,
+        lineKey: `plain-${lyrics.title}`,
+      };
+    }
+
+    return {
+      activeText: "Lirik tidak tersedia",
+      contextText: fallbackArtist,
+      currentLineTime: null,
+      nextLineTime: null,
+      lineKey: "empty",
+    };
+  }, [
+    media?.title,
+    media?.artist,
+    lyrics?.state,
+    lyrics?.synced,
+    lyrics?.lines,
+    lyrics?.plain_lyrics,
+    lyrics?.title,
+    activeIndex,
+    activeLine?.text,
+    totalDuration,
+  ]);
+
+  // Recalculate layout only when line changes or reduced-motion toggles
+  const lyricLayout = useMemo(() => {
+    return computeBarLyricLayout({
+      activeText,
+      contextText,
+      slotWidth: LYRIC_SLOT_WIDTH,
+      prefersReducedMotion,
+    });
+  }, [activeText, contextText, prefersReducedMotion]);
 
   const containerStyle = useMemo(() => {
     return {
+      width: `${BAR_WIDTH}px`,
       backdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
       WebkitBackdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
     };
   }, [theme]);
 
+  const titleArtistText = media?.title
+    ? `${media.title} · ${media.artist || "Artis tidak diketahui"}`
+    : "Gili Mini Player";
+
   return (
-    <motion.div
+    <div
       onDoubleClick={onToggleMode}
-      initial={false}
-      animate={{
-        width: dynamicWidth,
-        height: showToolbar ? 130 : 88,
-      }}
-      transition={
-        prefersReducedMotion
-          ? { duration: 0 }
-          : {
-              width: { type: "spring", stiffness: 280, damping: 26, mass: 0.75 },
-              height: { duration: 0.32, ease: [0.16, 1, 0.3, 1] },
-            }
-      }
-      className={`relative box-border text-white select-none rounded-[24px] shadow-none p-[14px_16px_18px] overflow-hidden ${
+      className={`relative box-border w-[440px] text-white select-none rounded-[24px] shadow-none p-[14px_16px_18px] overflow-hidden ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
-      }`}
+      } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
       style={containerStyle}
     >
       <MiniPlayerBackground
@@ -119,20 +210,21 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         tintColor={tintColor}
         theme={theme}
       />
+
       {/* Top Slot for Toolbar on Hover */}
       <div
         data-tauri-drag-region
-        className={`w-full flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden ${
+        className={`w-full flex items-center overflow-hidden ${
           showToolbar
-            ? "opacity-100 max-h-10 mb-1.5 -mt-1 pointer-events-auto cursor-move"
-            : "opacity-0 max-h-0 mb-0 -mt-0 pointer-events-none"
+            ? "opacity-100 h-[36px] mb-[6px] pointer-events-auto cursor-move"
+            : "opacity-0 h-0 mb-0 pointer-events-none"
         }`}
       >
         {toolbarNode}
       </div>
 
-      {/* Media Row: 56px Album Art + Title/Artist + Equalizer */}
-      <div className="flex items-center gap-3 pointer-events-none">
+      {/* Media Row: 56px Album Art + Left-Aligned Title/Lyrics + Equalizer */}
+      <div className="flex items-center gap-3 h-14 pointer-events-none">
         {/* Album Art: 56px, radius 12px */}
         <div
           role="img"
@@ -152,50 +244,24 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
           )}
         </div>
 
-        {/* Title, Artist, and Live Lyric */}
-        <div className="min-w-0 flex-1">
-          <div className="h-4 relative overflow-hidden flex items-center">
-            <ScrollingText
-              text={media?.title ? `${media.title} · ${media.artist || "Artis tidak diketahui"}` : "Gili Mini Player"}
-              speed={24}
-              pauseSeconds={2}
-              align="left"
-              className="w-full text-[11.5px] text-white/60 leading-tight"
-            />
+        {/* Left-Aligned Title/Artist + Fixed 2-Line Lyric Slot */}
+        <div className="min-w-0 flex-1 h-14 flex flex-col justify-between items-start text-start">
+          <div
+            dir="auto"
+            className="w-full h-4 flex items-center text-[11.5px] text-white/60 leading-none truncate text-start"
+            title={titleArtistText}
+          >
+            {titleArtistText}
           </div>
 
-          <div className="h-[22px] mt-[3px] relative overflow-hidden flex items-center">
-            {prefersReducedMotion ? (
-              <ScrollingText
-                key={activeLyricText}
-                text={activeLyricText}
-                speed={28}
-                pauseSeconds={1.5}
-                align="left"
-                className="w-full text-[13px] font-semibold text-white tracking-[-0.01em]"
-              />
-            ) : (
-              <AnimatePresence mode="popLayout" initial={false}>
-                <motion.div
-                  key={activeLyricText}
-                  initial={{ opacity: 0, y: 10, filter: "blur(3px)" }}
-                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, y: -10, filter: "blur(3px)" }}
-                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                  className="w-full h-full flex items-center absolute inset-0"
-                  title={activeLyricText}
-                >
-                  <ScrollingText
-                    text={activeLyricText}
-                    speed={28}
-                    pauseSeconds={1.5}
-                    align="left"
-                    className="w-full text-[13px] font-semibold text-white tracking-[-0.01em]"
-                  />
-                </motion.div>
-              </AnimatePresence>
-            )}
-          </div>
+          <BarLyricSlot
+            lineKey={lineKey}
+            layout={lyricLayout}
+            currentLineTime={currentLineTime}
+            nextLineTime={nextLineTime}
+            isPlaying={isPlaying}
+            prefersReducedMotion={prefersReducedMotion}
+          />
         </div>
 
         {/* Right: Equalizer 5 bars (Blue #3B9DF8) */}
@@ -214,7 +280,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
             height={isPlaying ? "10" : "4"}
             rx="1.75"
             fill="#3B9DF8"
-            className={isPlaying ? "animate-pulse" : ""}
+            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
           />
           <rect
             x="5.5"
@@ -223,7 +289,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
             height={isPlaying ? "18" : "4"}
             rx="1.75"
             fill="#3B9DF8"
-            className={isPlaying ? "animate-pulse" : ""}
+            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
           />
           <rect
             x="11"
@@ -232,7 +298,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
             height={isPlaying ? "26" : "4"}
             rx="1.75"
             fill="#3B9DF8"
-            className={isPlaying ? "animate-pulse" : ""}
+            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
           />
           <rect
             x="16.5"
@@ -241,7 +307,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
             height={isPlaying ? "16" : "4"}
             rx="1.75"
             fill="#3B9DF8"
-            className={isPlaying ? "animate-pulse" : ""}
+            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
           />
           <rect
             x="22"
@@ -250,7 +316,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
             height={isPlaying ? "8" : "4"}
             rx="1.75"
             fill="#3B9DF8"
-            className={isPlaying ? "animate-pulse" : ""}
+            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
           />
         </svg>
       </div>
@@ -263,10 +329,13 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         className="absolute left-4 right-4 bottom-[9px] h-[3px] rounded-full bg-white/20 overflow-hidden pointer-events-none"
       >
         <div
-          className="h-full bg-white transition-[width] duration-150 ease-linear rounded-full"
-          style={{ width: `${progressPercent}%` }}
+          className="h-full bg-white w-full origin-left rounded-full"
+          style={{
+            transform: `scaleX(${progressPercent / 100})`,
+            transition: prefersReducedMotion ? "none" : "transform 150ms linear",
+          }}
         />
       </div>
-    </motion.div>
+    </div>
   );
 };

@@ -1,6 +1,13 @@
+export interface LyricWord {
+  time: number;
+  endTime?: number;
+  text: string;
+}
+
 export interface LyricLine {
   time: number;
   text: string;
+  words?: LyricWord[];
 }
 
 export type LyricsProviderId =
