@@ -8,6 +8,7 @@ import {
   sanitizeLyricText,
 } from "./lyricsLayout";
 import { BarLyricSlot } from "./BarLyricSlot";
+import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -265,60 +266,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         </div>
 
         {/* Right: Equalizer 5 bars (Blue #3B9DF8) */}
-        <svg
-          width="20"
-          height="22"
-          viewBox="0 0 25 28"
-          role="img"
-          aria-label="Sedang memutar"
-          className="shrink-0"
-        >
-          <rect
-            x="0"
-            y={isPlaying ? "9" : "15"}
-            width="3.5"
-            height={isPlaying ? "10" : "4"}
-            rx="1.75"
-            fill="#3B9DF8"
-            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
-          />
-          <rect
-            x="5.5"
-            y={isPlaying ? "5" : "15"}
-            width="3.5"
-            height={isPlaying ? "18" : "4"}
-            rx="1.75"
-            fill="#3B9DF8"
-            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
-          />
-          <rect
-            x="11"
-            y={isPlaying ? "1" : "15"}
-            width="3.5"
-            height={isPlaying ? "26" : "4"}
-            rx="1.75"
-            fill="#3B9DF8"
-            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
-          />
-          <rect
-            x="16.5"
-            y={isPlaying ? "6" : "15"}
-            width="3.5"
-            height={isPlaying ? "16" : "4"}
-            rx="1.75"
-            fill="#3B9DF8"
-            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
-          />
-          <rect
-            x="22"
-            y={isPlaying ? "10" : "15"}
-            width="3.5"
-            height={isPlaying ? "8" : "4"}
-            rx="1.75"
-            fill="#3B9DF8"
-            className={isPlaying && !prefersReducedMotion ? "animate-pulse" : ""}
-          />
-        </svg>
+        <MiniPlayerEqualizer isPlaying={isPlaying} />
       </div>
 
       {/* Bottom: 3px Progress Bar */}
