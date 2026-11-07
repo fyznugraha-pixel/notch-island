@@ -1,9 +1,7 @@
 import React, { useMemo, useRef, useEffect, useCallback } from "react";
-import { SkipBack, Play, Pause, SkipForward } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
-import { formatMediaTime } from "../../utils/time";
 import { ScrollingText } from "../ui/ScrollingText";
 
 export interface MiniPlayerCardModeProps {
@@ -29,21 +27,13 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   const position = media?.position || 0;
   const duration = media?.duration || 0;
 
-  const { activeIndex, livePosition, liveDuration } = useLyricsSync(
+  const { activeIndex } = useLyricsSync(
     lyrics,
     position,
     duration,
     isPlaying,
     lyrics?.offset || 0
   );
-
-  const totalDuration = liveDuration || duration;
-  const progressPercent = useMemo(() => {
-    if (!totalDuration || totalDuration <= 0) return 0;
-    return Math.min(100, Math.max(0, (livePosition / totalDuration) * 100));
-  }, [livePosition, totalDuration]);
-
-  const remainingSeconds = Math.max(0, totalDuration - livePosition);
 
   const containerStyle = useMemo(() => {
     if (theme === "solid") {
@@ -139,29 +129,11 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     } catch {}
   }, []);
 
-  const handleSeek = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!totalDuration || totalDuration <= 0) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetTime = ratio * totalDuration;
-    userScrollingRef.current = false;
-    try {
-      await invoke("smtc_seek", { positionSec: targetTime });
-    } catch {}
-  };
-
-  const handleMediaControl = async (e: React.MouseEvent, action: "prev" | "toggle" | "next") => {
-    e.stopPropagation();
-    try {
-      await invoke("smtc_action", { action });
-    } catch {}
-  };
-
   return (
     <div
       data-tauri-drag-region
       onDoubleClick={onToggleMode}
-      className={`relative box-border w-[380px] h-[440px] text-white select-none cursor-move rounded-[28px] p-[6px_18px_18px] flex flex-col justify-between overflow-hidden shadow-none ${
+      className={`relative box-border w-[380px] h-[340px] text-white select-none cursor-move rounded-[28px] p-[6px_18px_14px] flex flex-col justify-between overflow-hidden shadow-none ${
         theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
       }`}
       style={containerStyle}
@@ -270,7 +242,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         </svg>
       </div>
 
-      {/* Center: Synced Lyrics with Smooth Auto-Scroll and Mask Fade */}
+      {/* Center: Synced Lyrics Display */}
       <div
         ref={lyricsContainerRef}
         onWheel={handleWheel}
@@ -297,7 +269,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
             Lirik tidak ditemukan
           </div>
         ) : lyrics?.synced && lyrics.lines && lyrics.lines.length > 0 ? (
-          <div className="flex flex-col items-center space-y-2 pt-[96px] pb-[105px] px-2 w-full">
+          <div className="flex flex-col items-center space-y-2 pt-[92px] pb-[100px] px-2 w-full">
             {lyrics.lines.map((line, index) => {
               const distance = Math.abs(index - activeIndex);
               const isActive = index === activeIndex;
@@ -350,53 +322,6 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
             {media?.title ? "Lirik tidak tersedia" : "Menunggu pemutaran musik..."}
           </div>
         )}
-      </div>
-
-      {/* Progress Bar & Time */}
-      <div className="flex items-center gap-2.5 text-[11.5px] font-mono text-white/60 shrink-0">
-        <span>{formatMediaTime(livePosition)}</span>
-        <div
-          role="progressbar"
-          aria-label="Posisi lagu"
-          aria-valuenow={Math.round(progressPercent)}
-          onClick={handleSeek}
-          className="flex-1 h-1 rounded-full bg-white/20 cursor-pointer overflow-hidden relative"
-        >
-          <div
-            className="h-full bg-white rounded-full transition-[width] duration-150 ease-linear"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-        <span>-{formatMediaTime(remainingSeconds)}</span>
-      </div>
-
-      {/* Playback Controls (Previous, 46px Play/Pause, Next) */}
-      <div className="flex items-center justify-center gap-6 mt-2.5 mb-1 shrink-0">
-        <button
-          onClick={(e) => handleMediaControl(e, "prev")}
-          className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors"
-          aria-label="Sebelumnya"
-        >
-          <SkipBack size={20} fill="currentColor" />
-        </button>
-        <button
-          onClick={(e) => handleMediaControl(e, "toggle")}
-          className="w-[46px] h-[46px] rounded-full bg-white text-[#111] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-lg"
-          aria-label={isPlaying ? "Jeda" : "Putar"}
-        >
-          {isPlaying ? (
-            <Pause size={18} fill="currentColor" />
-          ) : (
-            <Play size={18} fill="currentColor" className="ml-0.5" />
-          )}
-        </button>
-        <button
-          onClick={(e) => handleMediaControl(e, "next")}
-          className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors"
-          aria-label="Berikutnya"
-        >
-          <SkipForward size={20} fill="currentColor" />
-        </button>
       </div>
     </div>
   );

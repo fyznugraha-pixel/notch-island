@@ -3,6 +3,8 @@ use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 static IS_MINIPLAYER_OPEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static WAS_OPEN_BEFORE_FULLSCREEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
+static CURRENT_MODE: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
+static TRACKER_STARTED: OnceLock<bool> = OnceLock::new();
 
 fn get_open_state() -> &'static Arc<Mutex<bool>> {
     IS_MINIPLAYER_OPEN.get_or_init(|| Arc::new(Mutex::new(false)))
@@ -10,6 +12,125 @@ fn get_open_state() -> &'static Arc<Mutex<bool>> {
 
 fn get_fs_state() -> &'static Arc<Mutex<bool>> {
     WAS_OPEN_BEFORE_FULLSCREEN.get_or_init(|| Arc::new(Mutex::new(false)))
+}
+
+fn get_mode() -> &'static Arc<Mutex<String>> {
+    CURRENT_MODE.get_or_init(|| Arc::new(Mutex::new("bar".into())))
+}
+
+#[cfg(windows)]
+fn nudge_cursor() {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_MOVE, MOUSEINPUT,
+    };
+    let input = INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: 0,
+                dwFlags: MOUSEEVENTF_MOVE,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    unsafe {
+        SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
+pub fn ensure_miniplayer_tracker(app: &AppHandle) {
+    if TRACKER_STARTED.get().is_some() {
+        return;
+    }
+    let _ = TRACKER_STARTED.set(true);
+
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let mut is_click_through = false;
+        let mut was_dragging = false;
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+
+            let is_open = *get_open_state().lock().unwrap();
+            if !is_open {
+                if is_click_through {
+                    if let Some(w) = app_handle.get_webview_window("miniplayer") {
+                        let _ = w.set_ignore_cursor_events(false);
+                    }
+                    is_click_through = false;
+                }
+                continue;
+            }
+
+            let Some(win) = app_handle.get_webview_window("miniplayer") else {
+                continue;
+            };
+
+            if win.is_visible().unwrap_or(false) == false {
+                continue;
+            }
+
+            #[cfg(windows)]
+            {
+                use windows::Win32::Foundation::POINT;
+                use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+                use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+
+                let mut pt = POINT { x: 0, y: 0 };
+                if unsafe { GetCursorPos(&mut pt).is_ok() } {
+                    let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+
+                    if let (Ok(win_pos), Ok(win_size)) = (win.outer_position(), win.outer_size()) {
+                        let scale_factor = win.scale_factor().unwrap_or(1.0);
+                        let in_window = pt.x >= win_pos.x
+                            && pt.x < win_pos.x + win_size.width as i32
+                            && pt.y >= win_pos.y
+                            && pt.y < win_pos.y + win_size.height as i32;
+
+                        let current_mode = get_mode().lock().unwrap().clone();
+
+                        if in_window && current_mode == "card" {
+                            let rel_y = (pt.y - win_pos.y) as f64 / scale_factor;
+                            // Top 102px contains the grab handle/toolbar (36px) and album/title header (64px)
+                            let in_top_control_area = rel_y < 102.0;
+
+                            if l_down && (was_dragging || !is_click_through) {
+                                // Keep drag active
+                                was_dragging = true;
+                                continue;
+                            }
+                            was_dragging = false;
+
+                            if in_top_control_area {
+                                if is_click_through {
+                                    let _ = win.set_ignore_cursor_events(false);
+                                    is_click_through = false;
+                                    nudge_cursor();
+                                }
+                            } else {
+                                // Lyrics area: pass clicks through to background apps
+                                if !is_click_through {
+                                    let _ = win.set_ignore_cursor_events(true);
+                                    is_click_through = true;
+                                }
+                            }
+                        } else {
+                            was_dragging = false;
+                            if is_click_through {
+                                let _ = win.set_ignore_cursor_events(false);
+                                is_click_through = false;
+                                nudge_cursor();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
 }
 
 #[cfg(windows)]
@@ -39,6 +160,7 @@ fn apply_no_activate_style(win: &WebviewWindow) {
 }
 
 pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
+    ensure_miniplayer_tracker(app);
     let open_arc = get_open_state();
     let mut is_open = open_arc.lock().unwrap();
 
@@ -283,9 +405,11 @@ pub fn snap_miniplayer_position(
 
 #[tauri::command]
 pub async fn set_miniplayer_mode(app: AppHandle, mode: String) -> Result<(), String> {
+    *get_mode().lock().unwrap() = mode.clone();
+    ensure_miniplayer_tracker(&app);
     if let Some(w) = app.get_webview_window("miniplayer") {
         let (new_w, new_h) = if mode == "card" {
-            (380.0, 440.0)
+            (380.0, 340.0)
         } else {
             (440.0, 130.0)
         };

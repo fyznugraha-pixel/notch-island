@@ -149,7 +149,7 @@ export const MiniPlayerApp: React.FC = () => {
       try {
         const { x, y } = event.payload;
         const currentW = mode === "card" ? 380 : 440;
-        const currentH = mode === "card" ? 440 : 88;
+        const currentH = mode === "card" ? 340 : 88;
         latestPosRef.current = { x, y, w: currentW, h: currentH };
 
         const [snappedX, snappedY] = await invoke<[number, number]>("snap_miniplayer_position", {
@@ -403,7 +403,7 @@ export const MiniPlayerApp: React.FC = () => {
         transition: "opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       className={`relative overflow-hidden select-none bg-transparent transition-[width,height] duration-200 ease-out ${
-        mode === "card" ? "w-[380px] h-[440px]" : showToolbar ? "w-[440px] h-[130px]" : "w-[440px] h-[88px]"
+        mode === "card" ? "w-[380px] h-[340px]" : showToolbar ? "w-[440px] h-[130px]" : "w-[440px] h-[88px]"
       }`}
     >
       {mode === "card" ? (
