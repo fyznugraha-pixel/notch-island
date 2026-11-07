@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import {
   initMediaLyricsStore,
   subscribeMedia,
@@ -68,7 +68,6 @@ export const MiniPlayerApp: React.FC = () => {
   const [isInZone, setIsInZone] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const dwellTimerRef = useRef<NodeJS.Timeout | null>(null);
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const ctrlPollRef = useRef<NodeJS.Timeout | null>(null);
   const dragCheckPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -233,33 +232,50 @@ export const MiniPlayerApp: React.FC = () => {
     };
   }, [mode]);
 
-  // Hover dwell behavior (M4):
+  // Listen to Rust cursor hit-testing across click-through boundaries
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<boolean>("miniplayer:cursor-hover", (event) => {
+      const isHovered = event.payload;
+      if (isHovered) {
+        if (exitTimerRef.current) {
+          clearTimeout(exitTimerRef.current);
+          exitTimerRef.current = null;
+        }
+        if (fadeOnHover) {
+          setIsFaded(true);
+        }
+        setShowToolbar(true);
+      } else {
+        if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = setTimeout(() => {
+          setIsFaded(false);
+          setShowToolbar(false);
+          exitTimerRef.current = null;
+        }, 120);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [fadeOnHover]);
+
+  // Hover behavior: immediately lowers opacity and shows toolbar as long as cursor is over the mini player
   const handleMouseEnter = useCallback(() => {
     if (exitTimerRef.current) {
       clearTimeout(exitTimerRef.current);
       exitTimerRef.current = null;
     }
-
     if (fadeOnHover) {
       setIsFaded(true);
-      if (dwellTimerRef.current) clearTimeout(dwellTimerRef.current);
-      dwellTimerRef.current = setTimeout(() => {
-        setIsFaded(false);
-        setShowToolbar(true);
-        dwellTimerRef.current = null;
-      }, 350);
-    } else {
-      setIsFaded(false);
-      setShowToolbar(true);
     }
+    setShowToolbar(true);
   }, [fadeOnHover]);
 
   const handleMouseLeave = useCallback(() => {
-    if (dwellTimerRef.current) {
-      clearTimeout(dwellTimerRef.current);
-      dwellTimerRef.current = null;
-    }
-
     if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
     exitTimerRef.current = setTimeout(() => {
       setShowToolbar(false);
@@ -273,8 +289,7 @@ export const MiniPlayerApp: React.FC = () => {
     if (
       target.closest("button") ||
       target.closest("input") ||
-      target.closest("a") ||
-      target.closest("[data-no-drag]")
+      target.closest("a")
     ) {
       return;
     }
@@ -285,13 +300,11 @@ export const MiniPlayerApp: React.FC = () => {
   }, []);
 
   const handleClick = useCallback(() => {
-    if (dwellTimerRef.current) {
-      clearTimeout(dwellTimerRef.current);
-      dwellTimerRef.current = null;
+    if (fadeOnHover) {
+      setIsFaded(true);
     }
-    setIsFaded(false);
     setShowToolbar(true);
-  }, []);
+  }, [fadeOnHover]);
 
   // Ctrl key temporary click-through
   useEffect(() => {

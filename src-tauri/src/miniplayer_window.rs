@@ -51,12 +51,17 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
     std::thread::spawn(move || {
         let mut is_click_through = false;
         let mut was_dragging = false;
+        let mut was_in_window = false;
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(30));
 
             let is_open = *get_open_state().lock().unwrap();
             if !is_open {
+                if was_in_window {
+                    was_in_window = false;
+                    let _ = app_handle.emit("miniplayer:cursor-hover", false);
+                }
                 if is_click_through {
                     if let Some(w) = app_handle.get_webview_window("miniplayer") {
                         let _ = w.set_ignore_cursor_events(false);
@@ -90,6 +95,11 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                             && pt.x < win_pos.x + win_size.width as i32
                             && pt.y >= win_pos.y
                             && pt.y < win_pos.y + win_size.height as i32;
+
+                        if in_window != was_in_window {
+                            was_in_window = in_window;
+                            let _ = app_handle.emit("miniplayer:cursor-hover", in_window);
+                        }
 
                         let current_mode = get_mode().lock().unwrap().clone();
 

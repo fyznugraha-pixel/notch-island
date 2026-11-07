@@ -139,7 +139,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       style={containerStyle}
     >
       {/* Top 36px Slot: Grab Handle (normal) or Toolbar (hover) */}
-      <div className="h-9 w-full shrink-0 flex items-center justify-center">
+      <div data-tauri-drag-region className="h-9 w-full shrink-0 flex items-center justify-center cursor-move">
         {showToolbar ? (
           <div className="w-full h-full flex items-center">{toolbarNode}</div>
         ) : (
@@ -151,7 +151,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       </div>
 
       {/* Header: 60px Album Art + Title/Artist + Equalizer */}
-      <div className="flex items-center gap-3.5 shrink-0 mt-1 pointer-events-none">
+      <div data-tauri-drag-region className="flex items-center gap-3.5 shrink-0 mt-1 cursor-move">
         <div
           role="img"
           aria-label="Sampul album"

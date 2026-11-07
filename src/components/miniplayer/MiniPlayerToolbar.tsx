@@ -100,13 +100,11 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
 
   return (
     <div
-      onClick={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()}
-      data-no-drag
-      className="flex items-center justify-between h-9 gap-2 select-none text-white w-full"
+      data-tauri-drag-region
+      className="flex items-center justify-between h-9 gap-2 select-none text-white w-full cursor-move"
     >
       {/* Left: Mode Segmented Switcher (Bar vs Card) */}
-      <div className="flex gap-0.5 p-0.5 rounded-[11px] bg-white/10 shrink-0">
+      <div data-no-drag onMouseDown={(e) => e.stopPropagation()} className="flex gap-0.5 p-0.5 rounded-[11px] bg-white/10 shrink-0">
         <button
           onClick={() => onSetMode("bar")}
           className={`w-7 h-7 rounded-[9px] flex items-center justify-center transition-colors ${
@@ -155,7 +153,7 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
 
       {/* Center: Playback Controls (Bar Mode only) */}
       {mode === "bar" && (
-        <div className="flex items-center gap-1 shrink-0">
+        <div data-no-drag onMouseDown={(e) => e.stopPropagation()} className="flex items-center gap-1 shrink-0">
           <button
             onClick={(e) => handleMediaControl(e, "prev")}
             className="w-[30px] h-[30px] flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors"
@@ -185,7 +183,7 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
       )}
 
       {/* Right Controls: Provider, Refresh, Offset, Pin, Return to Notch, Close */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div data-no-drag onMouseDown={(e) => e.stopPropagation()} className="flex items-center gap-1.5 shrink-0">
         {/* Lyrics Provider Selector Pill */}
         <button
           onClick={handleCycleProvider}
