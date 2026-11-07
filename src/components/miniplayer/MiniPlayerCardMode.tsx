@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
 import { ScrollingText } from "../ui/ScrollingText";
+import { MiniPlayerBackground } from "./MiniPlayerBackground";
 
 export interface MiniPlayerCardModeProps {
   media: MediaPayload | null;
@@ -36,18 +37,11 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   );
 
   const containerStyle = useMemo(() => {
-    if (theme === "solid") {
-      return {
-        background: `linear-gradient(135deg, ${tintColor || "#3a1414"}, #0c0c10 125%)`,
-        opacity: 1.0,
-      };
-    }
     return {
-      backgroundColor: "rgba(18, 18, 24, 0.75)",
-      backdropFilter: "blur(28px) saturate(180%)",
-      WebkitBackdropFilter: "blur(28px) saturate(180%)",
+      backdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
+      WebkitBackdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
     };
-  }, [theme, tintColor]);
+  }, [theme]);
 
   // Smooth lyrics auto-scroll refs
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
@@ -138,6 +132,11 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       }`}
       style={containerStyle}
     >
+      <MiniPlayerBackground
+        thumbnail={media?.thumbnail}
+        tintColor={tintColor}
+        theme={theme}
+      />
       {/* Top 36px Slot: Grab Handle (normal) or Toolbar (hover) */}
       <div data-tauri-drag-region className="h-9 w-full shrink-0 flex items-center justify-center cursor-move">
         {showToolbar ? (

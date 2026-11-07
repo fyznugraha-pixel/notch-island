@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
 import { useLyricsSync } from "./lyricsSync";
 import { ScrollingText } from "../ui/ScrollingText";
+import { MiniPlayerBackground } from "./MiniPlayerBackground";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -58,18 +59,11 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   }, [media?.title, lyrics?.state, activeLine?.text, lyrics?.lines]);
 
   const containerStyle = useMemo(() => {
-    if (theme === "solid") {
-      return {
-        background: `linear-gradient(135deg, ${tintColor || "#3a1414"}, #0c0c10 125%)`,
-        opacity: 1.0,
-      };
-    }
     return {
-      backgroundColor: "rgba(18, 18, 24, 0.75)",
-      backdropFilter: "blur(28px) saturate(180%)",
-      WebkitBackdropFilter: "blur(28px) saturate(180%)",
+      backdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
+      WebkitBackdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
     };
-  }, [theme, tintColor]);
+  }, [theme]);
 
   return (
     <div
@@ -80,6 +74,11 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       } ${showToolbar ? "h-[130px]" : "h-[88px]"}`}
       style={containerStyle}
     >
+      <MiniPlayerBackground
+        thumbnail={media?.thumbnail}
+        tintColor={tintColor}
+        theme={theme}
+      />
       {/* Top Slot for Toolbar on Hover */}
       <div
         className={`transition-all duration-150 ease-out overflow-hidden ${
