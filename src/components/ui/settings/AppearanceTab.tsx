@@ -1,4 +1,5 @@
 import React from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Moon, Type, Layout, Smile, Scaling, Activity, Sliders, MoveVertical, Palette } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { NotchPositionPreviewSelector } from "./NotchPositionPreviewSelector";
@@ -85,6 +86,24 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
   optAnimSpeed,
   onChangeAnimSpeed,
 }) => {
+  const [followSystemTextScale, setFollowSystemTextScale] = React.useState<boolean>(() => {
+    try {
+      return localStorage.getItem("gili_follow_system_text_scale") !== "false";
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleFollowSystemTextScale = React.useCallback(async (enabled: boolean) => {
+    setFollowSystemTextScale(enabled);
+    try {
+      localStorage.setItem("gili_follow_system_text_scale", String(enabled));
+      await invoke("set_follow_system_text_scale", { follow: enabled });
+    } catch (e) {
+      console.error("Failed to update follow_system_text_scale setting:", e);
+    }
+  }, []);
+
   return (
     <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col gap-1 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
       {/* 1. Bentuk (Shape: Notch vs Island) */}
@@ -382,6 +401,21 @@ export const AppearanceTab: React.FC<AppearanceTabProps> = ({
               { value: "default", label: t("settings_font_default") },
               { value: "large", label: t("settings_font_large") },
             ]}
+          />
+        }
+      />
+
+      {/* Ikuti Ukuran Teks Windows */}
+      <SettingRow
+        icon={<Scaling size={18} />}
+        iconBgClass="bg-[#241c30]"
+        iconColorClass="text-[#d0bcff]"
+        title={t("settings_follow_text_scale")}
+        subtitle={t("settings_follow_text_scale_desc")}
+        control={
+          <IosSwitch
+            checked={followSystemTextScale}
+            onChange={handleToggleFollowSystemTextScale}
           />
         }
       />

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Scissors,
@@ -106,6 +107,32 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   const isEn = getLanguage() === "en";
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const [isPowerMenuOpen, setIsPowerMenuOpen] = useState(false);
+  const modeTileRef = useRef<HTMLDivElement>(null);
+  const [dropdownCoords, setDropdownCoords] = useState<{ top: number; left: number } | null>(null);
+
+  const updateDropdownCoords = useCallback(() => {
+    if (modeTileRef.current) {
+      const rect = modeTileRef.current.getBoundingClientRect();
+      const dropdownHeight = 160;
+      const opensUp = rect.bottom + dropdownHeight + 8 > window.innerHeight;
+      setDropdownCoords({
+        top: Math.round(opensUp ? rect.top - dropdownHeight - 2 : rect.bottom + 2),
+        left: Math.round(rect.left),
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isModeDropdownOpen) {
+      setDropdownCoords(null);
+      return;
+    }
+    updateDropdownCoords();
+    window.addEventListener("resize", updateDropdownCoords);
+    return () => {
+      window.removeEventListener("resize", updateDropdownCoords);
+    };
+  }, [isModeDropdownOpen, updateDropdownCoords]);
   // Two-step confirmation for destructive power actions ("restart" | "shutdown")
   const [pendingPowerAction, setPendingPowerAction] = useState<null | "restart" | "shutdown">(null);
   const [activeSubmenu, setActiveSubmenu] = useState<null | "wifi" | "bluetooth">(null);
@@ -397,6 +424,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
 
               {/* Mode Tile + Floating Menu */}
               <div
+                ref={modeTileRef}
                 className={`relative min-w-0 transition-opacity ${
                   isModeDropdownOpen
                     ? "z-50"
@@ -409,6 +437,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsPowerMenuOpen(false);
+                    updateDropdownCoords();
                     setIsModeDropdownOpen((prev) => !prev);
                   }}
                   onContextMenu={(e) => {
@@ -482,6 +511,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     onClick={(e) => {
                       e.stopPropagation();
                       setIsPowerMenuOpen(false);
+                      updateDropdownCoords();
                       setIsModeDropdownOpen((prev) => !prev);
                     }}
                     aria-label={getLanguage() === "id" ? "Pilih Mode" : "Select Mode"}
@@ -491,59 +521,78 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   </button>
                 </div>
 
-                <AnimatePresence>
-                  {isModeDropdownOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.96, y: -4 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.96, y: -4 }}
-                      transition={iosSpring.snappy}
-                      onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-[calc(100%+2px)] z-50 w-[246px] max-h-[148px] p-1 rounded-[14px] bg-[#17171d]/95 backdrop-blur-2xl border border-white/10 shadow-[0_12px_28px_rgba(0,0,0,0.7)] flex flex-col gap-0.5 overflow-y-auto scrollbar-none select-none"
-                    >
-                      {focusModeOptions.map((opt) => {
-                        const isSelected = focusMode === opt.id;
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={(e) => {
+                {typeof document !== "undefined" &&
+                  createPortal(
+                    <AnimatePresence>
+                      {isModeDropdownOpen && dropdownCoords && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-[99998] bg-transparent"
+                            onPointerDown={(e) => {
                               e.stopPropagation();
-                              onSelectFocusMode(opt.id);
                               setIsModeDropdownOpen(false);
                             }}
-                            className={`min-h-[34px] py-1 px-2 rounded-[9px] flex items-center gap-2 text-left transition-colors cursor-pointer shrink-0 ${
-                              isSelected
-                                ? "bg-[#25252e] text-white"
-                                : "hover:bg-white/[0.05] text-[#d4d4d8] hover:text-white"
-                            }`}
+                          />
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                            transition={iosSpring.snappy}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              position: "fixed",
+                              top: dropdownCoords.top,
+                              left: dropdownCoords.left,
+                              zIndex: 99999,
+                            }}
+                            className="w-[246px] p-1 rounded-[14px] bg-[#17171d]/95 backdrop-blur-2xl border border-white/10 shadow-[0_12px_28px_rgba(0,0,0,0.7)] flex flex-col gap-0.5 overflow-y-auto scrollbar-none select-none"
                           >
-                            <span
-                              className={`w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 ${
-                                isSelected ? "bg-[#32323d]" : "bg-[#1f1f27]"
-                              } ${getFocusIconColor(opt.id)}`}
-                            >
-                              {renderFocusGlyph(opt.id, 13)}
-                            </span>
-                            <div className="flex-1 min-w-0 flex flex-col justify-center">
-                              <span className="text-[11.5px] font-semibold text-white leading-tight truncate">
-                                {opt.label}
-                              </span>
-                              {opt.desc && (
-                                <span className="text-[9.5px] text-[#a1a1aa] leading-tight truncate mt-0.5">
-                                  {opt.desc}
-                                </span>
-                              )}
-                            </div>
-                            {isSelected && (
-                              <Check size={13} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </motion.div>
+                            {focusModeOptions.map((opt) => {
+                              const isSelected = focusMode === opt.id;
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectFocusMode(opt.id);
+                                    setIsModeDropdownOpen(false);
+                                  }}
+                                  className={`min-h-[34px] py-1 px-2 rounded-[9px] flex items-center gap-2 text-left transition-colors cursor-pointer shrink-0 ${
+                                    isSelected
+                                      ? "bg-[#25252e] text-white"
+                                      : "hover:bg-white/[0.05] text-[#d4d4d8] hover:text-white"
+                                  }`}
+                                >
+                                  <span
+                                    className={`w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 ${
+                                      isSelected ? "bg-[#32323d]" : "bg-[#1f1f27]"
+                                    } ${getFocusIconColor(opt.id)}`}
+                                  >
+                                    {renderFocusGlyph(opt.id, 13)}
+                                  </span>
+                                  <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                    <span className="text-[11.5px] font-semibold text-white leading-tight truncate">
+                                      {opt.label}
+                                    </span>
+                                    {opt.desc && (
+                                      <span className="text-[9.5px] text-[#a1a1aa] leading-tight truncate mt-0.5">
+                                        {opt.desc}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {isSelected && (
+                                    <Check size={13} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>,
+                    document.body
                   )}
-                </AnimatePresence>
               </div>
 
               {/* Bluetooth Tile */}

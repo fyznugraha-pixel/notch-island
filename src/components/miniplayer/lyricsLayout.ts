@@ -78,12 +78,13 @@ export function findContextLineText(
 export function splitBalancedTwoLines(
   text: string,
   slotWidth: number,
-  fontSize: number = MIN_FONT_SIZE
+  fontSize: number = MIN_FONT_SIZE,
+  scale: number = 1.0
 ): [string, string] | null {
   const words = text.split(" ").filter(Boolean);
   if (words.length < 2) return null;
 
-  const fontSpec = `600 ${fontSize}px ${FONT_FAMILY}`;
+  const fontSpec = `600 ${fontSize * scale}px ${FONT_FAMILY}`;
 
   // Prevent single orphan word on line 2 whenever there are >= 4 words
   const maxSplitIndex = words.length >= 4 ? words.length - 2 : words.length - 1;
@@ -116,10 +117,11 @@ export function splitBalancedTwoLines(
 function clampToTwoLinesWithEllipsis(
   text: string,
   slotWidth: number,
-  fontSize: number = MIN_FONT_SIZE
+  fontSize: number = MIN_FONT_SIZE,
+  scale: number = 1.0
 ): [string, string] {
   const words = text.split(" ").filter(Boolean);
-  const fontSpec = `600 ${fontSize}px ${FONT_FAMILY}`;
+  const fontSpec = `600 ${fontSize * scale}px ${FONT_FAMILY}`;
 
   let line1Words: string[] = [];
   let idx = 0;
@@ -157,14 +159,15 @@ export function computeBarLyricLayout(params: {
   contextText: string;
   slotWidth: number;
   prefersReducedMotion: boolean;
+  scale?: number;
 }): BarLyricLayoutResult {
-  const { activeText, contextText, slotWidth, prefersReducedMotion } = params;
+  const { activeText, contextText, slotWidth, prefersReducedMotion, scale = 1.0 } = params;
   const safeText = clampExtremeText(activeText, MAX_CHAR_LIMIT);
   const fallbackContext = contextText || "♪ •••";
 
   // Step A: Try normal font down to 13px minimum to fit on 1 single line
   for (const fontSize of FONT_STEP_SIZES) {
-    const fontSpec = `600 ${fontSize}px ${FONT_FAMILY}`;
+    const fontSpec = `600 ${fontSize * scale}px ${FONT_FAMILY}`;
     const width = getTextWidth(safeText, fontSpec);
     if (width <= slotWidth) {
       return {
@@ -179,7 +182,7 @@ export function computeBarLyricLayout(params: {
   }
 
   // Step B: Wrap into 2 balanced lines at 13px, hiding the context line
-  const twoLineSplit = splitBalancedTwoLines(safeText, slotWidth, MIN_FONT_SIZE);
+  const twoLineSplit = splitBalancedTwoLines(safeText, slotWidth, MIN_FONT_SIZE, scale);
   if (twoLineSplit) {
     return {
       mode: "wrapped",
@@ -193,7 +196,7 @@ export function computeBarLyricLayout(params: {
 
   // Step C: Last resort -> Marquee (or 2-line ellipsis if prefers-reduced-motion is enabled)
   if (prefersReducedMotion) {
-    const clampedLines = clampToTwoLinesWithEllipsis(safeText, slotWidth, MIN_FONT_SIZE);
+    const clampedLines = clampToTwoLinesWithEllipsis(safeText, slotWidth, MIN_FONT_SIZE, scale);
     return {
       mode: "wrapped-clamped",
       fontSize: MIN_FONT_SIZE,
@@ -204,7 +207,7 @@ export function computeBarLyricLayout(params: {
     };
   }
 
-  const minFontSpec = `600 ${MIN_FONT_SIZE}px ${FONT_FAMILY}`;
+  const minFontSpec = `600 ${MIN_FONT_SIZE * scale}px ${FONT_FAMILY}`;
   const fullWidth = getTextWidth(safeText, minFontSpec);
   const overflowPx = Math.max(0, Math.ceil(fullWidth - slotWidth + 20));
 

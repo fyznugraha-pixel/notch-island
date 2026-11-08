@@ -321,32 +321,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
     lastDismissedNotifRef.current = { key: notifKey, time: now };
 
-    if (isHardwareHud) {
-      if (active && active.icon !== newNotif.icon) {
-        // Preserve active notification in queue so it can resume after volume/brightness HUD dismisses
-        setNotifQueue((q) => [active, ...q.filter((n) => n.icon !== active.icon && n.icon !== newNotif.icon)]);
-      }
-      currentNotifRef.current = newNotif;
-      setNotif(newNotif);
-      return;
-    }
-
-    if (active && active.icon === newNotif.icon && (newNotif.icon === "battery" || newNotif.icon === "capslock")) {
-      currentNotifRef.current = newNotif;
-      setNotif(newNotif);
-    } else if (active) {
-      setNotifQueue((q) => {
-        // Prevent duplicate queued notifications
-        const isDuplicate = q.some(
-          (n) => n.title === newNotif.title && n.body === newNotif.body && n.appName === newNotif.appName
-        );
-        if (isDuplicate) return q;
-        const filtered = q.filter((n) => n.icon !== newNotif.icon || n.appName !== newNotif.appName);
-        return [...filtered, newNotif];
-      });
-    } else {
-      currentNotifRef.current = newNotif;
-      setNotif(newNotif);
+    // Overwrite active notification immediately without queueing
+    setNotifQueue([]);
+    currentNotifRef.current = newNotif;
+    setNotif(newNotif);
+    if (!isHardwareHud) {
       triggerNotificationAudio(newNotif);
     }
   };
@@ -3602,21 +3581,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const unlistenSettingsSync = listen<any>("gili-settings-sync", (event) => {
       const payload = event.payload;
       if (!payload || typeof payload !== "object") return;
-      if (payload.type === "notch_tab_state") {
-        if (payload.isOpen && payload.tab) {
-          isCursorInsideNotchRef.current = true;
-          cancelCollapseTimer();
-          if (currentTabRef.current !== payload.tab) {
-            goToTab(payload.tab as ExpandedTab, 0, true);
-          }
-        } else if (!payload.isOpen) {
-          isCursorInsideNotchRef.current = false;
-          if (currentTabRef.current !== null || isExpandedRef.current) {
-            handleCloseImmediate(true);
-          }
-        }
-        return;
-      }
+      // Multi-monitor independent: each notch window manages its own tab and open/close state.
       if (payload.type === "tabs_preferences" && payload.data) {
         const norm = normalizeTabsPreferences(payload.data);
         setTabsPrefs(norm);

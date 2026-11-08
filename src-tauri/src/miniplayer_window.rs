@@ -19,6 +19,19 @@ fn get_mode() -> &'static Arc<Mutex<String>> {
     CURRENT_MODE.get_or_init(|| Arc::new(Mutex::new("bar".into())))
 }
 
+static FOLLOW_SYSTEM_TEXT_SCALE: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
+
+pub fn get_follow_system_text_scale() -> bool {
+    *FOLLOW_SYSTEM_TEXT_SCALE.get_or_init(|| Arc::new(Mutex::new(true))).lock().unwrap()
+}
+
+pub fn get_effective_miniplayer_scale() -> f64 {
+    if !get_follow_system_text_scale() {
+        return 1.0;
+    }
+    crate::get_system_text_scale().clamp(1.0, 1.5)
+}
+
 fn get_returned_to_notch_state() -> &'static Arc<Mutex<bool>> {
     WAS_RETURNED_TO_NOTCH.get_or_init(|| Arc::new(Mutex::new(false)))
 }
@@ -47,7 +60,8 @@ pub fn get_bottom_right_position(_mode: &str) -> (f64, f64) {
             let rc = mi.rcWork;
             let log_right = rc.right as f64 / sf;
             let log_bottom = rc.bottom as f64 / sf;
-            let (w, h) = (440.0, 340.0);
+            let text_scale = get_effective_miniplayer_scale();
+            let (w, h) = (440.0 * text_scale, 340.0 * text_scale);
             let margin = 16.0;
             return (log_right - w - margin, log_bottom - h - margin);
         }
@@ -71,8 +85,9 @@ pub fn set_window_to_bottom_right(w: &WebviewWindow) {
         };
         if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
             let rc = mi.rcWork;
-            let phys_w = (440.0 * sf).round() as i32;
-            let phys_h = (340.0 * sf).round() as i32;
+            let text_scale = get_effective_miniplayer_scale();
+            let phys_w = (440.0 * text_scale * sf).round() as i32;
+            let phys_h = (340.0 * text_scale * sf).round() as i32;
             let phys_margin = (16.0 * sf).round() as i32;
             let x = rc.right - phys_w - phys_margin;
             let y = rc.bottom - phys_h - phys_margin;
@@ -140,9 +155,25 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
             in_window: false,
             in_toolbar: false,
         };
+        let mut check_counter = 0u64;
+        let mut last_emitted_scale = (crate::get_system_text_scale() * 100.0).round() as u32;
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(30));
+            check_counter = check_counter.wrapping_add(1);
+
+            // Periksa perubahan skala teks Windows secara dinamis tanpa restart
+            if check_counter % 15 == 0 {
+                let current_raw_scale = crate::get_system_text_scale();
+                let current_percent = (current_raw_scale * 100.0).round() as u32;
+                if current_percent != last_emitted_scale {
+                    last_emitted_scale = current_percent;
+                    let _ = app_handle.emit("system:text-scale-changed", current_raw_scale);
+                    if *get_open_state().lock().unwrap() {
+                        let _ = resize_miniplayer_internal(&app_handle, 440.0, 340.0, false);
+                    }
+                }
+            }
 
             let is_open = *get_open_state().lock().unwrap();
             if !is_open {
@@ -185,7 +216,6 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                         let in_x_raw = pt.x >= win_pos.x && pt.x < win_pos.x + win_size.width as i32;
                         let in_y_full = pt.y >= win_pos.y && pt.y < win_pos.y + win_size.height as i32;
 
-                        let current_mode = get_mode().lock().unwrap().clone();
                         let rel_x = if in_x_raw && in_y_full {
                             (pt.x - win_pos.x) as f64 / scale_factor
                         } else {
@@ -219,29 +249,32 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                             }
                         };
 
+                        let text_scale = get_effective_miniplayer_scale();
+                        let current_mode = get_mode().lock().unwrap().clone();
+                        let card_w = 380.0 * text_scale;
                         let in_mode_x = if !in_x_raw || !in_y_full {
                             false
-                        } else if current_mode == "card" && win_w_logical > 382.0 {
+                        } else if current_mode == "card" && win_w_logical > (card_w + 2.0) {
                             if is_right_half {
-                                rel_x >= (win_w_logical - 380.0) && rel_x <= win_w_logical
+                                rel_x >= (win_w_logical - card_w) && rel_x <= win_w_logical
                             } else {
-                                rel_x >= 0.0 && rel_x <= 380.0
+                                rel_x >= 0.0 && rel_x <= card_w
                             }
                         } else {
                             true
                         };
 
-                        // Di dalam kanvas 440x340 (atau 130px lama), komponen selalu menempel di dasar (win_h_logical).
+                        // Di dalam kanvas 440x340 (dikalikan text_scale), komponen selalu menempel di dasar (win_h_logical).
                         // Bar mode: collapsed 88px (expanded 130px). Card mode: collapsed 298px (expanded 340px).
-                        let collapsed_h = if current_mode == "card" { 298.0 } else { 88.0 };
-                        let expanded_h = if current_mode == "card" { 340.0 } else { 130.0 };
+                        let collapsed_h = (if current_mode == "card" { 298.0 } else { 88.0 }) * text_scale;
+                        let expanded_h = (if current_mode == "card" { 340.0 } else { 130.0 }) * text_scale;
                         let active_top_y = (win_h_logical - if last_state.in_window { expanded_h } else { collapsed_h }).max(0.0);
                         let expanded_top_y = (win_h_logical - expanded_h).max(0.0);
 
                         let in_window = in_mode_x && rel_y >= active_top_y && rel_y <= win_h_logical;
 
-                        let toolbar_height = 52.0;
-                        let bottom_progress_height = 22.0;
+                        let toolbar_height = 52.0 * text_scale;
+                        let bottom_progress_height = 22.0 * text_scale;
                         let in_top_toolbar = in_window && (rel_y >= expanded_top_y && rel_y < expanded_top_y + toolbar_height);
                         let in_bottom_progress = in_window
                             && (rel_y >= (win_h_logical - bottom_progress_height) && rel_y <= win_h_logical);
@@ -361,6 +394,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
     std::thread::spawn(move || {
         let mode = get_mode().lock().unwrap().clone();
         let (init_x, init_y) = get_bottom_right_position(&mode);
+        let text_scale = get_effective_miniplayer_scale();
 
         let win = tauri::WebviewWindowBuilder::new(
             &app_clone,
@@ -369,7 +403,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         )
         .title("Gili Mini Player")
         .position(init_x, init_y)
-        .inner_size(440.0, 340.0)
+        .inner_size(440.0 * text_scale, 340.0 * text_scale)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -601,9 +635,10 @@ fn resize_miniplayer_internal(
             if let Ok(hwnd) = w.hwnd() {
                 let h = HWND(hwnd.0);
                 if let (Ok(curr_pos), Ok(curr_size)) = (w.outer_position(), w.outer_size()) {
+                    let text_scale = get_effective_miniplayer_scale();
                     let sf = w.scale_factor().unwrap_or(1.0);
-                    let target_phys_w = (width * sf).round() as i32;
-                    let target_phys_h = (height * sf).round() as i32;
+                    let target_phys_w = (width * text_scale * sf).round() as i32;
+                    let target_phys_h = (height * text_scale * sf).round() as i32;
 
                     if curr_size.width as i32 == target_phys_w && curr_size.height as i32 == target_phys_h {
                         return Ok(());
@@ -750,10 +785,11 @@ pub fn check_notch_proximity(
 
         if unsafe { GetMonitorInfoW(monitor, &mut mi).as_bool() } {
             let rc = mi.rcWork;
+            let text_scale = get_effective_miniplayer_scale();
             let mon_center_x = rc.left + (rc.right - rc.left) / 2;
             let mini_center_x = win_x + win_w / 2;
             let is_bar = get_mode().lock().map(|m| *m == "bar").unwrap_or(false);
-            let visible_top_offset = if is_bar { (210.0 * sf).round() as i32 } else { 0 };
+            let visible_top_offset = if is_bar { (210.0 * text_scale * sf).round() as i32 } else { 0 };
             let mini_top_y = win_y + visible_top_offset;
 
             let dx_win_log = ((mini_center_x - mon_center_x).abs() as f64) / sf;
@@ -770,10 +806,11 @@ pub fn check_notch_proximity(
 
             // Target notch zone: within 220px horizontally from center and 120px from top (logical)
             let is_in_zone =
-                (dx_win_log <= 220.0 && dy_win_log <= 130.0) || (dx_cur_log <= 220.0 && dy_cur_log <= 115.0);
+                (dx_win_log <= 220.0 * text_scale && dy_win_log <= 130.0 * text_scale)
+                || (dx_cur_log <= 220.0 && dy_cur_log <= 115.0);
             // Near zone: radius around target notch zone
             let is_near = is_in_zone
-                || (dx_win_log <= 300.0 && dy_win_log <= 190.0)
+                || (dx_win_log <= 300.0 * text_scale && dy_win_log <= 190.0 * text_scale)
                 || (dx_cur_log <= 300.0 && dy_cur_log <= 175.0);
 
             return NotchProximity { is_near, is_in_zone };
@@ -784,4 +821,13 @@ pub fn check_notch_proximity(
         is_near: false,
         is_in_zone: false,
     }
+}
+
+#[tauri::command]
+pub fn set_follow_system_text_scale(app: AppHandle, follow: bool) -> Result<(), String> {
+    *FOLLOW_SYSTEM_TEXT_SCALE.get_or_init(|| Arc::new(Mutex::new(true))).lock().unwrap() = follow;
+    let _ = resize_miniplayer_internal(&app, 440.0, 340.0, false);
+    let raw_scale = if follow { crate::get_system_text_scale() } else { 1.0 };
+    let _ = app.emit("system:text-scale-changed", raw_scale);
+    Ok(())
 }

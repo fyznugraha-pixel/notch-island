@@ -87,7 +87,7 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
 
   return (
     <div
-      className="h-[38px] min-h-[38px] max-h-[38px] w-full overflow-hidden flex flex-col justify-center select-none"
+      className="flex-1 min-h-[38px] w-full overflow-hidden flex flex-col justify-center select-none"
       dir="auto"
     >
       <div
@@ -102,7 +102,7 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
               textWrap: "balance",
               transformOrigin: "left center",
             }}
-            className="w-full text-start font-semibold text-white leading-[18.5px] tracking-[-0.01em] line-clamp-2 overflow-hidden"
+            className="w-full text-start font-semibold text-white leading-snug tracking-[-0.01em] line-clamp-2 overflow-hidden"
             title={layout.lines.join(" ")}
           >
             <div>{layout.lines[0]}</div>
@@ -118,7 +118,7 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
                 WebkitMaskImage:
                   "linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%)",
               }}
-              className="w-full h-[20px] flex items-center overflow-hidden whitespace-nowrap"
+              className="w-full min-h-[20px] h-auto flex items-center overflow-hidden whitespace-nowrap"
               title={layout.lines[0]}
             >
               <span
@@ -132,14 +132,14 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
                     ? `transform ${marqueeTiming.durationSec}s ease-in-out`
                     : "none",
                 }}
-                className="inline-block pl-[2px] pr-3 font-semibold text-white leading-[19px] tracking-[-0.01em]"
+                className="inline-block pl-[2px] pr-3 font-semibold text-white leading-snug tracking-[-0.01em]"
               >
                 {layout.lines[0]}
               </span>
             </div>
             <div
               dir="auto"
-              className="w-full h-[18px] flex items-center text-[12px] font-normal text-white/50 leading-[17px] truncate text-start"
+              className="w-full min-h-[16px] h-auto flex items-center text-[12px] font-normal text-white/50 leading-snug truncate text-start"
             >
               {layout.contextText}
             </div>
@@ -152,14 +152,14 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
                 fontSize: `${layout.fontSize}px`,
                 transformOrigin: "left center",
               }}
-              className="w-full h-[20px] flex items-center font-semibold text-white leading-[19px] tracking-[-0.01em] truncate text-start"
+              className="w-full min-h-[20px] h-auto flex items-center font-semibold text-white leading-snug tracking-[-0.01em] truncate text-start"
               title={layout.lines[0]}
             >
               {layout.lines[0]}
             </div>
             <div
               dir="auto"
-              className="w-full h-[18px] flex items-center text-[12px] font-normal text-white/50 leading-[17px] truncate text-start"
+              className="w-full min-h-[16px] h-auto flex items-center text-[12px] font-normal text-white/50 leading-snug truncate text-start"
             >
               {layout.contextText}
             </div>

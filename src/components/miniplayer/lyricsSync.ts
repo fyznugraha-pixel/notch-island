@@ -23,6 +23,9 @@ export function findActiveLyricIndex(lines: LyricLine[], liveTime: number): numb
   return best;
 }
 
+// Base latency compensation (+0.2s) so 0.0s user offset is naturally in sync with audio
+export const BASE_LYRICS_OFFSET = 0.2;
+
 export function useLyricsSync(
   lyrics: LyricsPayload | null,
   initialPosition: number,
@@ -63,7 +66,8 @@ export function useLyricsSync(
 
   // Tick loop for binary search and progress bar (runs when playing)
   useEffect(() => {
-    const effectiveOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
+    const userOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
+    const effectiveOffset = userOffset + BASE_LYRICS_OFFSET;
 
     if (!isPlaying) {
       if (lyrics?.synced && lyrics.lines.length > 0) {
@@ -98,7 +102,8 @@ export function useLyricsSync(
 
   // When lyrics track changes or offset changes, re-evaluate immediately
   useEffect(() => {
-    const effectiveOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
+    const userOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
+    const effectiveOffset = userOffset + BASE_LYRICS_OFFSET;
     if (!lyrics?.synced || !lyrics.lines.length) {
       activeIndexRef.current = -1;
       setActiveIndex(-1);
@@ -116,7 +121,8 @@ export function useLyricsSync(
       anchorRef.current = { time: clamped, timestamp: performance.now() };
       setLivePosition(clamped);
 
-      const effectiveOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
+      const userOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
+      const effectiveOffset = userOffset + BASE_LYRICS_OFFSET;
       if (lyrics?.synced && lyrics.lines && lyrics.lines.length > 0) {
         const idx = findActiveLyricIndex(lyrics.lines, clamped + effectiveOffset);
         activeIndexRef.current = idx;

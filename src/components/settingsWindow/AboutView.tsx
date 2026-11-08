@@ -18,6 +18,44 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.5.2",
+    date: "8 Nov 2026",
+    highlights: [
+      {
+        icon: <AppWindow size={14} />,
+        titleId: "Ikon Asli Aplikasi di Volume Mixer",
+        titleEn: "Native App Icons in Volume Mixer",
+        descId: "Volume Mixer kini mengekstrak dan menampilkan ikon asli langsung dari file executable aplikasi yang aktif.",
+        descEn: "Volume Mixer now extracts and displays native application icons directly from active executable files.",
+        badge: "improve",
+      },
+      {
+        icon: <Layers size={14} />,
+        titleId: "Perbaikan Dropdown Mode Control Center",
+        titleEn: "Control Center Mode Dropdown Layering Fix",
+        descId: "Menu dropdown Mode di Control Center kini tampil di layer teratas dan tidak lagi terpotong oleh batas panel.",
+        descEn: "Mode dropdown menu in Control Center now renders on the top-most layer without being clipped by panel boundaries.",
+        badge: "fix",
+      },
+      {
+        icon: <Bell size={14} />,
+        titleId: "Notifikasi Idle Instan Langsung Timpa",
+        titleEn: "Instant Overwrite for Idle Notifications",
+        descId: "Notifikasi baru di notch idle langsung menggantikan notifikasi aktif secara instan tanpa menunggu antrean lama.",
+        descEn: "New notifications in the idle notch now immediately replace active notifications without queuing delays.",
+        badge: "improve",
+      },
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Multi-Monitor Independen & Terintegrasi",
+        titleEn: "Independent Multi-Monitor Notch Control",
+        descId: "Membuka tab notch di monitor utama tidak lagi memaksa notch monitor kedua ikut terbuka, keduanya bekerja mandiri.",
+        descEn: "Opening tabs on the primary notch no longer mirrors state to secondary displays, keeping monitors independent.",
+        badge: "improve",
+      },
+    ],
+  },
+  {
     version: "4.5.1",
     date: "7 Nov 2026",
     highlights: [

@@ -33,7 +33,8 @@ const computeActiveIndex = (
   if (!lyrics?.synced || !lyrics.lines.length) return -1;
   const lines = lyrics.lines;
   const safeOffset = typeof timeOffset === "number" && !isNaN(timeOffset) ? timeOffset : 0;
-  const effectiveTime = time + safeOffset;
+  // Base latency compensation (+0.2s) so 0.0s baseline is naturally in sync
+  const effectiveTime = time + safeOffset + 0.2;
   return lines.findIndex(
     (line, i) =>
       effectiveTime >= line.time &&

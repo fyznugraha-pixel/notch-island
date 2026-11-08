@@ -148,7 +148,11 @@ pub fn get_song_offset(app: &AppHandle, artist: &str, title: &str) -> f64 {
     let key = normalize_track_key(artist, title);
     let offsets_arc = get_offsets_store();
     let offsets = offsets_arc.lock().unwrap();
-    offsets.get(&key).copied().unwrap_or(0.0)
+    offsets
+        .get(&key)
+        .copied()
+        .or_else(|| offsets.get("__global_default__").copied())
+        .unwrap_or(0.0)
 }
 
 pub fn set_song_offset(app: &AppHandle, artist: &str, title: &str, offset: f64) -> Result<(), String> {
@@ -158,6 +162,7 @@ pub fn set_song_offset(app: &AppHandle, artist: &str, title: &str, offset: f64) 
     {
         let mut offsets = offsets_arc.lock().unwrap();
         offsets.insert(key.clone(), offset);
+        offsets.insert("__global_default__".to_string(), offset);
         let path = get_lyrics_offsets_path(app);
         if let Ok(json_str) = serde_json::to_string_pretty(&*offsets) {
             let _ = fs::write(path, json_str);

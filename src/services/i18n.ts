@@ -230,6 +230,11 @@ export const translations = {
   settings_font_tip_small: { en: "Small text scale (92%)", id: "Skala teks kecil (92%)" },
   settings_font_tip_default: { en: "Normal text scale (100%)", id: "Skala teks normal (100%)" },
   settings_font_tip_large: { en: "Large text scale (108%)", id: "Skala teks besar (108%)" },
+  settings_follow_text_scale: { en: "Follow Windows Text Size", id: "Ikuti ukuran teks Windows" },
+  settings_follow_text_scale_desc: {
+    en: "Automatically adapt mini player window and layout to Windows Accessibility text scale",
+    id: "Sesuaikan ukuran jendela dan tata letak mini player otomatis mengikuti skala teks Windows",
+  },
   settings_shape: { en: "Shape", id: "Bentuk" },
   settings_shape_desc: { en: "Choose between anchored notch or floating island", id: "Pilih menempel di layar atau melayang" },
   settings_shape_notch: { en: "Anchored", id: "Menempel" },

@@ -19,6 +19,7 @@ export interface MiniPlayerBarModeProps {
   tintColor: string;
   showToolbar: boolean;
   toolbarNode: React.ReactNode;
+  effectiveScale?: number;
   onToggleMode?: () => void;
   onWidthChange?: (width: number) => void;
 }
@@ -33,6 +34,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   tintColor: _tintColor,
   showToolbar,
   toolbarNode,
+  effectiveScale = 1.0,
   onToggleMode,
   onWidthChange,
 }) => {
@@ -40,12 +42,17 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   const position = media?.position || 0;
   const duration = media?.duration || 0;
 
+  const currentBarWidth = BAR_WIDTH;
+  const currentSlotWidth = LYRIC_SLOT_WIDTH;
+
   const { activeIndex, activeLine, livePosition, liveDuration, seekLocal } = useLyricsSync(
     lyrics,
     position,
     duration,
     isPlaying,
-    lyrics?.offset || 0
+    typeof lyrics?.offset === "number"
+      ? lyrics.offset
+      : parseFloat(localStorage.getItem("notch_lyrics_offset") || "0") || 0
   );
 
   const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(() => {
@@ -62,8 +69,8 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   }, []);
 
   useEffect(() => {
-    onWidthChange?.(BAR_WIDTH);
-  }, [onWidthChange]);
+    onWidthChange?.(currentBarWidth);
+  }, [onWidthChange, currentBarWidth]);
 
   const totalDuration = liveDuration || duration;
   const canSeek = Boolean(
@@ -182,10 +189,11 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     return computeBarLyricLayout({
       activeText,
       contextText,
-      slotWidth: LYRIC_SLOT_WIDTH,
+      slotWidth: currentSlotWidth,
       prefersReducedMotion,
+      scale: effectiveScale,
     });
-  }, [activeText, contextText, prefersReducedMotion]);
+  }, [activeText, contextText, prefersReducedMotion, currentSlotWidth, effectiveScale]);
 
   const titleArtistText = media?.title
     ? `${media.title} · ${media.artist || "Artis tidak diketahui"}`
@@ -194,7 +202,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   return (
     <div
       onDoubleClick={onToggleMode}
-      className="relative box-border w-[440px] h-full text-white select-none p-[14px_16px_18px] flex flex-col justify-end overflow-hidden"
+      className="relative box-border w-full h-full text-white select-none p-[14px_16px_18px] flex flex-col justify-end overflow-hidden"
     >
       {/* Top Slot for Toolbar on Hover */}
       <div
@@ -209,7 +217,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
       </div>
 
       {/* Media Row: 56px Album Art + Left-Aligned Title/Lyrics + Equalizer */}
-      <div className="flex items-center gap-3 h-14 shrink-0 pointer-events-none">
+      <div className="flex items-center gap-3 min-h-14 h-auto flex-1 shrink-0 pointer-events-none">
         {/* Album Art: 56px, radius 12px */}
         <div
           role="img"
@@ -226,7 +234,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         </div>
 
         {/* Left-Aligned Title/Artist + Fixed 2-Line Lyric Slot */}
-        <div className="min-w-0 flex-1 h-14 flex flex-col justify-between items-start overflow-hidden text-start">
+        <div className="min-w-0 flex-1 min-h-14 flex flex-col justify-between items-start overflow-hidden text-start">
           <div
             dir="auto"
             className="w-full h-4 flex items-center overflow-hidden text-start"

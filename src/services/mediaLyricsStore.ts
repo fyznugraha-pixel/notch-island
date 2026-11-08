@@ -113,6 +113,9 @@ export function subscribeProgress(subscriber: ProgressSubscriber): () => void {
 export async function setSongLyricsOffset(artist: string, title: string, offset: number): Promise<void> {
   try {
     currentLyrics = { ...currentLyrics, offset };
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("notch_lyrics_offset", String(offset));
+    }
     lyricsSubscribers.forEach((s) => s(currentLyrics));
     await invoke("set_lyrics_offset", { artist, title, offset });
     // Also dispatch window event for fast local UI feedback

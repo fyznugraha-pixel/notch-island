@@ -11,11 +11,13 @@ mod toast_banners;
 pub mod shelf_server;
 pub mod media_lyrics_store;
 pub mod miniplayer_window;
+mod app_icon;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
     pid: u32,
     name: String,
+    path: Option<String>,
     volume: f32,
     muted: bool,
 }
@@ -57,6 +59,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                             if pid == 0 { continue; } // System sound
                                             
                                             let mut process_name = String::new();
+                                            let mut process_path: Option<String> = None;
                                             if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
                                                 let mut buffer = [0u16; 1024];
                                                 let mut len = buffer.len() as u32;
@@ -65,6 +68,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                     if let Some(name) = std::path::Path::new(&full_path).file_name() {
                                                         process_name = name.to_string_lossy().into_owned();
                                                     }
+                                                    process_path = Some(full_path);
                                                 }
                                                 let _ = windows::Win32::Foundation::CloseHandle(handle);
                                             }
@@ -92,6 +96,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                         sessions.push(AudioSessionInfo {
                                                             pid,
                                                             name: process_name,
+                                                            path: process_path,
                                                             volume: vol,
                                                             muted: muted.as_bool(),
                                                         });
@@ -743,13 +748,13 @@ async fn smtc_seek(position_sec: f64) -> Result<(), String> {
 static LAST_TEXT_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
 static LAST_TEXT_SCALE_CHECK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-fn get_system_text_scale() -> f64 {
+pub(crate) fn get_system_text_scale() -> f64 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let last = LAST_TEXT_SCALE_CHECK.load(std::sync::atomic::Ordering::Relaxed);
-    if now.saturating_sub(last) > 1000 {
+    if now.saturating_sub(last) > 400 {
         LAST_TEXT_SCALE_CHECK.store(now, std::sync::atomic::Ordering::Relaxed);
         let scale = windows::UI::ViewManagement::UISettings::new()
             .and_then(|u| u.TextScaleFactor())
@@ -760,6 +765,11 @@ fn get_system_text_scale() -> f64 {
     } else {
         (LAST_TEXT_SCALE.load(std::sync::atomic::Ordering::Relaxed) as f64) / 100.0
     }
+}
+
+#[tauri::command]
+fn get_system_text_scale_factor() -> f64 {
+    get_system_text_scale()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3275,7 +3285,10 @@ pub fn run() {
             miniplayer_window::is_ctrl_down,
             miniplayer_window::is_lbutton_down,
             miniplayer_window::check_notch_proximity,
-            miniplayer_window::resize_miniplayer
+            miniplayer_window::resize_miniplayer,
+            miniplayer_window::set_follow_system_text_scale,
+            get_system_text_scale_factor,
+            app_icon::get_app_icon
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -3399,17 +3412,19 @@ pub fn run() {
                 use windows::Win32::Foundation::POINT;
                 struct SecHitState {
                     was_in: bool,
+                    time_since_left: std::time::Instant,
+                    click_outside_emitted: bool,
                     cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)>,
                 }
                 let mut sec_hit_map: std::collections::HashMap<String, SecHitState> = std::collections::HashMap::new();
-                let mut was_in_pill = false;
-                let mut time_since_left_pill = std::time::Instant::now();
+                let mut was_in_main = false;
+                let mut time_since_left_main = std::time::Instant::now();
+                let mut click_outside_main_emitted = false;
                 let mut loop_count: u32 = 0;
                 let mut last_is_browser = false;
                 let mut browser_false_count: u32 = 0;
                 let mut last_is_maximized = false;
                 let mut maximized_false_count: u32 = 0;
-                let mut click_outside_emitted = false;
                 let mut pending_cursor_nudge = false;
                 let mut cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
                 let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
@@ -3483,20 +3498,36 @@ pub fn run() {
                             sec_hit_map.retain(|label, _| cur_windows.contains_key(label));
                             for (label, _) in &cur_windows {
                                 if label.starts_with("notch_secondary_") && !sec_hit_map.contains_key(label) {
-                                    sec_hit_map.insert(label.clone(), SecHitState { was_in: false, cached_geom: None });
+                                    sec_hit_map.insert(
+                                        label.clone(),
+                                        SecHitState {
+                                            was_in: false,
+                                            time_since_left: std::time::Instant::now(),
+                                            click_outside_emitted: false,
+                                            cached_geom: None,
+                                        },
+                                    );
                                 }
                             }
                         }
 
                         let is_dragging = IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed);
                         let is_interactive = IS_INTERACTIVE_MODE.load(std::sync::atomic::Ordering::Relaxed);
+                        let (l_down, r_down) = {
+                            use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+                            (
+                                (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0,
+                                (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0,
+                            )
+                        };
 
-                        let mut any_in_sec = false;
                         for (sec_label, sec_state) in sec_hit_map.iter_mut() {
                             if let Some(sec_win) = app_handle_poll.get_webview_window(sec_label) {
                                 if is_dragging {
                                     let _ = sec_win.set_ignore_cursor_events(true);
                                     sec_state.was_in = false;
+                                    sec_state.click_outside_emitted = false;
+                                    sec_state.time_since_left = std::time::Instant::now();
                                     continue;
                                 }
                                 if need_geom_refresh || sec_state.cached_geom.is_none() {
@@ -3512,8 +3543,8 @@ pub fn run() {
                                 if let Some((sec_pos, sec_size, sec_sf)) = sec_state.cached_geom {
                                     let (sec_w, sec_h, sec_dpr) = pill.secondary_pills.get(sec_label).copied().unwrap_or((pill.width, pill.height, 0.0));
                                     let mut sec_pill = pill.clone();
-                                    sec_pill.width = sec_w.max(pill.width);
-                                    sec_pill.height = sec_h.max(pill.height);
+                                    sec_pill.width = sec_w;
+                                    sec_pill.height = sec_h;
                                     if sec_dpr > 0.0 {
                                         sec_pill.dpr = sec_dpr;
                                     } else {
@@ -3521,20 +3552,52 @@ pub fn run() {
                                     }
 
                                     let in_sec = calculate_notch_hit(pt, sec_pos, sec_size, sec_sf, &sec_pill);
-                                    if in_sec {
-                                        any_in_sec = true;
-                                    }
+
                                     if is_interactive {
                                         let _ = sec_win.set_ignore_cursor_events(false);
                                         sec_state.was_in = in_sec;
-                                    } else if in_sec != sec_state.was_in {
-                                        sec_state.was_in = in_sec;
-                                        let _ = sec_win.set_ignore_cursor_events(!in_sec);
-                                        if in_sec {
-                                            nudge_cursor();
+                                        if !in_sec && (l_down || r_down) {
+                                            if !sec_state.click_outside_emitted {
+                                                sec_state.click_outside_emitted = true;
+                                                use tauri::Emitter;
+                                                let _ = app_handle_poll.emit_to(sec_label, "click-outside", ());
+                                            }
+                                        } else {
+                                            sec_state.click_outside_emitted = false;
                                         }
-                                    } else if is_window_click_through(&sec_win) == Some(in_sec) {
-                                        let _ = sec_win.set_ignore_cursor_events(!in_sec);
+                                    } else {
+                                        if is_window_click_through(&sec_win) == Some(in_sec) {
+                                            let _ = sec_win.set_ignore_cursor_events(!in_sec);
+                                        }
+                                        if in_sec != sec_state.was_in {
+                                            sec_state.was_in = in_sec;
+                                            let _ = sec_win.set_ignore_cursor_events(!in_sec);
+                                            use tauri::Emitter;
+                                            if in_sec {
+                                                nudge_cursor();
+                                                let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-enter", ());
+                                            } else {
+                                                sec_state.time_since_left = std::time::Instant::now();
+                                                let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-leave", ());
+                                            }
+                                        }
+
+                                        if in_sec {
+                                            sec_state.time_since_left = std::time::Instant::now();
+                                            sec_state.click_outside_emitted = false;
+                                        } else if sec_h >= 120.0 && sec_state.time_since_left.elapsed().as_millis() >= 400 {
+                                            if l_down || r_down {
+                                                if !sec_state.click_outside_emitted {
+                                                    sec_state.click_outside_emitted = true;
+                                                    use tauri::Emitter;
+                                                    let _ = app_handle_poll.emit_to(sec_label, "click-outside", ());
+                                                }
+                                            } else {
+                                                sec_state.click_outside_emitted = false;
+                                            }
+                                        } else {
+                                            sec_state.click_outside_emitted = false;
+                                        }
                                     }
                                 }
                             }
@@ -3542,34 +3605,30 @@ pub fn run() {
 
                         if let Some((win_pos, win_size, sf)) = cached_geom {
                             let in_main = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
-                            let any_in_pill = in_main || any_in_sec;
 
                             if is_dragging {
                                 let _ = win_clone.set_ignore_cursor_events(true);
-                                was_in_pill = false;
-                                click_outside_emitted = false;
-                                time_since_left_pill = std::time::Instant::now();
+                                was_in_main = false;
+                                click_outside_main_emitted = false;
+                                time_since_left_main = std::time::Instant::now();
                                 continue;
                             }
 
                             if is_interactive {
                                 let _ = win_clone.set_ignore_cursor_events(false);
-                                was_in_pill = true;
-                                if !any_in_pill {
-                                    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
-                                    use tauri::Emitter;
-                                    let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                    let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                                was_in_main = true;
+                                if !in_main {
                                     if l_down || r_down {
-                                        if !click_outside_emitted {
-                                            click_outside_emitted = true;
-                                            let _ = app_handle_poll.emit("click-outside", ());
+                                        if !click_outside_main_emitted {
+                                            click_outside_main_emitted = true;
+                                            use tauri::Emitter;
+                                            let _ = app_handle_poll.emit_to("main", "click-outside", ());
                                         }
                                     } else {
-                                        click_outside_emitted = false;
+                                        click_outside_main_emitted = false;
                                     }
                                 } else {
-                                    click_outside_emitted = false;
+                                    click_outside_main_emitted = false;
                                 }
                                 continue;
                             }
@@ -3581,18 +3640,18 @@ pub fn run() {
                                 }
                             }
 
-                            if any_in_pill != was_in_pill {
-                                was_in_pill = any_in_pill;
+                            if in_main != was_in_main {
+                                was_in_main = in_main;
                                 if in_main {
                                     pending_cursor_nudge = true;
                                 }
                                 let _ = win_clone.set_ignore_cursor_events(!in_main);
                                 use tauri::Emitter;
-                                if !any_in_pill {
-                                    time_since_left_pill = std::time::Instant::now();
-                                    let _ = app_handle_poll.emit("notch-mouse-leave", ());
+                                if !in_main {
+                                    time_since_left_main = std::time::Instant::now();
+                                    let _ = app_handle_poll.emit_to("main", "notch-mouse-leave", ());
                                 } else {
-                                    let _ = app_handle_poll.emit("notch-mouse-enter", ());
+                                    let _ = app_handle_poll.emit_to("main", "notch-mouse-enter", ());
                                 }
                             }
 
@@ -3601,24 +3660,21 @@ pub fn run() {
                                 nudge_cursor();
                             }
 
-                            if any_in_pill {
-                                time_since_left_pill = std::time::Instant::now();
-                                click_outside_emitted = false;
-                            } else if pill.height >= 120.0 && time_since_left_pill.elapsed().as_millis() >= 400 {
-                                use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
-                                use tauri::Emitter;
-                                let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
+                            if in_main {
+                                time_since_left_main = std::time::Instant::now();
+                                click_outside_main_emitted = false;
+                            } else if pill.height >= 120.0 && time_since_left_main.elapsed().as_millis() >= 400 {
                                 if l_down || r_down {
-                                    if !click_outside_emitted {
-                                        click_outside_emitted = true;
-                                        let _ = app_handle_poll.emit("click-outside", ());
+                                    if !click_outside_main_emitted {
+                                        click_outside_main_emitted = true;
+                                        use tauri::Emitter;
+                                        let _ = app_handle_poll.emit_to("main", "click-outside", ());
                                     }
                                 } else {
-                                    click_outside_emitted = false;
+                                    click_outside_main_emitted = false;
                                 }
                             } else {
-                                click_outside_emitted = false;
+                                click_outside_main_emitted = false;
                             }
                         }
                     }

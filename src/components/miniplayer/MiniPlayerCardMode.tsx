@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
-import { useLyricsSync } from "./lyricsSync";
+import { useLyricsSync, BASE_LYRICS_OFFSET } from "./lyricsSync";
 import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
 import { MediaThumbnail } from "../ui/MediaThumbnail";
@@ -36,7 +36,10 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   const isPlaying = Boolean(media?.is_playing);
   const position = media?.position || 0;
   const duration = media?.duration || 0;
-  const offset = lyrics?.offset || 0;
+  const offset =
+    typeof lyrics?.offset === "number"
+      ? lyrics.offset
+      : parseFloat(localStorage.getItem("notch_lyrics_offset") || "0") || 0;
 
   const { activeIndex, livePosition, liveDuration, seekLocal } = useLyricsSync(
     lyrics,
@@ -89,6 +92,25 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       setManualTranslateY(nextY);
     }
   }, [activeIndex, lyrics?.lines, computeCenteredTranslateY, isManualScrolling]);
+
+  // Dynamically update centered transform whenever viewport resizes (e.g. text scale or toolbar toggle)
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const observer = new ResizeObserver(() => {
+      const nextY = computeCenteredTranslateY(activeIndex);
+      setAutoTranslateY(nextY);
+      if (!isManualScrolling) {
+        setManualTranslateY(nextY);
+      }
+    });
+
+    observer.observe(viewport);
+    return () => {
+      observer.disconnect();
+    };
+  }, [activeIndex, computeCenteredTranslateY, isManualScrolling]);
 
   // Reset scroll state when track changes
   useEffect(() => {
@@ -178,12 +200,12 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   );
 
   const currentTranslateY = isManualScrolling ? manualTranslateY : autoTranslateY;
-  const effectivePosition = livePosition - offset;
+  const effectivePosition = livePosition + offset + BASE_LYRICS_OFFSET;
 
   return (
     <div
       onDoubleClick={onToggleMode}
-      className="relative box-border w-[380px] h-full text-white select-none p-[14px_18px_20px] flex flex-col justify-end overflow-hidden"
+      className="relative box-border w-full h-full text-white select-none p-[14px_18px_20px] flex flex-col justify-between overflow-hidden"
     >
       {/* Top Slot for Toolbar on Hover (expands upward just like Bar Mode) */}
       <div
@@ -197,8 +219,8 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         {toolbarNode}
       </div>
 
-      {/* Header: 60px Album Art + Title/Artist + Equalizer */}
-      <div className="flex items-center gap-3.5 h-[60px] shrink-0 pointer-events-none">
+      {/* Header: Album Art + Title/Artist + Equalizer */}
+      <div className="flex items-center gap-3.5 min-h-[60px] h-auto shrink-0 pointer-events-none">
         <div
           role="img"
           aria-label="Sampul album"
@@ -213,14 +235,14 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
           )}
         </div>
 
-        <div className="flex flex-col min-w-0 flex-1 overflow-hidden text-start" dir="auto">
+        <div className="flex flex-col min-w-0 flex-1 justify-center overflow-hidden text-start" dir="auto">
           <ScrollingText
             text={media?.title || "Gili Mini Player"}
-            className="text-[15px] font-semibold text-white leading-snug tracking-[-0.01em] w-full"
+            className="text-[15px] font-semibold text-white leading-snug tracking-[-0.01em] w-full truncate"
           />
           <ScrollingText
             text={media?.artist || "Belum ada media aktif"}
-            className="text-[12px] text-white/60 leading-snug mt-[2px] w-full"
+            className="text-[12px] text-white/60 leading-snug mt-[2px] w-full truncate"
           />
         </div>
 
@@ -228,7 +250,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         <MiniPlayerEqualizer isPlaying={isPlaying} />
       </div>
 
-      {/* Fixed-Height Lyric Slot Viewport (transform-driven scroll, zero CLS) */}
+      {/* Flexible-Height Lyric Slot Viewport (transform-driven scroll, zero CLS) */}
       <div
         ref={viewportRef}
         onWheel={handleWheel}
@@ -239,7 +261,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
           WebkitMaskImage:
             "linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%)",
         }}
-        className="h-[196px] min-h-[196px] max-h-[196px] mt-[8px] shrink-0 overflow-hidden relative select-none"
+        className="flex-1 min-h-0 w-full my-[8px] overflow-hidden relative select-none"
       >
         {lyrics?.state === "loading" ? (
           <div

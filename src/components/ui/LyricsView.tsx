@@ -117,7 +117,7 @@ export const LyricsView = React.memo<LyricsViewProps>(({
       const liveTime = isPlaying
         ? anchorRef.current.time + (now - anchorRef.current.timestamp) / 1000
         : anchorRef.current.time;
-      const effectiveTime = liveTime + offset;
+      const effectiveTime = liveTime + offset + 0.2;
 
       const lines = lyrics.lines;
       const idx = lines.findIndex(

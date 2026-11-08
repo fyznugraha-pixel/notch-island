@@ -18,6 +18,7 @@ import { MiniPlayerBackground } from "./MiniPlayerBackground";
 import { extractDominantColor } from "./colorExtractor";
 import { useResolvedThumbnail } from "../ui/MediaThumbnail";
 import { prefetchArtwork } from "../../services/artworkService";
+import { useSystemTextScale } from "../../hooks/useSystemTextScale";
 
 interface MiniplayerCursorHoverPayload {
   in_window: boolean;
@@ -25,6 +26,7 @@ interface MiniplayerCursorHoverPayload {
 }
 
 export const MiniPlayerApp: React.FC = () => {
+  const effectiveTextScale = useSystemTextScale();
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const [lyrics, setLyrics] = useState<LyricsPayload | null>(null);
   const [tintColor, setTintColor] = useState<string>("#3a1414");
@@ -244,8 +246,8 @@ export const MiniPlayerApp: React.FC = () => {
       if (isExitingRef.current) return;
       try {
         const { x, y } = event.payload;
-        const currentW = 440;
-        const currentH = 340;
+        const currentW = Math.round((mode === "card" ? 380 : 440) * effectiveTextScale);
+        const currentH = Math.round(340 * effectiveTextScale);
         latestPosRef.current = { x, y, w: currentW, h: currentH };
 
         const dpr = window.devicePixelRatio || 1;
@@ -492,7 +494,10 @@ export const MiniPlayerApp: React.FC = () => {
   const handleOffsetChange = useCallback(
     async (delta: number) => {
       if (!media?.title) return;
-      const current = lyrics?.offset ?? 0;
+      const current =
+        typeof lyrics?.offset === "number"
+          ? lyrics.offset
+          : parseFloat(localStorage.getItem("notch_lyrics_offset") || "0") || 0;
       const next = Math.round((current + delta) * 10) / 10;
       const clamped = Math.max(-5, Math.min(5, next));
       await setSongLyricsOffset(media.artist || "", media.title, clamped);
@@ -505,7 +510,10 @@ export const MiniPlayerApp: React.FC = () => {
     await setSongLyricsOffset(media.artist || "", media.title, 0);
   }, [media?.artist, media?.title]);
 
-  const currentOffset = lyrics?.offset ?? 0;
+  const currentOffset =
+    typeof lyrics?.offset === "number"
+      ? lyrics.offset
+      : parseFloat(localStorage.getItem("notch_lyrics_offset") || "0") || 0;
 
   const toolbarNode = (
     <MiniPlayerToolbar
@@ -629,7 +637,7 @@ export const MiniPlayerApp: React.FC = () => {
         }`}
       >
         <MiniPlayerBackground
-          thumbnail={media?.thumbnail}
+          thumbnail={effectiveThumbnail}
           tintColor={tintColor}
           theme={theme}
         />
@@ -655,7 +663,7 @@ export const MiniPlayerApp: React.FC = () => {
                       transition: { duration: 0.16, ease: "easeOut" },
                     }
               }
-              className="w-[380px] h-full flex flex-col justify-end"
+              className="w-full h-full flex flex-col justify-start overflow-hidden"
             >
               <MiniPlayerCardMode
                 media={media}
@@ -687,7 +695,7 @@ export const MiniPlayerApp: React.FC = () => {
                       transition: { duration: 0.16, ease: "easeOut" },
                     }
               }
-              className="w-[440px] h-full flex flex-col justify-end"
+              className="w-full h-full flex flex-col justify-start overflow-hidden"
             >
               <MiniPlayerBarMode
                 media={media}
@@ -696,6 +704,7 @@ export const MiniPlayerApp: React.FC = () => {
                 tintColor={tintColor}
                 showToolbar={showToolbar}
                 toolbarNode={toolbarNode}
+                effectiveScale={effectiveTextScale}
                 onToggleMode={() => handleSetMode("card")}
                 onWidthChange={handleBarWidthChange}
               />
