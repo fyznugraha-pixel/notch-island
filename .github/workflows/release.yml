@@ -24,7 +24,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install Rust stable
@@ -36,6 +36,37 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+
+      - name: Cache Tauri NSIS dependencies
+        id: cache-tauri-nsis
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\tauri
+          key: tauri-nsis-v3.11
+
+      - name: Pre-install NSIS
+        shell: pwsh
+        run: |
+          $tauriDir = "$env:LOCALAPPDATA\tauri"
+          $nsisDir = "$tauriDir\NSIS"
+          if (-not (Test-Path "$nsisDir\makensis.exe")) {
+            New-Item -ItemType Directory -Force -Path $tauriDir | Out-Null
+            $zipPath = "$env:TEMP\nsis-3.11.zip"
+            Write-Host "Downloading NSIS 3.11..."
+            curl.exe -L -f -s -S --retry 5 --retry-delay 3 "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip" -o $zipPath
+            $tempExtract = "$env:TEMP\nsis_extract_$([guid]::NewGuid().ToString('N'))"
+            Expand-Archive -Path $zipPath -DestinationPath $tempExtract -Force
+            Move-Item -Path "$tempExtract\nsis-3.11" -Destination $nsisDir -Force
+            Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          $pluginDir = "$nsisDir\Plugins\x86-unicode\additional"
+          if (-not (Test-Path "$pluginDir\nsis_tauri_utils.dll")) {
+            New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
+            Write-Host "Downloading nsis_tauri_utils.dll..."
+            curl.exe -L -f -s -S --retry 5 --retry-delay 3 "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll" -o "$pluginDir\nsis_tauri_utils.dll"
+          }
+          Write-Host "NSIS verification complete: $(Test-Path "$nsisDir\makensis.exe")"
 
       - name: Install frontend dependencies
         run: npm install
