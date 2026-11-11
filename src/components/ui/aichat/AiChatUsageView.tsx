@@ -6,16 +6,29 @@ interface AiChatUsageViewProps {
   stats: AiUsageStats;
   onBack: () => void;
   onReset?: () => void;
+  onUpdateLimit?: (limitIdr: number) => void;
   accentColor?: string;
 }
+
+const PRESET_LIMITS = [
+  { label: "Tanpa Batas", value: 0 },
+  { label: "10k", value: 10000 },
+  { label: "20k", value: 20000 },
+  { label: "30k", value: 30000 },
+  { label: "50k", value: 50000 },
+  { label: "100k", value: 100000 },
+] as const;
 
 export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
   stats,
   onBack,
   onReset,
+  onUpdateLimit,
   accentColor = "#3882F6",
 }) => {
   const [timeRange, setTimeRange] = useState<"today" | "7d" | "30d">("7d");
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customInputValue, setCustomInputValue] = useState("");
 
   const displayTokens =
     timeRange === "today"
@@ -34,9 +47,26 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
     totalInOut > 0 ? circumference - (inPercent / 100) * circumference : circumference;
 
   const monthlySpent = stats.estimatedCostIdr;
-  const monthlyLimit = stats.monthlyLimitIdr || 50000;
-  const spentPercent = Math.min(100, Math.round((monthlySpent / monthlyLimit) * 100));
-  const remaining = Math.max(0, monthlyLimit - monthlySpent);
+  const monthlyLimit = typeof stats.monthlyLimitIdr === "number" ? stats.monthlyLimitIdr : 0;
+  const hasLimit = monthlyLimit > 0;
+  const spentPercent = hasLimit ? Math.min(100, Math.round((monthlySpent / monthlyLimit) * 100)) : 0;
+  const remaining = hasLimit ? Math.max(0, monthlyLimit - monthlySpent) : null;
+  const isCustomValue = hasLimit && !PRESET_LIMITS.some((p) => p.value === monthlyLimit);
+
+  const handleSelectPreset = (val: number) => {
+    setShowCustomInput(false);
+    onUpdateLimit?.(val);
+  };
+
+  const handleCustomSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanNum = parseInt(customInputValue.replace(/\D/g, ""), 10);
+    if (!isNaN(cleanNum)) {
+      onUpdateLimit?.(cleanNum);
+      setShowCustomInput(false);
+      setCustomInputValue("");
+    }
+  };
 
   const maxTotalInHistory = Math.max(...stats.dailyHistory.map((d) => d.totalTokens), 0);
   const totalModelTokens = Object.values(stats.modelBreakdown).reduce((a, b) => a + b, 0) || 1;
@@ -221,20 +251,117 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
               <div className="flex items-baseline justify-between text-[11px] tabular-nums">
                 <span className="text-[#a1a1aa]">Batas bulanan</span>
                 <span>
-                  <span className="font-semibold text-white">Rp {monthlySpent.toLocaleString("id-ID")}</span>
-                  <span className="text-[#a1a1aa]"> / Rp {monthlyLimit.toLocaleString("id-ID")}</span>
+                  {hasLimit ? (
+                    <>
+                      <span className="font-semibold text-white">Rp {monthlySpent.toLocaleString("id-ID")}</span>
+                      <span className="text-[#a1a1aa]"> / Rp {monthlyLimit.toLocaleString("id-ID")}</span>
+                    </>
+                  ) : (
+                    <span className="font-semibold text-emerald-400">Tanpa Batas</span>
+                  )}
                 </span>
               </div>
+
+              {/* Progress bar */}
               <div className="h-2 mt-1.5 rounded-full bg-white/[0.08] overflow-hidden">
-                <div
-                  style={{ width: `${spentPercent}%` }}
-                  className="h-full rounded-full bg-gradient-to-r from-blue-500 to-teal-400"
-                />
+                {hasLimit ? (
+                  <div
+                    style={{ width: `${spentPercent}%` }}
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      spentPercent >= 100
+                        ? "bg-rose-500"
+                        : "bg-gradient-to-r from-blue-500 to-teal-400"
+                    }`}
+                  />
+                ) : (
+                  <div className="h-full w-full rounded-full bg-gradient-to-r from-emerald-500/30 to-teal-500/10" />
+                )}
               </div>
-              <div className="text-[10.5px] text-[#a1a1aa] mt-1 tabular-nums">
-                Sisa Rp {remaining.toLocaleString("id-ID")} bulan ini
+
+              <div className="text-[10.5px] mt-1 tabular-nums flex items-center justify-between">
+                <span className={hasLimit ? (spentPercent >= 100 ? "text-rose-400 font-medium" : "text-[#a1a1aa]") : "text-emerald-400/90 font-medium"}>
+                  {hasLimit
+                    ? spentPercent >= 100
+                      ? "Batas bulanan telah tercapai"
+                      : `Sisa Rp ${(remaining ?? 0).toLocaleString("id-ID")} bulan ini (${100 - spentPercent}%)`
+                    : "Penggunaan bebas tanpa batas kuota"}
+                </span>
               </div>
             </div>
+
+            {/* Presets & Manual Limit Picker */}
+            {onUpdateLimit && (
+              <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] text-[#a1a1aa] font-medium mr-0.5">Batas:</span>
+                  {PRESET_LIMITS.map((preset) => {
+                    const isSelected = monthlyLimit === preset.value;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => handleSelectPreset(preset.value)}
+                        className={`h-5 px-2 rounded-full text-[10px] font-medium cursor-pointer transition-all ${
+                          isSelected
+                            ? "bg-blue-500 text-white font-semibold shadow-sm"
+                            : "bg-white/[0.06] hover:bg-white/[0.12] text-[#d4d4d8]"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCustomInput((prev) => !prev);
+                      if (!showCustomInput && isCustomValue) {
+                        setCustomInputValue(String(monthlyLimit));
+                      }
+                    }}
+                    className={`h-5 px-2 rounded-full text-[10px] font-medium cursor-pointer transition-all ${
+                      isCustomValue || showCustomInput
+                        ? "bg-blue-500/25 text-blue-300 border border-blue-500/40 font-semibold"
+                        : "bg-white/[0.06] hover:bg-white/[0.12] text-[#d4d4d8]"
+                    }`}
+                  >
+                    {isCustomValue ? `Manual (Rp ${monthlyLimit.toLocaleString("id-ID")})` : "Manual"}
+                  </button>
+                </div>
+
+                {showCustomInput && (
+                  <form onSubmit={handleCustomSubmit} className="flex items-center gap-1.5 mt-1 animate-in fade-in duration-150">
+                    <div className="flex items-center gap-1 px-2.5 h-6.5 rounded-lg bg-black/50 border border-white/15 text-[11px] grow">
+                      <span className="text-[#a1a1aa] text-[10.5px]">Rp</span>
+                      <input
+                        type="text"
+                        value={customInputValue}
+                        onChange={(e) => {
+                          const digitsOnly = e.target.value.replace(/\D/g, "");
+                          setCustomInputValue(digitsOnly ? Number(digitsOnly).toLocaleString("id-ID") : "");
+                        }}
+                        placeholder="Contoh: 75.000 (0 = Bebas)"
+                        className="bg-transparent text-white outline-none w-full tabular-nums text-[10.5px]"
+                        autoFocus
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="h-6.5 px-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-[10.5px] font-medium transition-all cursor-pointer shrink-0"
+                    >
+                      Simpan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomInput(false)}
+                      className="h-6.5 px-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-[#a1a1aa] hover:text-white text-[10.5px] transition-all cursor-pointer shrink-0"
+                    >
+                      Batal
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Bottom Row: In/Out vs Model Breakdown */}

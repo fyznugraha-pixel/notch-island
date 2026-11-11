@@ -31,7 +31,7 @@ export const DEFAULT_ROUTER_CONFIG: RouterConfig = {
   confidenceThreshold: 0.75,
   historyWindowSize: 8,
   budget: {
-    monthlyLimitIdr: 50000,
+    monthlyLimitIdr: 0,
     warnAtPercent: 80,
     actionOnLimit: "warn",
   },

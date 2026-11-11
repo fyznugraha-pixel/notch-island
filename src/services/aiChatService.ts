@@ -354,7 +354,7 @@ export function createEmptyUsageStats(): AiUsageStats {
     dailyHistory: history,
     modelBreakdown: {},
     estimatedCostIdr: 0,
-    monthlyLimitIdr: 50000,
+    monthlyLimitIdr: 0, // 0 = Tanpa Batas (Default)
   };
 }
 
@@ -375,11 +375,27 @@ export function loadUsageStats(): AiUsageStats {
         localStorage.setItem(USAGE_STORAGE, JSON.stringify(fresh));
         return fresh;
       }
+
+      // If user had old hardcoded default 50000 without custom choice, reset to 0 (Tanpa Batas)
+      const hasCustomized = localStorage.getItem("island_ai_limit_customized_v1");
+      if (!hasCustomized && (parsed.monthlyLimitIdr === 50000 || typeof parsed.monthlyLimitIdr !== "number")) {
+        parsed.monthlyLimitIdr = 0;
+        localStorage.setItem(USAGE_STORAGE, JSON.stringify(parsed));
+      }
+
       return parsed;
     }
   } catch {}
 
   return createEmptyUsageStats();
+}
+
+export function saveMonthlyLimit(limitIdr: number): AiUsageStats {
+  const stats = loadUsageStats();
+  stats.monthlyLimitIdr = Math.max(0, Math.round(limitIdr));
+  localStorage.setItem("island_ai_limit_customized_v1", "true");
+  localStorage.setItem(USAGE_STORAGE, JSON.stringify(stats));
+  return stats;
 }
 
 export function resetUsageStats(): AiUsageStats {

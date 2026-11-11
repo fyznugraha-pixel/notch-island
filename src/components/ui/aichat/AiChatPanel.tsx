@@ -16,6 +16,7 @@ import {
   saveActiveProvider,
   loadUsageStats,
   resetUsageStats,
+  saveMonthlyLimit,
   recordTokenUsage,
   streamChatCompletion,
   getEffectiveApiKey,
@@ -802,6 +803,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
           stats={usageStats}
           onBack={() => setActiveView("chat")}
           onReset={() => setUsageStats(resetUsageStats())}
+          onUpdateLimit={(limit) => setUsageStats(saveMonthlyLimit(limit))}
           accentColor={accentColor}
         />
       )}
