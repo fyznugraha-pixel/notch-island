@@ -12,6 +12,7 @@ pub mod shelf_server;
 pub mod media_lyrics_store;
 pub mod miniplayer_window;
 mod app_icon;
+pub mod ai_credentials;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -540,11 +541,59 @@ fn is_smtc_session_playing(playback: &windows::Media::Control::GlobalSystemMedia
     }
 }
 
+fn should_ignore_smtc_track(app_id: &str, title: &str, artist: &str) -> bool {
+    let app_id_lower = app_id.to_lowercase();
+    if app_id_lower.contains("screensketch") || app_id_lower.contains("snipping") || app_id_lower.contains("gili") {
+        return true;
+    }
+    let is_browser = app_id_lower.contains("brave")
+        || app_id_lower.contains("chrome")
+        || app_id_lower.contains("msedge")
+        || app_id_lower.contains("edge")
+        || app_id_lower.contains("firefox")
+        || app_id_lower.contains("opera")
+        || app_id_lower.contains("vivaldi")
+        || app_id_lower.contains("zen")
+        || app_id_lower.contains("arc");
+
+    if (title.eq_ignore_ascii_case("gili") || title.eq_ignore_ascii_case("gili island"))
+        && (artist.is_empty()
+            || artist.eq_ignore_ascii_case("microsoft edge")
+            || artist.eq_ignore_ascii_case("gili")
+            || is_browser)
+    {
+        return true;
+    }
+    false
+}
+
+fn is_smtc_session_ignored(
+    session: &windows::Media::Control::GlobalSystemMediaTransportControlsSession,
+) -> bool {
+    let app_id = session
+        .SourceAppUserModelId()
+        .unwrap_or_default()
+        .to_string();
+    let app_id_lower = app_id.to_lowercase();
+    if app_id_lower.contains("screensketch") || app_id_lower.contains("snipping") || app_id_lower.contains("gili") {
+        return true;
+    }
+    if let Ok(info) = session.TryGetMediaPropertiesAsync().and_then(|r| r.get()) {
+        let t = info.Title().unwrap_or_default().to_string();
+        let a = info.Artist().unwrap_or_default().to_string();
+        return should_ignore_smtc_track(&app_id, &t, &a);
+    }
+    false
+}
+
 fn resolve_smtc_session(
     manager: &windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager,
 ) -> Option<windows::Media::Control::GlobalSystemMediaTransportControlsSession> {
     if let Ok(sessions) = manager.GetSessions() {
         for s in sessions.into_iter() {
+            if is_smtc_session_ignored(&s) {
+                continue;
+            }
             if let Ok(playback) = s.GetPlaybackInfo() {
                 if is_smtc_session_playing(&playback) {
                     return Some(s);
@@ -557,6 +606,9 @@ fn resolve_smtc_session(
         if !last.0.is_empty() {
             if let Ok(sessions) = manager.GetSessions() {
                 for s in sessions.into_iter() {
+                    if is_smtc_session_ignored(&s) {
+                        continue;
+                    }
                     if let Ok(playback) = s.GetPlaybackInfo() {
                         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
                         if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
@@ -576,10 +628,12 @@ fn resolve_smtc_session(
     }
 
     if let Ok(curr) = manager.GetCurrentSession() {
-        if let Ok(playback) = curr.GetPlaybackInfo() {
-            use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
-            if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
-                return Some(curr);
+        if !is_smtc_session_ignored(&curr) {
+            if let Ok(playback) = curr.GetPlaybackInfo() {
+                use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+                if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                    return Some(curr);
+                }
             }
         }
     }
@@ -710,6 +764,529 @@ async fn fetch_external_lyrics_api(
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct AiHttpResponse {
+    pub status: u16,
+    pub ok: bool,
+    pub body: String,
+}
+
+#[tauri::command]
+async fn ai_http_request(
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<String>,
+) -> Result<AiHttpResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(30))
+            .build();
+
+        let req_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
+        let mut request = match req_method.as_str() {
+            "POST" => agent.post(&url),
+            "PUT" => agent.put(&url),
+            "DELETE" => agent.delete(&url),
+            _ => agent.get(&url),
+        };
+
+        if let Some(hdrs) = headers {
+            for (k, v) in hdrs {
+                request = request.set(&k, &v);
+            }
+        }
+
+        let resp_result = if req_method == "POST" || req_method == "PUT" {
+            if let Some(b) = body {
+                request.send_string(&b)
+            } else {
+                request.call()
+            }
+        } else {
+            request.call()
+        };
+
+        match resp_result {
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.into_string().unwrap_or_default();
+                Ok(AiHttpResponse {
+                    status,
+                    ok: status >= 200 && status < 300,
+                    body,
+                })
+            }
+            Err(ureq::Error::Status(status, resp)) => {
+                let body = resp.into_string().unwrap_or_default();
+                Ok(AiHttpResponse {
+                    status,
+                    ok: false,
+                    body,
+                })
+            }
+            Err(e) => Err(format!("Network error: {}", e)),
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn ai_http_stream(
+    app: tauri::AppHandle,
+    stream_id: String,
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Emitter;
+        use std::io::BufRead;
+
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(120))
+            .build();
+
+        let req_method = method.unwrap_or_else(|| "POST".to_string()).to_uppercase();
+        let mut request = match req_method.as_str() {
+            "POST" => agent.post(&url),
+            _ => agent.get(&url),
+        };
+
+        if let Some(hdrs) = headers {
+            for (k, v) in hdrs {
+                request = request.set(&k, &v);
+            }
+        }
+
+        let resp_result = if let Some(b) = body {
+            request.send_string(&b)
+        } else {
+            request.call()
+        };
+
+        match resp_result {
+            Ok(resp) => {
+                let reader = std::io::BufReader::new(resp.into_reader());
+                for line in reader.lines() {
+                    match line {
+                        Ok(l) => {
+                            let _ = app.emit(&format!("ai-stream-chunk:{}", stream_id), l);
+                        }
+                        Err(e) => {
+                            let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Read error: {}", e));
+                            return;
+                        }
+                    }
+                }
+                let _ = app.emit(&format!("ai-stream-done:{}", stream_id), ());
+            }
+            Err(ureq::Error::Status(status, resp)) => {
+                let body = resp.into_string().unwrap_or_default();
+                let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("HTTP {}: {}", status, body));
+            }
+            Err(e) => {
+                let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Network error: {}", e));
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveWindowItemPayload {
+    pub id: String,
+    pub app_name: String,
+    pub window_title: String,
+    pub icon_type: String,
+    pub is_active: bool,
+    pub is_blocked: bool,
+    pub pid: u32,
+    pub hwnd: isize,
+    pub app_icon_url: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CapturedWindowContextPayload {
+    pub title: String,
+    pub preview_text: String,
+    pub image_data_url: Option<String>,
+    pub character_count: usize,
+}
+
+unsafe fn capture_hwnd_to_rgba(hwnd: windows::Win32::Foundation::HWND) -> Result<image::RgbaImage, String> {
+    use windows::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
+        GetDC, GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, IsIconic, ShowWindow, SW_RESTORE,
+    };
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn PrintWindow(
+            hwnd: windows::Win32::Foundation::HWND,
+            hdc_blt: windows::Win32::Graphics::Gdi::HDC,
+            n_flags: u32,
+        ) -> windows::Win32::Foundation::BOOL;
+    }
+
+    if IsIconic(hwnd).as_bool() {
+        let _ = ShowWindow(hwnd, SW_RESTORE);
+        std::thread::sleep(std::time::Duration::from_millis(60));
+    }
+
+    let mut rect = windows::Win32::Foundation::RECT::default();
+    let _ = GetWindowRect(hwnd, &mut rect);
+    let width = (rect.right - rect.left).max(1);
+    let height = (rect.bottom - rect.top).max(1);
+
+    let hdc_screen = GetDC(None);
+    if hdc_screen.0.is_null() {
+        return Err("Failed to get screen DC".to_string());
+    }
+    let hdc_mem = CreateCompatibleDC(hdc_screen);
+    let hbitmap = CreateCompatibleBitmap(hdc_screen, width, height);
+    let old_bmp = SelectObject(hdc_mem, hbitmap);
+
+    let mut bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let mut bgra_data = vec![0u8; (width * height * 4) as usize];
+
+    // Method 1: PrintWindow with PW_RENDERFULLCONTENT (flag 2)
+    let _ = PrintWindow(hwnd, hdc_mem, 2);
+    let mut scan_lines = GetDIBits(
+        hdc_mem,
+        hbitmap,
+        0,
+        height as u32,
+        Some(bgra_data.as_mut_ptr() as *mut _),
+        &mut bmi,
+        DIB_RGB_COLORS,
+    );
+
+    // Check if PrintWindow yielded non-black content (sample every 32 bytes)
+    let is_empty = scan_lines <= 0
+        || bgra_data
+            .chunks_exact(32)
+            .all(|c| c[0] == 0 && c[1] == 0 && c[2] == 0);
+
+    // Method 2: If PrintWindow failed or returned black (e.g. Discord, Chrome GPU acceleration),
+    // capture from Desktop DC at the window's exact screen bounds
+    if is_empty {
+        let _ = BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, rect.left, rect.top, SRCCOPY);
+        scan_lines = GetDIBits(
+            hdc_mem,
+            hbitmap,
+            0,
+            height as u32,
+            Some(bgra_data.as_mut_ptr() as *mut _),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+    }
+
+    // Method 3: Direct window DC blit fallback
+    let is_still_empty = scan_lines <= 0
+        || bgra_data
+            .chunks_exact(32)
+            .all(|c| c[0] == 0 && c[1] == 0 && c[2] == 0);
+    if is_still_empty {
+        let hdc_window = GetDC(hwnd);
+        if !hdc_window.0.is_null() {
+            let _ = BitBlt(hdc_mem, 0, 0, width, height, hdc_window, 0, 0, SRCCOPY);
+            let _ = ReleaseDC(hwnd, hdc_window);
+            scan_lines = GetDIBits(
+                hdc_mem,
+                hbitmap,
+                0,
+                height as u32,
+                Some(bgra_data.as_mut_ptr() as *mut _),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            );
+        }
+    }
+
+    SelectObject(hdc_mem, old_bmp);
+    let _ = DeleteObject(hbitmap);
+    let _ = DeleteDC(hdc_mem);
+    let _ = ReleaseDC(None, hdc_screen);
+
+    if scan_lines <= 0 {
+        return Err("Failed to read bitmap bits".to_string());
+    }
+
+    let mut rgba_data = vec![0u8; (width * height * 4) as usize];
+    for i in 0..(width * height) as usize {
+        let b = bgra_data[i * 4];
+        let g = bgra_data[i * 4 + 1];
+        let r = bgra_data[i * 4 + 2];
+        let a = bgra_data[i * 4 + 3];
+        rgba_data[i * 4] = r;
+        rgba_data[i * 4 + 1] = g;
+        rgba_data[i * 4 + 2] = b;
+        rgba_data[i * 4 + 3] = if a == 0 { 255 } else { a };
+    }
+
+    image::RgbaImage::from_raw(width as u32, height as u32, rgba_data)
+        .ok_or_else(|| "Failed to construct RgbaImage".to_string())
+}
+
+#[tauri::command]
+async fn get_open_windows() -> Result<Vec<ActiveWindowItemPayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use windows::Win32::Foundation::{BOOL, HWND, LPARAM, MAX_PATH, RECT};
+        use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+            GetWindowThreadProcessId, IsWindowVisible,
+        };
+        use windows::Win32::Foundation::CloseHandle;
+
+        let fg_hwnd = unsafe { GetForegroundWindow() };
+
+        struct WindowCollector {
+            fg_hwnd: HWND,
+            windows: Vec<ActiveWindowItemPayload>,
+        }
+
+        unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let collector = &mut *(lparam.0 as *mut WindowCollector);
+
+            if !IsWindowVisible(hwnd).as_bool() {
+                return BOOL(1);
+            }
+
+            let text_len = GetWindowTextLengthW(hwnd);
+            if text_len <= 0 {
+                return BOOL(1);
+            }
+
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_ok() {
+                let width = rect.right - rect.left;
+                let height = rect.bottom - rect.top;
+                if width <= 100 || height <= 80 {
+                    return BOOL(1);
+                }
+            }
+
+            let mut title_buf = vec![0u16; (text_len + 1) as usize];
+            let len = GetWindowTextW(hwnd, &mut title_buf);
+            if len <= 0 {
+                return BOOL(1);
+            }
+            let title = String::from_utf16_lossy(&title_buf[..len as usize]).trim().to_string();
+
+            let title_lower = title.to_lowercase();
+            if title_lower == "program manager"
+                || title_lower == "windows input experience"
+                || title_lower == "gili"
+                || title_lower == "notch"
+                || title_lower.starts_with("settings")
+                || title_lower == "task switching"
+            {
+                return BOOL(1);
+            }
+
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pid == 0 || pid == std::process::id() {
+                return BOOL(1);
+            }
+
+            let mut exe_stem = String::new();
+            let mut app_icon_url = None;
+            if let Ok(handle) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+                let mut path_buf = [0u16; MAX_PATH as usize];
+                let path_len = GetModuleFileNameExW(handle, None, &mut path_buf);
+                if path_len > 0 {
+                    let full_path = String::from_utf16_lossy(&path_buf[..path_len as usize]);
+                    app_icon_url = app_icon::extract_exe_icon(&full_path);
+                    if let Some(stem) = std::path::Path::new(&full_path).file_stem() {
+                        exe_stem = stem.to_string_lossy().to_string();
+                    }
+                }
+                let _ = CloseHandle(handle);
+            }
+
+            let exe_lower = exe_stem.to_lowercase();
+            if exe_lower == "explorer" && (title_lower == "explorer" || title.is_empty()) {
+                return BOOL(1);
+            }
+
+            let is_blocked = exe_lower.contains("1password")
+                || exe_lower.contains("bitwarden")
+                || exe_lower.contains("keepass")
+                || exe_lower.contains("lastpass")
+                || title_lower.contains("password manager")
+                || title_lower.contains("pengelola sandi");
+
+            let (app_name, icon_type) = match exe_lower.as_str() {
+                "antigravity" | "antigravity ide" | "antigravity-ide" => ("Antigravity IDE".to_string(), "antigravity".to_string()),
+                "code" => ("VS Code".to_string(), "vscode".to_string()),
+                "chrome" => ("Chrome".to_string(), "chrome".to_string()),
+                "msedge" => ("Microsoft Edge".to_string(), "edge".to_string()),
+                "brave" => ("Brave".to_string(), "browser".to_string()),
+                "firefox" => ("Firefox".to_string(), "browser".to_string()),
+                "zen" => ("Zen Browser".to_string(), "browser".to_string()),
+                "arc" => ("Arc".to_string(), "browser".to_string()),
+                "winword" | "word" => ("Word".to_string(), "word".to_string()),
+                "excel" => ("Excel".to_string(), "excel".to_string()),
+                "powerpnt" | "powerpoint" => ("PowerPoint".to_string(), "powerpoint".to_string()),
+                "notepad" => ("Notepad".to_string(), "notepad".to_string()),
+                "windowsterminal" | "wt" | "powershell" | "cmd" => ("Terminal".to_string(), "terminal".to_string()),
+                "slack" => ("Slack".to_string(), "slack".to_string()),
+                "discord" => ("Discord".to_string(), "discord".to_string()),
+                "spotify" => ("Spotify".to_string(), "spotify".to_string()),
+                "telegram" => ("Telegram".to_string(), "telegram".to_string()),
+                "cursor" => ("Cursor".to_string(), "vscode".to_string()),
+                _ => {
+                    let formatted = if !exe_stem.is_empty() {
+                        let mut chars = exe_stem.chars();
+                        match chars.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+                        }
+                    } else {
+                        "Aplikasi".to_string()
+                    };
+                    (formatted, "default".to_string())
+                }
+            };
+
+            let is_active = hwnd == collector.fg_hwnd;
+
+            collector.windows.push(ActiveWindowItemPayload {
+                id: format!("win-{}", hwnd.0 as usize),
+                app_name,
+                window_title: title,
+                icon_type,
+                is_active,
+                is_blocked,
+                pid,
+                hwnd: hwnd.0 as isize,
+                app_icon_url,
+            });
+
+            BOOL(1)
+        }
+
+        let mut collector = WindowCollector {
+            fg_hwnd,
+            windows: Vec::new(),
+        };
+
+        unsafe {
+            let _ = EnumWindows(Some(enum_windows_callback), LPARAM(&mut collector as *mut WindowCollector as isize));
+        }
+
+        collector.windows.sort_by(|a, b| b.is_active.cmp(&a.is_active));
+
+        Ok(collector.windows)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn capture_window_context(
+    hwnd: isize,
+    read_mode: String,
+) -> Result<CapturedWindowContextPayload, String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW};
+    use base64::Engine;
+
+    let target_hwnd = HWND(hwnd as _);
+    let mut title = String::new();
+    let text_len = unsafe { GetWindowTextLengthW(target_hwnd) };
+    if text_len > 0 {
+        let mut buf = vec![0u16; (text_len + 1) as usize];
+        let len = unsafe { GetWindowTextW(target_hwnd, &mut buf) };
+        if len > 0 {
+            title = String::from_utf16_lossy(&buf[..len as usize]).trim().to_string();
+        }
+    }
+
+    let rgba_img = unsafe { capture_hwnd_to_rgba(target_hwnd) }?;
+
+    // Run OCR on the captured image to get text context
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
+    let temp_path = std::env::temp_dir().join(format!("gili_win_ocr_{}_{}.png", std::process::id(), now));
+    let _ = rgba_img.save(&temp_path);
+    let ocr_res = extract_image_text(temp_path.to_string_lossy().to_string()).await;
+    let _ = std::fs::remove_file(&temp_path);
+
+    let has_meaningful_text = match &ocr_res {
+        Ok(t) => t.trim().len() >= 15,
+        Err(_) => false,
+    };
+
+    let raw_text = match ocr_res {
+        Ok(t) if t.trim().len() >= 15 => t,
+        _ => {
+            if !title.is_empty() {
+                format!("Konteks jendela: {}\n(Teks tidak terdeteksi via OCR. Tangkapan layar visual jendela otomatis disertakan)", title)
+            } else {
+                "Tangkapan layar visual jendela disertakan".to_string()
+            }
+        }
+    };
+
+    let needs_screenshot = read_mode == "screenshot" || !has_meaningful_text;
+
+    let image_data_url = if needs_screenshot {
+        let (w, h) = (rgba_img.width(), rgba_img.height());
+        let max_dim = 1400.0f32;
+        let dyn_img = if (w as f32) > max_dim || (h as f32) > max_dim {
+            let scale = max_dim / (w.max(h) as f32);
+            let tw = ((w as f32 * scale).round() as u32).max(1);
+            let th = ((h as f32 * scale).round() as u32).max(1);
+            image::DynamicImage::ImageRgba8(rgba_img).resize(tw, th, image::imageops::FilterType::Triangle)
+        } else {
+            image::DynamicImage::ImageRgba8(rgba_img)
+        };
+
+        let mut jpeg_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
+        if dyn_img.to_rgb8().write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+            Some(format!("data:image/jpeg;base64,{}", b64))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok(CapturedWindowContextPayload {
+        title: if !title.is_empty() { title } else { "Jendela".to_string() },
+        preview_text: raw_text.clone(),
+        image_data_url,
+        character_count: raw_text.len(),
+    })
 }
 
 #[tauri::command]
@@ -3179,11 +3756,8 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        .on_permission_request(|_webview, kind| {
-            match kind {
-                tauri::webview::PermissionKind::Geolocation => tauri::webview::PermissionResponse::Allow,
-                _ => tauri::webview::PermissionResponse::Default,
-            }
+        .on_permission_request(|_webview, _kind| {
+            tauri::webview::PermissionResponse::Allow
         })
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -3199,6 +3773,13 @@ pub fn run() {
             request_media_resync,
             smtc_seek,
             fetch_external_lyrics_api,
+            ai_http_request,
+            ai_http_stream,
+            ai_credentials::save_secure_ai_key,
+            ai_credentials::get_secure_ai_key,
+            ai_credentials::delete_secure_ai_key,
+            get_open_windows,
+            capture_window_context,
             update_pill_size,
             set_window_position,
             get_available_monitors,
@@ -4083,6 +4664,9 @@ pub fn run() {
                         let mut active_session = None;
                         if let Ok(sessions) = manager.GetSessions() {
                             for session in sessions.into_iter() {
+                                if is_smtc_session_ignored(&session) {
+                                    continue;
+                                }
                                 if let Ok(playback) = session.GetPlaybackInfo() {
                                     if is_smtc_session_playing(&playback) {
                                         active_session = Some(session);
@@ -4094,6 +4678,9 @@ pub fn run() {
                         if active_session.is_none() && !last_raw_title.is_empty() {
                             if let Ok(sessions) = manager.GetSessions() {
                                 for session in sessions.into_iter() {
+                                    if is_smtc_session_ignored(&session) {
+                                        continue;
+                                    }
                                     if let Ok(playback) = session.GetPlaybackInfo() {
                                         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
                                         if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
@@ -4113,10 +4700,12 @@ pub fn run() {
                         }
                         if active_session.is_none() {
                             if let Ok(curr) = manager.GetCurrentSession() {
-                                if let Ok(playback) = curr.GetPlaybackInfo() {
-                                    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
-                                    if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
-                                        active_session = Some(curr);
+                                if !is_smtc_session_ignored(&curr) {
+                                    if let Ok(playback) = curr.GetPlaybackInfo() {
+                                        use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+                                        if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                                            active_session = Some(curr);
+                                        }
                                     }
                                 }
                             }
@@ -4124,7 +4713,7 @@ pub fn run() {
 
                         if let Some(session) = &active_session {
                             let app_id = session.SourceAppUserModelId().unwrap_or_default().to_string().to_lowercase();
-                            if app_id.contains("screensketch") || app_id.contains("snipping") {
+                            if app_id.contains("screensketch") || app_id.contains("snipping") || app_id.contains("gili") {
                                 active_session = None;
                             } else {
                                 is_browser_session = app_id.contains("brave") 
@@ -4159,10 +4748,26 @@ pub fn run() {
 
                                 title = info.Title().unwrap_or_default().to_string();
                                 artist = info.Artist().unwrap_or_default().to_string();
-                                last_raw_title = title.clone();
-                                last_raw_artist = artist.clone();
-                                if let Ok(mut last_active) = LAST_ACTIVE_SMTC.lock() {
-                                    *last_active = (last_raw_title.clone(), last_raw_artist.clone());
+
+                                if (title.eq_ignore_ascii_case("gili") || title.eq_ignore_ascii_case("gili island"))
+                                    && (artist.is_empty()
+                                        || artist.eq_ignore_ascii_case("microsoft edge")
+                                        || artist.eq_ignore_ascii_case("gili")
+                                        || is_browser_session)
+                                {
+                                    title.clear();
+                                    artist.clear();
+                                    last_raw_title.clear();
+                                    last_raw_artist.clear();
+                                    if let Ok(mut last_active) = LAST_ACTIVE_SMTC.lock() {
+                                        *last_active = (String::new(), String::new());
+                                    }
+                                } else {
+                                    last_raw_title = title.clone();
+                                    last_raw_artist = artist.clone();
+                                    if let Ok(mut last_active) = LAST_ACTIVE_SMTC.lock() {
+                                        *last_active = (last_raw_title.clone(), last_raw_artist.clone());
+                                    }
                                 }
 
                                 // 1. Strip known browser window title suffixes
@@ -4884,5 +5489,49 @@ mod hit_test {
         // Cursor on Monitor 1 at same relative location (e.g. x = 768) should NOT hit
         let cursor_on_monitor_1 = POINT { x: 768, y: 15 };
         assert!(!calculate_notch_hit(cursor_on_monitor_1, win_pos, win_size, 1.0, &pill));
+    }
+
+    #[test]
+    fn test_smtc_session_ignore_filters() {
+        use super::should_ignore_smtc_track;
+
+        // 1. Gili own WebView2 sound sessions MUST be ignored
+        assert!(should_ignore_smtc_track(
+            "Microsoft.Edge_8wekyb3d8bbwe!App",
+            "Gili",
+            "Microsoft Edge"
+        ));
+        assert!(should_ignore_smtc_track(
+            "msedgewebview2.exe",
+            "Gili",
+            ""
+        ));
+        assert!(should_ignore_smtc_track(
+            "com.gili.desktop",
+            "Any sound",
+            "Any artist"
+        ));
+
+        // 2. Real music playback in Chrome / Edge / Spotify MUST NOT be ignored
+        assert!(!should_ignore_smtc_track(
+            "Microsoft.Edge_8wekyb3d8bbwe!App",
+            "Tate McRae - Housewife (Official Video)",
+            "TateMcRaeVEVO"
+        ));
+        assert!(!should_ignore_smtc_track(
+            "Google.Chrome",
+            "Bohemian Rhapsody",
+            "Queen"
+        ));
+        assert!(!should_ignore_smtc_track(
+            "Spotify.exe",
+            "Gili",
+            "Sunidhi Chauhan"
+        ));
+        assert!(!should_ignore_smtc_track(
+            "Brave",
+            "Lofi Hip Hop Radio",
+            "Lofi Girl"
+        ));
     }
 }

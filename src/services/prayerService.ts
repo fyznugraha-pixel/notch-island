@@ -108,7 +108,65 @@ const COMPLETED_KEY = "gili_prayer_completed_v1";
 const SCHEDULE_CACHE_KEY = "gili_prayer_schedule_cache_v1";
 const CONFIG_FLAG_KEY = "gili_prayer_reminder_configured_v1";
 
-let adzanAudioInstance: HTMLAudioElement | null = null;
+let sharedPrayerAudioCtx: AudioContext | null = null;
+let currentAdzanSource: AudioBufferSourceNode | null = null;
+let currentAdzanGain: GainNode | null = null;
+let adzanBufferCache: AudioBuffer | null = null;
+let adzanBufferPromise: Promise<AudioBuffer | null> | null = null;
+
+function getPrayerAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  try {
+    if (!sharedPrayerAudioCtx) {
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (Ctx) {
+        sharedPrayerAudioCtx = new Ctx({ latencyHint: "playback" });
+      }
+    }
+    return sharedPrayerAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
+async function loadAdzanBuffer(): Promise<AudioBuffer | null> {
+  if (adzanBufferCache) return adzanBufferCache;
+  if (adzanBufferPromise) return adzanBufferPromise;
+
+  adzanBufferPromise = (async () => {
+    try {
+      const ctx = getPrayerAudioContext();
+      if (!ctx) return null;
+      const res = await fetch("/azan2.mp3");
+      if (!res.ok) return null;
+      const arrayBuffer = await res.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(arrayBuffer);
+      adzanBufferCache = decoded;
+      return decoded;
+    } catch (err) {
+      console.warn("Failed to decode adzan audio buffer:", err);
+      return null;
+    } finally {
+      adzanBufferPromise = null;
+    }
+  })();
+
+  return adzanBufferPromise;
+}
+
+// Preload adzan buffer on idle so prayer time playback is instant
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    try {
+      const settings = loadPrayerSettings();
+      if (settings.reminderEnabled && settings.soundEnabled) {
+        loadAdzanBuffer().catch(() => {});
+      }
+    } catch {}
+  }, 1000);
+}
 
 export function playAdzanAudio(onEnded?: () => void): void {
   try {
@@ -117,30 +175,60 @@ export function playAdzanAudio(onEnded?: () => void): void {
     const vol = settings.adzanVolume ?? 70;
     if (!settings.soundEnabled || vol <= 0) return;
 
-    if (!adzanAudioInstance) {
-      adzanAudioInstance = new Audio("/azan2.mp3");
-      adzanAudioInstance.preload = "auto";
-    } else {
-      adzanAudioInstance.pause();
-      adzanAudioInstance.currentTime = 0;
+    // Stop previous instance if any
+    stopAdzanAudio();
+
+    const ctx = getPrayerAudioContext();
+    if (!ctx) return;
+
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
     }
 
-    adzanAudioInstance.volume = Math.max(0, Math.min(1, vol / 100));
-    adzanAudioInstance.onended = () => {
-      onEnded?.();
-    };
-    adzanAudioInstance.play().catch((err) => {
-      console.warn("Failed to play adzan audio:", err);
+    loadAdzanBuffer().then((buffer) => {
+      if (!buffer) return;
+      const currentCtx = getPrayerAudioContext();
+      if (!currentCtx) return;
+
+      const source = currentCtx.createBufferSource();
+      source.buffer = buffer;
+
+      const gain = currentCtx.createGain();
+      gain.gain.setValueAtTime(Math.max(0, Math.min(1, vol / 100)), currentCtx.currentTime);
+
+      source.connect(gain);
+      gain.connect(currentCtx.destination);
+
+      currentAdzanSource = source;
+      currentAdzanGain = gain;
+
+      source.onended = () => {
+        if (currentAdzanSource === source) {
+          currentAdzanSource = null;
+          currentAdzanGain = null;
+        }
+        onEnded?.();
+      };
+
+      source.start(0);
+    }).catch((err) => {
+      console.warn("Failed to play adzan via Web Audio:", err);
     });
   } catch {}
 }
 
 export function stopAdzanAudio(): void {
   try {
-    if (adzanAudioInstance) {
-      adzanAudioInstance.onended = null;
-      adzanAudioInstance.pause();
-      adzanAudioInstance.currentTime = 0;
+    if (currentAdzanSource) {
+      currentAdzanSource.onended = null;
+      try {
+        currentAdzanSource.stop();
+      } catch {}
+      try {
+        currentAdzanSource.disconnect();
+      } catch {}
+      currentAdzanSource = null;
+      currentAdzanGain = null;
     }
   } catch {}
 }
@@ -235,12 +323,15 @@ export function updatePrayerSettings(partial: Partial<PrayerSettings>): PrayerSe
       : current.enabledPrayers,
   };
   savePrayerSettings(updated);
-  if (adzanAudioInstance && !adzanAudioInstance.paused) {
+  if (currentAdzanSource && currentAdzanGain) {
     const vol = updated.adzanVolume ?? 70;
     if (!updated.soundEnabled || vol <= 0) {
       stopAdzanAudio();
     } else {
-      adzanAudioInstance.volume = Math.max(0, Math.min(1, vol / 100));
+      const ctx = getPrayerAudioContext();
+      if (ctx) {
+        currentAdzanGain.gain.setValueAtTime(Math.max(0, Math.min(1, vol / 100)), ctx.currentTime);
+      }
     }
   }
   return updated;

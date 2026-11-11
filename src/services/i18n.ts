@@ -4,6 +4,7 @@ export const translations = {
   // Navigation / Tabs
   tab_now_playing: { en: "Now Playing", id: "Sedang Diputar" },
   tab_control_center: { en: "Control Center", id: "Pusat Kontrol" },
+  tab_ai_chat: { en: "AI Chat", id: "AI Chat" },
   tab_todo_list: { en: "To-Do List", id: "Daftar Tugas" },
   tab_file_shelf: { en: "File Shelf", id: "Rak Berkas" },
   tab_clipboard: { en: "Clipboard", id: "Papan Klip" },
@@ -132,6 +133,8 @@ export const translations = {
   shortcut_action_switch_monitor_desc: { en: "Scan displays and cycle notch to the next monitor", id: "Scan layar dan pindahkan notch ke monitor berikutnya" },
   shortcut_action_toggle_miniplayer: { en: "Toggle Mini Player", id: "Buka / Tutup Mini Player" },
   shortcut_action_toggle_miniplayer_desc: { en: "Open or close floating lyrics mini player", id: "Buka atau sembunyikan mini player lirik mengambang" },
+  shortcut_action_open_ai_chat: { en: "Quick AI Chat", id: "Quick AI Chat" },
+  shortcut_action_open_ai_chat_desc: { en: "Open quick AI prompt card in notch", id: "Buka kartu tanya AI cepat di notch" },
   mini_player: { en: "Mini player", id: "Mini player" },
   mini_player_tooltip: { en: "Mini player Ctrl Alt M", id: "Mini player Ctrl Alt M" },
   monitor_single_detected: { en: "Only 1 display detected", id: "Hanya 1 monitor terdeteksi" },

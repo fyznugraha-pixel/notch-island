@@ -528,9 +528,12 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                         <>
                           <div
                             className="fixed inset-0 z-[99998] bg-transparent"
-                            onPointerDown={(e) => {
+                            onClick={(e) => {
                               e.stopPropagation();
                               setIsModeDropdownOpen(false);
+                            }}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
                             }}
                           />
                           <motion.div

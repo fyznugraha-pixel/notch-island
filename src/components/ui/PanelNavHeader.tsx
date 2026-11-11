@@ -17,6 +17,7 @@ import {
   Bell,
   Droplet,
   Moon,
+  MessageCircle,
 } from "lucide-react";
 import { motion, AnimatePresence, type Transition } from "framer-motion";
 import { getWeatherIcon } from "./NotifIcon";
@@ -411,6 +412,11 @@ const getTabMetadata = (key: string): { label: string; icon: React.ReactNode } =
         label: t("tab_control_center"),
         icon: <Sliders size={13} strokeWidth={2.2} />,
       };
+    case "ai_chat":
+      return {
+        label: t("tab_ai_chat") || "AI Chat",
+        icon: <MessageCircle size={13} strokeWidth={2.2} />,
+      };
     case "todo":
       return {
         label: t("tab_todo_list"),
@@ -711,6 +717,30 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       };
     }, []);
 
+    const isSwipeBlockedTarget = (target: HTMLElement | null): boolean => {
+      if (!target) return false;
+      if (
+        target.closest(
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], .select-text, pre, code, [data-selectable="true"], input, textarea, select, [role="slider"]'
+        )
+      ) {
+        return true;
+      }
+      const tag = target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "PRE" || tag === "CODE") {
+        return true;
+      }
+      try {
+        if (typeof window !== "undefined" && window.getComputedStyle) {
+          const comp = window.getComputedStyle(target);
+          if (comp.userSelect === "text") {
+            return true;
+          }
+        }
+      } catch {}
+      return false;
+    };
+
     const handleWheel = (e: React.WheelEvent) => {
       if (disableSwipe) {
         return;
@@ -721,15 +751,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       }
 
       const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
-        ) ||
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT")
-      ) {
+      if (isSwipeBlockedTarget(target)) {
         return;
       }
 
@@ -814,15 +836,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
 
     const handlePanStart = (e: any) => {
       const target = (e?.target || e?.srcElement) as HTMLElement | null;
-      if (
-        target &&
-        (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
-        ) ||
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT")
-      ) {
+      if (isSwipeBlockedTarget(target)) {
         isPanIgnoredRef.current = true;
       } else {
         isPanIgnoredRef.current = false;
@@ -836,16 +850,16 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       }
       isPanIgnoredRef.current = false;
 
+      // If user selected text during drag, never trigger a tab swipe
+      if (typeof window !== "undefined") {
+        const selection = window.getSelection();
+        if (selection && selection.toString().trim().length > 0) {
+          return;
+        }
+      }
+
       const target = (e?.target || e?.srcElement) as HTMLElement | null;
-      if (
-        target &&
-        (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
-        ) ||
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT")
-      ) {
+      if (isSwipeBlockedTarget(target)) {
         return;
       }
 

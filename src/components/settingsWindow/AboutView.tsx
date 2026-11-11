@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2, Smile, Bell, FolderDown, Gamepad2, MousePointerClick, Moon, MapPin, BellOff, AppWindow } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2, Smile, Bell, FolderDown, Gamepad2, MousePointerClick, Moon, MapPin, BellOff, AppWindow, Bot } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -17,6 +17,44 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.6.0",
+    date: "12 Nov 2026",
+    highlights: [
+      {
+        icon: <Bot size={14} />,
+        titleId: "Quick AI Chat di Notch (Ctrl + Alt + A)",
+        titleEn: "Quick AI Chat in Notch (Ctrl + Alt + A)",
+        descId: "Akses asisten AI kilat langsung dari notch bar dengan jawaban streaming dan eksekusi otomatis ke fitur notch seperti Todo, Pomodoro, dan Catatan.",
+        descEn: "Instant AI assistant access directly from the notch bar with streaming responses and direct action execution for notch tools like Todos, Pomodoro, and Notes.",
+        badge: "new",
+      },
+      {
+        icon: <Zap size={14} />,
+        titleId: "Mode AI Gratis Tanpa Masukkan API Key",
+        titleEn: "Free AI Tier Without API Key Setup",
+        descId: "Pengguna baru dapat langsung menggunakan AI cerdas Gemini Flash-Lite secara gratis (15 chat/hari) tanpa perlu memiliki atau memasukkan API key pribadi.",
+        descEn: "New users can instantly chat with intelligent Gemini Flash-Lite for free (15 chats/day) without needing to configure a personal API key.",
+        badge: "new",
+      },
+      {
+        icon: <Layers size={14} />,
+        titleId: "Dukungan Model AI Generasi Baru",
+        titleEn: "Next-Gen AI Model Provider Logos",
+        descId: "Pembaruan identitas visual dan logo resmi untuk model AI terpopuler termasuk GLM, Qwen, Kimi, Gemma, Nemotron, Ministral, Devstral, Palmyra, dan Moonshot.",
+        descEn: "Updated visual identities and official logos for leading AI models including GLM, Qwen, Kimi, Gemma, Nemotron, Ministral, Devstral, Palmyra, and Moonshot.",
+        badge: "improve",
+      },
+      {
+        icon: <Bug size={14} />,
+        titleId: "Stabilitas Protokol Gateway & Routing AI",
+        titleEn: "AI Gateway Protocol & Routing Stability",
+        descId: "Perbaikan sanitasi URL kustom proxy AI dan pelestarian header native Anthropic Claude untuk koneksi pihak ketiga yang lebih andal.",
+        descEn: "Fixed custom AI proxy URL sanitization and preserved Anthropic Claude native headers for rock-solid third-party gateway connections.",
+        badge: "fix",
+      },
+    ],
+  },
   {
     version: "4.5.2",
     date: "8 Nov 2026",

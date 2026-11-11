@@ -1,0 +1,10 @@
+{
+  "total": 150,
+  "tierAccuracy": 99.33333333333333,
+  "lengthAccuracy": 92,
+  "underClassifiedRate": 0,
+  "avgLatencyMs": 0.030477999999999898,
+  "g10Passed": true,
+  "mismatchCount": 1,
+  "scenariosCount": 7
+}

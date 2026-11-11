@@ -57,9 +57,19 @@ export const NotifSoundPicker: React.FC<NotifSoundPickerProps> = ({
         setIsOpen(false);
       }
     };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setIsOpen(false);
+      }
+    };
 
     window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKey);
+    };
   }, [isOpen]);
 
   const currentCustomItem = customSounds.find((s) => s.id === value);

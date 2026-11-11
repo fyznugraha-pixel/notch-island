@@ -1,0 +1,1281 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "totalPrompts": 150,
+    "description": "Set uji evaluasi router model dan kontrol panjang jawaban untuk AI Chat Gili (BYOK)",
+    "createdAt": "2026-11-11"
+  },
+  "prompts": [
+    {
+      "id": "test_001",
+      "prompt": "halo",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "greeting",
+      "notes": "Sapaan pendek dasar"
+    },
+    {
+      "id": "test_002",
+      "prompt": "pagi gili",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "greeting",
+      "notes": "Sapaan pagi informal"
+    },
+    {
+      "id": "test_003",
+      "prompt": "halo selamat malam",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "greeting",
+      "notes": "Sapaan malam sopan"
+    },
+    {
+      "id": "test_004",
+      "prompt": "hi there!",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "greeting",
+      "notes": "Sapaan inggris santai"
+    },
+    {
+      "id": "test_005",
+      "prompt": "tes 1 2 3",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "greeting",
+      "notes": "Cek koneksi bot"
+    },
+    {
+      "id": "test_006",
+      "prompt": "ping",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "greeting",
+      "notes": "Pesan uji latensi"
+    },
+    {
+      "id": "test_007",
+      "prompt": "assalamualaikum",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "greeting",
+      "notes": "Salam keagamaan"
+    },
+    {
+      "id": "test_008",
+      "prompt": "kamu ai apa ya?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "greeting",
+      "notes": "Tanya identitas ringkas"
+    },
+    {
+      "id": "test_009",
+      "prompt": "ibu kota australia apa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta geografi satu kata"
+    },
+    {
+      "id": "test_010",
+      "prompt": "siapa penemu bola lampu?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta sejarah satu nama"
+    },
+    {
+      "id": "test_011",
+      "prompt": "kapan indonesia merdeka?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta tanggal kemerdekaan"
+    },
+    {
+      "id": "test_012",
+      "prompt": "bumi itu planet ke berapa dari matahari?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta sains angka tunggal"
+    },
+    {
+      "id": "test_013",
+      "prompt": "unsur kimia Fe itu apa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta tabel periodik"
+    },
+    {
+      "id": "test_014",
+      "prompt": "mata uang jepang apa namanya?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta mata uang"
+    },
+    {
+      "id": "test_015",
+      "prompt": "1 mil itu berapa kilometer?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Konversi satuan panjang"
+    },
+    {
+      "id": "test_016",
+      "prompt": "berapa temperatur titik didih air di celcius?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta fisika dasar"
+    },
+    {
+      "id": "test_017",
+      "prompt": "what is the capital of canada?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta geografi bahasa inggris"
+    },
+    {
+      "id": "test_018",
+      "prompt": "siapa presiden pertama amerika serikat?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta sejarah nama"
+    },
+    {
+      "id": "test_019",
+      "prompt": "berapa jumlah benua di dunia?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta geografi umum"
+    },
+    {
+      "id": "test_020",
+      "prompt": "singkatan dari HTTP itu apa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Definisi akronim teknologi"
+    },
+    {
+      "id": "test_021",
+      "prompt": "terjemahkan ke inggris: selamat ulang tahun kawan",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "translation",
+      "notes": "Terjemahan ucapan pendek"
+    },
+    {
+      "id": "test_022",
+      "prompt": "translate to indonesian: see you tomorrow",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "translation",
+      "notes": "Terjemahan frasa umum"
+    },
+    {
+      "id": "test_023",
+      "prompt": "artinya perkataan bon voyage apa ya?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "translation",
+      "notes": "Arti kosakata asing"
+    },
+    {
+      "id": "test_024",
+      "prompt": "terjemahkan kata resilience ke bahasa indonesia",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "translation",
+      "notes": "Terjemahan satu kata kosakata"
+    },
+    {
+      "id": "test_025",
+      "prompt": "bahasa jepangnya terima kasih apa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "translation",
+      "notes": "Terjemahan ucapan dasar"
+    },
+    {
+      "id": "test_026",
+      "prompt": "bahasa jermannya selamat pagi apa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "translation",
+      "notes": "Terjemahan frasa pendek eropa"
+    },
+    {
+      "id": "test_027",
+      "prompt": "15 * 8 berapa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Perkalian 2 digit sederhana"
+    },
+    {
+      "id": "test_028",
+      "prompt": "hitung 25 persen dari 500.000",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Hitungan diskon persentase"
+    },
+    {
+      "id": "test_029",
+      "prompt": "120 / 4 + 15",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Operasi matematika satu baris"
+    },
+    {
+      "id": "test_030",
+      "prompt": "akar kuadrat dari 144 berapa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Akar kuadrat dasar"
+    },
+    {
+      "id": "test_031",
+      "prompt": "konversi 3 jam ke detik",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Konversi waktu sederhana"
+    },
+    {
+      "id": "test_032",
+      "prompt": "50 dolar kalau dirupiahkan kira-kira berapa di kurs 16.000?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Konversi valas langsung"
+    },
+    {
+      "id": "test_033",
+      "prompt": "ubah teks ini jadi huruf kapital semua: hello gili notch",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "utility",
+      "notes": "Transformasi string uppercase"
+    },
+    {
+      "id": "test_034",
+      "prompt": "beri 3 ide nama kucing lucu warna abu-abu",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "utility",
+      "notes": "Brainstorming daftar nama mini"
+    },
+    {
+      "id": "test_035",
+      "prompt": "rekomendasi 1 film komedi indonesia bagus",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "utility",
+      "notes": "Rekomendasi tunggal cepat"
+    },
+    {
+      "id": "test_036",
+      "prompt": "buat daftar belanja: telur, susu, roti",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "utility",
+      "notes": "Format ulang teks belanjaan"
+    },
+    {
+      "id": "test_037",
+      "prompt": "apakah tomat termasuk buah atau sayur?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Klasifikasi biner langsung"
+    },
+    {
+      "id": "test_038",
+      "prompt": "sinonim dari kata canggih apa saja?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "utility",
+      "notes": "Daftar sinonim singkat"
+    },
+    {
+      "id": "test_039",
+      "prompt": "antonim dari kata statis apa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "utility",
+      "notes": "Antonim kata tunggal"
+    },
+    {
+      "id": "test_040",
+      "prompt": "hari ini hari rabu, 3 hari lagi hari apa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Penalaran kalender sepele"
+    },
+    {
+      "id": "test_041",
+      "prompt": "Berikut artikel berita:\n\"Pertumbuhan ekonomi global diproyeksikan melambat menjadi 2,7% pada tahun 2026 menurut laporan Bank Dunia terbaru akibat ketidakpastian geopolitik dan inflasi.\"\nBerapa persen proyeksi pertumbuhan ekonomi di teks di atas?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "trivial_long",
+      "notes": "Prompt konteks panjang tapi pertanyaan hanya mengekstrak 1 angka"
+    },
+    {
+      "id": "test_042",
+      "prompt": "Ini teks pidato panjang: \"Bapak dan ibu sekalian yang saya hormati... segala puji kita panjatkan...\"\nApa kata pertama dari teks di atas?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "trivial_long",
+      "notes": "Prompt teks panjang tapi pertanyaannya sangat sepele"
+    },
+    {
+      "id": "test_043",
+      "prompt": "Berikut daftar nama: Ali, Budi, Citra, Dedi, Eka, Fani, Gilang, Hani.\nSiapa nama yang berawalan huruf D?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "trivial_long",
+      "notes": "Filtering list sederhana"
+    },
+    {
+      "id": "test_044",
+      "prompt": "translate this word to french: apple",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "translation",
+      "notes": "Satu kata inggris ke perancis"
+    },
+    {
+      "id": "test_045",
+      "prompt": "berapa keliling persegi dengan sisi 7 cm?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Rumus keliling dasar"
+    },
+    {
+      "id": "test_046",
+      "prompt": "sebutkan warna primer dalam seni rupa",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Fakta 3 warna primer"
+    },
+    {
+      "id": "test_047",
+      "prompt": "apa bahasa inggrisnya kupu-kupu?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "translation",
+      "notes": "Terjemahan nama hewan"
+    },
+    {
+      "id": "test_048",
+      "prompt": "2 pangkat 8 itu berapa?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "arithmetic",
+      "notes": "Pangkat bilangan biner"
+    },
+    {
+      "id": "test_049",
+      "prompt": "apa fungsi tombol ctrl+z di windows?",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "utility",
+      "notes": "Shortcut keyboard umum"
+    },
+    {
+      "id": "test_050",
+      "prompt": "sebutkan satu contoh hewan mamalia laut",
+      "expectedTier": "T0",
+      "expectedLength": "RINGKAS",
+      "category": "factual",
+      "notes": "Contoh biologi tunggal"
+    },
+    {
+      "id": "test_051",
+      "prompt": "buatkan draf email izin sakit 1 hari untuk atasan di kantor dengan nada sopan",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "writing",
+      "notes": "Email kerja formal standar"
+    },
+    {
+      "id": "test_052",
+      "prompt": "tulis ucapan perpisahan kerja untuk rekan satu tim di slack yang hangat dan profesional",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "writing",
+      "notes": "Pesan slack tim profesional"
+    },
+    {
+      "id": "test_053",
+      "prompt": "buat caption instagram untuk promo diskon kopi 20% di akhir pekan",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "writing",
+      "notes": "Copywriting sosial media santai"
+    },
+    {
+      "id": "test_054",
+      "prompt": "bantu koreksi tata bahasa dan perbaiki kalimat ini agar lebih formal: \"gw mau ngabarin klo besok gabisa dateng meeting pagi ya mas\"",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "writing",
+      "notes": "Proofreading dan perbaikan register bahasa"
+    },
+    {
+      "id": "test_055",
+      "prompt": "tulis draf pembuka cover letter untuk lamaran posisi frontend developer",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "writing",
+      "notes": "Surat lamaran kerja formal"
+    },
+    {
+      "id": "test_056",
+      "prompt": "susun 5 pertanyaan wawancara untuk calon junior graphic designer",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "writing",
+      "notes": "Daftar pertanyaan HR standar"
+    },
+    {
+      "id": "test_057",
+      "prompt": "buatkan ringkasan 3 poin penting tentang tips menjaga kesehatan mata di depan laptop",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "writing",
+      "notes": "Edukasi kesehatan poin-poin"
+    },
+    {
+      "id": "test_058",
+      "prompt": "tulis template undangan rapat evaluasi kuartal 4 via google meet",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "writing",
+      "notes": "Undangan kalender formal"
+    },
+    {
+      "id": "test_059",
+      "prompt": "ringkas teks artikel ini menjadi 1 paragraf padat: \"Teknologi kecerdasan buatan telah berkembang pesat dalam dekade terakhir...\"",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "summarization",
+      "notes": "Ringkasan artikel standar"
+    },
+    {
+      "id": "test_060",
+      "prompt": "ekstrak daftar aksi (action items) dari catatan rapat singkat berikut: \"Budi akan kirim invoice, Siti siapkan slide presentasi besok siang, dan Dedi follow up vendor.\"",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "summarization",
+      "notes": "Ekstraksi to-do dari teks rapat"
+    },
+    {
+      "id": "test_061",
+      "prompt": "ringkas perbedaan utama antara HTTP/1.1 dan HTTP/2 dalam bentuk tabel perbandingan",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "summarization",
+      "notes": "Perbandingan protokol web"
+    },
+    {
+      "id": "test_062",
+      "prompt": "buat rangkuman kelebihan dan kekurangan kerja remote dibanding wfo",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "summarization",
+      "notes": "Analisis komparasi populer"
+    },
+    {
+      "id": "test_063",
+      "prompt": "buat fungsi javascript untuk memvalidasi format email menggunakan regex",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Fungsi utilitas JS kode utuh"
+    },
+    {
+      "id": "test_064",
+      "prompt": "tulis skrip python untuk membaca file csv dan mencetak nama kolomnya",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Skrip python pandas/csv standar"
+    },
+    {
+      "id": "test_065",
+      "prompt": "bagaimana cara membalikkan string di typescript tanpa library tambahan? sertakan kodenya",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Snippet algoritma dasar"
+    },
+    {
+      "id": "test_066",
+      "prompt": "buat query sql sederhana untuk mencari user yang mendaftar dalam 30 hari terakhir",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Query SQL date filtering"
+    },
+    {
+      "id": "test_067",
+      "prompt": "tulis perintah bash untuk mencari semua file berekstensi .log yang berukuran lebih dari 50MB",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Perintah find di linux shell"
+    },
+    {
+      "id": "test_068",
+      "prompt": "buat komponen react counter sederhana dengan tombol plus minus menggunakan usestate",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Komponen UI dasar React"
+    },
+    {
+      "id": "test_069",
+      "prompt": "bagaimana cara parse query params dari URL di node.js native?",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Contoh URLSearchParams di Node"
+    },
+    {
+      "id": "test_070",
+      "prompt": "tulis fungsi php untuk menghasilkan slug url ramah seo dari string judul",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Fungsi helper PHP string"
+    },
+    {
+      "id": "test_071",
+      "prompt": "buat skrip powershell untuk mengecek pemakaian disk drive C dan menampilkan persentasenya",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Otomasi admin Windows Powershell"
+    },
+    {
+      "id": "test_072",
+      "prompt": "tulis fungsi python untuk menghitung frekuensi kemunculan tiap kata dalam sebuah kalimat",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Fungsi word counter dictionary"
+    },
+    {
+      "id": "test_073",
+      "prompt": "jelaskan apa itu REST API untuk orang awam tanpa istilah teknis yang rumit",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Eksplanasi konsep analogi ramah"
+    },
+    {
+      "id": "test_074",
+      "prompt": "bagaimana cara kerja cookies di browser web dan apa bedanya dengan localstorage?",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Konsep penyimpanan web komparatif"
+    },
+    {
+      "id": "test_075",
+      "prompt": "jelaskan perbedaan antara process dan thread dalam sistem operasi",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Konsep ilmu komputer fundamental"
+    },
+    {
+      "id": "test_076",
+      "prompt": "mengapa framework css seperti tailwind banyak disukai dibanding css tradisional?",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Diskusi arsitektur styling web"
+    },
+    {
+      "id": "test_077",
+      "prompt": "apa itu konsep garbage collection di bahasa pemrograman dan bagaimana cara kerjanya?",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Penjelasan memori otomatis"
+    },
+    {
+      "id": "test_078",
+      "prompt": "jelaskan perbedaan antara enkripsi simetris dan asimetris beserta contoh penggunaannya",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Kriptografi dasar komparasi"
+    },
+    {
+      "id": "test_079",
+      "prompt": "bagaimana cara kerja indexing pada database relasional untuk mempercepat query?",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Prinsip kerja index database"
+    },
+    {
+      "id": "test_080",
+      "prompt": "jelaskan konsep event loop di javascript runtime secara berurutan",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Asinkronitas runtime JS"
+    },
+    {
+      "id": "test_081",
+      "prompt": "kenapa z-index css saya tidak berfungsi padahal nilainya sudah 9999? beri penyebab umumnya",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "troubleshooting",
+      "notes": "Solusi stacking context CSS"
+    },
+    {
+      "id": "test_082",
+      "prompt": "bagaimana cara mengatasi CORS error saat fetch API dari localhost ke backend express?",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "troubleshooting",
+      "notes": "Panduan konfigurasi middleware CORS"
+    },
+    {
+      "id": "test_083",
+      "prompt": "apa perbedaan git merge vs git rebase dan kapan sebaiknya memakai rebase?",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "concept",
+      "notes": "Alur kerja git version control"
+    },
+    {
+      "id": "test_084",
+      "prompt": "rekomendasikan struktur folder yang rapi untuk project next.js app router skala menengah",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "architecture_light",
+      "notes": "Best practice folder layout"
+    },
+    {
+      "id": "test_085",
+      "prompt": "bagaimana cara mencegah form disubmit dua kali saat user klik tombol cepat?",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Pola debounce / disable button UI"
+    },
+    {
+      "id": "test_086",
+      "prompt": "berikan contoh implementasi debounce function di vanilla javascript",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Utilitas closure JS standar"
+    },
+    {
+      "id": "test_087",
+      "prompt": "jelaskan apa arti error 502 bad gateway dan cara investigasinya di sisi server",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "troubleshooting",
+      "notes": "Troubleshooting status gateway HTTP"
+    },
+    {
+      "id": "test_088",
+      "prompt": "bagaimana cara deploy aplikasi static vite ke cloudflare pages gratis?",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "tutorial",
+      "notes": "Panduan hosting deployment"
+    },
+    {
+      "id": "test_089",
+      "prompt": "buat skema tabel sqlite sederhana untuk aplikasi pencatat pengeluaran pribadi",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "DDL schema database kecil"
+    },
+    {
+      "id": "test_090",
+      "prompt": "tulis regex untuk memvalidasi nomor telepon indonesia berawalan +62 atau 08",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Pola regex nomor lokal"
+    },
+    {
+      "id": "test_091",
+      "prompt": "lanjutkan ke poin nomor 4 dan 5",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "context_followup",
+      "notes": "Pesan lanjutan yang mewarisi tingkat T1"
+    },
+    {
+      "id": "test_092",
+      "prompt": "bisa berikan contoh penggunaan fungsi di atas dalam kasus nyata?",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "context_followup",
+      "notes": "Permintaan contoh kode lanjutan"
+    },
+    {
+      "id": "test_093",
+      "prompt": "bagaimana jika datanya bernilai null? cara tangani error-nya seperti apa?",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "context_followup",
+      "notes": "Pertanyaan lanjutan edge case"
+    },
+    {
+      "id": "test_094",
+      "prompt": "tolong persingkat draf email di atas jadi 2 kalimat saja",
+      "expectedTier": "T1",
+      "expectedLength": "RINGKAS",
+      "category": "writing",
+      "notes": "Penyuntingan draf lebih ringkas"
+    },
+    {
+      "id": "test_095",
+      "prompt": "buatkan unit test jest untuk fungsi javascript yang baru kamu tulis",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Pembuatan test suite standar"
+    },
+    {
+      "id": "test_096",
+      "prompt": "apa alternatif lain selain menggunakan library axios di browser modern?",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "concept",
+      "notes": "Alternatif native fetch"
+    },
+    {
+      "id": "test_097",
+      "prompt": "bagaimana cara membuat gradient background animasi di css murni?",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Snippet CSS keyframes"
+    },
+    {
+      "id": "test_098",
+      "prompt": "jelaskan apa itu JWT dan apa isi dari header, payload, dan signature-nya",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Bedah struktur JSON Web Token"
+    },
+    {
+      "id": "test_099",
+      "prompt": "tulis query mongodb untuk melakukan aggregate total penjualan per kategori produk",
+      "expectedTier": "T1",
+      "expectedLength": "LENGKAP",
+      "category": "simple_code",
+      "notes": "Query MongoDB pipeline aggregation"
+    },
+    {
+      "id": "test_100",
+      "prompt": "bagaimana cara set up crontab di linux ubuntu untuk menjalankan script setiap jam 6 pagi?",
+      "expectedTier": "T1",
+      "expectedLength": "NORMAL",
+      "category": "utility",
+      "notes": "Konfigurasi jadwal cron"
+    },
+    {
+      "id": "test_101",
+      "prompt": "Analisis error panic di Rust tokio ini: \"fatal runtime error: failed to initiate panic, error 5, thread main panicked at src/service.rs:142: mutex poisoned\". Bagaimana pola deadlock ini bisa terjadi dan apa mitigasi arsitekturalnya?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Analisis concurrency deadlock dan mutex poisoning Rust"
+    },
+    {
+      "id": "test_102",
+      "prompt": "Kode C++ ini crash saat multi-threaded access: void process(std::shared_ptr<Node> n) { if (n) n->update(); } Debug kemungkinan data race pada ref-count dan rancang solusi thread-safe lock-free.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Analisis memori pointer shared_ptr concurrency C++"
+    },
+    {
+      "id": "test_103",
+      "prompt": "Investigasi jejak error JVM ini: java.lang.OutOfMemoryError: Metaspace. Native memory allocation failed. Apa root cause-nya di Spring Boot microservices?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Analisis JVM native memory leak di container"
+    },
+    {
+      "id": "test_104",
+      "prompt": "Query PostgreSQL ini mengalami sudden performance regression dari 15ms ke 18 detik pada EXPLAIN ANALYZE JOIN orders dan customers. Mengapa planner memilih nested loop seq scan dan bagaimana menyusun composite index yang tepat?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Analisis EXPLAIN ANALYZE dan query execution plan RDBMS"
+    },
+    {
+      "id": "test_105",
+      "prompt": "Saya mengalami memory leak di React 19 dengan WebSockets: state bertambah terus saat unmount dan heap snapshot menunjukkan ribuan closure tertahan di EventListener. Berikan audit profil memori dan solusi refactoring.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Audit heap snapshot memory leak frontend SPA"
+    },
+    {
+      "id": "test_106",
+      "prompt": "Debug kenapa goroutine di Go ini leak saat channel consumer ditutup tanpa ctx done.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Goroutine leak pattern analysis di Go"
+    },
+    {
+      "id": "test_107",
+      "prompt": "Aplikasi Tauri v2 di Windows crash tanpa error log saat memanggil unsafe Win32 DirectComposition API dari multiple thread. Mengapa thread-apartment model (STA vs MTA) berpengaruh di sini?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Debugging COM threading model Win32 STA/MTA di Rust Tauri"
+    },
+    {
+      "id": "test_108",
+      "prompt": "Traceback Python: RecursionError: maximum recursion depth exceeded in comparison pada implementasi custom AST visitor compiler. Bagaimana mengubah algoritma rekursif ini menjadi iterative traversal dengan explicit stack?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Refactoring rekursi mendalam ke iterative stack compiler"
+    },
+    {
+      "id": "test_109",
+      "prompt": "Rancang arsitektur sistem backend untuk sistem pembayaran dompet digital (fintech e-wallet) yang menangani 50.000 TPS, dengan jaminan ACID, idempotency kunci transaksi, isolasi saldo, dan penanganan distributed transaction rollback.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Desain sistem finansial high-throughput zero-data-loss"
+    },
+    {
+      "id": "test_110",
+      "prompt": "Bagaimana mendesain database multi-tenant di PostgreSQL dengan Row Level Security (RLS), connection pooling (PgBouncer), dan migrasi schema terisolasi tanpa downtime?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Desain arsitektur SaaS multi-tenant RLS"
+    },
+    {
+      "id": "test_111",
+      "prompt": "Bandingkan arsitektur Event Sourcing + CQRS versus Traditional State Storage untuk sistem audit log perbankan. Analisis trade-off performa, kompleksitas rollback event, dan GDPR compliance.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Analisis komparatif arsitektur data terdistribusi"
+    },
+    {
+      "id": "test_112",
+      "prompt": "Rancang skema failover multi-region active-active untuk layanan API mission-critical dengan DNS routing latency-based dan distributed consensus Raft untuk replikasi data.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Desain multi-region fault tolerance distributed systems"
+    },
+    {
+      "id": "test_113",
+      "prompt": "Bagaimana arsitektur Rate Limiting terdistribusi skala enterprise yang menggabungkan Token Bucket di edge CDN (Cloudflare Workers) dan Sliding Window Counter di Redis Cluster dengan mitigasi race condition?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Arsitektur rate limiter skala jutaan request"
+    },
+    {
+      "id": "test_114",
+      "prompt": "Buktikan secara matematis konvergensi barisan bilangan pada algoritma Gradient Descent untuk fungsi konveks yang memenuhi kondisi L-Lipschitz continuous gradient.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "advanced_math",
+      "notes": "Pembuktian kalkulus optimasi matematika murni"
+    },
+    {
+      "id": "test_115",
+      "prompt": "Hitung integral tentu Gaussian berikut secara analitis langkah demi langkah: integral e^(-x^2) dx dari minus tak hingga sampai tak hingga menggunakan transformasi koordinat polar ke dimensi ganda.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "advanced_math",
+      "notes": "Kalkulus integral gaussian analitik langkah demi langkah"
+    },
+    {
+      "id": "test_116",
+      "prompt": "Jelaskan algoritma enkripsi kurva eliptik (ECDSA) versus Ed25519: bagaimana rumus matematika penjumlahan titik kurva bekerja dan mengapa Ed25519 kebal terhadap side-channel timing attack?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "advanced_math",
+      "notes": "Kriptografi kurva eliptik dan ketahanan side-channel"
+    },
+    {
+      "id": "test_117",
+      "prompt": "Selesaikan persamaan diferensial parsial difusi panas 1 dimensi dengan metode separasi variabel pada kondisi batas Dirichlet.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "advanced_math",
+      "notes": "Solusi persamaan diferensial parsial fisika matematika"
+    },
+    {
+      "id": "test_118",
+      "prompt": "Buktikan bahwa masalah Halting Problem pada mesin Turing tidak dapat dipecahkan (undecidable) menggunakan metode kontradiksi diagonal Cantor.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "advanced_math",
+      "notes": "Pembuktian teori komputasi Turing undecidability"
+    },
+    {
+      "id": "test_119",
+      "prompt": "Analisis celah keamanan Time-of-Check to Time-of-Use (TOCTOU) pada file handling di Unix kernel. Berikan contoh eksploitasi symlink race condition dan mitigasi menggunakan file descriptor O_NOFOLLOW dan openat().",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "security",
+      "notes": "Audit kerentanan keamanan kernel race condition"
+    },
+    {
+      "id": "test_120",
+      "prompt": "Bagaimana mekanisme kerja mitigasi Address Space Layout Randomization (ASLR) dan Return-Oriented Programming (ROP) chain? Jelaskan cara menyusun payload ROP gadget untuk bypass non-executable stack (DEP).",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "security",
+      "notes": "Analisis eksploitasi biner buffer overflow level lanjut"
+    },
+    {
+      "id": "test_121",
+      "prompt": "Lakukan audit keamanan pada Smart Contract Solidity untuk mencegah Reentrancy attack dan Flash Loan manipulation pada pool likuiditas DeFi.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "security",
+      "notes": "Audit keamanan blockchain dan kerentanan DeFi"
+    },
+    {
+      "id": "test_122",
+      "prompt": "Bagaimana mendeteksi dan mencegah serangan Man-in-the-Middle (MITM) pada aplikasi mobile hybrid dengan implementasi SSL Pinning publik key dan attestation token hardware?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "security",
+      "notes": "Arsitektur keamanan transport seluler"
+    },
+    {
+      "id": "test_123",
+      "prompt": "Implementasikan struktur data Skip List thread-safe yang mendukung operasi concurrent insert, search, dan delete tanpa global lock. Sertakan analisis kompleksitas waktu dan ruang amortized.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "complex_algorithm",
+      "notes": "Implementasi struktur data concurrent non-trivial"
+    },
+    {
+      "id": "test_124",
+      "prompt": "Jelaskan cara kerja algoritma consensus Raft saat terjadi network partition: bagaimana leader election split-vote diatasi dan bagaimana log entry yang uncommitted dipulihkan saat partisi pulih kembali?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "complex_algorithm",
+      "notes": "Analisis mendalam konsensus terdistribusi Raft"
+    },
+    {
+      "id": "test_125",
+      "prompt": "Rancang algoritma k-NN approximate search menggunakan Hierarchical Navigable Small World (HNSW) graph untuk vector database pencarian embedding AI.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "complex_algorithm",
+      "notes": "Algoritma graf multidimensi untuk vector similarity search"
+    },
+    {
+      "id": "test_126",
+      "prompt": "Bagaimana algoritma garbage collection ZGC di OpenJDK mencapai pause time sub-milidetik pada heap ukuran terabyte? Jelaskan mekanisme colored pointers dan load barriers.",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "complex_algorithm",
+      "notes": "Deep dive arsitektur memory management low-latency"
+    },
+    {
+      "id": "test_127",
+      "prompt": "kenapa mutex ini deadlock?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "hard_short",
+      "notes": "Pesan pendek tanpa kode menuntut AI menanyakan dan mengaudit pola deadlock"
+    },
+    {
+      "id": "test_128",
+      "prompt": "buktikan P != NP secara teoretis",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "hard_short",
+      "notes": "Pesan 4 kata mengenai masalah milenium ilmu komputer paling kompleks"
+    },
+    {
+      "id": "test_129",
+      "prompt": "rancang skema database e-commerce",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "ambiguous",
+      "notes": "Pesan pendek ambigu berskala besar yang wajib ditangani model kuat"
+    },
+    {
+      "id": "test_130",
+      "prompt": "audit kode di atas",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "context_followup",
+      "notes": "Perintah pendek mewarisi konteks audit keamanan sebelumnya"
+    },
+    {
+      "id": "test_131",
+      "prompt": "kenapa memory leak?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "hard_short",
+      "notes": "Pertanyaan investigasi diagnostik tingkat sistem"
+    },
+    {
+      "id": "test_132",
+      "prompt": "optimalkan query sql ini",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "hard_short",
+      "notes": "Penyetelan performa basis data kompleks"
+    },
+    {
+      "id": "test_133",
+      "prompt": "jelaskan perbedaan B-Tree dan LSM-Tree di storage engine modern",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Arsitektur internal penyimpanan database disk I/O"
+    },
+    {
+      "id": "test_134",
+      "prompt": "bagaimana merancang distributed lock yang aman dengan redis Redlock?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Pola konsensus locking terdistribusi"
+    },
+    {
+      "id": "test_135",
+      "prompt": "tuliskan implementasi algoritma A* pathfinding dengan priority queue di rust",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "complex_algorithm",
+      "notes": "Implementasi algoritma navigasi graf kompleks"
+    },
+    {
+      "id": "test_136",
+      "prompt": "analisis trade-off penggunaan zero-copy serialization seperti flatbuffers vs protobuf",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Evaluasi performa protokol data biner"
+    },
+    {
+      "id": "test_137",
+      "prompt": "bagaimana cara mitigasi timing attack pada verifikasi signature HMAC di backend?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "security",
+      "notes": "Kriptografi safe comparison memori"
+    },
+    {
+      "id": "test_138",
+      "prompt": "apa implikasi teorema CAP pada perancangan sistem streaming event skala terabyte?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Penerapan teorema sistem terdistribusi"
+    },
+    {
+      "id": "test_139",
+      "prompt": "jelaskan cara kerja compiler JIT dan deoptimasi bail-out di v8 javascript engine",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Arsitektur internal interpreter dan compiler V8"
+    },
+    {
+      "id": "test_140",
+      "prompt": "rancang arsitektur pipeline machine learning real-time feature store dan model serving",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "MLOps arsitektur data streaming tingkat lanjut"
+    },
+    {
+      "id": "test_141",
+      "prompt": "analisis kelemahan protokol OAuth 2.0 PKCE jika implementasi code_verifier cacat",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "security",
+      "notes": "Audit protokol otentikasi identitas modern"
+    },
+    {
+      "id": "test_142",
+      "prompt": "bagaimana cara kerja consistent hashing dengan virtual nodes untuk meminimalkan remapping?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Algoritma partisi data distributed cache"
+    },
+    {
+      "id": "test_143",
+      "prompt": "selesaikan masalah n-queens problem dengan algoritma backtracking dan bit manipulation",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "complex_algorithm",
+      "notes": "Optimasi kombinatorika algoritma bitmask"
+    },
+    {
+      "id": "test_144",
+      "prompt": "jelaskan arsitektur Transformer self-attention Q, K, V dan komputasi matmul-nya",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Matematika dan struktur neural network modern"
+    },
+    {
+      "id": "test_145",
+      "prompt": "bagaimana cara debug memory corruption (use-after-free) menggunakan address sanitizer?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "debug",
+      "notes": "Analisis diagnostik memori biner C/C++"
+    },
+    {
+      "id": "test_146",
+      "prompt": "rancang skema database time-series untuk menyimpan jutaan metrik iot per detik",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Desain arsitektur basis data time-series berbeban tinggi"
+    },
+    {
+      "id": "test_147",
+      "prompt": "jelaskan mekanisme copy-on-write pada virtual memory linux dan fork() syscall",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "concept",
+      "notes": "Mekanisme manajemen memori kernel sistem operasi"
+    },
+    {
+      "id": "test_148",
+      "prompt": "bagaimana cara mengamankan api graphql dari query nesting attack dan dos depth exhaustion?",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "security",
+      "notes": "Proteksi arsitektur API GraphQL"
+    },
+    {
+      "id": "test_149",
+      "prompt": "tuliskan rumus backpropagation untuk layer konvolusi CNN langkah demi langkah",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "advanced_math",
+      "notes": "Penurunan kalkulus matriks deep learning"
+    },
+    {
+      "id": "test_150",
+      "prompt": "evaluasi strategi sharding vs partitioning pada database mongodb untuk koleksi miliaran dokumen",
+      "expectedTier": "T2",
+      "expectedLength": "LENGKAP",
+      "category": "architecture",
+      "notes": "Evaluasi performa arsitektur database no-sql"
+    }
+  ],
+  "availabilityScenarios": [
+    {
+      "id": "scen_0_providers",
+      "name": "Nol Penyedia Terpasang",
+      "installedKeys": {},
+      "expectedBehavior": "Empty state tampil di pemilih model dengan panduan untuk menghubungkan API key. Chat dinonaktifkan sampai ada key valid."
+    },
+    {
+      "id": "scen_1_provider_cheap",
+      "name": "Satu Penyedia Terpasang (Hanya Model Murah / DeepSeek)",
+      "installedKeys": {
+        "deepseek": "sk-valid-key"
+      },
+      "availableModels": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ],
+      "expectedBehavior": "Mode Auto memetakan T0 ke deepseek-chat, T1 ke deepseek-chat, T2 ke deepseek-reasoner. Penghematan rute bekerja parsial, kontrol panjang ringkas tetap aktif."
+    },
+    {
+      "id": "scen_1_provider_single_model",
+      "name": "Satu Penyedia Terpasang (Hanya Satu Model / GPT-4o)",
+      "installedKeys": {
+        "openai": "sk-valid-key"
+      },
+      "availableModels": [
+        "gpt-4o"
+      ],
+      "expectedBehavior": "Mode Auto memakai gpt-4o untuk semua tingkat. UI jujur menyatakan: Hanya satu model terpasang, pemilihan otomatis tidak menghemat biaya rute. Penghematan tetap datang dari jawaban ringkas."
+    },
+    {
+      "id": "scen_2_providers",
+      "name": "Dua Penyedia Terpasang (DeepSeek + Anthropic Claude)",
+      "installedKeys": {
+        "deepseek": "sk-valid-key",
+        "claude": "sk-ant-valid-key"
+      },
+      "availableModels": [
+        "deepseek-chat",
+        "claude-3-7-sonnet-20250219"
+      ],
+      "expectedBehavior": "Auto memetakan T0/T1 ke deepseek-chat dan T2 ke claude-3-7-sonnet. Hemat biaya hingga 95% untuk pesan sederhana."
+    },
+    {
+      "id": "scen_3_providers",
+      "name": "Tiga Penyedia Terpasang (Gemini + DeepSeek + Anthropic Claude)",
+      "installedKeys": {
+        "gemini": "AIza-valid-key",
+        "deepseek": "sk-valid-key",
+        "claude": "sk-ant-valid-key"
+      },
+      "availableModels": [
+        "gemini-2.0-flash",
+        "deepseek-chat",
+        "claude-3-7-sonnet-20250219"
+      ],
+      "expectedBehavior": "Auto ideal: T0 ke gemini-2.0-flash, T1 ke deepseek-chat, T2 ke claude-3-7-sonnet. Keseimbangan sempurna kecepatan, efisiensi dan kekuatan penalaran."
+    },
+    {
+      "id": "scen_invalid_key_input",
+      "name": "Pemasukan Key Tidak Valid (HTTP 401)",
+      "testAction": "Pengguna memasukkan key sk-salah123",
+      "expectedBehavior": "Validasi 1-call backend gagal (401), key tidak disimpan, muncul notifikasi error spesifik dari penyedia, chat tidak crash."
+    },
+    {
+      "id": "scen_revoked_key_mid_chat",
+      "name": "Key Dicabut / Saldo Habis di Tengah Percakapan (HTTP 402/429)",
+      "testAction": "Saat streaming berjalan, penyedia membalas HTTP 402 atau 429",
+      "expectedBehavior": "Streaming berhenti rapi dengan kartu merah alert, model ditandai tidak tersedia, Auto fallback ke model setingkat dari penyedia lain jika ada, atau menawarkan ganti key."
+    }
+  ]
+}

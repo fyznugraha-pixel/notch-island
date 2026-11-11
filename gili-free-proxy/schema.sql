@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS usage (
+  subject TEXT NOT NULL,
+  day TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (subject, day)
+);
+

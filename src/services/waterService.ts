@@ -365,10 +365,10 @@ export function getDailyIntake(targetDate = new Date(), dataOverride?: WaterData
 /**
  * Calculates current consecutive streak and past 7 days history.
  */
-export function getStreakInfo(dataOverride?: WaterData) {
+export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date()) {
   const data = dataOverride || loadWaterData();
   const dayStartHour = data.settings.dayStartHour;
-  const now = new Date();
+  const now = refDate;
   const todayKey = getLogicalDateKey(now.getTime(), dayStartHour);
 
   // Group all records by logical date

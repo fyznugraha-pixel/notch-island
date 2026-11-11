@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Compass,
   MoreHorizontal,
+  MessageCircle,
 } from "lucide-react";
 import {
   ManageableTabId,
@@ -76,6 +77,16 @@ const TAB_VISUAL_META: Record<ManageableTabId, TabVisualMeta> = {
     colorClass: "text-white",
     badgeId: "Inti",
     badgeEn: "Core",
+  },
+  ai_chat: {
+    titleId: "AI Chat",
+    titleEn: "AI Chat",
+    descId: "Tanya AI langsung dari notch via API key Claude, OpenAI, Gemini, dll",
+    descEn: "Ask AI directly from the notch using your Claude, OpenAI, or Gemini API keys",
+    icon: <MessageCircle size={17} strokeWidth={2.2} />,
+    smallIcon: <MessageCircle size={13} strokeWidth={2.2} />,
+    bgClass: "bg-[#3882f6]",
+    colorClass: "text-white",
   },
   todo: {
     titleId: "Daftar Tugas (To-Do List)",

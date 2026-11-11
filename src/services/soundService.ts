@@ -266,6 +266,7 @@ export function setSavedNotifSound(soundId: string): void {
   try {
     localStorage.setItem("island_notif_sound", soundId);
   } catch {}
+  preloadNotifSoundBuffer(soundId);
 }
 
 function playDefaultGlassChime(): void {
@@ -276,11 +277,83 @@ function playDefaultGlassChime(): void {
   ]);
 }
 
+const notifAudioBufferCache = new Map<string, AudioBuffer>();
+
+async function playAudioFileWithWebAudio(url: string, volume = 0.75): Promise<void> {
+  const ctx = getAudioContext();
+  if (!ctx) {
+    playDefaultGlassChime();
+    return;
+  }
+
+  if (ctx.state === "suspended") {
+    await ctx.resume().catch(() => {});
+  }
+
+  try {
+    let buffer = notifAudioBufferCache.get(url);
+    if (!buffer) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const arrayBuffer = await res.arrayBuffer();
+      buffer = await ctx.decodeAudioData(arrayBuffer);
+      notifAudioBufferCache.set(url, buffer);
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
+  } catch (err) {
+    console.debug("Failed to play audio file via Web Audio API, falling back to glass:", err);
+    playDefaultGlassChime();
+  }
+}
+
+function preloadNotifSoundBuffer(soundId: string): void {
+  if (typeof window === "undefined") return;
+  if (soundId.startsWith("custom_")) {
+    ensureCustomSoundAudioUrl(soundId).then((url) => {
+      if (url && !notifAudioBufferCache.has(url)) {
+        fetch(url)
+          .then((res) => (res.ok ? res.arrayBuffer() : null))
+          .then(async (ab) => {
+            if (!ab) return;
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const buf = await ctx.decodeAudioData(ab);
+            notifAudioBufferCache.set(url, buf);
+          })
+          .catch(() => {});
+      }
+    });
+    return;
+  }
+
+  const item = NOTIF_SOUND_LIST.find((s) => s.id === soundId);
+  if (item?.file && !notifAudioBufferCache.has(item.file)) {
+    fetch(item.file)
+      .then((res) => (res.ok ? res.arrayBuffer() : null))
+      .then(async (ab) => {
+        if (!ab) return;
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        const buf = await ctx.decodeAudioData(ab);
+        notifAudioBufferCache.set(item.file!, buf);
+      })
+      .catch(() => {});
+  }
+}
+
 if (typeof window !== "undefined") {
   const initialSaved = getSavedNotifSound();
   if (initialSaved.startsWith("custom_")) {
     preloadActiveCustomSound(initialSaved);
   }
+  preloadNotifSoundBuffer(initialSaved);
 }
 
 function playSoundById(soundId: string): void {
@@ -296,12 +369,7 @@ function playSoundById(soundId: string): void {
           playDefaultGlassChime();
           return;
         }
-        const audio = new Audio(url);
-        audio.volume = 0.8;
-        audio.play().catch((err) => {
-          console.debug("Failed to play custom sound audio, falling back to glass:", err);
-          playDefaultGlassChime();
-        });
+        playAudioFileWithWebAudio(url, 0.8);
       })
       .catch(() => playDefaultGlassChime());
     return;
@@ -309,16 +377,7 @@ function playSoundById(soundId: string): void {
 
   const item = NOTIF_SOUND_LIST.find((s) => s.id === soundId);
   if (item && item.file) {
-    try {
-      const audio = new Audio(item.file);
-      audio.volume = 0.75;
-      audio.play().catch((err) => {
-        console.debug("Failed to play notification audio file, falling back to glass:", err);
-        playDefaultGlassChime();
-      });
-    } catch {
-      playDefaultGlassChime();
-    }
+    playAudioFileWithWebAudio(item.file, 0.75);
   } else {
     playDefaultGlassChime();
   }

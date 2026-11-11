@@ -4,6 +4,7 @@ import { load } from "@tauri-apps/plugin-store";
 export type ManageableTabId =
   | "media_expanded"
   | "quick_control"
+  | "ai_chat"
   | "todo"
   | "mini_note"
   | "drop_shelf"
@@ -35,6 +36,7 @@ const STORE_KEY = "opt_tabs_preferences";
 export const DEFAULT_TAB_ITEMS: TabItemConfig[] = [
   { id: "media_expanded", enabled: true },
   { id: "quick_control", enabled: true },
+  { id: "ai_chat", enabled: true },
   { id: "todo", enabled: true },
   { id: "mini_note", enabled: true },
   { id: "drop_shelf", enabled: true },

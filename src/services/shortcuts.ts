@@ -9,7 +9,8 @@ export type ShortcutActionId =
   | "toggle_focus_mode"
   | "toggle_hide"
   | "switch_monitor"
-  | "toggle_miniplayer";
+  | "toggle_miniplayer"
+  | "open_ai_chat";
 
 export type ShortcutStatus = "ok" | "conflict" | "invalid" | "inactive";
 
@@ -75,6 +76,12 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
     labelKey: "shortcut_action_toggle_miniplayer",
     descKey: "shortcut_action_toggle_miniplayer_desc",
   },
+  {
+    id: "open_ai_chat",
+    defaultShortcut: "Control+Alt+A",
+    labelKey: "shortcut_action_open_ai_chat",
+    descKey: "shortcut_action_open_ai_chat_desc",
+  },
 ];
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutActionId, string | null> = {
@@ -87,6 +94,7 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutActionId, string | null> = {
   toggle_hide: "Control+Shift+D",
   switch_monitor: "Control+Shift+M",
   toggle_miniplayer: "Control+Alt+M",
+  open_ai_chat: "Control+Alt+A",
 };
 
 const RESERVED_SYSTEM_COMBINATIONS = new Set([
@@ -355,6 +363,7 @@ class ShortcutManagerService {
         toggle_hide: "inactive",
         switch_monitor: "inactive",
         toggle_miniplayer: "inactive",
+        open_ai_chat: "inactive",
       };
 
       try {

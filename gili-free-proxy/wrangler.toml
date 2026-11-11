@@ -1,0 +1,20 @@
+name = "gili-free-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[vars]
+GEMINI_MODEL = "gemini-flash-lite-latest"
+DAILY_LIMIT_PER_INSTALL = "15"
+# Guards against one machine spawning fresh install IDs to farm quota.
+DAILY_LIMIT_PER_IP = "60"
+MAX_OUTPUT_TOKENS = "1024"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gili-free-quota"
+database_id = "5b10963c-cbbe-4ada-a82b-051e6d907a5e"
+
+# 17:00 UTC = 00:00 WIB, right after the quota day rolls over.
+[triggers]
+crons = ["0 17 * * *"]
+

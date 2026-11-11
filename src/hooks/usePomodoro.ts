@@ -21,7 +21,7 @@ export interface PomodoroCompleteAlert {
   focusedTaskId: string | null;
 }
 
-export function usePomodoro() {
+export function usePomodoro(options: { isSecondary?: boolean } = {}) {
   const [settings, setSettings] = useState<PomodoroSettings>(() => loadPomodoroSettings());
   const [dailyStats, setDailyStats] = useState<PomodoroDailyStats>(() => loadPomodoroDailyStats());
   const [mode, setMode] = useState<PomodoroMode>("focus");
@@ -110,7 +110,7 @@ export function usePomodoro() {
     const currentCfg = settingsRef.current;
     const finished = modeRef.current;
 
-    if (currentCfg.soundOnComplete) {
+    if (!options.isSecondary && currentCfg.soundOnComplete) {
       playPomodoroAlertSound();
     }
 

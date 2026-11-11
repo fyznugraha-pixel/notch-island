@@ -38,16 +38,26 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on click outside
+  // Close dropdown on click outside or Escape
   useEffect(() => {
     if (!isProviderDropdownOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent | PointerEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsProviderDropdownOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setIsProviderDropdownOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handleClickOutside);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handleClickOutside);
+      window.removeEventListener("keydown", handleKey);
+    };
   }, [isProviderDropdownOpen]);
 
   // Sync offset calibration per song (default 0.0s)

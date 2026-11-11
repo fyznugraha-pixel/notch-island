@@ -101,7 +101,7 @@ unsafe fn hicon_to_png_data_url(hicon: HICON) -> Option<String> {
     result
 }
 
-fn extract_exe_icon(exe_path: &str) -> Option<String> {
+pub fn extract_exe_icon(exe_path: &str) -> Option<String> {
     let wide: Vec<u16> = exe_path.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         let mut hicon = HICON::default();

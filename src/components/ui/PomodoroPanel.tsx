@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Play,
   Pause,
@@ -58,6 +58,28 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
 }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showTaskDropdown, setShowTaskDropdown] = useState(false);
+  const taskDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showTaskDropdown) return;
+    const handleDown = (e: MouseEvent | PointerEvent) => {
+      if (taskDropdownRef.current && !taskDropdownRef.current.contains(e.target as Node)) {
+        setShowTaskDropdown(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowTaskDropdown(false);
+      }
+    };
+    window.addEventListener("pointerdown", handleDown);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handleDown);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [showTaskDropdown]);
 
   const pendingTasks = todoItems.filter((item) => !item.completed);
   const focusedTask = pendingTasks.find((item) => item.id === focusedTaskId) || null;
@@ -324,7 +346,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
         </div>
 
         {/* Task Selector (FOKUS PADA) */}
-        <div className="relative">
+        <div ref={taskDropdownRef} className="relative">
           <button
             type="button"
             onClick={() => setShowTaskDropdown((v) => !v)}

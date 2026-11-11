@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bell,
@@ -379,6 +379,29 @@ export const TodoDeadlineAlertCard: React.FC<{
   onDismiss: () => void;
 }> = ({ alert, onSnooze, onComplete, onDismiss }) => {
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
+  const snoozeContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showSnoozeMenu) return;
+    const handleDown = (e: MouseEvent | PointerEvent) => {
+      if (snoozeContainerRef.current && !snoozeContainerRef.current.contains(e.target as Node)) {
+        setShowSnoozeMenu(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSnoozeMenu(false);
+      }
+    };
+    window.addEventListener("pointerdown", handleDown);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handleDown);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [showSnoozeMenu]);
+
   const { task, diffMinutes } = alert;
 
   const isOverdue = diffMinutes <= 0;
@@ -449,7 +472,7 @@ export const TodoDeadlineAlertCard: React.FC<{
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2 shrink-0 relative">
+      <div ref={snoozeContainerRef} className="flex items-center gap-2 shrink-0 relative">
         <div className="flex h-[36px] rounded-[11px] border border-[#3a3a43] overflow-hidden bg-white/[0.02]">
           <button
             type="button"
