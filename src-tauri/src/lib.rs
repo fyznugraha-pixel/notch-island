@@ -13,6 +13,7 @@ pub mod media_lyrics_store;
 pub mod miniplayer_window;
 mod app_icon;
 pub mod ai_credentials;
+pub mod backdrop_blur;
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
@@ -3444,9 +3445,23 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
 
 static PREVIOUS_FOREGROUND_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 static IS_INTERACTIVE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static INTERACTIVE_WINDOWS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+fn is_window_interactive(label: &str) -> bool {
+    INTERACTIVE_WINDOWS.lock().map(|set| set.contains(label)).unwrap_or(false)
+}
 
 #[tauri::command]
 fn set_interactive_mode(active: bool, window: tauri::WebviewWindow) {
+    let label = window.label().to_string();
+    if let Ok(mut set) = INTERACTIVE_WINDOWS.lock() {
+        if active {
+            set.insert(label);
+        } else {
+            set.remove(&label);
+        }
+    }
     IS_INTERACTIVE_MODE.store(active, std::sync::atomic::Ordering::SeqCst);
     if active {
         let _ = window.set_ignore_cursor_events(false);
@@ -3712,7 +3727,7 @@ fn broadcast_settings_sync(app: tauri::AppHandle, payload: serde_json::Value) {
 fn trigger_notch_action(app: tauri::AppHandle, action: String) {
     use tauri::Emitter;
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.emit("settings-trigger-action", action);
+        let _ = w.emit_to("main", "settings-trigger-action", action);
     }
 }
 
@@ -3869,7 +3884,8 @@ pub fn run() {
             miniplayer_window::resize_miniplayer,
             miniplayer_window::set_follow_system_text_scale,
             get_system_text_scale_factor,
-            app_icon::get_app_icon
+            app_icon::get_app_icon,
+            backdrop_blur::sync_notch_acrylic
         ])
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -3893,13 +3909,13 @@ pub fn run() {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.unminimize();
                                 let _ = w.show();
-                                let _ = w.emit("tray-toggle-visibility", ());
+                                let _ = w.emit_to("main", "tray-toggle-visibility", serde_json::json!({ "target": "main" }));
                             }
                             for (label, w) in app.webview_windows() {
                                 if label.starts_with("notch_secondary_") {
                                     let _ = w.unminimize();
                                     let _ = w.show();
-                                    let _ = w.emit("tray-toggle-visibility", ());
+                                    let _ = w.emit_to(&label, "tray-toggle-visibility", serde_json::json!({ "target": label }));
                                 }
                             }
                         }
@@ -3907,7 +3923,7 @@ pub fn run() {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.unminimize();
                                 let _ = w.show();
-                                let _ = w.emit("tray-open-control-center", ());
+                                let _ = w.emit_to("main", "tray-open-control-center", serde_json::json!({ "target": "main" }));
                             }
                         }
                         "open_settings" => {
@@ -3945,7 +3961,8 @@ pub fn run() {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        let _ = win_for_events.emit("click-outside", ());
+                        use tauri::Emitter;
+                        let _ = win_for_events.emit_to("main", "click-outside", serde_json::json!({ "target": "main" }));
                     }
                     tauri::WindowEvent::ScaleFactorChanged { .. } => {
                         if win_for_events.is_minimized().unwrap_or(false) {
@@ -4093,7 +4110,6 @@ pub fn run() {
                         }
 
                         let is_dragging = IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed);
-                        let is_interactive = IS_INTERACTIVE_MODE.load(std::sync::atomic::Ordering::Relaxed);
                         let (l_down, r_down) = {
                             use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
                             (
@@ -4122,7 +4138,7 @@ pub fn run() {
                                 }
 
                                 if let Some((sec_pos, sec_size, sec_sf)) = sec_state.cached_geom {
-                                    let (sec_w, sec_h, sec_dpr) = pill.secondary_pills.get(sec_label).copied().unwrap_or((pill.width, pill.height, 0.0));
+                                    let (sec_w, sec_h, sec_dpr) = pill.secondary_pills.get(sec_label).copied().unwrap_or((140.0, 34.0, 0.0));
                                     let mut sec_pill = pill.clone();
                                     sec_pill.width = sec_w;
                                     sec_pill.height = sec_h;
@@ -4134,14 +4150,15 @@ pub fn run() {
 
                                     let in_sec = calculate_notch_hit(pt, sec_pos, sec_size, sec_sf, &sec_pill);
 
-                                    if is_interactive {
+                                    let is_sec_interactive = is_window_interactive(sec_label);
+                                    if is_sec_interactive {
                                         let _ = sec_win.set_ignore_cursor_events(false);
                                         sec_state.was_in = in_sec;
                                         if !in_sec && (l_down || r_down) {
                                             if !sec_state.click_outside_emitted {
                                                 sec_state.click_outside_emitted = true;
                                                 use tauri::Emitter;
-                                                let _ = app_handle_poll.emit_to(sec_label, "click-outside", ());
+                                                let _ = app_handle_poll.emit_to(sec_label, "click-outside", serde_json::json!({ "target": sec_label }));
                                             }
                                         } else {
                                             sec_state.click_outside_emitted = false;
@@ -4156,10 +4173,10 @@ pub fn run() {
                                             use tauri::Emitter;
                                             if in_sec {
                                                 nudge_cursor();
-                                                let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-enter", ());
+                                                let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-enter", serde_json::json!({ "target": sec_label }));
                                             } else {
                                                 sec_state.time_since_left = std::time::Instant::now();
-                                                let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-leave", ());
+                                                let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-leave", serde_json::json!({ "target": sec_label }));
                                             }
                                         }
 
@@ -4171,7 +4188,7 @@ pub fn run() {
                                                 if !sec_state.click_outside_emitted {
                                                     sec_state.click_outside_emitted = true;
                                                     use tauri::Emitter;
-                                                    let _ = app_handle_poll.emit_to(sec_label, "click-outside", ());
+                                                    let _ = app_handle_poll.emit_to(sec_label, "click-outside", serde_json::json!({ "target": sec_label }));
                                                 }
                                             } else {
                                                 sec_state.click_outside_emitted = false;
@@ -4195,7 +4212,8 @@ pub fn run() {
                                 continue;
                             }
 
-                            if is_interactive {
+                            let is_main_interactive = is_window_interactive("main");
+                            if is_main_interactive {
                                 let _ = win_clone.set_ignore_cursor_events(false);
                                 was_in_main = true;
                                 if !in_main {
@@ -4203,7 +4221,7 @@ pub fn run() {
                                         if !click_outside_main_emitted {
                                             click_outside_main_emitted = true;
                                             use tauri::Emitter;
-                                            let _ = app_handle_poll.emit_to("main", "click-outside", ());
+                                            let _ = app_handle_poll.emit_to("main", "click-outside", serde_json::json!({ "target": "main" }));
                                         }
                                     } else {
                                         click_outside_main_emitted = false;
@@ -4230,9 +4248,9 @@ pub fn run() {
                                 use tauri::Emitter;
                                 if !in_main {
                                     time_since_left_main = std::time::Instant::now();
-                                    let _ = app_handle_poll.emit_to("main", "notch-mouse-leave", ());
+                                    let _ = app_handle_poll.emit_to("main", "notch-mouse-leave", serde_json::json!({ "target": "main" }));
                                 } else {
-                                    let _ = app_handle_poll.emit_to("main", "notch-mouse-enter", ());
+                                    let _ = app_handle_poll.emit_to("main", "notch-mouse-enter", serde_json::json!({ "target": "main" }));
                                 }
                             }
 
@@ -4249,7 +4267,7 @@ pub fn run() {
                                     if !click_outside_main_emitted {
                                         click_outside_main_emitted = true;
                                         use tauri::Emitter;
-                                        let _ = app_handle_poll.emit_to("main", "click-outside", ());
+                                        let _ = app_handle_poll.emit_to("main", "click-outside", serde_json::json!({ "target": "main" }));
                                     }
                                 } else {
                                     click_outside_main_emitted = false;

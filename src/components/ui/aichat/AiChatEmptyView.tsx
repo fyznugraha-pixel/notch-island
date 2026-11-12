@@ -1,5 +1,6 @@
 import React from "react";
 import { MessageCircle, Clipboard, Languages, AlertCircle, Mail } from "lucide-react";
+import { t } from "../../../services/i18n";
 
 interface AiChatEmptyViewProps {
   onSelectPrompt: (promptText: string) => void;
@@ -16,24 +17,24 @@ export const AiChatEmptyView: React.FC<AiChatEmptyViewProps> = ({
 }) => {
   const chips = [
     {
-      label: "Ringkas teks di clipboard",
-      prompt: "Ringkas teks yang ada di clipboard saya jadi 3 poin utama yang jelas.",
+      label: t("aichat_chip_summarize_clipboard"),
+      prompt: t("aichat_chip_summarize_clipboard_prompt"),
       icon: <Clipboard size={13} className="text-[#8db8ff]" strokeWidth={2} />,
       isClipboard: true,
     },
     {
-      label: "Terjemahkan ke Inggris",
-      prompt: "Terjemahkan paragraf berikut ke bahasa Inggris yang natural dan sopan:",
+      label: t("aichat_chip_translate_en"),
+      prompt: t("aichat_chip_translate_en_prompt"),
       icon: <Languages size={13} className="text-[#8db8ff]" strokeWidth={2} />,
     },
     {
-      label: "Jelaskan error ini",
-      prompt: "Jelaskan penyebab error berikut dan bagaimana langkah terbaik untuk memperbaikinya:",
+      label: t("aichat_chip_explain_error"),
+      prompt: t("aichat_chip_explain_error_prompt"),
       icon: <AlertCircle size={13} className="text-[#8db8ff]" strokeWidth={2} />,
     },
     {
-      label: "Bantu tulis email",
-      prompt: "Bantu saya menulis draft email resmi dan profesional untuk:",
+      label: t("aichat_chip_draft_email"),
+      prompt: t("aichat_chip_draft_email_prompt"),
       icon: <Mail size={13} className="text-[#8db8ff]" strokeWidth={2} />,
     },
   ];
@@ -53,10 +54,10 @@ export const AiChatEmptyView: React.FC<AiChatEmptyViewProps> = ({
       </div>
 
       <div className="text-[22px] font-semibold tracking-[-0.03em] text-white mt-3.5">
-        Mau tanya apa?
+        {t("aichat_empty_title")}
       </div>
       <div className="text-[12px] text-[#a1a1aa] mt-1">
-        {freeModeNotice ?? "Jawaban datang langsung dari API key kamu."}
+        {freeModeNotice ?? t("aichat_empty_subtitle")}
       </div>
 
       {/* Suggested Quick Prompt Chips */}

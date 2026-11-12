@@ -19,6 +19,7 @@ import {
   saveMonthlyLimit,
   recordTokenUsage,
   streamChatCompletion,
+  estimateTextTokens,
   getEffectiveApiKey,
   loadSavedBaseUrls,
   loadSavedApiKeys,
@@ -49,13 +50,17 @@ import {
   generateTitleFromPrompt,
   pruneInactiveConversations,
 } from "../../../services/aiConversationService";
-import { parseAndExecuteGiliActions } from "../../../services/aiNotchTools";
 import {
-  GILI_FREE_MODEL,
-  GILI_FREE_NOTICE,
+  parseAndExecuteGiliActions,
+  stripActionBlocksForDisplay,
+} from "../../../services/aiNotchTools";
+import {
+  getGiliFreeModel,
+  getGiliFreeNotice,
   isGiliFreeEnabled,
   describeGiliFreeError,
 } from "../../../services/giliFreeService";
+import { t, type Language } from "../../../services/i18n";
 import type {
   AiProviderId,
   AiModelConfig,
@@ -69,23 +74,29 @@ import type {
 interface AiChatPanelProps {
   onPrevTab?: () => void;
   accentColor?: string;
+  optLanguage?: Language;
 }
 
 export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   onPrevTab,
   accentColor = "#3882F6",
+  optLanguage,
 }) => {
+  void optLanguage;
   const [provider, setProvider] = useState<AiProviderId>(loadActiveProvider);
-  const [activeModel, setActiveModel] = useState<AiModelConfig>(() =>
-    loadActiveModel(loadActiveProvider())
-  );
-  const [keysVersion, setKeysVersion] = useState(0);
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-
   const [routerConfig, setRouterConfig] = useState(() => loadRouterConfig());
   const [selectedMode, setSelectedMode] = useState<"auto" | string>(
     () => routerConfig.selectedMode || "auto"
   );
+  const [activeModel, setActiveModel] = useState<AiModelConfig>(() => {
+    const routerCfg = loadRouterConfig();
+    if (routerCfg.selectedMode === "gili-free") {
+      return getGiliFreeModel();
+    }
+    return loadActiveModel(loadActiveProvider());
+  });
+  const [keysVersion, setKeysVersion] = useState(0);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
 
   useEffect(() => {
     initCredentials()
@@ -104,10 +115,11 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
 
   const isFreeMode = React.useMemo(() => {
     if (!isGiliFreeEnabled()) return false;
+    if (selectedMode === "gili-free" || activeModel.id === "gili-free") return true;
     const hasProviderKey = Object.values(loadSavedApiKeys()).some(Boolean);
     const hasModelKey = Object.values(loadSavedModelKeys()).some(Boolean);
     return !hasProviderKey && !hasModelKey;
-  }, [keysVersion]);
+  }, [keysVersion, selectedMode, activeModel.id]);
 
   const [activeView, setActiveView] = useState<
     "chat" | "connect" | "usage" | "window_picker" | "history"
@@ -234,7 +246,11 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     const updated = { ...routerConfig, selectedMode: model.id };
     setRouterConfig(updated);
     saveRouterConfig(updated);
-    saveActiveModel(provider, model.id);
+    if (model.id === "gili-free") {
+      setProvider("gemini");
+    } else {
+      saveActiveModel(provider, model.id);
+    }
     setIsModelDropdownOpen(false);
   };
 
@@ -495,29 +511,38 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         }
       }
 
-      const resolved = resolveTierModel(targetTier, candidateModels, routerConfig);
-      if (resolved) {
-        modelToUse = resolved.targetModel;
-        providerToUse = resolved.targetProvider;
-        keyToUse = getEffectiveApiKey(providerToUse, modelToUse.id) || activeKey;
-      } else if (candidateModels.length > 0) {
-        modelToUse = candidateModels[0];
-        providerToUse = candidateModels[0].provider;
-        keyToUse = getEffectiveApiKey(providerToUse, modelToUse.id) || activeKey;
+      if (candidateModels.length === 0 && isGiliFreeEnabled()) {
+        modelToUse = getGiliFreeModel();
+        providerToUse = getGiliFreeModel().provider;
+        keyToUse = "";
+      } else {
+        const resolved = resolveTierModel(targetTier, candidateModels, routerConfig);
+        if (resolved) {
+          modelToUse = resolved.targetModel;
+          providerToUse = resolved.targetProvider;
+          keyToUse = getEffectiveApiKey(providerToUse, modelToUse.id) || activeKey;
+        } else if (candidateModels.length > 0) {
+          modelToUse = candidateModels[0];
+          providerToUse = candidateModels[0].provider;
+          keyToUse = getEffectiveApiKey(providerToUse, modelToUse.id) || activeKey;
+        }
       }
       isAutoRouted = true;
-      estCostIdr = calculateEstimatedCostIdr(
-        modelToUse,
-        Math.round(prompt.length / 4),
-        300
-      );
+      estCostIdr =
+        modelToUse.id === "gili-free"
+          ? undefined
+          : calculateEstimatedCostIdr(
+              modelToUse,
+              Math.round(prompt.length / 4),
+              300
+            );
     } else {
       // Manual mode: Gate G10 preservation (never route)
       targetTier = undefined;
       targetLengthMode = routerConfig.defaultLength;
       modelToUse = activeModel;
       providerToUse = provider;
-      keyToUse = activeKey;
+      keyToUse = activeModel.id === "gili-free" ? "" : activeKey;
       isAutoRouted = false;
       estCostIdr = undefined;
     }
@@ -526,10 +551,15 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
       targetLengthMode = promptLengthOverride;
     }
 
-    const useGiliFree = !keyToUse && isGiliFreeEnabled();
+    const isExplicitFree =
+      selectedMode === "gili-free" ||
+      activeModel.id === "gili-free" ||
+      modelToUse.id === "gili-free";
+    const useGiliFree = isExplicitFree || (!keyToUse && isGiliFreeEnabled());
     if (useGiliFree) {
-      modelToUse = GILI_FREE_MODEL;
-      providerToUse = GILI_FREE_MODEL.provider;
+      modelToUse = getGiliFreeModel();
+      providerToUse = getGiliFreeModel().provider;
+      keyToUse = "";
       estCostIdr = undefined;
     } else if (!keyToUse) {
       setActiveView("connect");
@@ -613,6 +643,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         },
         onReasoningChunk: (reasoningChunk: string) => {
           accumulatedReasoning += reasoningChunk;
+          setStreamingTokens(estimateTextTokens(accumulated + accumulatedReasoning));
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantMsgId ? { ...msg, reasoning: accumulatedReasoning } : msg
@@ -621,13 +652,12 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         },
         onChunk: (chunk: string) => {
           accumulated += chunk;
-          setStreamingTokens((prev) =>
-            prev + Math.max(1, Math.round(chunk.length / 4))
-          );
+          setStreamingTokens(estimateTextTokens(accumulated + accumulatedReasoning));
+          const displayContent = stripActionBlocksForDisplay(accumulated);
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantMsgId
-                ? { ...msg, content: accumulated, reasoning: accumulatedReasoning || undefined }
+                ? { ...msg, content: displayContent, reasoning: accumulatedReasoning || undefined }
                 : msg
             )
           );
@@ -636,6 +666,11 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
 
       const totalTokens = result.inputTokens + result.outputTokens;
       setSessionTokens((prev) => prev + totalTokens);
+
+      const actualCostIdr =
+        modelToUse.id === "gili-free" || useGiliFree
+          ? undefined
+          : calculateEstimatedCostIdr(modelToUse, result.inputTokens, result.outputTokens);
 
       // Execute any Gili notch actions embedded by the AI
       const { cleanText, results: executedActions } = await parseAndExecuteGiliActions(accumulated);
@@ -653,7 +688,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
             tier: targetTier,
             lengthMode: targetLengthMode,
             isAutoRouted,
-            estimatedCostIdr: estCostIdr,
+            estimatedCostIdr: actualCostIdr,
             isTruncated,
             notchActions: executedActions.length > 0 ? executedActions : undefined,
           }
@@ -733,7 +768,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const handleContinueMessage = (msg: AiChatMessage) => {
     if (isStreaming) return;
     handleSendPrompt(
-      "Lanjutkan penjelasan sebelumnya dari kata terakhir secara persis dan utuh tanpa mengulang teks yang sudah ditulis.",
+      t("aichat_continue_prompt"),
       msg.tier,
       msg.lengthMode || "detailed"
     );
@@ -768,12 +803,12 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col justify-between px-6 pt-1 pb-3 overflow-hidden select-none bg-black text-white">
+    <div className="relative w-full h-full flex flex-col justify-between px-6 pt-1 pb-3 overflow-hidden select-none text-white">
       {/* Background ambient radial glow */}
       <div
         aria-hidden="true"
         style={{
-          background: `radial-gradient(80% 55% at 50% 38%, rgba(56,130,246,0.22), rgba(0,0,0,0) 70%)`,
+          background: `radial-gradient(80% 55% at 50% 38%, rgba(56,130,246,0.16), rgba(0,0,0,0) 70%)`,
         }}
         className="absolute inset-0 z-0 pointer-events-none rounded-b-[32px]"
       />
@@ -859,7 +894,13 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
             <AiChatModelDropdown
               provider={provider}
               models={availableModelsForProvider}
-              selectedModelId={selectedMode === "auto" ? "auto" : activeModel.id}
+              selectedModelId={
+                selectedMode === "auto"
+                  ? "auto"
+                  : selectedMode === "gili-free" || activeModel.id === "gili-free"
+                  ? "gili-free"
+                  : activeModel.id
+              }
               onSelectModel={handleSelectModel}
               onSelectAuto={handleSelectAuto}
               onClose={() => setIsModelDropdownOpen(false)}
@@ -887,7 +928,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
                 }}
                 onSelectClipboardPrompt={handleSelectClipboardPrompt}
                 accentColor={accentColor}
-                freeModeNotice={isFreeMode ? GILI_FREE_NOTICE : undefined}
+                freeModeNotice={isFreeMode ? getGiliFreeNotice() : undefined}
               />
             ) : (
               <AiChatConversationView
@@ -903,6 +944,10 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
                 onEditMessage={handleEditMessage}
                 onPopulateInput={(text) => {
                   setInputPrompt(text);
+                }}
+                onSwitchToFree={() => {
+                  handleSelectModel(getGiliFreeModel());
+                  setTimeout(() => handleRetryLast(), 50);
                 }}
                 accentColor={accentColor}
               />

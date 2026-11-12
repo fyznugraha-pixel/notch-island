@@ -14,6 +14,8 @@ interface RemoteModel {
   id: string;
   displayName?: string;
   description?: string;
+  inputCostPer1M?: number;
+  outputCostPer1M?: number;
 }
 
 function storageKey(provider: AiProviderId): string {
@@ -72,9 +74,93 @@ function formatDisplayName(id: string): string {
     .join(" ");
 }
 
-// Known catalog entries keep their pricing; unknown remote models get rough defaults.
+function resolveFallbackPricing(
+  id: string,
+  tier: AiModelConfig["tier"]
+): { inputCostPer1M: number; outputCostPer1M: number } {
+  const lower = id.toLowerCase();
+
+  if (lower.includes(":free") || lower === "gili-free") {
+    return { inputCostPer1M: 0, outputCostPer1M: 0 };
+  }
+  // OpenAI families
+  if (lower.includes("gpt-4.1-nano") || lower.includes("gpt-4o-mini")) {
+    return { inputCostPer1M: 0.15, outputCostPer1M: 0.6 };
+  }
+  if (lower.includes("gpt-4.1-mini")) {
+    return { inputCostPer1M: 0.4, outputCostPer1M: 1.6 };
+  }
+  if (lower.includes("gpt-4.1")) {
+    return { inputCostPer1M: 2.0, outputCostPer1M: 8.0 };
+  }
+  if (lower.includes("gpt-4o")) {
+    return { inputCostPer1M: 2.5, outputCostPer1M: 10.0 };
+  }
+  if (lower.includes("o3-mini") || lower.includes("o4-mini") || lower.includes("o1-mini")) {
+    return { inputCostPer1M: 1.1, outputCostPer1M: 4.4 };
+  }
+  if (/\b(o1|o3)\b/.test(lower)) {
+    return { inputCostPer1M: 10.0, outputCostPer1M: 40.0 };
+  }
+  // Anthropic Claude families
+  if (lower.includes("haiku")) {
+    return { inputCostPer1M: 0.8, outputCostPer1M: 4.0 };
+  }
+  if (lower.includes("sonnet")) {
+    return { inputCostPer1M: 3.0, outputCostPer1M: 15.0 };
+  }
+  if (lower.includes("opus")) {
+    return { inputCostPer1M: 15.0, outputCostPer1M: 75.0 };
+  }
+  // Google Gemini families
+  if (lower.includes("flash-lite") || lower.includes("flash-8b")) {
+    return { inputCostPer1M: 0.075, outputCostPer1M: 0.3 };
+  }
+  if (lower.includes("gemini") && lower.includes("flash")) {
+    return { inputCostPer1M: 0.15, outputCostPer1M: 0.6 };
+  }
+  if (lower.includes("gemini") && lower.includes("pro")) {
+    return { inputCostPer1M: 1.25, outputCostPer1M: 10.0 };
+  }
+  // DeepSeek families
+  if (lower.includes("deepseek") && (lower.includes("reasoner") || lower.includes("r1"))) {
+    return { inputCostPer1M: 0.55, outputCostPer1M: 2.19 };
+  }
+  if (lower.includes("deepseek")) {
+    return { inputCostPer1M: 0.27, outputCostPer1M: 1.1 };
+  }
+  // xAI Grok families
+  if (lower.includes("grok-3-mini")) {
+    return { inputCostPer1M: 0.3, outputCostPer1M: 0.5 };
+  }
+  if (lower.includes("grok")) {
+    return { inputCostPer1M: 3.0, outputCostPer1M: 15.0 };
+  }
+  // Qwen / GLM / Kimi / Mistral / Gemma
+  if (lower.includes("qwen") || lower.includes("glm") || lower.includes("kimi") || lower.includes("moonshot")) {
+    return tier === "Fast"
+      ? { inputCostPer1M: 0.15, outputCostPer1M: 0.6 }
+      : { inputCostPer1M: 0.6, outputCostPer1M: 2.4 };
+  }
+  if (lower.includes("gemma") || lower.includes("ministral") || lower.includes("devstral")) {
+    return { inputCostPer1M: 0.15, outputCostPer1M: 0.6 };
+  }
+
+  return {
+    inputCostPer1M: tier === "Fast" ? 0.25 : tier === "Max" ? 3.0 : 1.0,
+    outputCostPer1M: tier === "Fast" ? 1.0 : tier === "Max" ? 15.0 : 4.0,
+  };
+}
+
+// Known catalog entries keep their pricing; remote pricing overrides when provided by API.
 function toModelConfig(provider: AiProviderId, remote: RemoteModel): AiModelConfig {
   const lowerRemote = remote.id.toLowerCase();
+  const hasRemotePricing =
+    typeof remote.inputCostPer1M === "number" &&
+    Number.isFinite(remote.inputCostPer1M) &&
+    typeof remote.outputCostPer1M === "number" &&
+    Number.isFinite(remote.outputCostPer1M);
+
   const known = AI_MODELS.find((m) => {
     if (provider !== "custom" && m.provider !== provider) return false;
     if (m.id.toLowerCase() === lowerRemote) return true;
@@ -88,17 +174,20 @@ function toModelConfig(provider: AiProviderId, remote: RemoteModel): AiModelConf
       id: remote.id,
       name: remote.displayName || known.name,
       provider,
+      inputCostPer1M: hasRemotePricing ? remote.inputCostPer1M! : known.inputCostPer1M,
+      outputCostPer1M: hasRemotePricing ? remote.outputCostPer1M! : known.outputCostPer1M,
     };
   }
   const tier = guessTier(remote.id);
+  const fallback = resolveFallbackPricing(remote.id, tier);
   return {
     id: remote.id,
     name: remote.displayName || formatDisplayName(remote.id),
     provider,
     description: remote.description || "Tersedia untuk API key ini",
     tier,
-    inputCostPer1M: tier === "Fast" ? 0.5 : tier === "Max" ? 15 : 3,
-    outputCostPer1M: tier === "Fast" ? 2 : tier === "Max" ? 75 : 15,
+    inputCostPer1M: hasRemotePricing ? remote.inputCostPer1M! : fallback.inputCostPer1M,
+    outputCostPer1M: hasRemotePricing ? remote.outputCostPer1M! : fallback.outputCostPer1M,
   };
 }
 
@@ -255,11 +344,26 @@ async function listOpenAiCompatibleModels(
   const data = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
   return data
     .filter((m: { id?: string }) => m && typeof m.id === "string" && keepId(m.id))
-    .map((m: { id: string; name?: string; description?: string }) => ({
-      id: m.id,
-      displayName: m.name,
-      description: m.description,
-    }));
+    .map((m: { id: string; name?: string; description?: string; pricing?: { prompt?: string | number; completion?: string | number } }) => {
+      let inputCostPer1M: number | undefined;
+      let outputCostPer1M: number | undefined;
+      if (m.pricing && m.pricing.prompt !== undefined && m.pricing.completion !== undefined) {
+        const promptPerToken = Number(m.pricing.prompt);
+        const completionPerToken = Number(m.pricing.completion);
+        if (Number.isFinite(promptPerToken) && promptPerToken >= 0 && Number.isFinite(completionPerToken) && completionPerToken >= 0) {
+          // OpenRouter & compatible gateways report per-token USD (e.g. "0.000003"), or per-1M if > 0.01
+          inputCostPer1M = promptPerToken <= 0.01 ? promptPerToken * 1_000_000 : promptPerToken;
+          outputCostPer1M = completionPerToken <= 0.01 ? completionPerToken * 1_000_000 : completionPerToken;
+        }
+      }
+      return {
+        id: m.id,
+        displayName: m.name,
+        description: m.description,
+        inputCostPer1M,
+        outputCostPer1M,
+      };
+    });
 }
 
 const isOpenAiChatModel = (id: string) =>

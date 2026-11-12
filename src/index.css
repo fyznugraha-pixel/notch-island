@@ -179,19 +179,14 @@ html.light .bg-noise,
    PREMIUM APPLE LIQUID GLASS INTERIOR (Whole UI Translucency)
    Transforms all internal cards, tiles, and rows into Liquid Glass
    ======================================================== */
-#notch-pill[data-notch-shape="island"] {
+#notch-pill[data-notch-shape="island"],
+#notch-pill[data-notch-shape="notch"] {
   --notch-shadow: none !important;
   box-shadow: none !important;
   filter: none !important;
 }
 
-#notch-pill[data-notch-shape="island"] .notch-surface-shadow {
-  display: none !important;
-  box-shadow: none !important;
-}
-
-#notch-pill[data-theme-mode="glass"] .notch-surface-shadow,
-#notch-pill[data-theme-mode="clear"] .notch-surface-shadow {
+.notch-surface-shadow {
   display: none !important;
   box-shadow: none !important;
 }
@@ -201,6 +196,7 @@ html.light .bg-noise,
   box-shadow: none !important;
 }
 
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#0e0e13]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#101015]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#111114]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#121216]"],
@@ -208,6 +204,7 @@ html.light .bg-noise,
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#141416]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#18181f]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#1c1c1e]"],
+#notch-pill[data-theme-mode="glass"] [class*="bg-[#1c1c22]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#17171d]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#18181b]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#18181c]"],
@@ -219,6 +216,7 @@ html.light .bg-noise,
 #notch-pill[data-theme-mode="glass"] [class*="bg-[#202028]"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-neutral-900/"],
 #notch-pill[data-theme-mode="glass"] [class*="bg-neutral-800/"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#0e0e13]"],
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#101015]"],
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#111114]"],
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#121216]"],
@@ -226,6 +224,7 @@ html.light .bg-noise,
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#141416]"],
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#18181f]"],
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#1c1c1e]"],
+#notch-pill[data-theme-mode="clear"] [class*="bg-[#1c1c22]"],
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#17171d]"],
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#18181b]"],
 #notch-pill[data-theme-mode="clear"] [class*="bg-[#18181c]"],
@@ -582,18 +581,27 @@ html.light #notch-pill[data-theme-mode="clear"] .greeting-name-input-box,
 
 /* Light Card Surface (Solid, pristine frosted card) */
 html.light [class*="bg-[#1c1c1e]"],
+html.light [class*="bg-[#1c1c22]"],
+html.light [class*="bg-[#0e0e13]"],
 html.light [class*="bg-[#111114]"],
 html.light [class*="bg-[#101015]"],
+html.light [class*="bg-[#121216]"],
 html.light [class*="bg-[#121217]"],
 html.light [class*="bg-[#141416]"],
 .light [class*="bg-[#1c1c1e]"],
+.light [class*="bg-[#1c1c22]"],
+.light [class*="bg-[#0e0e13]"],
 .light [class*="bg-[#111114]"],
 .light [class*="bg-[#101015]"],
+.light [class*="bg-[#121216]"],
 .light [class*="bg-[#121217]"],
 .light [class*="bg-[#141416]"],
 #notch-pill.light [class*="bg-[#1c1c1e]"],
+#notch-pill.light [class*="bg-[#1c1c22]"],
+#notch-pill.light [class*="bg-[#0e0e13]"],
 #notch-pill.light [class*="bg-[#111114]"],
 #notch-pill.light [class*="bg-[#101015]"],
+#notch-pill.light [class*="bg-[#121216]"],
 #notch-pill.light [class*="bg-[#121217]"],
 #notch-pill.light [class*="bg-[#141416]"] {
   background-color: #ffffff !important;

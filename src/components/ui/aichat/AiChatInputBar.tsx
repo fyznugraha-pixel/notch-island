@@ -11,12 +11,19 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { Tooltip } from "../Tooltip";
+import { t } from "../../../services/i18n";
 import type { ResponseLengthMode } from "./AiChatTypes";
 
-const RESPONSE_LENGTH_OPTIONS: { id: ResponseLengthMode; label: string; sub: string }[] = [
-  { id: "compact", label: "Ringkas", sub: "1-3 kalimat" },
-  { id: "normal", label: "Normal", sub: "1-3 paragraf" },
-  { id: "detailed", label: "Lengkap", sub: "Komprehensif" },
+interface ResponseLengthItem {
+  id: ResponseLengthMode;
+  label: string;
+  sub: string;
+}
+
+const getResponseLengthOptions = (): ResponseLengthItem[] => [
+  { id: "compact", label: t("aichat_mode_compact"), sub: t("aichat_mode_compact_sub") },
+  { id: "normal", label: t("aichat_mode_normal"), sub: t("aichat_mode_normal_sub") },
+  { id: "detailed", label: t("aichat_mode_detailed"), sub: t("aichat_mode_detailed_sub") },
 ];
 
 interface AiChatInputBarProps {
@@ -48,7 +55,7 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
   onReadWindow,
   onAttachClipboard,
   sessionTokens = 0,
-  placeholder = "Tanya apa saja...",
+  placeholder,
   hasActiveContext = false,
   accentColor = "#3882F6",
   responseLength = "normal",
@@ -60,8 +67,10 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
   const attachContainerRef = useRef<HTMLDivElement>(null);
   const lengthContainerRef = useRef<HTMLDivElement>(null);
 
+  const lengthOptions = getResponseLengthOptions();
   const currentLengthOption =
-    RESPONSE_LENGTH_OPTIONS.find((o) => o.id === responseLength) || RESPONSE_LENGTH_OPTIONS[1];
+    lengthOptions.find((o) => o.id === responseLength) || lengthOptions[1];
+  const effectivePlaceholder = placeholder || t("aichat_input_placeholder_simple");
 
   useEffect(() => {
     // Focus automatically when not streaming
@@ -187,8 +196,8 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           onContextMenu={(e) => e.stopPropagation()}
-          placeholder={placeholder}
-          aria-label="Pesan untuk AI"
+          placeholder={effectivePlaceholder}
+          aria-label={t("aichat_aria_message")}
           style={{ userSelect: "text" }}
           className="grow min-w-0 bg-transparent border-0 outline-none text-white text-[13.5px] placeholder-[#a1a1aa] font-sans select-text"
         />
@@ -196,20 +205,20 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
         {/^\/(ringkas|lengkap|normal)/i.test(inputPrompt) && (
           <span className="h-5 px-2 rounded-full bg-blue-500/20 text-blue-300 text-[10.5px] font-semibold flex items-center shrink-0">
             {/^\/ringkas/i.test(inputPrompt)
-              ? "Gaya Ringkas"
+              ? t("aichat_badge_compact")
               : /^\/lengkap/i.test(inputPrompt)
-              ? "Gaya Lengkap"
-              : "Gaya Normal"}
+              ? t("aichat_badge_detailed")
+              : t("aichat_badge_normal")}
           </span>
         )}
 
         {/* Response Length Style Dropdown */}
         <div ref={lengthContainerRef} className="relative shrink-0">
-          <Tooltip content="Gaya jawaban AI" side="top">
+          <Tooltip content={t("aichat_tooltip_response_length")} side="top">
             <button
               type="button"
               data-dropdown-trigger="ai-input-length"
-              aria-label="Pilih gaya jawaban"
+              aria-label={t("aichat_aria_select_length")}
               onClick={() => {
                 setIsAttachOpen(false);
                 setIsLengthOpen((prev) => !prev);
@@ -241,10 +250,10 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
               className="absolute right-0 bottom-full mb-2 z-40 w-52 p-1.5 rounded-[18px] bg-[#121217]/98 backdrop-blur-2xl border border-white/14 shadow-[0_12px_36px_rgba(0,0,0,0.7)] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-150 select-none"
             >
               <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold tracking-wider text-[#71717a] uppercase">
-                Gaya Jawaban
+                {t("aichat_response_style_header")}
               </div>
 
-              {RESPONSE_LENGTH_OPTIONS.map((opt) => {
+              {lengthOptions.map((opt) => {
                 const isSelected = (responseLength || "normal") === opt.id;
                 return (
                   <button
@@ -280,11 +289,11 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
 
         {/* Attachment Dropdown Trigger (+) */}
         <div ref={attachContainerRef} className="relative shrink-0">
-          <Tooltip content="Lampirkan konten (Gambar, Jendela, Clipboard)" side="top">
+          <Tooltip content={t("aichat_tooltip_attach_content")} side="top">
             <button
               type="button"
               data-dropdown-trigger="ai-input-attach"
-              aria-label="Menu lampiran"
+              aria-label={t("aichat_aria_attach_menu")}
               onClick={() => {
                 setIsLengthOpen(false);
                 setIsAttachOpen((prev) => !prev);
@@ -315,7 +324,7 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
               className="absolute right-0 bottom-full mb-2 z-40 w-56 p-1.5 rounded-[18px] bg-[#121217]/98 backdrop-blur-2xl border border-white/14 shadow-[0_12px_36px_rgba(0,0,0,0.7)] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-150 select-none"
             >
               <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold tracking-wider text-[#71717a] uppercase">
-                Lampiran & Konteks
+                {t("aichat_attach_header")}
               </div>
 
               <button
@@ -331,10 +340,10 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
                 </div>
                 <div className="flex flex-col min-w-0 grow">
                   <span className="text-[12.5px] font-medium text-white leading-tight">
-                    Lampirkan Gambar
+                    {t("aichat_attach_image")}
                   </span>
                   <span className="text-[10px] text-[#a1a1aa] leading-tight mt-0.5">
-                    File atau tangkapan layar
+                    {t("aichat_attach_image_desc")}
                   </span>
                 </div>
               </button>
@@ -352,10 +361,10 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
                 </div>
                 <div className="flex flex-col min-w-0 grow">
                   <span className="text-[12.5px] font-medium text-white leading-tight">
-                    Baca Jendela Terbuka
+                    {t("aichat_attach_window")}
                   </span>
                   <span className="text-[10px] text-[#a1a1aa] leading-tight mt-0.5">
-                    Ambil teks aplikasi aktif
+                    {t("aichat_attach_window_desc")}
                   </span>
                 </div>
               </button>
@@ -373,10 +382,10 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
                 </div>
                 <div className="flex flex-col min-w-0 grow">
                   <span className="text-[12.5px] font-medium text-white leading-tight">
-                    Tempel Papan Klip
+                    {t("aichat_attach_clipboard")}
                   </span>
                   <span className="text-[10px] text-[#a1a1aa] leading-tight mt-0.5">
-                    Teks atau gambar clipboard
+                    {t("aichat_attach_clipboard_desc")}
                   </span>
                 </div>
               </button>
@@ -386,10 +395,10 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
 
         {/* Send or Stop button */}
         {isStreaming ? (
-          <Tooltip content="Hentikan jawaban (Esc)" side="top">
+          <Tooltip content={t("aichat_tooltip_stop_esc")} side="top">
             <button
               type="button"
-              aria-label="Hentikan jawaban"
+              aria-label={t("aichat_tooltip_stop")}
               onClick={onStopStreaming}
               className="w-[34px] h-[34px] rounded-[17px] border-0 bg-[#f4f4f5] text-black hover:bg-white flex items-center justify-center p-0 shrink-0 cursor-pointer transition-all shadow-md active:scale-95"
             >
@@ -397,11 +406,11 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
             </button>
           </Tooltip>
         ) : (
-          <Tooltip content={canSend ? "Kirim (Enter)" : "Ketik pesan dulu"} side="top">
+          <Tooltip content={canSend ? t("aichat_tooltip_send_enter") : t("aichat_tooltip_type_first")} side="top">
             <button
               type="button"
               disabled={!canSend}
-              aria-label="Kirim pesan"
+              aria-label={t("aichat_tooltip_send")}
               onClick={onSend}
               style={{
                 backgroundColor: canSend ? accentColor : "rgba(255,255,255,0.08)",
@@ -421,24 +430,24 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
       <div className="flex justify-center items-center gap-3 h-3.5 mt-1.5 text-[11px] text-[#a1a1aa] tabular-nums select-none">
         {isStreaming ? (
           <>
-            <span>Esc hentikan</span>
+            <span>{t("aichat_helper_esc_stop")}</span>
             <span aria-hidden="true">·</span>
             <span className="text-blue-400 font-medium animate-pulse">
-              Sedang berpikir & merespon...
+              {t("aichat_helper_thinking")}
             </span>
             <span aria-hidden="true">·</span>
-            <span>{sessionTokens.toLocaleString("id-ID")} token sesi ini</span>
+            <span>{t("aichat_helper_session_tokens", { count: sessionTokens.toLocaleString() })}</span>
           </>
         ) : (
           <>
-            <span>Enter kirim</span>
+            <span>{t("aichat_helper_enter_send")}</span>
             <span aria-hidden="true">·</span>
-            <span>Ctrl + V tempel gambar / teks</span>
+            <span>{t("aichat_helper_paste_hint")}</span>
             <span aria-hidden="true">·</span>
             {sessionTokens > 0 ? (
-              <span>{sessionTokens.toLocaleString("id-ID")} token sesi ini</span>
+              <span>{t("aichat_helper_session_tokens", { count: sessionTokens.toLocaleString() })}</span>
             ) : (
-              <span>Tempel atau seret gambar</span>
+              <span>{t("aichat_helper_paste_or_drag")}</span>
             )}
           </>
         )}

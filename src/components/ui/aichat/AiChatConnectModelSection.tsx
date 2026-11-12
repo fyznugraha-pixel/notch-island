@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { AiBrandLogo, detectAiBrand } from "./AiBrandLogos";
+import { t } from "../../../services/i18n";
 import type { AiModelConfig } from "./AiChatTypes";
 
 interface AiChatConnectModelSectionProps {
@@ -62,11 +63,11 @@ export const AiChatConnectModelSection: React.FC<AiChatConnectModelSectionProps>
   return (
     <>
       <div className="flex items-center justify-between pl-1 mt-1">
-        <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa]">MODEL</span>
+        <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa]">{t("aichat_connect_model_header")}</span>
         {hasModels && (
           <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
             <Check size={11} strokeWidth={2.5} />
-            {models.length} model tersedia
+            {t("aichat_connect_models_available", { count: models.length })}
           </span>
         )}
       </div>
@@ -76,10 +77,10 @@ export const AiChatConnectModelSection: React.FC<AiChatConnectModelSectionProps>
           {isVerifying ? (
             <>
               <Loader2 size={13} className="animate-spin" />
-              Memuat model dari penyedia...
+              {t("aichat_connect_loading_models")}
             </>
           ) : (
-            "Model muncul setelah key diuji dan disimpan"
+            t("aichat_connect_models_hint")
           )}
         </div>
       ) : (
@@ -151,7 +152,7 @@ export const AiChatConnectModelSection: React.FC<AiChatConnectModelSectionProps>
               className="rounded border-white/20 bg-white/10 text-blue-600 cursor-pointer"
             />
             <label htmlFor="model-custom-key-toggle" className="text-[11.5px] text-[#d4d4d8] cursor-pointer">
-              Gunakan key khusus untuk model ini ({selectedModel.name})
+              {t("aichat_connect_use_custom_key", { model: selectedModel.name })}
             </label>
           </div>
         </>

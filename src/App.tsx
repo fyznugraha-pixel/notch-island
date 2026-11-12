@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load } from "@tauri-apps/plugin-store";
@@ -178,6 +179,34 @@ import { t, getLanguage, setLanguage, Language } from "./services/i18n";
 import { GreetingNotification } from "./components/ui/GreetingNotification";
 
 export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?: boolean } = {}) {
+  const currentWin = useMemo(() => {
+    try {
+      return getCurrentWindow();
+    } catch {
+      return null;
+    }
+  }, []);
+  const windowLabel = currentWin ? currentWin.label : (isSecondaryWindow ? "notch_secondary" : "main");
+
+  const listenWindow = useCallback(
+    <T = any>(eventName: string, handler: (event: { payload: T; event: string }) => void) => {
+      if (currentWin) {
+        return listen<T>(
+          eventName,
+          (e) => {
+            if (e.payload && typeof e.payload === "object" && "target" in (e.payload as any)) {
+              if ((e.payload as any).target !== windowLabel) return;
+            }
+            handler(e);
+          },
+          { target: windowLabel }
+        );
+      }
+      return listen<T>(eventName, handler);
+    },
+    [currentWin, windowLabel]
+  );
+
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const mediaRef = useRef<MediaPayload | null>(null);
   useEffect(() => { mediaRef.current = media; }, [media]);
@@ -1106,10 +1135,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     );
   }, [isPomodoroTabEnabled, pomodoro.isRunning, pomodoro.mode, pomodoro.settings.muteNotifsOnFocus]);
 
-  // Remote control listener for Pomodoro triggered by AI Chat
+  // Remote control listener for Pomodoro & System Control triggered by AI Chat
   useEffect(() => {
     const handlePomodoroAction = (e: any) => {
-      const { action, durationMinutes } = e.detail || {};
+      const { action, durationMinutes, mode } = e.detail || {};
+      if (mode === "focus" || mode === "shortBreak" || mode === "longBreak") {
+        pomodoro.handleSelectMode(mode);
+      }
       if (action === "start") {
         if (durationMinutes && typeof durationMinutes === "number") {
           pomodoro.handleUpdateSettings({ ...pomodoro.settings, focusMinutes: durationMinutes });
@@ -1127,9 +1159,32 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         pomodoro.handleSkip();
       }
     };
+
+    const handleSystemControl = (e: any) => {
+      const { focusMode: nextFocus, volume, brightness } = e.detail || {};
+      if (
+        nextFocus === "Normal" ||
+        nextFocus === "DND" ||
+        nextFocus === "Gaming" ||
+        nextFocus === "Sleep"
+      ) {
+        selectFocusMode(nextFocus);
+      }
+      if (typeof volume === "number" && !isNaN(volume)) {
+        setSoundLevel(Math.max(0, Math.min(100, Math.round(volume))));
+      }
+      if (typeof brightness === "number" && !isNaN(brightness)) {
+        setDisplayLevel(Math.max(0, Math.min(100, Math.round(brightness))));
+      }
+    };
+
     window.addEventListener("gili_pomodoro_action" as any, handlePomodoroAction);
-    return () => window.removeEventListener("gili_pomodoro_action" as any, handlePomodoroAction);
-  }, [pomodoro]);
+    window.addEventListener("gili_ai_system_control" as any, handleSystemControl);
+    return () => {
+      window.removeEventListener("gili_pomodoro_action" as any, handlePomodoroAction);
+      window.removeEventListener("gili_ai_system_control" as any, handleSystemControl);
+    };
+  }, [pomodoro, focusMode]);
 
   useTodoReminders(
     todoItems,
@@ -1548,14 +1603,16 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     currentTabRef.current = currentTab;
     if (currentTab) {
       lastActiveTabRef.current = currentTab;
-      try {
-        localStorage.setItem("island_last_active_tab", currentTab);
-      } catch {}
+      if (!isSecondaryWindow) {
+        try {
+          localStorage.setItem("island_last_active_tab", currentTab);
+        } catch {}
+      }
     }
     if (currentTab === "quick_control") {
       fetchHotspotStatus().then(setIsHotspotOn).catch(() => {});
     }
-  }, [currentTab]);
+  }, [currentTab, isSecondaryWindow]);
 
   const cancelCollapseTimer = () => {
     if (collapseTimerRef.current) {
@@ -1653,15 +1710,17 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setControlCenterSubmenu(null);
     const now = Date.now();
     lastPanelClosedAtRef.current = now;
-    try {
-      localStorage.setItem("island_last_panel_closed_at", String(now));
-    } catch {}
+    if (!isSecondaryWindow) {
+      try {
+        localStorage.setItem("island_last_panel_closed_at", String(now));
+      } catch {}
+    }
     if (!isPlayingRef.current) {
       clearPausedMediaTimer();
       isPausedMediaCollapsedRef.current = true;
       setIsPausedMediaCollapsed(true);
     }
-    if (!fromSync) {
+    if (!fromSync && !isSecondaryWindow) {
       invoke("broadcast_settings_sync", {
         payload: { type: "notch_tab_state", tab: null, isOpen: false },
       }).catch(() => {});
@@ -1945,7 +2004,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setIsNotifications(targetTab === "notif_center");
 
     // Defer background status refresh until after the expand animation settles so it never stutters mid-spring
-    if (!fromSync) {
+    if (!fromSync && !isSecondaryWindow) {
       invoke("broadcast_settings_sync", {
         payload: { type: "notch_tab_state", tab: targetTab, isOpen: true },
       }).catch(() => {});
@@ -1981,7 +2040,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       shortcutPinnedTimerRef.current = null;
     }
     cancelCollapseTimer();
-    if (currentNotifRef.current) return;
+    if (
+      currentNotifRef.current ||
+      variantRef.current === "prayer_toast" ||
+      variantRef.current === "water_toast" ||
+      variantRef.current === "pomo_complete_alert" ||
+      variantRef.current === "todo_deadline_alert"
+    ) {
+      return;
+    }
     if (focusModeRef.current === "Gaming") return;
     if (variantRef.current === "compact") {
       startCompactHoverTimer(80);
@@ -2949,13 +3016,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       } catch {}
     }, 12000);
 
-    const unlistenClickOutside = listen("click-outside", () => {
+    const unlistenClickOutside = listenWindow("click-outside", () => {
       if (isSwitchingTabRef.current || isShelfDraggingRef.current || isShortcutPinnedRef.current || currentNotifRef.current) return;
       isCursorInsideNotchRef.current = false;
       handleCloseImmediate();
     });
 
-    const unlistenMouseLeave = listen("notch-mouse-leave", () => {
+    const unlistenMouseLeave = listenWindow("notch-mouse-leave", () => {
       cancelCompactHoverTimer();
       isCursorInsideNotchRef.current = false;
       setIsDragOver(false);
@@ -2963,7 +3030,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       startCollapseTimer(350);
     });
 
-    const unlistenMouseEnter = listen("notch-mouse-enter", () => {
+    const unlistenMouseEnter = listenWindow("notch-mouse-enter", () => {
       if (isShelfDraggingRef.current) return;
       if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
       isCursorInsideNotchRef.current = true;
@@ -3686,17 +3753,19 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setDisplayLevel(event.payload);
     });
 
-    const unlistenTrayToggle = listen("tray-toggle-visibility", () => {
+    const unlistenTrayToggle = listenWindow("tray-toggle-visibility", () => {
       setIsHidden((prev) => !prev);
     });
 
-    const unlistenTrayCC = listen("tray-open-control-center", () => {
+    const unlistenTrayCC = listenWindow("tray-open-control-center", () => {
+      if (isSecondaryWindow) return;
       setIsHidden(false);
       setTabSwitchGrace(1200);
       goToTab("quick_control", 0);
     });
 
-    const unlistenTraySettings = listen("tray-open-settings", () => {
+    const unlistenTraySettings = listenWindow("tray-open-settings", () => {
+      if (isSecondaryWindow) return;
       invoke("open_settings_window", { section: null }).catch(() => {});
     });
 
@@ -3853,7 +3922,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       }
     });
 
-    const unlistenTriggerAction = listen<string>("settings-trigger-action", (event) => {
+    const unlistenTriggerAction = listenWindow<string>("settings-trigger-action", (event) => {
+      if (isSecondaryWindow) return;
       const act = event.payload;
       if (act === "test_greeting") {
         triggerGreeting();
@@ -3907,7 +3977,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       }
     });
 
-    const unlistenReturnToNotch = listen("miniplayer:return-to-notch", () => {
+    const unlistenReturnToNotch = listenWindow("miniplayer:return-to-notch", () => {
+      if (isSecondaryWindow) return;
       setIsMiniPlayerOpen(false);
       setShowLyrics(true);
       try {
@@ -4394,24 +4465,26 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   useEffect(() => {
     let unlistenFn: (() => void) | null = null;
-    listen("quick-note-shortcut", () => {
-      setIsQuickControl(false);
-      setIsTodo(false);
-      setIsPomodoro(false);
-      setIsDropShelf(false);
-      setIsSysMonitor(false);
-      setIsMiniNote(false);
-      setIsWaterReminder(false);
-      setIsClipboard(false);
-      setIsSettings(false);
-      setIsVolumeMixer(false);
-      setIsExpanded(false);
-      setIsQuickNoteOpen((prev) => !prev);
-    })
-      .then((u) => {
-        unlistenFn = u;
+    if (!isSecondaryWindow) {
+      listenWindow("quick-note-shortcut", () => {
+        setIsQuickControl(false);
+        setIsTodo(false);
+        setIsPomodoro(false);
+        setIsDropShelf(false);
+        setIsSysMonitor(false);
+        setIsMiniNote(false);
+        setIsWaterReminder(false);
+        setIsClipboard(false);
+        setIsSettings(false);
+        setIsVolumeMixer(false);
+        setIsExpanded(false);
+        setIsQuickNoteOpen((prev) => !prev);
       })
-      .catch(console.error);
+        .then((u) => {
+          unlistenFn = u;
+        })
+        .catch(console.error);
+    }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -4448,7 +4521,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (unlistenFn) unlistenFn();
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [listenWindow, isSecondaryWindow]);
 
   let variant = "idle";
   if (isBooting) {
@@ -5106,6 +5179,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           if (
             notif ||
             isDragOver ||
+            variant === "prayer_toast" ||
+            variant === "water_toast" ||
             variant === "pomo_complete_alert" ||
             variant === "todo_deadline_alert"
           ) {
@@ -5143,6 +5218,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           if (
             notif ||
             isDragOver ||
+            variant === "prayer_toast" ||
+            variant === "water_toast" ||
             variant === "pomo_complete_alert" ||
             variant === "todo_deadline_alert"
           ) {
@@ -5372,6 +5449,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                   <QuickAiChatNotchCard
                     isLightMode={isLightMode}
                     isIsland={isIsland}
+                    optLanguage={optLanguage}
                     shortcutLabel={formatShortcutForBadge(shortcuts.open_ai_chat)}
                     onExpandedChange={setIsQuickAiChatExpanded}
                     onOpenFullChat={() => {
@@ -5464,9 +5542,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 onMarkCompleted={() => {
                   clearPrayerSnoozeTimer();
                   stopAdzanAudio();
-                  togglePrayerCompleted(prayerToast.prayerId);
+                  const alreadyCompleted = getCompletedPrayersForDate(
+                    prayerSchedule.dateKey
+                  ).includes(prayerToast.prayerId);
+                  if (!alreadyCompleted) {
+                    togglePrayerCompleted(prayerToast.prayerId, prayerSchedule.dateKey);
+                  }
                   playTaskCompleteSound();
                   setPrayerToast(null);
+                  goToTab("prayer_reminder", 0);
                 }}
                 onSnooze={(mins) => {
                   const snapshot = prayerToast;
@@ -5848,7 +5932,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                             className="absolute inset-0 w-full h-full flex flex-col min-w-0 gpu-accelerated overflow-hidden"
                           >
                             <React.Suspense fallback={null}>
-                              <AiChatPanel onPrevTab={handlePrevTab} />
+                              <AiChatPanel onPrevTab={handlePrevTab} optLanguage={optLanguage} />
                             </React.Suspense>
                           </motion.div>
                         )}

@@ -17,6 +17,13 @@ import {
 import { Tooltip } from "../Tooltip";
 import { AiBrandLogo, detectAiBrand } from "./AiBrandLogos";
 import { AiNotchActionCard } from "./AiNotchActionCard";
+import { t } from "../../../services/i18n";
+import { isGiliFreeEnabled } from "../../../services/giliFreeService";
+import {
+  formatIdrCostInCurrency,
+  getActiveCurrency,
+  type CurrencyCode,
+} from "../../../services/aiCurrencyService";
 import type { AiChatMessage, AiProviderId, AiModelConfig } from "./AiChatTypes";
 
 interface AiChatConversationViewProps {
@@ -31,6 +38,7 @@ interface AiChatConversationViewProps {
   onContinueMessage?: (message: AiChatMessage) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onPopulateInput?: (content: string) => void;
+  onSwitchToFree?: () => void;
   accentColor?: string;
 }
 
@@ -91,7 +99,7 @@ const AiThinkingAccordion: React.FC<{
       >
         <Brain size={12} className={isStreaming ? "text-purple-400 animate-pulse" : "text-purple-400"} />
         <span className="font-medium">
-          {isStreaming ? "Sedang menalar..." : "Proses berpikir"}
+          {isStreaming ? t("aichat_thinking_reasoning") : t("aichat_thinking_process")}
         </span>
         {isOpen ? (
           <ChevronDown size={12} strokeWidth={2} />
@@ -124,13 +132,25 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
   onContinueMessage,
   onEditMessage,
   onPopulateInput,
+  onSwitchToFree,
   accentColor = "#3882F6",
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<string>("");
+  const [currency, setCurrency] = useState<CurrencyCode>(() => getActiveCurrency());
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const handleCurrencyChanged = (e: any) => {
+      if (e.detail) {
+        setCurrency(e.detail);
+      }
+    };
+    window.addEventListener("island_ai_currency_changed", handleCurrencyChanged);
+    return () => window.removeEventListener("island_ai_currency_changed", handleCurrencyChanged);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -177,12 +197,6 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
       data-no-swipe="true"
       className="relative grow min-h-0 mt-3 flex flex-col justify-start gap-3.5 overflow-y-auto no-scrollbar pr-1 select-text"
     >
-      {/* Top subtle fade gradient */}
-      <div
-        aria-hidden="true"
-        className="sticky top-0 left-0 right-0 h-4 bg-gradient-to-b from-black/80 to-transparent z-10 pointer-events-none"
-      />
-
       {messages.map((message, idx) => {
         const isUser = message.role === "user";
         const isLastAssistant =
@@ -209,10 +223,10 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                   <span className="truncate max-w-[240px]">
                     {message.context.title ||
                       (message.context.type === "clipboard"
-                        ? `Clipboard · ${message.context.characterCount || 0} karakter`
+                        ? t("aichat_context_clipboard_count", { count: message.context.characterCount || 0 })
                         : message.context.type === "image"
-                        ? "Gambar terlampir"
-                        : "Jendela aktif")}
+                        ? t("aichat_context_image_attached")
+                        : t("aichat_context_active_window"))}
                   </span>
                 </div>
               )}
@@ -221,7 +235,7 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
               {message.context?.imageDataUrl && (
                 <img
                   src={message.context.imageDataUrl}
-                  alt="Lampiran pengguna"
+                  alt={t("aichat_context_user_attachment")}
                   className="max-h-24 max-w-[200px] rounded-xl object-cover border border-white/15 shadow-sm"
                 />
               )}
@@ -230,14 +244,14 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
               {isCurrentlyEditing ? (
                 <div
                   data-no-swipe="true"
-                  className="w-full min-w-[300px] max-w-[460px] p-3 rounded-[20px] bg-[#0c121e]/95 border border-blue-500/60 shadow-[0_8px_30px_rgba(56,130,246,0.2)] flex flex-col gap-2 shrink-0 select-text"
+                  className="w-full min-w-[300px] max-w-[460px] p-3 rounded-[20px] bg-[#121216]/90 border border-blue-500/60 shadow-[0_8px_30px_rgba(56,130,246,0.2)] flex flex-col gap-2 shrink-0 select-text"
                 >
                   <div className="flex items-center justify-between px-1">
                     <span className="text-[11px] font-semibold text-blue-400">
-                      Edit Prompt
+                      {t("aichat_edit_prompt_title")}
                     </span>
                     <span className="text-[10px] text-[#71717a]">
-                      Enter: kirim ulang · Shift+Enter: baris baru · Esc: batal
+                      {t("aichat_edit_prompt_hint")}
                     </span>
                   </div>
                   <textarea
@@ -255,7 +269,7 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                     }}
                     rows={Math.min(6, Math.max(2, editDraft.split("\n").length))}
                     className="w-full bg-black/40 border border-white/12 rounded-[12px] p-2.5 text-[13px] text-white leading-relaxed resize-none focus:outline-none focus:border-blue-500/80 font-sans select-text no-scrollbar"
-                    placeholder="Tulis prompt..."
+                    placeholder={t("aichat_edit_prompt_placeholder")}
                   />
                   <div className="flex items-center justify-between pt-0.5">
                     {onPopulateInput ? (
@@ -265,10 +279,10 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                           onPopulateInput(editDraft);
                           handleCancelEdit();
                         }}
-                        title="Pindahkan teks prompt ini ke kolom input bawah"
+                        title={t("aichat_edit_to_input_tooltip")}
                         className="h-7 px-2.5 rounded-full border border-white/10 hover:border-white/20 bg-white/[0.04] hover:bg-white/[0.08] text-[#a1a1aa] hover:text-white text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-all active:scale-95"
                       >
-                        <span>Ke bar input</span>
+                        <span>{t("aichat_edit_to_input_button")}</span>
                       </button>
                     ) : <div />}
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -277,7 +291,7 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                         onClick={handleCancelEdit}
                         className="h-7 px-3 rounded-full border border-white/10 hover:border-white/20 bg-white/[0.05] hover:bg-white/[0.1] text-[#a1a1aa] hover:text-white text-[11px] font-medium cursor-pointer transition-all active:scale-95"
                       >
-                        Batal
+                        {t("aichat_cancel_edit")}
                       </button>
                       <button
                         type="button"
@@ -288,7 +302,7 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                         }}
                         className="h-7 px-3.5 rounded-full text-[11px] font-semibold text-white disabled:text-white/40 disabled:cursor-not-allowed cursor-pointer transition-all active:scale-95 shadow-sm"
                       >
-                        Kirim ulang
+                        {t("aichat_resend_edit")}
                       </button>
                     </div>
                   </div>
@@ -309,10 +323,10 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
 
                   {/* Action row under user bubble: Copy & Edit */}
                   <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 group-hover:opacity-100 transition-opacity pr-0.5">
-                    <Tooltip content={copiedId === message.id ? "Tersalin!" : "Salin prompt"}>
+                    <Tooltip content={copiedId === message.id ? t("aichat_copied") : t("aichat_copy_prompt")}>
                       <button
                         type="button"
-                        aria-label="Salin prompt"
+                        aria-label={t("aichat_copy_prompt")}
                         onClick={() => handleCopy(message.id, message.content)}
                         className="w-[22px] h-[22px] rounded-full border border-white/10 bg-white/[0.04] hover:bg-white/[0.1] text-[#a1a1aa] hover:text-white flex items-center justify-center p-0 cursor-pointer active:scale-95 transition-all"
                       >
@@ -324,10 +338,10 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                       </button>
                     </Tooltip>
                     {!isStreaming && onEditMessage && (
-                      <Tooltip content="Edit prompt">
+                      <Tooltip content={t("aichat_edit_prompt")}>
                         <button
                           type="button"
-                          aria-label="Edit prompt"
+                          aria-label={t("aichat_edit_prompt")}
                           onClick={() => handleStartEdit(message)}
                           className="w-[22px] h-[22px] rounded-full border border-white/10 bg-white/[0.04] hover:bg-white/[0.1] text-[#a1a1aa] hover:text-white flex items-center justify-center p-0 cursor-pointer active:scale-95 transition-all"
                         >
@@ -356,22 +370,40 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
               <div className="min-w-0 grow">
                 <div className="text-[13.5px] font-semibold text-[#ffb1a7]">
                   {message.error.includes("401")
-                    ? "API key ditolak (401)"
-                    : "Gagal menghubungkan ke AI"}
+                    ? t("aichat_error_401_title")
+                    : t("aichat_error_generic_title")}
                 </div>
                 <div className="text-[12px] leading-relaxed text-[#d4d4d8] mt-0.5">
                   {message.error.includes("401")
-                    ? "Penyedia tidak menerima key ini. Mungkin sudah dicabut atau salah salin. Pesanmu belum terkirim."
+                    ? t("aichat_error_401_desc")
                     : message.error}
                 </div>
-                <div className="flex items-center gap-2 mt-3">
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  {onSwitchToFree && isGiliFreeEnabled() && (
+                    <button
+                      type="button"
+                      onClick={onSwitchToFree}
+                      className="h-8 px-4 rounded-full bg-emerald-500 hover:bg-emerald-600 text-black text-[12.5px] font-semibold cursor-pointer active:scale-95 shadow-sm transition-all"
+                    >
+                      {t("aichat_use_free_mode")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={onOpenSettings}
-                    style={{ background: accentColor }}
-                    className="h-8 px-4 rounded-full text-black text-[12.5px] font-semibold cursor-pointer active:scale-95 shadow-sm"
+                    style={{
+                      background:
+                        onSwitchToFree && isGiliFreeEnabled()
+                          ? "rgba(255,255,255,0.08)"
+                          : accentColor,
+                    }}
+                    className={`h-8 px-4 rounded-full text-[12.5px] font-semibold cursor-pointer active:scale-95 shadow-sm transition-all ${
+                      onSwitchToFree && isGiliFreeEnabled()
+                        ? "text-white hover:bg-white/[0.14] border border-white/10"
+                        : "text-black"
+                    }`}
                   >
-                    Ganti API key
+                    {t("aichat_error_change_key")}
                   </button>
                   {onRetryLast && (
                     <button
@@ -380,7 +412,7 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                       className="h-8 px-3.5 rounded-full border border-white/12 bg-white/[0.06] hover:bg-white/[0.12] text-[#e4e4e7] text-[12.5px] font-medium flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
                     >
                       <RotateCw size={12} strokeWidth={2.2} />
-                      Coba lagi
+                      {t("aichat_retry")}
                     </button>
                   )}
                 </div>
@@ -439,7 +471,7 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                     size={13}
                     className="text-blue-400 animate-spin"
                   />
-                  <span>Sedang berpikir...</span>
+                  <span>{t("aichat_thinking")}</span>
                   <span className="flex gap-1 items-center ml-0.5">
                     <span
                       className="w-1 h-1 rounded-full bg-blue-400 animate-bounce"
@@ -500,57 +532,70 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                   />
                   <span>
                     {isWaitingFirstToken
-                      ? "Menghubungkan ke model..."
+                      ? t("aichat_connecting_model")
                       : isCurrentlyStreaming
-                      ? "Sedang menulis · "
+                      ? t("aichat_generating_text")
                       : ""}
                     {!isWaitingFirstToken &&
-                      `${displayTokens.toLocaleString("id-ID")} token`}
+                      t("aichat_tokens_unit", { tokens: displayTokens.toLocaleString() })}
                   </span>
                 </div>
 
                 {/* Router Tier & Cost Badge (Protocol A1/A3) */}
-                {message.tier && (
-                  <Tooltip
-                    content={`Model dipilih otomatis berdasarkan kesulitan (${message.tier === "T0" ? "Ringan & Cepat" : message.tier === "T1" ? "Standar" : "Kuat / Penalaran"}). Perkiraan biaya dihitung dari jumlah token.`}
-                  >
-                    <span className="inline-flex items-center gap-1 h-[22px] px-2 rounded-full border border-blue-500/30 bg-blue-500/10 text-[10.5px] font-medium text-blue-300">
-                      <span>{message.tier}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{message.lengthMode === "compact" ? "Ringkas" : message.lengthMode === "detailed" ? "Lengkap" : "Normal"}</span>
-                      {typeof message.estimatedCostIdr === "number" && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span>~Rp {message.estimatedCostIdr.toLocaleString("id-ID")}</span>
-                        </>
-                      )}
-                    </span>
-                  </Tooltip>
-                )}
+                {message.tier && (() => {
+                  const tierDesc =
+                    message.tier === "T0"
+                      ? t("aichat_tier_fast_desc")
+                      : message.tier === "T1"
+                      ? t("aichat_tier_standard_desc")
+                      : t("aichat_tier_strong_desc");
+                  const lengthDesc =
+                    message.lengthMode === "compact"
+                      ? t("aichat_mode_compact")
+                      : message.lengthMode === "detailed"
+                      ? t("aichat_mode_detailed")
+                      : t("aichat_mode_normal");
+
+                  return (
+                    <Tooltip content={t("aichat_tier_tooltip", { tierDesc })}>
+                      <span className="inline-flex items-center gap-1 h-[22px] px-2 rounded-full border border-blue-500/30 bg-blue-500/10 text-[10.5px] font-medium text-blue-300">
+                        <span>{message.tier}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{lengthDesc}</span>
+                        {typeof message.estimatedCostIdr === "number" && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span>~{formatIdrCostInCurrency(message.estimatedCostIdr, currency)}</span>
+                          </>
+                        )}
+                      </span>
+                    </Tooltip>
+                  );
+                })()}
 
                 {/* Tombol Jawab Lebih Teliti */}
                 {!isCurrentlyStreaming && message.content && onEscalateMessage && (
-                  <Tooltip content="Jawab ulang dengan model yang lebih kuat">
+                  <Tooltip content={t("aichat_escalate_tooltip")}>
                     <button
                       type="button"
                       onClick={() => onEscalateMessage(message)}
                       className="inline-flex items-center gap-1 h-[22px] px-2 rounded-full border border-white/10 hover:border-white/20 bg-white/[0.04] hover:bg-white/[0.08] text-[10.5px] font-medium text-[#c4c4cc] hover:text-white cursor-pointer active:scale-95 transition-all"
                     >
                       <Zap size={10} className="text-amber-400" />
-                      <span>Jawab lebih teliti</span>
+                      <span>{t("aichat_escalate_button")}</span>
                     </button>
                   </Tooltip>
                 )}
 
                 {/* Penanda Pemotongan & Tombol Lanjutkan (Protocol A4) */}
                 {!isCurrentlyStreaming && message.isTruncated && onContinueMessage && (
-                  <Tooltip content="Jawaban terhenti batas panjang. Klik untuk melanjutkan.">
+                  <Tooltip content={t("aichat_continue_tooltip")}>
                     <button
                       type="button"
                       onClick={() => onContinueMessage(message)}
                       className="inline-flex items-center gap-1 h-[22px] px-2 rounded-full border border-amber-500/40 bg-amber-500/15 text-[10.5px] font-semibold text-amber-300 hover:bg-amber-500/25 cursor-pointer active:scale-95 transition-all"
                     >
-                      <span>Lanjutkan</span>
+                      <span>{t("aichat_continue_button")}</span>
                     </button>
                   </Tooltip>
                 )}
@@ -558,12 +603,12 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                 {!isCurrentlyStreaming && message.content && (
                   <Tooltip
                     content={
-                      copiedId === message.id ? "Tersalin!" : "Salin jawaban"
+                      copiedId === message.id ? t("aichat_copied") : t("aichat_copy_response")
                     }
                   >
                     <button
                       type="button"
-                      aria-label="Salin jawaban"
+                      aria-label={t("aichat_copy_response")}
                       onClick={() => handleCopy(message.id, message.content)}
                       className="w-[22px] h-[22px] rounded-full border border-white/10 bg-white/[0.04] hover:bg-white/[0.1] text-[#a1a1aa] hover:text-white flex items-center justify-center p-0 cursor-pointer active:scale-95 transition-all"
                     >

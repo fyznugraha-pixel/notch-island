@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { readText as tauriReadText } from "@tauri-apps/plugin-clipboard-manager";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ChevronLeft,
-  MessageCircle,
+  KeyRound,
   Eye,
   EyeOff,
   Check,
@@ -11,8 +12,10 @@ import {
   Save,
   Trash2,
 } from "lucide-react";
+import { Tooltip } from "../Tooltip";
 import { AiBrandLogo } from "./AiBrandLogos";
 import { AiChatConnectModelSection } from "./AiChatConnectModelSection";
+import { t } from "../../../services/i18n";
 import {
   AI_MODELS,
   isApiKeyFormatValid,
@@ -50,6 +53,8 @@ interface AiChatConnectViewProps {
   accentColor?: string;
 }
 
+const GERAIKITA_AFFILIATE_URL = "https://ai.geraikita.com/masuk?ref=CKBCJWMP";
+
 const PROVIDERS: { id: AiProviderId; name: string; docUrl: string }[] = [
   { id: "claude", name: "Claude", docUrl: "https://console.anthropic.com/settings/keys" },
   { id: "openai", name: "OpenAI", docUrl: "https://platform.openai.com/api-keys" },
@@ -57,7 +62,7 @@ const PROVIDERS: { id: AiProviderId; name: string; docUrl: string }[] = [
   { id: "openrouter", name: "OpenRouter", docUrl: "https://openrouter.ai/keys" },
   { id: "deepseek", name: "DeepSeek", docUrl: "https://platform.deepseek.com/api_keys" },
   { id: "grok", name: "Grok", docUrl: "https://console.x.ai/" },
-  { id: "custom", name: "Custom / Proxy", docUrl: "" },
+  { id: "custom", name: "Custom / Proxy", docUrl: GERAIKITA_AFFILIATE_URL },
 ];
 
 function getDraftKey(provider: AiProviderId, modelId?: string): string {
@@ -274,7 +279,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
       setBaseUrl("");
     }
     setTestResult(null);
-    setSavedNotice("Key dihapus");
+    setSavedNotice(t("aichat_connect_key_deleted"));
     setTimeout(() => setSavedNotice(null), 2000);
   };
 
@@ -293,7 +298,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
 
     if (selectedProvider === "custom" && !baseUrl.trim()) {
       setTestResult("fail");
-      setTestFailReason("Base URL proxy wajib diisi (misal: https://ai.geraikita.com/v1)");
+      setTestFailReason(t("aichat_connect_base_url_required"));
       return;
     }
 
@@ -321,31 +326,50 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
 
   const activeProviderMeta = PROVIDERS.find((p) => p.id === selectedProvider) || PROVIDERS[0];
 
+  const handleOpenExternalUrl = async (url: string) => {
+    try {
+      await openUrl(url);
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
   return (
     <div className="grow flex flex-col justify-between w-full h-full select-none pt-2">
       {/* Header */}
       <div className="flex items-center gap-3 shrink-0">
         <button
           type="button"
-          aria-label="Kembali"
+          aria-label={t("aichat_tooltip_prev")}
           onClick={onBack}
           className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
         >
           <ChevronLeft size={16} strokeWidth={2} />
         </button>
         <div className="text-[18px] font-semibold tracking-[-0.02em] text-white grow">
-          Hubungkan AI
+          {t("aichat_connect_title")}
         </div>
-        <div
-          style={{
-            background: accentColor,
-            boxShadow: `0 0 16px rgba(56,130,246,0.35)`,
-            color: "#04101f",
-          }}
-          className="w-[34px] h-[34px] rounded-[12px] flex items-center justify-center shadow-md"
-        >
-          <MessageCircle size={16} strokeWidth={2.2} />
-        </div>
+        <Tooltip content={t("aichat_connect_promo_desc")} side="bottom">
+          <button
+            type="button"
+            onClick={() => handleOpenExternalUrl(GERAIKITA_AFFILIATE_URL)}
+            className="h-[34px] px-3 rounded-[14px] bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/40 text-white flex items-center gap-2 cursor-pointer transition-all active:scale-95 shadow-[0_0_16px_rgba(56,130,246,0.22)] shrink-0"
+          >
+            <span
+              style={{ background: accentColor, color: "#04101f" }}
+              className="w-5 h-5 rounded-[7px] flex items-center justify-center shrink-0"
+            >
+              <KeyRound size={12} strokeWidth={2.4} />
+            </span>
+            <span className="text-[12px] font-semibold text-white whitespace-nowrap">
+              {t("aichat_connect_promo_header_btn")}
+            </span>
+            <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-200 border border-blue-400/30 leading-none shrink-0">
+              {t("aichat_connect_promo_badge")}
+            </span>
+            <ExternalLink size={12} strokeWidth={2.2} className="text-blue-300 shrink-0" />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Main Two Columns */}
@@ -353,7 +377,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
         {/* Left: Providers List */}
         <div className="w-[210px] shrink-0 flex flex-col gap-1.5 min-h-0">
           <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa] pl-1 shrink-0">
-            PENYEDIA
+            {t("aichat_connect_provider_header")}
           </span>
           <div
             role="radiogroup"
@@ -370,11 +394,19 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
                   role="radio"
                   aria-checked={isSelected}
                   onClick={() => handleProviderChange(prov.id)}
-                  style={{
-                    backgroundColor: isSelected ? "rgba(56,130,246,0.25)" : "rgba(255,255,255,0.04)",
-                    borderColor: isSelected ? "rgba(56,130,246,0.45)" : "rgba(255,255,255,0.08)",
-                  }}
-                  className="w-full flex items-center gap-2.5 h-9 px-3 rounded-[14px] border text-left cursor-pointer transition-all active:scale-[0.98] shrink-0"
+                  style={
+                    isSelected
+                      ? {
+                          backgroundColor: "rgba(56,130,246,0.25)",
+                          borderColor: "rgba(56,130,246,0.45)",
+                        }
+                      : undefined
+                  }
+                  className={`w-full flex items-center gap-2.5 h-9 px-3 rounded-[14px] border text-left cursor-pointer transition-all active:scale-[0.98] shrink-0 ${
+                    isSelected
+                      ? ""
+                      : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.07]"
+                  }`}
                 >
                   <AiBrandLogo provider={prov.id} size={22} withContainer />
                   <span className={`grow text-[13px] ${isSelected ? "font-semibold text-white" : "font-medium text-[#d4d4d8]"}`}>
@@ -403,12 +435,14 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
         >
           <div className="flex items-center justify-between pl-1 shrink-0">
             <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa]">
-              {isModelCustomKey ? `API KEY KHUSUS (${selectedModel.name})` : `API KEY (${activeProviderMeta.name})`}
+              {isModelCustomKey
+                ? t("aichat_connect_custom_key_for", { model: selectedModel.name })
+                : t("aichat_connect_key_for", { provider: activeProviderMeta.name })}
             </span>
             {activeSavedKey && (
               <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
                 <Check size={11} strokeWidth={2.5} />
-                Tersimpan
+                {t("aichat_connect_saved_badge")}
               </span>
             )}
           </div>
@@ -421,8 +455,8 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
               onChange={(e) => handleApiKeyChange(e.target.value)}
               placeholder={
                 selectedProvider === "custom"
-                  ? "Masukkan API key proxy / custom endpoint"
-                  : `Masukkan API key ${activeProviderMeta.name}`
+                  ? t("aichat_connect_proxy_placeholder")
+                  : t("aichat_connect_key_placeholder", { name: activeProviderMeta.name })
               }
               className="grow min-w-0 bg-transparent border-0 outline-none text-white text-[12.5px] font-mono placeholder-[#a1a1aa]"
             />
@@ -430,8 +464,8 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
-                aria-label={showKey ? "Sembunyikan" : "Tampilkan"}
-                title={showKey ? "Sembunyikan key" : "Tampilkan key"}
+                aria-label={showKey ? t("aichat_connect_toggle_hide") : t("aichat_connect_toggle_show")}
+                title={showKey ? t("aichat_connect_toggle_hide") : t("aichat_connect_toggle_show")}
                 className="w-7 h-7 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[#e4e4e7] flex items-center justify-center p-0 shrink-0 cursor-pointer transition-all active:scale-95"
               >
                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -439,18 +473,18 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
               <button
                 type="button"
                 onClick={handlePaste}
-                title="Tempel dari papan klip"
+                title={t("aichat_connect_paste_tooltip")}
                 className="h-7 px-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[#e4e4e7] text-[12px] font-medium shrink-0 flex items-center justify-center cursor-pointer transition-all active:scale-95"
               >
-                Tempel
+                {t("aichat_connect_paste_btn")}
               </button>
             </div>
             <button
               type="button"
               onClick={handleSaveCurrentKey}
               disabled={!apiKey.trim()}
-              title="Simpan key ini agar tidak perlu dimasukkan ulang"
-              aria-label="Simpan key"
+              title={t("aichat_connect_save_tooltip")}
+              aria-label={t("aichat_connect_save_key")}
               className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-default text-white flex items-center justify-center shrink-0 cursor-pointer transition-all active:scale-95 shadow-sm"
             >
               <Save size={14} strokeWidth={2.4} />
@@ -467,7 +501,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
             ) : isFormatOk ? (
               <div className="inline-flex items-center gap-1.5 h-[22px] px-2.5 rounded-full bg-teal-500/15 text-teal-300 text-[11px] font-medium">
                 <Check size={11} strokeWidth={2.8} />
-                Format key terlihat benar
+                {t("aichat_connect_format_valid")}
               </div>
             ) : null}
 
@@ -477,11 +511,11 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
                 <button
                   type="button"
                   onClick={handleClearKey}
-                  title="Hapus key yang tersimpan"
+                  title={t("aichat_connect_remove_key")}
                   className="text-red-400 hover:text-red-300 flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   <Trash2 size={11} />
-                  Hapus
+                  {t("action_delete")}
                 </button>
               </div>
             )}
@@ -489,12 +523,12 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
             {testResult === "success" && (
               <div className="inline-flex items-center gap-1.5 h-[22px] px-2.5 rounded-full bg-emerald-500/15 text-emerald-300 text-[11px] font-medium">
                 <Check size={11} strokeWidth={2.8} />
-                Berhasil terhubung
+                {t("aichat_connect_verified_success_short")}
               </div>
             )}
             {testResult === "fail" && (
               <div className="inline-flex items-center gap-1.5 h-[22px] px-2.5 rounded-full bg-rose-500/15 text-rose-300 text-[11px] font-medium">
-                {testFailReason || "Gagal memverifikasi key"}
+                {testFailReason || t("aichat_connect_verify_failed_short")}
               </div>
             )}
           </div>
@@ -504,8 +538,8 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
             <div className="flex items-center justify-between pl-1">
               <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa]">
                 {selectedProvider === "custom"
-                  ? "BASE URL PROXY / ENDPOINT (WAJIB)"
-                  : "BASE URL (OPSIONAL / PROXY)"}
+                  ? t("aichat_connect_base_url_required")
+                  : t("aichat_connect_base_url_optional")}
               </span>
               {baseUrl.trim() && (
                 <button
@@ -513,7 +547,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
                   onClick={() => handleBaseUrlChange("")}
                   className="text-[10px] text-[#71717a] hover:text-white cursor-pointer transition-colors"
                 >
-                  Kosongkan (Default Resmi)
+                  {t("aichat_connect_clear_base_url")}
                 </button>
               )}
             </div>
@@ -532,7 +566,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
             </div>
             {selectedProvider === "custom" && (
               <span className="text-[10.5px] text-[#71717a] pl-1 leading-normal">
-                Semua model yang didukung proxy ini akan dimuat bersamaan tanpa dibatasi satu brand.
+                {t("aichat_connect_custom_proxy_hint")}
               </span>
             )}
           </div>
@@ -540,14 +574,14 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
           {/* Default Response Length Setting (Protocol A4) */}
           <div className="flex flex-col gap-1 mt-0.5 shrink-0">
             <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa] pl-1">
-              GAYA JAWABAN BAWAAN
+              {t("aichat_connect_response_length_header")}
             </span>
             <div className="grid grid-cols-3 gap-1.5 p-1 rounded-[14px] bg-white/[0.04] border border-white/[0.08]">
               {(
                 [
-                  { id: "compact", label: "Ringkas", sub: "1-3 kalimat" },
-                  { id: "normal", label: "Normal", sub: "1-3 paragraf" },
-                  { id: "detailed", label: "Lengkap", sub: "Komprehensif" },
+                  { id: "compact", label: t("aichat_mode_compact"), sub: t("aichat_mode_compact_sub") },
+                  { id: "normal", label: t("aichat_mode_normal"), sub: t("aichat_mode_normal_sub") },
+                  { id: "detailed", label: t("aichat_mode_detailed"), sub: t("aichat_mode_detailed_sub") },
                 ] as const
               ).map((mode) => {
                 const isSelected = defaultLength === mode.id;
@@ -584,15 +618,14 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
           </div>
 
           {/* External Docs Link */}
-          <a
-            href={activeProviderMeta.docUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#8db8ff] hover:underline pl-1 mt-1 mb-1 shrink-0"
+          <button
+            type="button"
+            onClick={() => handleOpenExternalUrl(activeProviderMeta.docUrl || GERAIKITA_AFFILIATE_URL)}
+            className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#8db8ff] hover:underline pl-1 mt-1 mb-1 shrink-0 w-fit cursor-pointer bg-transparent border-0 p-0 text-left"
           >
-            Cara mendapat API key {activeProviderMeta.name}
+            {t("aichat_connect_how_to_get", { provider: activeProviderMeta.name })}
             <ExternalLink size={12} strokeWidth={2} />
-          </a>
+          </button>
         </div>
       </div>
 
@@ -602,7 +635,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
           <Lock size={14} strokeWidth={2} />
         </div>
         <div className="grow text-[12px] text-[#a1a1aa] leading-tight">
-          Key disimpan aman di perangkat ini dan tidak dikirim ke mana pun selain penyedia yang kamu pilih.
+          {t("aichat_connect_encryption_desc")}
         </div>
         <button
           type="button"
@@ -611,7 +644,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
           style={{ background: accentColor }}
           className="h-9 px-4 rounded-full text-black text-[13px] font-semibold flex items-center gap-2 cursor-pointer active:scale-95 shadow-md shrink-0 transition-transform"
         >
-          {isTesting ? "Memverifikasi..." : "Uji & simpan"}
+          {isTesting ? t("aichat_connect_verifying") : t("aichat_connect_test_and_save")}
           <span className="text-[11px] font-medium border border-black/35 rounded-md px-1.5">
             Enter
           </span>

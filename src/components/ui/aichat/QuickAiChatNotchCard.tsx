@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Bot,
   Route,
@@ -13,6 +14,7 @@ import {
   Square,
   AlertCircle,
   Loader2,
+  Image as ImageIcon,
 } from "lucide-react";
 import { AiBrandLogo, detectAiBrand } from "./AiBrandLogos";
 import { AiNotchActionCard } from "./AiNotchActionCard";
@@ -23,6 +25,8 @@ import type {
 } from "./AiChatTypes";
 import {
   streamChatCompletion,
+  recordTokenUsage,
+  estimateTextTokens,
   loadActiveProvider,
   getEffectiveApiKey,
   loadSavedBaseUrls,
@@ -39,6 +43,7 @@ import {
 } from "../../../services/aiRouterService";
 import {
   parseAndExecuteGiliActions,
+  stripActionBlocksForDisplay,
   type GiliActionResult,
 } from "../../../services/aiNotchTools";
 import {
@@ -52,6 +57,7 @@ import {
   isGiliFreeEnabled,
   describeGiliFreeError,
 } from "../../../services/giliFreeService";
+import { t, type Language } from "../../../services/i18n";
 
 export interface QuickAiChatNotchCardProps {
   isLightMode?: boolean;
@@ -60,6 +66,7 @@ export interface QuickAiChatNotchCardProps {
   onExpandedChange?: (expanded: boolean) => void;
   onOpenFullChat: (initialPrompt?: string, messages?: AiChatMessage[]) => void;
   onCancel: () => void;
+  optLanguage?: Language;
 }
 
 export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
@@ -81,8 +88,24 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
   const [routedProvider, setRoutedProvider] = useState<AiProviderId | null>(null);
   const [copied, setCopied] = useState(false);
   const [clipboardSnippet, setClipboardSnippet] = useState<string | null>(null);
+  const [clipboardImage, setClipboardImage] = useState<{
+    dataUrl: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [attachedImage, setAttachedImage] = useState<{
+    dataUrl: string;
+    title: string;
+    sizeKb: number;
+  } | null>(null);
+  const [submittedImage, setSubmittedImage] = useState<{
+    dataUrl: string;
+    title: string;
+    sizeKb: number;
+  } | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const responseScrollRef = useRef<HTMLDivElement>(null);
 
@@ -102,7 +125,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     };
   }, []);
 
-  // Check clipboard snippet for quick summary chip
+  // Check clipboard snippet & clipboard image for quick summary / paste chips
   useEffect(() => {
     let isMounted = true;
     if (navigator?.clipboard?.readText) {
@@ -117,10 +140,117 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
         })
         .catch(() => {});
     }
+
+    invoke<{ thumbnail?: string; width?: number; height?: number } | null>("read_clipboard_image")
+      .then((res) => {
+        if (!isMounted) return;
+        if (res && res.thumbnail) {
+          setClipboardImage({
+            dataUrl: res.thumbnail,
+            width: res.width || 0,
+            height: res.height || 0,
+          });
+        }
+      })
+      .catch(() => {});
+
     return () => {
       isMounted = false;
     };
   }, []);
+
+  const attachImageFile = useCallback((file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (dataUrl) {
+        setAttachedImage({
+          dataUrl,
+          title: file.name || "Pasted Image",
+          sizeKb: Math.round(file.size / 1024) || 1,
+        });
+        inputRef.current?.focus();
+      }
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handlePasteClipboardImage = useCallback(async () => {
+    if (clipboardImage) {
+      setAttachedImage({
+        dataUrl: clipboardImage.dataUrl,
+        title:
+          clipboardImage.width && clipboardImage.height
+            ? `Clipboard (${clipboardImage.width}x${clipboardImage.height})`
+            : "Clipboard Image",
+        sizeKb: Math.max(1, Math.round((clipboardImage.dataUrl.length * 0.75) / 1024)),
+      });
+      inputRef.current?.focus();
+      return;
+    }
+
+    try {
+      const res = await invoke<{ thumbnail?: string; width?: number; height?: number } | null>(
+        "read_clipboard_image"
+      );
+      if (res && res.thumbnail) {
+        setAttachedImage({
+          dataUrl: res.thumbnail,
+          title:
+            res.width && res.height
+              ? `Clipboard (${res.width}x${res.height})`
+              : "Clipboard Image",
+          sizeKb: Math.max(1, Math.round((res.thumbnail.length * 0.75) / 1024)),
+        });
+        inputRef.current?.focus();
+        return;
+      }
+    } catch {}
+
+    // If no image in clipboard, open file picker as fallback
+    fileInputRef.current?.click();
+  }, [clipboardImage]);
+
+  const handleInputPaste = useCallback(
+    async (e: React.ClipboardEvent<HTMLInputElement>) => {
+      const items = e.clipboardData?.items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.type.startsWith("image/")) {
+            e.preventDefault();
+            const file = item.getAsFile();
+            if (file) {
+              attachImageFile(file);
+            }
+            return;
+          }
+        }
+      }
+
+      // If no text was pasted (e.g. native Windows screenshot in clipboard), read via Tauri command
+      const pastedText = e.clipboardData?.getData("text/plain");
+      if (!pastedText) {
+        try {
+          const res = await invoke<{ thumbnail?: string; width?: number; height?: number } | null>(
+            "read_clipboard_image"
+          );
+          if (res && res.thumbnail) {
+            setAttachedImage({
+              dataUrl: res.thumbnail,
+              title:
+                res.width && res.height
+                  ? `Clipboard (${res.width}x${res.height})`
+                  : "Clipboard Image",
+              sizeKb: Math.max(1, Math.round((res.thumbnail.length * 0.75) / 1024)),
+            });
+          }
+        } catch {}
+      }
+    },
+    [attachImageFile]
+  );
 
   // Sync expanded status to parent notch
   const isExpanded = Boolean(submittedPrompt || isThinking || isStreaming || responseContent);
@@ -156,8 +286,8 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     }
   }, [responseContent]);
 
-  // Resolve Auto model selection (prioritizes Fast tier for cost saving)
-  const resolveAutoModel = useCallback(async (userPrompt: string) => {
+  // Resolve Auto model selection (prioritizes Fast tier for cost saving, and vision-capable models when an image is attached)
+  const resolveAutoModel = useCallback(async (userPrompt: string, hasImage = false) => {
     const routerConfig = loadRouterConfig();
     const heuristics = evaluatePromptHeuristics(userPrompt);
     const targetTier = heuristics.tier;
@@ -166,17 +296,17 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     const registered = getRegisteredModels(activeProvider);
     let candidateModels: AiModelConfig[] = [];
 
-    if (registered.length > 0) {
+    if (registered.length > 0 && (!hasImage || activeProvider !== "deepseek")) {
       candidateModels = registered;
     } else {
       const providers: AiProviderId[] = [
         "custom",
         "openai",
-        "deepseek",
         "gemini",
         "claude",
         "openrouter",
         "grok",
+        ...(hasImage ? [] : (["deepseek"] as AiProviderId[])),
       ];
       for (const p of providers) {
         const k = getEffectiveApiKey(p);
@@ -189,7 +319,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
     if (candidateModels.length === 0) {
       const activeKey = getEffectiveApiKey(activeProvider);
-      if (activeKey) {
+      if (activeKey && (!hasImage || activeProvider !== "deepseek")) {
         try {
           const customBase = loadSavedBaseUrls()[activeProvider]?.trim();
           const regResult = await verifyAndRegisterModels(activeProvider, activeKey, customBase);
@@ -199,6 +329,13 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
         } catch {}
       }
       if (candidateModels.length === 0) {
+        if (isGiliFreeEnabled()) {
+          return {
+            modelToUse: GILI_FREE_MODEL,
+            providerToUse: GILI_FREE_MODEL.provider,
+            keyToUse: "",
+          };
+        }
         candidateModels = AI_MODELS.filter((m) => m.provider === activeProvider);
       }
     }
@@ -217,29 +354,38 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     };
   }, []);
 
-  const handleSendPrompt = async (overridePrompt?: string) => {
-    const textToSend = (overridePrompt ?? prompt).trim();
-    if (!textToSend || isStreaming) return;
+  const handleSendPrompt = async (
+    overridePrompt?: string,
+    overrideImage?: { dataUrl: string; title: string; sizeKb: number } | null
+  ) => {
+    const imgToSend = overrideImage !== undefined ? overrideImage : attachedImage;
+    const rawText = (overridePrompt ?? prompt).trim();
+    const textToSend =
+      rawText || (imgToSend ? t("quick_ai_explain_image_default") : "");
+    if ((!textToSend && !imgToSend) || isStreaming) return;
 
     setSubmittedPrompt(textToSend);
+    setSubmittedImage(imgToSend);
     setPrompt("");
+    setAttachedImage(null);
     setResponseContent("");
     setErrorMessage(null);
     setExecutedActions([]);
     setIsThinking(true);
 
     try {
-      const resolvedRoute = await resolveAutoModel(textToSend);
-      const useGiliFree = !resolvedRoute.keyToUse && isGiliFreeEnabled();
+      const resolvedRoute = await resolveAutoModel(textToSend, Boolean(imgToSend));
+      const isExplicitFree = resolvedRoute.modelToUse.id === "gili-free";
+      const useGiliFree = (isExplicitFree || !resolvedRoute.keyToUse) && isGiliFreeEnabled();
       const modelToUse = useGiliFree ? GILI_FREE_MODEL : resolvedRoute.modelToUse;
       const providerToUse = useGiliFree ? GILI_FREE_MODEL.provider : resolvedRoute.providerToUse;
-      const keyToUse = resolvedRoute.keyToUse;
+      const keyToUse = useGiliFree ? "" : resolvedRoute.keyToUse;
       setRoutedModel(modelToUse);
       setRoutedProvider(providerToUse);
 
       if (!keyToUse && !useGiliFree) {
         setIsThinking(false);
-        setErrorMessage("API key belum terpasang. Silakan hubungkan API key di panel AI Chat.");
+        setErrorMessage(t("quick_ai_no_key_error"));
         return;
       }
 
@@ -251,9 +397,18 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
         role: "user",
         content: textToSend,
         timestamp: Date.now(),
+        context: imgToSend
+          ? {
+              type: "image",
+              title: imgToSend.title,
+              characterCount: imgToSend.sizeKb,
+              previewText: imgToSend.title,
+              imageDataUrl: imgToSend.dataUrl,
+            }
+          : undefined,
       };
 
-      await streamChatCompletion({
+      const result = await streamChatCompletion({
         provider: providerToUse,
         apiKey: keyToUse,
         model: modelToUse,
@@ -265,9 +420,11 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
           setIsThinking(false);
           setIsStreaming(true);
           accumulated += chunk;
-          setResponseContent(accumulated);
+          setResponseContent(stripActionBlocksForDisplay(accumulated));
         },
       });
+
+      recordTokenUsage(modelToUse, result.inputTokens, result.outputTokens);
 
       setIsStreaming(false);
       setIsThinking(false);
@@ -285,7 +442,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       if (!isAbort) {
         const errorText = err instanceof Error ? err.message : String(err);
         setErrorMessage(
-          describeGiliFreeError(errorText) || "Gagal menghubungkan ke AI. Periksa internet atau API key Anda."
+          describeGiliFreeError(errorText) || t("quick_ai_failed_error")
         );
       }
     }
@@ -302,6 +459,8 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
   const handleResetPrompt = () => {
     handleStopStreaming();
     setSubmittedPrompt(null);
+    setSubmittedImage(null);
+    setAttachedImage(null);
     setResponseContent("");
     setErrorMessage(null);
     setExecutedActions([]);
@@ -341,12 +500,22 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
           role: "user",
           content: submittedPrompt,
           timestamp: Date.now() - 1000,
+          context: submittedImage
+            ? {
+                type: "image",
+                title: submittedImage.title,
+                characterCount: submittedImage.sizeKb,
+                previewText: submittedImage.title,
+                imageDataUrl: submittedImage.dataUrl,
+              }
+            : undefined,
         },
         {
           id: `ast-${Date.now()}`,
           role: "assistant",
           content: responseContent,
           timestamp: Date.now(),
+          tokens: estimateTextTokens(responseContent),
           provider: activeProv,
           modelId: modelId,
           modelName: routedModel?.name,
@@ -406,11 +575,11 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
           </span>
 
           <div
-            title="Model otomatis memilih yang paling hemat dan cerdas"
+            title={t("quick_ai_tooltip_auto_saver")}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/12 text-emerald-400 border border-emerald-500/20"
           >
             <Route size={9.5} className="text-emerald-400 shrink-0" />
-            <span>Auto (Hemat)</span>
+            <span>{t("quick_ai_badge_auto")}</span>
           </div>
         </div>
 
@@ -430,7 +599,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
           <button
             type="button"
-            title="Buka AI Chat penuh"
+            title={t("quick_ai_tooltip_full_chat")}
             onClick={handleOpenInFullChat}
             className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-95"
           >
@@ -439,7 +608,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
           <button
             type="button"
-            title="Tutup (Esc)"
+            title={t("quick_ai_tooltip_close")}
             onClick={onCancel}
             className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-95"
           >
@@ -449,29 +618,83 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       </div>
 
       {/* 2. Middle Body */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            attachImageFile(file);
+            e.target.value = "";
+          }
+        }}
+      />
+
       {!submittedPrompt ? (
         /* IDLE STATE: Ultra-compact Search Input & Suggestion Chips */
         <div className="my-auto flex flex-col justify-center min-h-0 gap-2">
           {/* Modern Input Bar */}
           <div
-            className={`flex items-center w-full h-[36px] rounded-[11px] px-3 transition-all ${
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const file = e.dataTransfer?.files?.[0];
+              if (file) {
+                attachImageFile(file);
+              }
+            }}
+            className={`flex items-center w-full h-[36px] rounded-[11px] pl-3 pr-1.5 gap-1.5 transition-all ${
               isLightMode
                 ? "bg-black/[0.04] border border-black/10 focus-within:border-black/25 focus-within:bg-black/[0.06]"
                 : "bg-white/[0.04] border border-white/10 focus-within:border-white/25 focus-within:bg-white/[0.07]"
             }`}
           >
+            {attachedImage && (
+              <div className="shrink-0 flex items-center gap-1 pl-1 pr-1.5 py-0.5 rounded-[7px] bg-blue-500/15 border border-blue-500/30 text-blue-200 max-w-[140px]">
+                <img
+                  src={attachedImage.dataUrl}
+                  alt={attachedImage.title}
+                  className="w-4 h-4 rounded-[4px] object-cover shrink-0 border border-white/15"
+                />
+                <span className="text-[10.5px] font-medium truncate">
+                  {attachedImage.title}
+                </span>
+                <button
+                  type="button"
+                  title={t("quick_ai_remove_image")}
+                  onClick={() => setAttachedImage(null)}
+                  className="w-3.5 h-3.5 rounded-full hover:bg-white/15 flex items-center justify-center text-blue-300 hover:text-white cursor-pointer shrink-0"
+                >
+                  <X size={9} strokeWidth={2.5} />
+                </button>
+              </div>
+            )}
+
             <input
               ref={inputRef}
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              onPaste={handleInputPaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
                   handleSendPrompt();
+                } else if (e.key === "Backspace" && !prompt && attachedImage) {
+                  setAttachedImage(null);
                 }
               }}
-              placeholder="Tanya apa saja, minta ringkas, atau jalankan perintah..."
+              placeholder={
+                attachedImage
+                  ? t("quick_ai_explain_image_default")
+                  : t("quick_ai_placeholder")
+              }
               className={`w-full bg-transparent text-[13px] focus:outline-none transition-all placeholder:text-zinc-500 font-sans select-text ${
                 isLightMode ? "text-[#1d1d1f]" : "text-zinc-100"
               }`}
@@ -479,53 +702,86 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
             <button
               type="button"
-              disabled={!prompt.trim()}
-              onClick={() => handleSendPrompt()}
-              title="Kirim (Enter)"
-              className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-0 disabled:pointer-events-none text-white flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm shrink-0 ml-1.5"
+              onClick={handlePasteClipboardImage}
+              title={t("quick_ai_tooltip_paste_image")}
+              className={`w-6 h-6 rounded-[7px] flex items-center justify-center cursor-pointer transition-all active:scale-95 shrink-0 ${
+                attachedImage
+                  ? "text-blue-400 bg-blue-500/15 hover:bg-blue-500/25"
+                  : isLightMode
+                  ? "text-zinc-500 hover:text-zinc-800 hover:bg-black/[0.06]"
+                  : "text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.08]"
+              }`}
             >
-              <ArrowUp size={13} strokeWidth={2.4} />
+              <ImageIcon size={13.5} strokeWidth={2} />
             </button>
+
+            {(prompt.trim() || attachedImage) && (
+              <button
+                type="button"
+                onClick={() => handleSendPrompt()}
+                title={t("aichat_tooltip_send_enter")}
+                className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm shrink-0"
+              >
+                <ArrowUp size={13} strokeWidth={2.4} />
+              </button>
+            )}
           </div>
 
           {/* Clean Suggestion Chips Row */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-[10.5px]">
+            {clipboardImage && !attachedImage && (
+              <button
+                type="button"
+                onClick={handlePasteClipboardImage}
+                className="shrink-0 flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] border border-indigo-500/35 bg-indigo-500/15 text-indigo-200 hover:bg-indigo-500/25 cursor-pointer transition-all active:scale-95 font-medium"
+              >
+                <img
+                  src={clipboardImage.dataUrl}
+                  alt="Clipboard"
+                  className="w-3.5 h-3.5 rounded-[3px] object-cover shrink-0 border border-white/20"
+                />
+                <span className="truncate max-w-[140px]">
+                  {t("quick_ai_paste_image_chip")}
+                </span>
+              </button>
+            )}
+
             {clipboardSnippet && (
               <button
                 type="button"
-                onClick={() => handleSendPrompt(`Ringkas teks berikut:\n\n"${clipboardSnippet}"`)}
+                onClick={() => handleSendPrompt(t("quick_ai_summarize_prompt", { text: clipboardSnippet }))}
                 className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-[6px] border border-blue-500/30 bg-blue-500/12 text-blue-300 hover:bg-blue-500/22 cursor-pointer transition-all active:scale-95 font-medium"
               >
                 <Clipboard size={10} strokeWidth={2} />
-                <span className="truncate max-w-[140px]">Ringkas clipboard</span>
+                <span className="truncate max-w-[140px]">{t("quick_ai_summarize_clipboard")}</span>
               </button>
             )}
 
             <button
               type="button"
-              onClick={() => handleSendPrompt("Rekomendasikan fokus kerja hari ini berdasarkan to-do saya")}
+              onClick={() => handleSendPrompt(t("quick_ai_chip_focus_prompt"))}
               className="shrink-0 px-2 py-0.5 rounded-[6px] border border-white/[0.08] hover:border-white/15 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white cursor-pointer transition-all active:scale-95"
             >
-              Fokus kerja
+              {t("quick_ai_chip_focus_btn")}
             </button>
 
             <button
               type="button"
-              onClick={() => handleSendPrompt("Mulai timer pomodoro 25 menit")}
+              onClick={() => handleSendPrompt(t("quick_ai_chip_timer_prompt"))}
               className="shrink-0 px-2 py-0.5 rounded-[6px] border border-white/[0.08] hover:border-white/15 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white cursor-pointer transition-all active:scale-95"
             >
-              Timer 25m
+              {t("quick_ai_chip_timer_btn")}
             </button>
 
             <button
               type="button"
               onClick={() => {
-                setPrompt("Jelaskan secara ringkas: ");
+                setPrompt(t("quick_ai_chip_explain_prompt"));
                 inputRef.current?.focus();
               }}
               className="shrink-0 px-2 py-0.5 rounded-[6px] border border-white/[0.08] hover:border-white/15 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white cursor-pointer transition-all active:scale-95"
             >
-              Jelaskan konsep...
+              {t("quick_ai_chip_explain_btn")}
             </button>
           </div>
         </div>
@@ -534,9 +790,18 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
         <div className="grow flex flex-col justify-between min-h-0 gap-2 pt-1">
           {/* User question pill */}
           <div className="shrink-0 flex items-center justify-between px-3 py-1.5 rounded-[10px] bg-white/[0.04] border border-white/10 text-[12px] text-zinc-300">
-            <span className="truncate max-w-[400px] font-medium text-zinc-200">
-              "{submittedPrompt}"
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              {submittedImage && (
+                <img
+                  src={submittedImage.dataUrl}
+                  alt={submittedImage.title}
+                  className="w-5 h-5 rounded-[4px] object-cover shrink-0 border border-white/15"
+                />
+              )}
+              <span className="truncate max-w-[380px] font-medium text-zinc-200">
+                "{submittedPrompt}"
+              </span>
+            </div>
             <span className="text-[10.5px] text-zinc-400 shrink-0 font-mono ml-2">
               {routedModel?.name || "Auto"}
             </span>
@@ -551,7 +816,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
             {isThinking && (
               <div className="flex items-center gap-2 h-7 px-2.5 rounded-[10px] bg-blue-500/15 border border-blue-500/25 text-blue-300 text-[12px] font-medium w-fit animate-pulse">
                 <Loader2 size={12} className="animate-spin text-blue-400" />
-                <span>Memilih model hemat & memproses jawaban...</span>
+                <span>{t("quick_ai_thinking")}</span>
               </div>
             )}
 
@@ -559,7 +824,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
               <div className="flex items-start gap-2 p-2.5 rounded-[12px] bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[12px]">
                 <AlertCircle size={15} className="text-rose-400 shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-0.5">
-                  <span className="font-semibold">Gagal memproses permintaan</span>
+                  <span className="font-semibold">{t("quick_ai_failed_title")}</span>
                   <span className="opacity-90 leading-snug">{errorMessage}</span>
                 </div>
               </div>
@@ -597,7 +862,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
                     {routedModel.name}
                   </span>
                   <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-emerald-500/12 text-emerald-400 font-medium border border-emerald-500/20">
-                    {routedModel.tier === "Fast" ? "Hemat" : routedModel.tier}
+                    {routedModel.tier === "Fast" ? t("quick_ai_tier_fast") : routedModel.tier}
                   </span>
                 </div>
               )}
@@ -611,7 +876,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
                   className="h-6 px-2.5 rounded-full border border-rose-500/30 bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
                 >
                   <Square size={10} strokeWidth={2.5} />
-                  <span>Hentikan</span>
+                  <span>{t("aichat_tooltip_stop")}</span>
                 </button>
               ) : (
                 <>
@@ -624,12 +889,12 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
                     {copied ? (
                       <>
                         <Check size={11} className="text-emerald-400" />
-                        <span className="text-emerald-400 font-medium">Tersalin</span>
+                        <span className="text-emerald-400 font-medium">{t("quick_ai_copied")}</span>
                       </>
                     ) : (
                       <>
                         <Copy size={11} />
-                        <span>Salin</span>
+                        <span>{t("quick_ai_copy")}</span>
                       </>
                     )}
                   </button>
@@ -640,13 +905,13 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
                     className="h-6 px-2.5 rounded-full border border-blue-500/30 bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
                   >
                     <ExternalLink size={11} />
-                    <span>Chat Penuh</span>
+                    <span>{t("quick_ai_open_full_chat_button")}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleResetPrompt}
-                    title="Tanya pertanyaan baru"
+                    title={t("quick_ai_new_prompt")}
                     className="h-6 px-2 rounded-full border border-white/10 hover:border-white/20 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer transition-all active:scale-95"
                   >
                     <RotateCcw size={11} />

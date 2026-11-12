@@ -5,6 +5,7 @@ import type {
   ResponseLengthMode,
   RouterConfig,
 } from "../components/ui/aichat/AiChatTypes";
+import { getLanguage } from "./i18n";
 
 const ROUTER_CONFIG_KEY = "island_ai_router_config_v1";
 
@@ -398,6 +399,20 @@ export function resolveTierModel(
  * Generates length instruction to inject into the system prompt.
  */
 export function getLengthSystemInstruction(lengthMode: ResponseLengthMode): string {
+  const isEn = getLanguage() === "en";
+
+  if (isEn) {
+    switch (lengthMode) {
+      case "compact":
+        return "Response Style: VERY COMPACT. Directly answer the core question in 1-3 sentences with no greetings, no pleasantries, and no sign-offs. Absolute exception: If the user asks for code or technical/security solutions, code blocks and critical warnings must still be written COMPLETELY and IN FULL without truncation; only the surrounding explanatory text is kept concise.";
+      case "detailed":
+        return "Response Style: COMPREHENSIVE & STRUCTURED. Provide detailed, step-by-step explanations, technical depth, and alternative solutions if relevant. All code must be written completely.";
+      case "normal":
+      default:
+        return "Response Style: NORMAL & CONCISE. Answer clearly and structurally with balanced explanation (1-3 paragraphs). All code must be written completely.";
+    }
+  }
+
   switch (lengthMode) {
     case "compact":
       return "Gaya Jawaban: SANGAT RINGKAS. Langsung jawab inti pertanyaan dalam 1-3 kalimat tanpa salam pembuka, tanpa basa-basi, dan tanpa penutup. Pengecualian mutlak: Jika pengguna meminta kode program atau solusi teknis/keamanan, blok kode dan peringatan penting harus tetap ditulis LENGKAP dan UTUH tanpa dipotong, hanya teks penjelasan di sekitarnya yang dibuat ringkas.";
@@ -425,15 +440,19 @@ export function getSafetyMaxTokens(lengthMode: ResponseLengthMode): number {
 }
 
 /**
- * Calculates estimated cost in IDR (USD/IDR ~ 16,000) for UI display.
+ * Calculates estimated cost in IDR (USD/IDR ~ 16,000) for UI display and usage accumulation.
  */
 export function calculateEstimatedCostIdr(
   model: AiModelConfig,
   inputTokens: number,
   outputTokens: number
 ): number {
+  const inRate = model.inputCostPer1M || 0;
+  const outRate = model.outputCostPer1M || 0;
+  if (inRate <= 0 && outRate <= 0) return 0;
+
   const costUsd =
-    (inputTokens / 1_000_000) * (model.inputCostPer1M || 0) +
-    (outputTokens / 1_000_000) * (model.outputCostPer1M || 0);
-  return Math.max(1, Math.round(costUsd * 16000));
+    (Math.max(0, inputTokens) / 1_000_000) * inRate +
+    (Math.max(0, outputTokens) / 1_000_000) * outRate;
+  return Math.round(costUsd * 16000 * 10000) / 10000;
 }

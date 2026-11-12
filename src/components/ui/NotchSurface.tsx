@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   buildNotchPath,
   buildNotchOutlinePath,
@@ -54,7 +55,6 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
   const isIsland = notchShape === "island";
 
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const shadowRef = useRef<HTMLDivElement>(null);
   const fillPathRef = useRef<SVGPathElement>(null);
   const baseFillPathRef = useRef<SVGPathElement>(null);
   const strokePathRef = useRef<SVGPathElement>(null);
@@ -62,6 +62,38 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
   const svgRef = useRef<SVGSVGElement>(null);
   const strokeSvgRef = useRef<SVGSVGElement>(null);
   const latestFillPathStrRef = useRef<string>("");
+
+  const isGlass = themeMode === "glass";
+  const isClear = themeMode === "clear";
+  const isTranslucent = isGlass || isClear;
+
+  const effectiveOpacity =
+    typeof opacity === "number" && Number.isFinite(opacity)
+      ? Math.max(0.15, Math.min(1.0, opacity))
+      : isGlass
+      ? 0.78
+      : isClear
+      ? 0.54
+      : 1.0;
+
+  const effectiveBlur =
+    typeof blur === "number" && Number.isFinite(blur)
+      ? Math.max(0, Math.min(100, blur))
+      : 0;
+  const blurRatio = effectiveBlur / 100;
+
+  const acrylicConfigRef = useRef({
+    enabled: isTranslucent && effectiveBlur > 1,
+    blurStrength: Math.round(effectiveBlur),
+    opacity: effectiveOpacity,
+    isLight: isLightMode,
+  });
+  acrylicConfigRef.current = {
+    enabled: isTranslucent && effectiveBlur > 1,
+    blurStrength: Math.round(effectiveBlur),
+    opacity: effectiveOpacity,
+    isLight: isLightMode,
+  };
 
   const lastWidthRef = useRef<number>(-1);
   const lastHeightRef = useRef<number>(-1);
@@ -229,9 +261,8 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
 
         const fillPath = buildNotchPath(pathParams);
         const outlinePath = buildNotchOutlinePath(pathParams);
-        const { totalW, totalH, offsetLeft, offsetTop, bodyLeft, bodyTop } =
+        const { totalW, totalH, offsetLeft, offsetTop } =
           getNotchSurfaceMetrics(pathParams);
-        const snappedH = snapToPhysicalPixel(rawH, dpr);
 
         if (wrapperRef.current) {
           wrapperRef.current.style.width = `${totalW}px`;
@@ -240,26 +271,24 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           wrapperRef.current.style.top = `${offsetTop}px`;
         }
 
-        if (shadowRef.current) {
-          if (isTranslucent || m >= 0.99) {
-            shadowRef.current.style.display = "none";
-          } else {
-            shadowRef.current.style.display = "";
-            shadowRef.current.style.opacity = String(Math.max(0, 1 - m * 2));
-            shadowRef.current.style.left = `${bodyLeft}px`;
-            shadowRef.current.style.top = `${bodyTop}px`;
-            shadowRef.current.style.width = `${rawW}px`;
-            shadowRef.current.style.height = `${snappedH}px`;
-            shadowRef.current.style.borderRadius =
-              position === "left"
-                ? `0px ${targetRb}px ${targetRb}px 0px`
-                : position === "right"
-                ? `${targetRb}px 0px 0px ${targetRb}px`
-                : isBottom
-                ? `${targetRb}px ${targetRb}px 0px 0px`
-                : `0px 0px ${targetRb}px ${targetRb}px`;
-          }
-        }
+        const containerRect = container.getBoundingClientRect();
+        const ac = acrylicConfigRef.current;
+        invoke("sync_notch_acrylic", {
+          enabled: ac.enabled,
+          containerLeft: containerRect.left,
+          containerTop: containerRect.top,
+          width: rawW,
+          height: rawH,
+          earRadius: targetRe,
+          bottomRadius: targetRb,
+          topRadius: targetRt,
+          isIsland: isIslandPath,
+          position,
+          dpr,
+          blurStrength: ac.blurStrength,
+          opacity: ac.opacity,
+          isLight: ac.isLight,
+        }).catch(() => {});
 
         if (svgRef.current) {
           svgRef.current.setAttribute("viewBox", `0 0 ${totalW} ${totalH}`);
@@ -334,44 +363,94 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
     };
   }, [containerRef, position, isBottom, isSideCenter, withEars, isExpanded, isIsland, themeMode, isLightMode]);
 
-  const isGlass = themeMode === "glass";
-  const isClear = themeMode === "clear";
-  const isTranslucent = isGlass || isClear;
   const needsClipGroup =
     isTranslucent || isIsland || Boolean(displayedImage) || surfaceTone === "drag_over";
 
-  // Dynamic opacity & blur ratios for custom transparency and frosted diffusion
-  const effectiveOpacity =
-    typeof opacity === "number" && Number.isFinite(opacity)
-      ? Math.max(0.15, Math.min(1.0, opacity))
-      : isGlass
-      ? 0.78
-      : isClear
-      ? 0.54
-      : 1.0;
-  // Dynamic blur ratio for optical diffusion & depth contrast
-  const effectiveBlur =
-    typeof blur === "number" && Number.isFinite(blur)
-      ? Math.max(0, Math.min(100, blur))
-      : 0;
-  const blurRatio = effectiveBlur / 100;
-
-  // Clean opacity stops driven purely by transparency setting (decoupled from blur)
+  // Calibrated translucent stops so the real-time native Win32 DWM Acrylic blur underneath shines through cleanly
   const expandFrostBoost = isExpanded ? 0.04 : 0;
 
-  const darkStop0 = Math.min(0.95, Math.max(0.14, effectiveOpacity * 0.65 + expandFrostBoost)).toFixed(2);
-  const darkStop1 = Math.min(0.96, Math.max(0.18, effectiveOpacity * 0.72 + expandFrostBoost)).toFixed(2);
-  const darkStop2 = Math.min(0.97, Math.max(0.22, effectiveOpacity * 0.80 + expandFrostBoost)).toFixed(2);
+  const darkStop0 = Math.min(0.88, Math.max(0.18, effectiveOpacity * 0.56 + expandFrostBoost)).toFixed(2);
+  const darkStop1 = Math.min(0.90, Math.max(0.22, effectiveOpacity * 0.62 + expandFrostBoost)).toFixed(2);
+  const darkStop2 = Math.min(0.92, Math.max(0.26, effectiveOpacity * 0.68 + expandFrostBoost)).toFixed(2);
 
-  const lightStop0 = Math.min(0.96, Math.max(0.20, effectiveOpacity * 0.74 + expandFrostBoost)).toFixed(2);
-  const lightStop1 = Math.min(0.94, Math.max(0.15, effectiveOpacity * 0.62 + expandFrostBoost)).toFixed(2);
-  const lightStop2 = Math.min(0.95, Math.max(0.17, effectiveOpacity * 0.68 + expandFrostBoost)).toFixed(2);
+  const lightStop0 = Math.min(0.88, Math.max(0.18, effectiveOpacity * 0.54 + expandFrostBoost)).toFixed(2);
+  const lightStop1 = Math.min(0.86, Math.max(0.16, effectiveOpacity * 0.48 + expandFrostBoost)).toFixed(2);
+  const lightStop2 = Math.min(0.88, Math.max(0.18, effectiveOpacity * 0.52 + expandFrostBoost)).toFixed(2);
 
-  // Optical glass diffusion stops (scales directly with Blur slider, 0% = no diffusion, 100% = deep diffusion)
-  const diffDarkTop = (blurRatio * 0.45).toFixed(2);
-  const diffDarkBot = (blurRatio * 0.58).toFixed(2);
-  const diffLightTop = (blurRatio * 0.38).toFixed(2);
-  const diffLightBot = (blurRatio * 0.48).toFixed(2);
+  // Subtle optical glass diffusion stops (scales with Blur slider)
+  const diffDarkTop = (blurRatio * 0.16).toFixed(2);
+  const diffDarkBot = (blurRatio * 0.22).toFixed(2);
+  const diffLightTop = (blurRatio * 0.14).toFixed(2);
+  const diffLightBot = (blurRatio * 0.18).toFixed(2);
+
+  // Sync Native Win32 DWM Acrylic Underlay immediately when theme, blur, or opacity changes
+  useEffect(() => {
+    const container = containerRef.current;
+    const roundedBlur = Math.round(effectiveBlur);
+    const enabled = isTranslucent && roundedBlur > 1;
+    const dpr = window.devicePixelRatio || 1;
+
+    if (!container || lastWidthRef.current <= 0 || lastHeightRef.current <= 0) {
+      if (!enabled) {
+        invoke("sync_notch_acrylic", {
+          enabled: false,
+          containerLeft: 0,
+          containerTop: 0,
+          width: 0,
+          height: 0,
+          earRadius: 0,
+          bottomRadius: 0,
+          topRadius: 0,
+          isIsland,
+          position,
+          dpr,
+          blurStrength: 0,
+          opacity: effectiveOpacity,
+          isLight: isLightMode,
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    invoke("sync_notch_acrylic", {
+      enabled,
+      containerLeft: rect.left,
+      containerTop: rect.top,
+      width: lastWidthRef.current,
+      height: lastHeightRef.current,
+      earRadius: lastReRef.current,
+      bottomRadius: lastRbRef.current,
+      topRadius: lastRtRef.current,
+      isIsland: morphProgressRef.current >= 0.5,
+      position,
+      dpr,
+      blurStrength: roundedBlur,
+      opacity: effectiveOpacity,
+      isLight: isLightMode,
+    }).catch(() => {});
+  }, [isTranslucent, effectiveBlur, effectiveOpacity, isLightMode, isIsland, position, containerRef]);
+
+  useEffect(() => {
+    return () => {
+      invoke("sync_notch_acrylic", {
+        enabled: false,
+        containerLeft: 0,
+        containerTop: 0,
+        width: 0,
+        height: 0,
+        earRadius: 0,
+        bottomRadius: 0,
+        topRadius: 0,
+        isIsland: false,
+        position: "top",
+        dpr: 1,
+        blurStrength: 0,
+        opacity: 0.78,
+        isLight: false,
+      }).catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     if (needsClipGroup && fillPathRef.current && latestFillPathStrRef.current) {
@@ -424,17 +503,6 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
       ref={wrapperRef}
       className="absolute top-0 pointer-events-none select-none z-0 overflow-visible"
     >
-      {/* GPU-accelerated body shadow (solid mode only; hidden in liquid glass to eliminate body box shadow artifact) */}
-      {!isTranslucent && (
-        <div
-          ref={shadowRef}
-          className="absolute top-0 pointer-events-none notch-surface-shadow"
-          style={{
-            boxShadow: "0 12px 32px rgba(0, 0, 0, 0.55)",
-          }}
-        />
-      )}
-
       {/* Unified Frosted Backdrop Filter layer — only mounted in translucent modes */}
       {isTranslucent && (
         <div
@@ -472,6 +540,22 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           >
             <feGaussianBlur stdDeviation="34" edgeMode="duplicate" />
             <feColorMatrix type="saturate" values="1.85" />
+          </filter>
+
+          {/* Native 1:1 resolution frosted matte grain ("burem kasar") */}
+          <filter id="notch-frosted-grain" x="0%" y="0%" width="100%" height="100%">
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.82"
+              numOctaves="3"
+              stitchTiles="stitch"
+              result="noise"
+            />
+            <feColorMatrix
+              type="matrix"
+              values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0.085 0"
+              in="noise"
+            />
           </filter>
 
           <linearGradient id="notch-drag-over-grad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -551,7 +635,7 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           </radialGradient>
         </defs>
 
-        {/* Direct Vector Base Path (zero offscreen clip-mask FBO needed in Solid Notch mode) */}
+        {/* Direct Vector Base Path */}
         <path
           ref={baseFillPathRef}
           fill={baseFill}
@@ -571,6 +655,16 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
                     width="100%"
                     height="100%"
                     fill={isLightMode ? "url(#notch-optical-diffusion-light)" : "url(#notch-optical-diffusion-dark)"}
+                  />
+                )}
+
+                {/* Native 1:1 Frosted Matte Acrylic Grain ("burem kasar" texture) */}
+                {effectiveBlur > 0 && (
+                  <rect
+                    width="100%"
+                    height="100%"
+                    filter="url(#notch-frosted-grain)"
+                    opacity={Math.min(1, blurRatio * 1.15)}
                   />
                 )}
 

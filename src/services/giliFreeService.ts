@@ -1,20 +1,30 @@
 import type { AiModelConfig } from "../components/ui/aichat/AiChatTypes";
+import { t, getLanguage } from "./i18n";
 
 const INSTALL_ID_STORAGE = "gili_install_id_v1";
 
 export const GILI_FREE_DAILY_LIMIT = 15;
 
-export const GILI_FREE_NOTICE = `Mode gratis: ${GILI_FREE_DAILY_LIMIT} chat per hari. Jangan kirim data sensitif.`;
+export function getGiliFreeNotice(): string {
+  return t("aichat_free_notice", { limit: GILI_FREE_DAILY_LIMIT });
+}
 
-export const GILI_FREE_MODEL: AiModelConfig = {
-  id: "gili-free",
-  name: "Gemini Flash-Lite (Gratis)",
-  provider: "gemini",
-  description: `Mode gratis, ${GILI_FREE_DAILY_LIMIT} chat per hari`,
-  tier: "Fast",
-  inputCostPer1M: 0,
-  outputCostPer1M: 0,
-};
+export function getGiliFreeModel(): AiModelConfig {
+  const isEn = getLanguage() === "en";
+  return {
+    id: "gili-free",
+    name: isEn ? "Gemini Flash-Lite (Free)" : "Gemini Flash-Lite (Gratis)",
+    provider: "gemini",
+    description: isEn
+      ? `Free tier, ${GILI_FREE_DAILY_LIMIT} chats per day`
+      : `Mode gratis, ${GILI_FREE_DAILY_LIMIT} chat per hari`,
+    tier: "Fast",
+    inputCostPer1M: 0,
+    outputCostPer1M: 0,
+  };
+}
+
+export const GILI_FREE_MODEL = getGiliFreeModel();
 
 export function getGiliFreeEndpoint(): string {
   return (import.meta.env.VITE_GILI_FREE_URL ?? "").trim().replace(/\/+$/, "");
@@ -32,19 +42,21 @@ export function getInstallId(): string {
   return fresh;
 }
 
-const FRIENDLY_ERRORS: Record<string, string> = {
-  daily_limit: `Jatah gratis ${GILI_FREE_DAILY_LIMIT} chat hari ini sudah habis. Reset jam 00.00 WIB, atau pasang API key sendiri di pengaturan AI Chat.`,
-  upstream_busy: "Server AI gratis sedang penuh. Coba lagi beberapa saat lagi.",
-  upstream_error: "Server AI gratis sedang bermasalah. Coba lagi nanti.",
-};
-
-// Proxy errors arrive from the Rust stream bridge as "HTTP <status>: <json body>".
 export function describeGiliFreeError(rawMessage: string): string {
   const jsonStart = rawMessage.indexOf("{");
   if (jsonStart === -1) return rawMessage;
   try {
     const code = JSON.parse(rawMessage.slice(jsonStart))?.error?.code;
-    return FRIENDLY_ERRORS[code] ?? rawMessage;
+    if (code === "daily_limit") {
+      return t("gili_free_daily_limit_reached", { limit: GILI_FREE_DAILY_LIMIT });
+    }
+    if (code === "upstream_busy") {
+      return t("gili_free_upstream_busy");
+    }
+    if (code === "upstream_error") {
+      return t("gili_free_upstream_error");
+    }
+    return rawMessage;
   } catch {
     return rawMessage;
   }

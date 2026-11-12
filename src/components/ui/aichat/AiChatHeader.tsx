@@ -8,6 +8,7 @@ import {
   History,
 } from "lucide-react";
 import { Tooltip } from "../Tooltip";
+import { t } from "../../../services/i18n";
 import type { AiModelConfig } from "./AiChatTypes";
 
 interface AiChatHeaderProps {
@@ -36,14 +37,15 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
   accentColor = "#3882F6",
 }) => {
   const isAutoMode = selectedMode === "auto";
+  const isFreeMode = selectedMode === "gili-free" || activeModel.id === "gili-free";
 
   return (
     <div className="flex items-center gap-2.5 mt-2.5 w-full select-none shrink-0">
       {/* Previous / Back Button */}
-      <Tooltip content="Sebelumnya" side="bottom">
+      <Tooltip content={t("aichat_tooltip_prev")} side="bottom">
         <button
           type="button"
-          aria-label="Halaman sebelumnya"
+          aria-label={t("aichat_tooltip_prev")}
           onClick={onPrevTab}
           className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
         >
@@ -53,7 +55,7 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
 
       {/* Title */}
       <div className="text-[18px] font-semibold tracking-[-0.02em] text-white">
-        AI Chat
+        {t("aichat_title")}
       </div>
 
       {/* Model Selector Dropdown Trigger */}
@@ -62,19 +64,23 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
         data-dropdown-trigger="ai-model-selector"
         aria-haspopup="listbox"
         aria-expanded={isModelDropdownOpen}
-        aria-label={`Ganti model, sekarang ${isAutoMode ? "Auto (Hemat & Cerdas)" : activeModel.name}`}
+        aria-label={t("aichat_model_switch_label", { model: isFreeMode ? activeModel.name : isAutoMode ? t("aichat_auto_mode_badge") : activeModel.name })}
         onClick={onToggleModelDropdown}
         className="h-7 px-2.5 border border-white/10 hover:border-white/20 rounded-[14px] bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-all"
       >
         <span
           className="w-[7px] h-[7px] rounded-full shrink-0"
           style={{
-            background: isAutoMode ? "#3882F6" : accentColor,
-            boxShadow: `0 0 8px ${isAutoMode ? "#3882F6" : accentColor}`,
+            background: isFreeMode ? "#10b981" : isAutoMode ? "#3882F6" : accentColor,
+            boxShadow: `0 0 8px ${isFreeMode ? "#10b981" : isAutoMode ? "#3882F6" : accentColor}`,
           }}
         />
-        <span className="truncate max-w-[130px]">
-          {isAutoMode ? "Auto (Hemat)" : activeModel.name}
+        <span className="truncate max-w-[140px]">
+          {isFreeMode
+            ? activeModel.name
+            : isAutoMode
+            ? t("aichat_auto_mode_short")
+            : activeModel.name}
         </span>
         <ChevronDown
           size={12}
@@ -88,10 +94,10 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
       <div className="grow" />
 
       {/* Usage Analytics Button */}
-      <Tooltip content="Penggunaan & Token" side="bottom">
+      <Tooltip content={t("aichat_tooltip_usage")} side="bottom">
         <button
           type="button"
-          aria-label="Lihat penggunaan token"
+          aria-label={t("aichat_tooltip_usage")}
           onClick={onOpenUsage}
           className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
         >
@@ -100,10 +106,10 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
       </Tooltip>
 
       {/* History Button */}
-      <Tooltip content="Riwayat Chat" side="bottom">
+      <Tooltip content={t("aichat_tooltip_history")} side="bottom">
         <button
           type="button"
-          aria-label="Lihat riwayat percakapan"
+          aria-label={t("aichat_tooltip_history")}
           onClick={onOpenHistory}
           className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
         >
@@ -112,10 +118,10 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
       </Tooltip>
 
       {/* New Conversation Button */}
-      <Tooltip content="Percakapan baru" side="bottom">
+      <Tooltip content={t("aichat_tooltip_new_chat")} side="bottom">
         <button
           type="button"
-          aria-label="Percakapan baru"
+          aria-label={t("aichat_tooltip_new_chat")}
           onClick={onNewConversation}
           className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
         >
@@ -124,10 +130,10 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
       </Tooltip>
 
       {/* Settings Button */}
-      <Tooltip content="Hubungkan AI / Pengaturan" side="bottom">
+      <Tooltip content={t("aichat_tooltip_settings")} side="bottom">
         <button
           type="button"
-          aria-label="Buka pengaturan AI"
+          aria-label={t("aichat_tooltip_settings")}
           onClick={onOpenSettings}
           className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
         >

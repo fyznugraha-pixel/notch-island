@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from "react";
 import { Check, Route } from "lucide-react";
 import { AiBrandLogo, detectAiBrand } from "./AiBrandLogos";
 import { ScrollingText } from "../ScrollingText";
+import { t } from "../../../services/i18n";
+import { getGiliFreeModel, isGiliFreeEnabled } from "../../../services/giliFreeService";
 import type { AiModelConfig, AiProviderId } from "./AiChatTypes";
 
 interface AiChatModelDropdownProps {
@@ -54,34 +56,60 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
         onClose();
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
-        const currentIndex = models.findIndex((m) => m.id === selectedModelId);
+        const selectableItems: { id: string; select: () => void }[] = [
+          {
+            id: "auto",
+            select: () => {
+              if (onSelectAuto) {
+                onSelectAuto();
+              } else {
+                onSelectModel({
+                  id: "auto",
+                  name: t("aichat_auto_mode_badge"),
+                  provider,
+                  tier: "Fast",
+                  description: t("aichat_auto_desc"),
+                  inputCostPer1M: 0,
+                  outputCostPer1M: 0,
+                });
+              }
+            },
+          },
+          ...(isGiliFreeEnabled()
+            ? [{ id: "gili-free", select: () => onSelectModel(getGiliFreeModel()) }]
+            : []),
+          ...models.map((m) => ({ id: m.id, select: () => onSelectModel(m) })),
+        ];
+        const currentIndex = selectableItems.findIndex((item) => item.id === selectedModelId);
         const nextIndex =
           e.key === "ArrowDown"
-            ? (currentIndex + 1) % models.length
-            : (currentIndex - 1 + models.length) % models.length;
-        if (models[nextIndex]) {
-          onSelectModel(models[nextIndex]);
-        }
+            ? (currentIndex + 1) % selectableItems.length
+            : (currentIndex - 1 + selectableItems.length) % selectableItems.length;
+        selectableItems[nextIndex]?.select();
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [models, selectedModelId, onSelectModel, onClose]);
+  }, [models, selectedModelId, onSelectModel, onSelectAuto, onClose, provider]);
 
   return (
     <div
       ref={containerRef}
       role="listbox"
-      aria-label="Pilih model"
+      aria-label={t("aichat_aria_select_model")}
       className="absolute left-6 top-[48px] w-[385px] z-50 p-2 rounded-[22px] border border-white/[0.14] bg-[#101015]/98 backdrop-blur-2xl shadow-[0_24px_60px_rgba(0,0,0,0.85)] flex flex-col gap-1 select-none animate-in fade-in zoom-in-95 duration-150"
     >
       <div className="flex items-center justify-between px-2.5 pt-1 pb-1">
         <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa]">
-          PILIH MODEL / MODE
+          {t("aichat_dropdown_title")}
         </span>
         <span className="text-[10.5px] text-emerald-400 font-medium flex items-center gap-1">
           <Check size={11} strokeWidth={2.5} />
-          Terverifikasi
+          {models.length > 0
+            ? t("aichat_verified_badge")
+            : isGiliFreeEnabled()
+            ? t("aichat_tier_free")
+            : t("aichat_verified_badge")}
         </span>
       </div>
 
@@ -100,10 +128,10 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
             } else {
               onSelectModel({
                 id: "auto",
-                name: "Auto (Hemat & Cerdas)",
+                name: t("aichat_auto_mode_badge"),
                 provider,
                 tier: "Fast",
-                description: "Memilih model sesuai kesulitan pesan untuk menghemat kuota",
+                description: t("aichat_auto_desc"),
                 inputCostPer1M: 0,
                 outputCostPer1M: 0,
               });
@@ -122,14 +150,14 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
           <div className="grow min-w-0 pr-1">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="text-[13px] font-semibold text-white truncate shrink min-w-0">
-                Auto (Hemat & Cerdas)
+                {t("aichat_auto_mode_badge")}
               </span>
               <span className="text-[9.5px] px-1.5 py-0.5 rounded-full bg-blue-500/25 text-blue-300 font-medium shrink-0 whitespace-nowrap">
-                Bawaan
+                {t("aichat_default_badge")}
               </span>
             </div>
             <ScrollingText
-              text="Memilih model sesuai kesulitan pesan untuk menghemat kuota"
+              text={t("aichat_auto_desc")}
               className="text-[11px] text-[#a1a1aa] mt-0.5"
             />
           </div>
@@ -139,10 +167,53 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
             </span>
           ) : (
             <span className="h-5 px-2 rounded-full bg-white/[0.08] flex items-center text-[10.5px] font-medium text-[#c4c4cc] shrink-0">
-              Adaptif
+              {t("aichat_adaptive_badge")}
             </span>
           )}
         </button>
+
+        {/* Entri Mode Gratis Gili */}
+        {isGiliFreeEnabled() && (
+          <button
+            type="button"
+            role="option"
+            aria-selected={selectedModelId === "gili-free"}
+            onClick={() => {
+              onSelectModel(getGiliFreeModel());
+              onClose();
+            }}
+            style={{
+              backgroundColor: selectedModelId === "gili-free" ? "rgba(16,185,129,0.22)" : "transparent",
+              borderColor: selectedModelId === "gili-free" ? "#10b981" : "transparent",
+            }}
+            className="w-full flex items-center gap-2.5 h-14 px-2.5 rounded-[16px] border text-left cursor-pointer transition-all hover:bg-white/[0.06]"
+          >
+            <AiBrandLogo provider="gemini" size={28} withContainer />
+            <div className="grow min-w-0 pr-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[13px] font-semibold text-white truncate shrink min-w-0">
+                  {getGiliFreeModel().name}
+                </span>
+                <span className="text-[9.5px] px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 font-medium shrink-0 whitespace-nowrap">
+                  {t("aichat_tier_free")}
+                </span>
+              </div>
+              <ScrollingText
+                text={getGiliFreeModel().description || ""}
+                className="text-[11px] text-[#a1a1aa] mt-0.5"
+              />
+            </div>
+            {selectedModelId === "gili-free" ? (
+              <span className="w-5 h-5 rounded-full bg-[#f4f4f5] text-black flex items-center justify-center shrink-0 shadow-sm">
+                <Check size={12} strokeWidth={3} />
+              </span>
+            ) : (
+              <span className="h-5 px-2 rounded-full bg-emerald-500/15 flex items-center text-[10.5px] font-medium text-emerald-400 shrink-0">
+                {t("aichat_tier_free")}
+              </span>
+            )}
+          </button>
+        )}
 
         {models.map((model) => {
           const isSelected = model.id === selectedModelId;
@@ -197,16 +268,12 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
           }}
           className="h-7.5 px-3 mx-1 mt-1 rounded-[12px] bg-white/[0.04] hover:bg-white/[0.08] text-[11.5px] font-medium text-[#8db8ff] flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
         >
-          <span>+ Hubungkan / Kelola API Key</span>
+          <span>{t("aichat_manage_keys")}</span>
         </button>
       )}
 
       <div className="flex items-center justify-center gap-2.5 h-7 mt-0.5 border-t border-white/[0.08] text-[11px] text-[#a1a1aa]">
-        <span>↑↓ pilih</span>
-        <span aria-hidden="true">·</span>
-        <span>Enter konfirmasi</span>
-        <span aria-hidden="true">·</span>
-        <span>Esc tutup</span>
+        <span>{t("aichat_keys_hint")}</span>
       </div>
     </div>
   );

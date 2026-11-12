@@ -4,6 +4,7 @@ import type {
   AiProviderId,
   AutoCleanupDays,
 } from "../components/ui/aichat/AiChatTypes";
+import { t } from "./i18n";
 
 const CONVERSATIONS_KEY = "island_ai_conversations_v1";
 const ACTIVE_CONV_ID_KEY = "island_ai_active_conv_id_v1";
@@ -139,7 +140,7 @@ export function setActiveConversationId(id: string | null): void {
 
 export function generateTitleFromPrompt(prompt: string): string {
   const clean = prompt.replace(/[\r\n\t]+/g, " ").trim();
-  if (!clean) return "Percakapan Baru";
+  if (!clean) return t("aichat_new_chat");
   if (clean.length <= 36) return clean;
   return `${clean.slice(0, 36).trim()}...`;
 }
@@ -165,7 +166,7 @@ export function createConversation(
 
   const newConv: AiConversation = {
     id: `conv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    title: initialTitle || "Percakapan Baru",
+    title: initialTitle || t("aichat_new_chat"),
     modelId,
     providerId,
     messages: [],
@@ -227,7 +228,12 @@ export function updateConversationMessages(
   }
 
   // Update title from first user prompt if still default
-  if (conv.title === "Percakapan Baru" || !conv.title) {
+  if (
+    !conv.title ||
+    conv.title === "Percakapan Baru" ||
+    conv.title === "New Conversation" ||
+    conv.title === t("aichat_new_chat")
+  ) {
     const firstUserMsg = messages.find((m) => m.role === "user");
     if (firstUserMsg && firstUserMsg.content.trim()) {
       conv.title = generateTitleFromPrompt(firstUserMsg.content);

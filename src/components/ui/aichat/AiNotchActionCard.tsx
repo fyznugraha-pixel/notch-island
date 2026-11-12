@@ -6,8 +6,12 @@ import {
   Timer,
   Music,
   Droplets,
+  Moon,
+  SlidersHorizontal,
+  ExternalLink,
   ArrowRight,
 } from "lucide-react";
+import { t } from "../../../services/i18n";
 
 interface AiNotchActionCardProps {
   action: {
@@ -41,46 +45,71 @@ export const AiNotchActionCard: React.FC<AiNotchActionCardProps> = ({
     switch (type) {
       case "add_todo":
       case "complete_todo":
+      case "delete_todo":
         return {
           icon: type === "complete_todo" ? CheckCircle2 : CheckSquare,
           bg: "bg-emerald-950/40 border-emerald-500/30 text-emerald-300",
           iconBg: "bg-emerald-500/20 text-emerald-400",
-          btnText: "Buka To-Do",
+          btnText: t("aichat_action_open_todo"),
         };
       case "create_note":
+      case "update_note":
+      case "delete_note":
         return {
           icon: FileText,
           bg: "bg-blue-950/40 border-blue-500/30 text-blue-300",
           iconBg: "bg-blue-500/20 text-blue-400",
-          btnText: "Buka Catatan",
+          btnText: t("aichat_action_open_note"),
         };
       case "control_pomodoro":
         return {
           icon: Timer,
           bg: "bg-amber-950/40 border-amber-500/30 text-amber-300",
           iconBg: "bg-amber-500/20 text-amber-400",
-          btnText: "Lihat Timer",
+          btnText: t("aichat_action_view_timer"),
         };
       case "control_music":
         return {
           icon: Music,
           bg: "bg-purple-950/40 border-purple-500/30 text-purple-300",
           iconBg: "bg-purple-500/20 text-purple-400",
-          btnText: "Buka Musik",
+          btnText: t("aichat_action_open_music"),
         };
       case "log_water":
+      case "undo_water":
         return {
           icon: Droplets,
           bg: "bg-cyan-950/40 border-cyan-500/30 text-cyan-300",
           iconBg: "bg-cyan-500/20 text-cyan-400",
-          btnText: "Lihat Air",
+          btnText: t("aichat_action_view_water"),
+        };
+      case "mark_prayer":
+        return {
+          icon: Moon,
+          bg: "bg-teal-950/40 border-teal-500/30 text-teal-300",
+          iconBg: "bg-teal-500/20 text-teal-400",
+          btnText: t("aichat_action_open_prayer"),
+        };
+      case "set_system_control":
+        return {
+          icon: SlidersHorizontal,
+          bg: "bg-indigo-950/40 border-indigo-500/30 text-indigo-300",
+          iconBg: "bg-indigo-500/20 text-indigo-400",
+          btnText: t("aichat_action_open_control"),
+        };
+      case "open_tab":
+        return {
+          icon: ExternalLink,
+          bg: "bg-blue-950/40 border-blue-500/30 text-blue-300",
+          iconBg: "bg-blue-500/20 text-blue-400",
+          btnText: t("aichat_action_view_feature"),
         };
       default:
         return {
           icon: CheckCircle2,
           bg: "bg-blue-950/40 border-blue-500/30 text-blue-300",
           iconBg: "bg-blue-500/20 text-blue-400",
-          btnText: "Lihat Fitur",
+          btnText: t("aichat_action_view_feature"),
         };
     }
   };

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { AiBrandLogo } from "./AiBrandLogos";
+import { t } from "../../../services/i18n";
 import type { ActiveWindowItem, AiMessageContext } from "./AiChatTypes";
 
 interface AiChatWindowPickerModalProps {
@@ -211,18 +212,18 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
       <div className="flex items-center gap-3 shrink-0">
         <button
           type="button"
-          aria-label="Kembali ke AI Chat"
+          aria-label={t("aichat_tooltip_prev")}
           onClick={onClose}
           className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
         >
           <ChevronLeft size={16} strokeWidth={2} />
         </button>
         <div className="text-[18px] font-semibold tracking-[-0.02em] text-white grow">
-          Baca jendela
+          {t("aichat_window_picker_title")}
         </div>
         <button
           type="button"
-          aria-label="Segarkan daftar jendela"
+          aria-label={t("aichat_retry")}
           onClick={fetchWindows}
           disabled={loading}
           className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all disabled:opacity-50"
@@ -243,7 +244,7 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
             }}
             className="h-6 px-3 rounded-[12px] text-[12px] font-semibold cursor-pointer transition-all"
           >
-            Tangkapan layar
+            {t("aichat_window_picker_attach_screenshot")}
           </button>
           <button
             type="button"
@@ -254,16 +255,16 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
             }}
             className="h-6 px-3 rounded-[12px] text-[12px] font-semibold cursor-pointer transition-all"
           >
-            Teks
+            {t("aichat_window_picker_attach_text")}
           </button>
         </div>
         <span className="text-[12px] text-[#a1a1aa] grow truncate">
           {readMode === "text"
-            ? "Teks lebih hemat token dan bisa disensor otomatis."
-            : "Mengirim tangkapan layar jendela ke model AI multimodal."}
+            ? t("aichat_window_mode_text_desc")
+            : t("aichat_window_mode_screen_desc")}
         </span>
         <span className="h-5 px-2 rounded-full bg-white/[0.06] flex items-center text-[11px] text-[#c4c4cc] tabular-nums">
-          {windows.length} jendela
+          {t("aichat_window_count", { count: windows.length })}
         </span>
       </div>
 
@@ -275,14 +276,14 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-10 text-[#a1a1aa] text-[13px]">
             <Loader2 size={16} className="animate-spin text-blue-400" />
-            <span>Memindai jendela yang terbuka...</span>
+            <span>{t("aichat_window_scanning")}</span>
           </div>
         ) : windows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-[#a1a1aa] text-center gap-1.5">
             <AppWindow size={24} className="opacity-40" />
-            <span className="text-[13px] font-medium">Tidak ada jendela yang terbuka</span>
+            <span className="text-[13px] font-medium">{t("aichat_window_picker_no_windows")}</span>
             <span className="text-[11px] text-[#71717a]">
-              Buka aplikasi lain lalu klik tombol segarkan di atas
+              {t("aichat_window_open_hint")}
             </span>
           </div>
         ) : (
@@ -299,10 +300,10 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
                   </div>
                   <div className="grow min-w-0">
                     <div className="text-[13px] font-medium text-[#a1a1aa]">{win.appName}</div>
-                    <div className="text-[11px] text-[#71717a] truncate">Tidak bisa dibaca</div>
+                    <div className="text-[11px] text-[#71717a] truncate">{t("aichat_window_cannot_read")}</div>
                   </div>
                   <span className="h-5 px-2 rounded-full bg-red-500/15 text-red-300 text-[11px] font-medium flex items-center shrink-0">
-                    Diblokir
+                    {t("aichat_window_blocked")}
                   </span>
                 </div>
               );
@@ -313,11 +314,19 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
                 key={win.id}
                 type="button"
                 onClick={() => setSelectedId(win.id)}
-                style={{
-                  backgroundColor: isSelected ? "rgba(56,130,246,0.25)" : "rgba(255,255,255,0.04)",
-                  borderColor: isSelected ? "rgba(56,130,246,0.45)" : "rgba(255,255,255,0.08)",
-                }}
-                className="w-full flex items-center gap-3 h-11 px-3 rounded-[14px] border text-left cursor-pointer transition-all active:scale-[0.99] shrink-0"
+                style={
+                  isSelected
+                    ? {
+                        backgroundColor: "rgba(56,130,246,0.25)",
+                        borderColor: "rgba(56,130,246,0.45)",
+                      }
+                    : undefined
+                }
+                className={`w-full flex items-center gap-3 h-11 px-3 rounded-[14px] border text-left cursor-pointer transition-all active:scale-[0.99] shrink-0 ${
+                  isSelected
+                    ? ""
+                    : "bg-white/[0.04] border-white/[0.08] hover:bg-white/[0.07]"
+                }`}
               >
                 <div className="w-7 h-7 rounded-[9px] bg-white/10 flex items-center justify-center shrink-0">
                   {renderAppIcon(win)}
@@ -332,7 +341,7 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
                 </div>
                 {win.isActive && (
                   <span className="h-5 px-2 rounded-full bg-white/[0.12] text-white text-[11px] flex items-center shrink-0">
-                    Sedang aktif
+                    {t("aichat_window_active")}
                   </span>
                 )}
                 {isSelected ? (
@@ -365,7 +374,7 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
           />
         </button>
         <span className="grow text-[12px] text-[#d4d4d8] leading-tight">
-          Sembunyikan email, nomor kartu, dan token
+          {t("aichat_window_censor_sensitive")}
         </span>
         <button
           type="button"
@@ -377,11 +386,11 @@ export const AiChatWindowPickerModal: React.FC<AiChatWindowPickerModalProps> = (
           {capturing ? (
             <>
               <Loader2 size={13} className="animate-spin" />
-              <span>Membaca...</span>
+              <span>{t("aichat_window_reading")}</span>
             </>
           ) : (
             <>
-              <span>Gunakan konteks</span>
+              <span>{t("aichat_window_use_context")}</span>
               <span className="text-[11px] font-medium border border-black/35 rounded-md px-1.5">
                 Enter
               </span>

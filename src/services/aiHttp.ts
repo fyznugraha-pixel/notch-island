@@ -36,7 +36,7 @@ export async function aiFetch(
     Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
 
   const effectiveHeaders: Record<string, string> = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GiliDesktop/4.6.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GiliDesktop/4.6.1",
     ...(options.headers || {}),
   };
 
@@ -95,7 +95,7 @@ export async function streamAiRequest({
     Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
 
   const effectiveHeaders: Record<string, string> = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GiliDesktop/4.6.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GiliDesktop/4.6.1",
     ...headers,
   };
 

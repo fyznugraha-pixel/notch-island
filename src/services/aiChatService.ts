@@ -7,9 +7,11 @@ import {
 import {
   getLengthSystemInstruction,
   getSafetyMaxTokens,
+  calculateEstimatedCostIdr,
 } from "./aiRouterService";
 import { getNotchSystemInstruction } from "./aiNotchTools";
 import { getGiliFreeEndpoint, getInstallId } from "./giliFreeService";
+import { getLanguage } from "./i18n";
 import type {
   AiProviderId,
   AiModelConfig,
@@ -326,24 +328,104 @@ export function isApiKeyFormatValid(provider: AiProviderId, key: string): boolea
   }
 }
 
-export function createEmptyUsageStats(): AiUsageStats {
+export function getLocalDateStr(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function estimateTextTokens(text: string): number {
+  if (!text) return 0;
+  // Count CJK characters (~1 token each) and non-CJK text (~3.7 chars per token for prose/code mix)
+  let cjkCount = 0;
+  let symbolCount = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0x3040 && code <= 0x30ff) ||
+      (code >= 0xac00 && code <= 0xd7af)
+    ) {
+      cjkCount++;
+    } else if (
+      (code >= 33 && code <= 47) ||
+      (code >= 58 && code <= 64) ||
+      (code >= 91 && code <= 96) ||
+      (code >= 123 && code <= 126)
+    ) {
+      symbolCount++;
+    }
+  }
+  const nonCjkLen = Math.max(0, text.length - cjkCount);
+  const baseTokens = Math.ceil(nonCjkLen / 3.8) + cjkCount + Math.floor(symbolCount * 0.25);
+  return Math.max(1, baseTokens);
+}
+
+export function estimateMessagesInputTokens(
+  systemInstruction: string,
+  messages: AiChatMessage[]
+): number {
+  let total = estimateTextTokens(systemInstruction) + 4;
+  for (const m of messages) {
+    total += 4; // per-message role/framing overhead
+    if (m.content) {
+      total += estimateTextTokens(m.content);
+    }
+    if (m.context?.previewText) {
+      total += estimateTextTokens(m.context.previewText) + 12;
+    }
+    if (m.context?.imageDataUrl) {
+      total += 258; // standard multimodal tile token budget
+    }
+  }
+  return total;
+}
+
+function normalizeSevenDayHistory(
+  existingHistory?: AiTokenDailyUsage[]
+): AiTokenDailyUsage[] {
   const dayNames = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
   const now = new Date();
-  const history: AiTokenDailyUsage[] = [];
+  const byDate = new Map<string, AiTokenDailyUsage>();
+  if (Array.isArray(existingHistory)) {
+    for (const item of existingHistory) {
+      if (item && typeof item.date === "string") {
+        byDate.set(item.date, {
+          date: item.date,
+          dayLabel: item.dayLabel || dayNames[new Date(item.date).getDay()] || "Min",
+          inputTokens: Math.max(0, Number(item.inputTokens) || 0),
+          outputTokens: Math.max(0, Number(item.outputTokens) || 0),
+          totalTokens: Math.max(0, Number(item.totalTokens) || 0),
+        });
+      }
+    }
+  }
 
+  const normalized: AiTokenDailyUsage[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = getLocalDateStr(d);
     const dayLabel = dayNames[d.getDay()];
-    history.push({
-      date: dateStr,
-      dayLabel,
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    });
+    const found = byDate.get(dateStr);
+    normalized.push(
+      found
+        ? { ...found, dayLabel }
+        : {
+            date: dateStr,
+            dayLabel,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+          }
+    );
   }
+  return normalized;
+}
+
+export function createEmptyUsageStats(): AiUsageStats {
+  const history = normalizeSevenDayHistory();
 
   return {
     todayTokens: 0,
@@ -380,8 +462,17 @@ export function loadUsageStats(): AiUsageStats {
       const hasCustomized = localStorage.getItem("island_ai_limit_customized_v1");
       if (!hasCustomized && (parsed.monthlyLimitIdr === 50000 || typeof parsed.monthlyLimitIdr !== "number")) {
         parsed.monthlyLimitIdr = 0;
-        localStorage.setItem(USAGE_STORAGE, JSON.stringify(parsed));
       }
+
+      // Normalize 7-day rolling window in local time so todayTokens & sevenDaysTokens stay accurate across day rollovers
+      const normalizedHistory = normalizeSevenDayHistory(parsed.dailyHistory);
+      const todayEntry = normalizedHistory[normalizedHistory.length - 1];
+      const sevenDaysSum = normalizedHistory.reduce((acc, d) => acc + d.totalTokens, 0);
+
+      parsed.dailyHistory = normalizedHistory;
+      parsed.todayTokens = todayEntry ? todayEntry.totalTokens : 0;
+      parsed.sevenDaysTokens = sevenDaysSum;
+      parsed.thirtyDaysTokens = Math.max(sevenDaysSum, Number(parsed.thirtyDaysTokens) || 0);
 
       return parsed;
     }
@@ -405,43 +496,34 @@ export function resetUsageStats(): AiUsageStats {
 }
 
 export function recordTokenUsage(model: AiModelConfig, inputTokens: number, outputTokens: number): void {
-  const stats = loadUsageStats();
-  const total = inputTokens + outputTokens;
-  stats.todayTokens += total;
-  stats.sevenDaysTokens += total;
-  stats.thirtyDaysTokens += total;
-  stats.totalInputTokens += inputTokens;
-  stats.totalOutputTokens += outputTokens;
+  const safeIn = Math.max(0, Math.round(inputTokens));
+  const safeOut = Math.max(0, Math.round(outputTokens));
+  const total = safeIn + safeOut;
+  if (total <= 0) return;
 
-  // Approximate USD to IDR at 16,000
-  const costUsd =
-    (inputTokens / 1_000_000) * model.inputCostPer1M +
-    (outputTokens / 1_000_000) * model.outputCostPer1M;
-  stats.estimatedCostIdr += Math.max(1, Math.round(costUsd * 16000));
+  const stats = loadUsageStats();
+  stats.totalInputTokens = (stats.totalInputTokens || 0) + safeIn;
+  stats.totalOutputTokens = (stats.totalOutputTokens || 0) + safeOut;
+  stats.thirtyDaysTokens = (stats.thirtyDaysTokens || 0) + total;
+
+  const costIdr = calculateEstimatedCostIdr(model, safeIn, safeOut);
+  stats.estimatedCostIdr = Math.round(((stats.estimatedCostIdr || 0) + costIdr) * 10000) / 10000;
 
   const modelKey = model.name;
   stats.modelBreakdown[modelKey] = (stats.modelBreakdown[modelKey] || 0) + total;
 
-  // Update today in dailyHistory
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalDateStr();
+  stats.dailyHistory = normalizeSevenDayHistory(stats.dailyHistory);
   const existingDay = stats.dailyHistory.find((d) => d.date === todayStr);
   if (existingDay) {
-    existingDay.inputTokens += inputTokens;
-    existingDay.outputTokens += outputTokens;
+    existingDay.inputTokens += safeIn;
+    existingDay.outputTokens += safeOut;
     existingDay.totalTokens += total;
-  } else {
-    const dayNames = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
-    stats.dailyHistory.push({
-      date: todayStr,
-      dayLabel: dayNames[new Date().getDay()],
-      inputTokens,
-      outputTokens,
-      totalTokens: total,
-    });
-    if (stats.dailyHistory.length > 7) {
-      stats.dailyHistory.shift();
-    }
   }
+
+  stats.todayTokens = existingDay ? existingDay.totalTokens : total;
+  stats.sevenDaysTokens = stats.dailyHistory.reduce((acc, d) => acc + d.totalTokens, 0);
+  stats.thirtyDaysTokens = Math.max(stats.thirtyDaysTokens, stats.sevenDaysTokens);
 
   localStorage.setItem(USAGE_STORAGE, JSON.stringify(stats));
 }
@@ -553,6 +635,14 @@ export class StreamContentFilter {
   }
 }
 
+function formatWindowContextPrompt(previewText: string, windowTitle: string, userInstruction: string): string {
+  const isEn = getLanguage() === "en";
+  if (isEn) {
+    return `[User's Active Window/Screen Context]:\nHere is the text and content read directly from window "${windowTitle}":\n"""\n${previewText}\n"""\n\nUser Instruction: ${userInstruction}`;
+  }
+  return `[Konteks Jendela/Layar yang Sedang Dibuka Pengguna]:\nBerikut adalah teks dan isi yang terbaca langsung dari jendela "${windowTitle}":\n"""\n${previewText}\n"""\n\nInstruksi Pengguna: ${userInstruction}`;
+}
+
 export async function streamChatCompletion({
   provider,
   apiKey,
@@ -573,9 +663,14 @@ export async function streamChatCompletion({
   const filter = new StreamContentFilter(onChunk, onReasoningChunk);
 
   const notchInstruction = getNotchSystemInstruction();
+  const currentLang = getLanguage();
+  const langDirectInstruction =
+    currentLang === "en"
+      ? "Always respond directly to the user in English unless the user explicitly requests another language."
+      : "Always respond directly to the user in Indonesian unless the user explicitly requests another language.";
 
   const systemInstruction = `You are a helpful, smart, and concise AI assistant embedded inside Gili desktop notch on Windows.
-Always respond directly to the user in Indonesian unless the user explicitly requests another language.
+${langDirectInstruction}
 Never output meta-instructions, internal monologue, planning notes, translation preambles, or scratchpads. Begin immediately with your response to the user.
 ${lengthInstruction}
 ${notchInstruction}`;
@@ -608,12 +703,17 @@ ${notchInstruction}`;
       "anthropic-dangerous-direct-browser-access": "true",
     };
 
+    const isEn = getLanguage() === "en";
     const claudeMessages = windowedMessages
       .filter((m) => m.role !== "system")
       .map((m) => {
         let text = m.content;
         if (m.context?.previewText) {
-          text = `[Konteks Jendela/Layar yang Sedang Dibuka Pengguna]:\nBerikut adalah teks dan isi yang terbaca langsung dari jendela "${m.context.title || m.context.type}":\n"""\n${m.context.previewText}\n"""\n\nInstruksi Pengguna: ${text}`;
+          text = formatWindowContextPrompt(
+            m.context.previewText,
+            m.context.title || m.context.type,
+            text
+          );
         }
 
         if (m.role === "user" && m.context?.imageDataUrl) {
@@ -632,7 +732,7 @@ ${notchInstruction}`;
                 },
                 {
                   type: "text",
-                  text: text || "Jelaskan gambar ini.",
+                  text: text || (isEn ? "Explain this image." : "Jelaskan gambar ini."),
                 },
               ],
             };
@@ -641,7 +741,11 @@ ${notchInstruction}`;
         return { role: m.role, content: text };
       });
 
-    let outputTokens = 0;
+    let apiInputTokens = 0;
+    let apiOutputTokens = 0;
+    let rawOutputText = "";
+    let rawReasoningText = "";
+
     await streamAiRequest({
       url: endpoint,
       method: "POST",
@@ -660,18 +764,29 @@ ${notchInstruction}`;
           if (dataStr === "[DONE]") return;
           try {
             const parsed = JSON.parse(dataStr);
-            if (parsed.type === "content_block_delta") {
+            if (parsed.type === "message_start" && parsed.message?.usage) {
+              const u = parsed.message.usage;
+              const inTok =
+                (Number(u.input_tokens) || 0) +
+                (Number(u.cache_creation_input_tokens) || 0) +
+                (Number(u.cache_read_input_tokens) || 0);
+              if (inTok > 0) apiInputTokens = inTok;
+              if (Number(u.output_tokens) > 0) apiOutputTokens = Number(u.output_tokens);
+            } else if (parsed.type === "content_block_delta") {
               if (parsed.delta?.text) {
+                rawOutputText += parsed.delta.text;
                 filter.handleContent(parsed.delta.text);
-                outputTokens += Math.max(1, Math.round(parsed.delta.text.length / 4));
               } else if (parsed.delta?.thinking) {
+                rawReasoningText += parsed.delta.thinking;
                 filter.handleReasoning(parsed.delta.thinking);
               }
-            } else if (
-              parsed.type === "message_delta" &&
-              parsed.delta?.stop_reason === "max_tokens"
-            ) {
-              if (onTruncated) onTruncated();
+            } else if (parsed.type === "message_delta") {
+              if (Number(parsed.usage?.output_tokens) > 0) {
+                apiOutputTokens = Number(parsed.usage.output_tokens);
+              }
+              if (parsed.delta?.stop_reason === "max_tokens" && onTruncated) {
+                onTruncated();
+              }
             }
           } catch {}
         }
@@ -679,14 +794,20 @@ ${notchInstruction}`;
     });
     filter.flush();
 
-    const inputTokens = Math.round(
-      windowedMessages.reduce((acc, m) => acc + m.content.length, 0) / 4
-    );
+    const inputTokens =
+      apiInputTokens > 0
+        ? apiInputTokens
+        : estimateMessagesInputTokens(systemInstruction, windowedMessages);
+    const outputTokens =
+      apiOutputTokens > 0
+        ? apiOutputTokens
+        : estimateTextTokens(rawOutputText + rawReasoningText);
     return { inputTokens, outputTokens };
   }
 
   if (provider === "gemini" && !useGiliFree) {
     endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model.id}:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const isEn = getLanguage() === "en";
     const geminiContents = windowedMessages.map((m) => {
       const parts: any[] = [];
       if (m.context?.imageDataUrl) {
@@ -702,16 +823,23 @@ ${notchInstruction}`;
       }
       let text = m.content;
       if (m.context?.previewText) {
-        text = `[Konteks Jendela/Layar yang Sedang Dibuka Pengguna]:\nBerikut adalah teks dan isi yang terbaca langsung dari jendela "${m.context.title || m.context.type}":\n"""\n${m.context.previewText}\n"""\n\nInstruksi Pengguna: ${text}`;
+        text = formatWindowContextPrompt(
+          m.context.previewText,
+          m.context.title || m.context.type,
+          text
+        );
       }
-      parts.push({ text: text || "Jelaskan gambar ini." });
+      parts.push({ text: text || (isEn ? "Explain this image." : "Jelaskan gambar ini.") });
       return {
         role: m.role === "assistant" ? "model" : "user",
         parts,
       };
     });
 
-    let outputTokens = 0;
+    let apiInputTokens = 0;
+    let apiOutputTokens = 0;
+    let rawOutputText = "";
+
     await streamAiRequest({
       url: endpoint,
       method: "POST",
@@ -731,10 +859,18 @@ ${notchInstruction}`;
           const dataStr = line.slice(6).trim();
           try {
             const parsed = JSON.parse(dataStr);
+            if (parsed.usageMetadata) {
+              const promptTok = Number(parsed.usageMetadata.promptTokenCount) || 0;
+              const candTok =
+                (Number(parsed.usageMetadata.candidatesTokenCount) || 0) +
+                (Number(parsed.usageMetadata.thoughtsTokenCount) || 0);
+              if (promptTok > 0) apiInputTokens = promptTok;
+              if (candTok > 0) apiOutputTokens = candTok;
+            }
             const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text) {
+              rawOutputText += text;
               filter.handleContent(text);
-              outputTokens += Math.max(1, Math.round(text.length / 4));
             }
             const finishReason =
               parsed.candidates?.[0]?.finishReason ||
@@ -748,9 +884,12 @@ ${notchInstruction}`;
     });
     filter.flush();
 
-    const inputTokens = Math.round(
-      windowedMessages.reduce((acc, m) => acc + m.content.length, 0) / 4
-    );
+    const inputTokens =
+      apiInputTokens > 0
+        ? apiInputTokens
+        : estimateMessagesInputTokens(systemInstruction, windowedMessages);
+    const outputTokens =
+      apiOutputTokens > 0 ? apiOutputTokens : estimateTextTokens(rawOutputText);
     return { inputTokens, outputTokens };
   }
 
@@ -783,6 +922,7 @@ ${notchInstruction}`;
     endpoint = "https://openrouter.ai/api/v1/chat/completions";
   }
 
+  const isEn = getLanguage() === "en";
   const openaiMessages: any[] = [
     {
       role: "system",
@@ -791,10 +931,16 @@ ${notchInstruction}`;
     ...windowedMessages.map((m) => {
       let text = m.content;
       if (m.context?.previewText) {
-        text = `[Konteks Jendela/Layar yang Sedang Dibuka Pengguna]:\nBerikut adalah teks dan isi yang terbaca langsung dari jendela "${m.context.title || m.context.type}":\n"""\n${m.context.previewText}\n"""\n\nInstruksi Pengguna: ${text}`;
+        text = formatWindowContextPrompt(
+          m.context.previewText,
+          m.context.title || m.context.type,
+          text
+        );
       }
       if (m.context?.imageDataUrl && provider === "deepseek") {
-        text += "\n[Catatan: Pengguna melampirkan tangkapan layar jendela. Analisis berdasarkan judul dan teks jendela di atas]";
+        text += isEn
+          ? "\n[Note: User attached a window screenshot. Analyze based on the window title and text above]"
+          : "\n[Catatan: Pengguna melampirkan tangkapan layar jendela. Analisis berdasarkan judul dan teks jendela di atas]";
       }
 
       // Support image data URL for OpenAI, OpenRouter, and multimodal models
@@ -806,7 +952,7 @@ ${notchInstruction}`;
         return {
           role: "user",
           content: [
-            { type: "text", text: text || "Jelaskan gambar ini." },
+            { type: "text", text: text || (isEn ? "Explain this image." : "Jelaskan gambar ini.") },
             {
               type: "image_url",
               image_url: { url: m.context.imageDataUrl },
@@ -819,17 +965,31 @@ ${notchInstruction}`;
     }),
   ];
 
-  let outputTokens = 0;
+  let apiInputTokens = 0;
+  let apiOutputTokens = 0;
+  let rawOutputText = "";
+  let rawReasoningText = "";
+
+  const includeStreamUsage =
+    !useGiliFree &&
+    !customBase &&
+    (provider === "openai" || provider === "deepseek" || provider === "grok" || provider === "openrouter");
+
+  const reqPayload: Record<string, any> = {
+    model: model.id,
+    messages: openaiMessages,
+    stream: true,
+    max_tokens: safetyMaxTokens,
+  };
+  if (includeStreamUsage) {
+    reqPayload.stream_options = { include_usage: true };
+  }
+
   await streamAiRequest({
     url: endpoint,
     method: "POST",
     headers,
-    body: JSON.stringify({
-      model: model.id,
-      messages: openaiMessages,
-      stream: true,
-      max_tokens: safetyMaxTokens,
-    }),
+    body: JSON.stringify(reqPayload),
     signal,
     onChunk: (line) => {
       if (line.startsWith("data: ")) {
@@ -837,16 +997,24 @@ ${notchInstruction}`;
         if (dataStr === "[DONE]") return;
         try {
           const parsed = JSON.parse(dataStr);
+          if (parsed.usage) {
+            const pTok = Number(parsed.usage.prompt_tokens) || Number(parsed.usage.input_tokens) || 0;
+            const cTok =
+              Number(parsed.usage.completion_tokens) || Number(parsed.usage.output_tokens) || 0;
+            if (pTok > 0) apiInputTokens = pTok;
+            if (cTok > 0) apiOutputTokens = cTok;
+          }
           const delta = parsed.choices?.[0]?.delta;
           const reasoning = delta?.reasoning_content || delta?.reasoning;
           const content = delta?.content;
 
           if (reasoning) {
+            rawReasoningText += reasoning;
             filter.handleReasoning(reasoning);
           }
           if (content) {
+            rawOutputText += content;
             filter.handleContent(content);
-            outputTokens += Math.max(1, Math.round(content.length / 4));
           }
           const finishReason = parsed.choices?.[0]?.finish_reason;
           if (finishReason === "length" && onTruncated) {
@@ -858,9 +1026,14 @@ ${notchInstruction}`;
   });
   filter.flush();
 
-  const inputTokens = Math.round(
-    windowedMessages.reduce((acc, m) => acc + m.content.length, 0) / 4
-  );
+  const inputTokens =
+    apiInputTokens > 0
+      ? apiInputTokens
+      : estimateMessagesInputTokens(systemInstruction, windowedMessages);
+  const outputTokens =
+    apiOutputTokens > 0
+      ? apiOutputTokens
+      : estimateTextTokens(rawOutputText + rawReasoningText);
   return { inputTokens, outputTokens };
 }
 
