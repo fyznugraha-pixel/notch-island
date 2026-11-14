@@ -532,6 +532,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               <DropShelfReceivedBanner
                 count={receivedBanner.count}
                 deviceName={receivedBanner.deviceName}
+                isLightMode={isLightMode}
                 onReceiveAgain={handleStartReceive}
                 onDismiss={() => setReceivedBanner(null)}
               />
@@ -625,7 +626,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               {canScrollLeft && (
                 <button
                   onClick={() => handleScrollStep("left")}
-                  className="absolute left-0 top-[34px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
+                  className={`absolute left-0 top-[34px] z-20 w-7 h-7 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md ${
+                    isLightMode
+                      ? "bg-white/95 hover:bg-white text-[#1d1d1f] border border-black/15"
+                      : "bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15"
+                  }`}
                   aria-label={isEn ? "Scroll left" : "Gulir ke kiri"}
                 >
                   <ChevronLeft size={15} />
@@ -760,7 +765,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                   e.stopPropagation();
                                   handleSendSingleFile(file);
                                 }}
-                                className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-[#3882F6] text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                                className={`w-4.5 h-4.5 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                  isLightMode
+                                    ? "bg-white/95 hover:bg-[#3882F6]/15 text-[#1d1d1f] hover:text-[#1d4ed8] border border-black/15 shadow-sm"
+                                    : "bg-black/70 hover:bg-[#3882F6] text-white border border-white/10"
+                                }`}
                               >
                                 <Smartphone size={9.5} />
                               </button>
@@ -772,7 +781,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                   e.stopPropagation();
                                   handleShowInFolder(file.path);
                                 }}
-                                className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                                className={`w-4.5 h-4.5 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                  isLightMode
+                                    ? "bg-white/95 hover:bg-black/[0.08] text-[#1d1d1f] border border-black/15 shadow-sm"
+                                    : "bg-black/70 hover:bg-white/20 text-white border border-white/10"
+                                }`}
                               >
                                 <ExternalLink size={9.5} />
                               </button>
@@ -784,7 +797,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                 onRemoveFile(file.id);
                               }}
                               aria-label={isEn ? "Remove file" : "Hapus file"}
-                              className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-rose-500/80 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                              className={`w-4.5 h-4.5 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                isLightMode
+                                  ? "bg-white/95 hover:bg-rose-500/15 text-[#1d1d1f] hover:text-rose-600 border border-black/15 shadow-sm"
+                                  : "bg-black/70 hover:bg-rose-500/80 text-white border border-white/10"
+                              }`}
                             >
                               <X size={9.5} strokeWidth={2.4} />
                             </button>
@@ -792,8 +809,16 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
 
                           {/* Copied Overlay */}
                           {isCopied && (
-                            <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 text-white z-30">
-                              <Check size={15} className="text-[#13FF00]" strokeWidth={2.8} />
+                            <div
+                              className={`absolute inset-0 flex flex-col items-center justify-center gap-1 z-30 ${
+                                isLightMode ? "bg-white/90 text-[#1d1d1f]" : "bg-black/85 text-white"
+                              }`}
+                            >
+                              <Check
+                                size={15}
+                                className={isLightMode ? "text-emerald-600" : "text-[#13FF00]"}
+                                strokeWidth={2.8}
+                              />
                               <span className="text-[10px] font-semibold">{t("shelf_copied")}</span>
                             </div>
                           )}
@@ -845,7 +870,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               {canScrollRight && (
                 <button
                   onClick={() => handleScrollStep("right")}
-                  className="absolute right-0 top-[34px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
+                  className={`absolute right-0 top-[34px] z-20 w-7 h-7 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md ${
+                    isLightMode
+                      ? "bg-white/95 hover:bg-white text-[#1d1d1f] border border-black/15"
+                      : "bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15"
+                  }`}
                   aria-label={isEn ? "Scroll right" : "Gulir ke kanan"}
                 >
                   <ChevronRight size={15} />
@@ -860,6 +889,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
             session={sessionInfo}
             incomingProgress={incomingProgress}
             activeDeviceName={activeDeviceName}
+            isLightMode={isLightMode}
             onClose={handleCloseTransfer}
             onCancel={handleCloseTransfer}
           />

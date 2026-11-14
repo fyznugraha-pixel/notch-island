@@ -243,7 +243,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
                         aria-checked={checked}
                         onClick={() => toggleBehavior(row.field)}
                         className={`w-8 h-4.5 rounded-full p-0.5 flex items-center transition-colors shrink-0 cursor-pointer ${
-                          checked ? "bg-[#3882F6] justify-end" : "bg-[#2a2a31] justify-start"
+                          checked ? "bg-[#3882F6] justify-end" : "bg-[#2a2a31] light-track-surface justify-start"
                         }`}
                       >
                         <span className="w-3.5 h-3.5 rounded-full bg-white shadow-sm" />
@@ -420,7 +420,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
               return (
                 <div
                   key={idx}
-                  className="flex-1 h-1.5 rounded-full bg-[#2a2a31] overflow-hidden"
+                  className="flex-1 h-1.5 rounded-full bg-[#2a2a31] light-track-surface overflow-hidden"
                 >
                   <div
                     style={{

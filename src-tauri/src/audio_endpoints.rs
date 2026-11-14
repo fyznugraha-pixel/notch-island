@@ -5,7 +5,7 @@ use windows::Win32::Media::Audio::{
     IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
+    CoCreateInstance, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
 };
 use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
 use windows::core::{PCWSTR, GUID};
@@ -49,9 +49,9 @@ pub struct AudioEndpointInfo {
 
 pub fn list_audio_endpoints() -> Vec<AudioEndpointInfo> {
     let mut result = Vec::new();
+    let _com = crate::ComGuard::init(COINIT_MULTITHREADED);
 
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else {
             return result;
         };
@@ -161,8 +161,9 @@ pub fn set_default_endpoint(id: &str) -> Result<(), String> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
 
+    let _com = crate::ComGuard::init(COINIT_MULTITHREADED);
+
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let policy_config: IPolicyConfig = CoCreateInstance(&CLSID_POLICY_CONFIG, None, CLSCTX_ALL)
             .map_err(|e| format!("Failed to create IPolicyConfig: {}", e))?;
 
@@ -170,9 +171,18 @@ pub fn set_default_endpoint(id: &str) -> Result<(), String> {
         let pcwstr = PCWSTR(id_wide.as_ptr());
 
         // Set default for Multimedia, Console, and Communications
-        let _ = policy_config.SetDefaultEndpoint(pcwstr, eMultimedia);
-        let _ = policy_config.SetDefaultEndpoint(pcwstr, eConsole);
-        let _ = policy_config.SetDefaultEndpoint(pcwstr, eCommunications);
+        policy_config
+            .SetDefaultEndpoint(pcwstr, eMultimedia)
+            .ok()
+            .map_err(|e| format!("Failed to set eMultimedia endpoint: {}", e))?;
+        policy_config
+            .SetDefaultEndpoint(pcwstr, eConsole)
+            .ok()
+            .map_err(|e| format!("Failed to set eConsole endpoint: {}", e))?;
+        policy_config
+            .SetDefaultEndpoint(pcwstr, eCommunications)
+            .ok()
+            .map_err(|e| format!("Failed to set eCommunications endpoint: {}", e))?;
     }
 
     Ok(())

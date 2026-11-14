@@ -1,9 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import type { LyricLine } from "../../services/lyrics/types";
+import { resolveLineWords, splitWordsForWrappedRows } from "../../services/lyrics/wordTiming";
 import { BarLyricLayoutResult, computeMarqueeTiming } from "./lyricsLayout";
+import { WordFillLyricsLine } from "../ui/WordFillLyricsLine";
 
 export interface BarLyricSlotProps {
   lineKey: string;
   layout: BarLyricLayoutResult;
+  activeLyricLine?: LyricLine | null;
+  effectivePosition?: number;
   currentLineTime: number | null;
   nextLineTime: number | null;
   isPlaying: boolean;
@@ -13,6 +18,8 @@ export interface BarLyricSlotProps {
 export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
   lineKey,
   layout,
+  activeLyricLine,
+  effectivePosition,
   currentLineTime,
   nextLineTime,
   isPlaying,
@@ -29,15 +36,25 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
       return;
     }
 
+    let cancelled = false;
+    let innerRafId = 0;
     setEntered(false);
     const rafId = requestAnimationFrame(() => {
-      const innerRafId = requestAnimationFrame(() => {
-        setEntered(true);
+      if (cancelled) return;
+      innerRafId = requestAnimationFrame(() => {
+        if (!cancelled) {
+          setEntered(true);
+        }
       });
-      return () => cancelAnimationFrame(innerRafId);
     });
 
-    return () => cancelAnimationFrame(rafId);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      if (innerRafId) {
+        cancelAnimationFrame(innerRafId);
+      }
+    };
   }, [lineKey, prefersReducedMotion]);
 
   // Trigger single-run marquee after 500ms pause when in marquee mode
@@ -85,6 +102,32 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
           : "none",
       };
 
+  const wrappedRows = useMemo(() => {
+    if (
+      !activeLyricLine ||
+      effectivePosition === undefined ||
+      (layout.mode !== "wrapped" && layout.mode !== "wrapped-clamped")
+    ) {
+      return null;
+    }
+    const resolved = resolveLineWords(activeLyricLine, nextLineTime ?? undefined);
+    return splitWordsForWrappedRows(resolved, layout.lines[0] || "", layout.lines[1]);
+  }, [activeLyricLine, effectivePosition, layout.mode, layout.lines, nextLineTime]);
+
+  const singleLinePayload = useMemo<LyricLine | null>(() => {
+    if (!activeLyricLine || effectivePosition === undefined) return null;
+    const raw0 = layout.lines[0] || "";
+    if (!raw0) return null;
+    const normalizedDisplay = raw0.replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
+    const normalizedSource = activeLyricLine.text.replace(/\s+/g, " ").trim();
+    return normalizedDisplay === normalizedSource
+      ? activeLyricLine
+      : { time: activeLyricLine.time, text: raw0 };
+  }, [activeLyricLine, effectivePosition, layout.lines]);
+
+  const fillBaseColor = "rgba(255, 255, 255, 0.42)";
+  const fillHighlightColor = "#ffffff";
+
   return (
     <div
       className="flex-1 min-h-[38px] w-full overflow-hidden flex flex-col justify-center select-none"
@@ -105,8 +148,41 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
             className="w-full text-start font-semibold text-white leading-snug tracking-[-0.01em] line-clamp-2 overflow-hidden"
             title={layout.lines.join(" ")}
           >
-            <div>{layout.lines[0]}</div>
-            {layout.lines[1] && <div>{layout.lines[1]}</div>}
+            {wrappedRows && effectivePosition !== undefined ? (
+              <>
+                <div>
+                  <WordFillLyricsLine
+                    line={wrappedRows.row0}
+                    nextLineTime={wrappedRows.row0NextTime}
+                    effectiveTime={effectivePosition}
+                    isActive
+                    isPlaying={isPlaying}
+                    prefersReducedMotion={prefersReducedMotion}
+                    baseColor={fillBaseColor}
+                    fillColor={fillHighlightColor}
+                  />
+                </div>
+                {layout.lines[1] && wrappedRows.row1 && (
+                  <div>
+                    <WordFillLyricsLine
+                      line={wrappedRows.row1}
+                      nextLineTime={wrappedRows.row1NextTime}
+                      effectiveTime={effectivePosition}
+                      isActive
+                      isPlaying={isPlaying}
+                      prefersReducedMotion={prefersReducedMotion}
+                      baseColor={fillBaseColor}
+                      fillColor={fillHighlightColor}
+                    />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div>{layout.lines[0]}</div>
+                {layout.lines[1] && <div>{layout.lines[1]}</div>}
+              </>
+            )}
           </div>
         ) : layout.mode === "marquee" ? (
           <>
@@ -134,7 +210,21 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
                 }}
                 className="inline-block pl-[2px] pr-3 font-semibold text-white leading-snug tracking-[-0.01em]"
               >
-                {layout.lines[0]}
+                {singleLinePayload && effectivePosition !== undefined ? (
+                  <WordFillLyricsLine
+                    line={singleLinePayload}
+                    nextLineTime={nextLineTime ?? undefined}
+                    effectiveTime={effectivePosition}
+                    isActive
+                    isPlaying={isPlaying}
+                    prefersReducedMotion={prefersReducedMotion}
+                    singleLine
+                    baseColor={fillBaseColor}
+                    fillColor={fillHighlightColor}
+                  />
+                ) : (
+                  layout.lines[0]
+                )}
               </span>
             </div>
             <div
@@ -155,7 +245,21 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
               className="w-full min-h-[20px] h-auto flex items-center font-semibold text-white leading-snug tracking-[-0.01em] truncate text-start"
               title={layout.lines[0]}
             >
-              {layout.lines[0]}
+              {singleLinePayload && effectivePosition !== undefined ? (
+                <WordFillLyricsLine
+                  line={singleLinePayload}
+                  nextLineTime={nextLineTime ?? undefined}
+                  effectiveTime={effectivePosition}
+                  isActive
+                  isPlaying={isPlaying}
+                  prefersReducedMotion={prefersReducedMotion}
+                  singleLine
+                  baseColor={fillBaseColor}
+                  fillColor={fillHighlightColor}
+                />
+              ) : (
+                layout.lines[0]
+              )}
             </div>
             <div
               dir="auto"

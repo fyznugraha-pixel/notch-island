@@ -42,18 +42,25 @@ export function useLyricsSync(
     timestamp: performance.now(),
   });
   const activeIndexRef = useRef<number>(-1);
+  const isPlayingRef = useRef<boolean>(isPlaying);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   // Subscribe to live backend progress stream
   useEffect(() => {
     const unsubscribe = subscribeProgress((p) => {
-      if (typeof p.duration === "number" && p.duration > 0) {
+      if (typeof p.duration === "number" && p.duration >= 0) {
         setLiveDuration(p.duration);
       }
       const now = performance.now();
       const elapsed = (now - anchorRef.current.timestamp) / 1000;
-      const estimated = isPlaying ? anchorRef.current.time + elapsed : anchorRef.current.time;
+      const estimated = isPlayingRef.current
+        ? anchorRef.current.time + elapsed
+        : anchorRef.current.time;
 
-      if (Math.abs(estimated - p.position) > 0.35 || !isPlaying) {
+      if (Math.abs(estimated - p.position) > 0.35) {
         anchorRef.current = { time: p.position, timestamp: now };
         setLivePosition(p.position);
       }
@@ -62,7 +69,7 @@ export function useLyricsSync(
     return () => {
       unsubscribe();
     };
-  }, [isPlaying]);
+  }, []);
 
   // Tick loop for binary search and progress bar (runs when playing)
   useEffect(() => {

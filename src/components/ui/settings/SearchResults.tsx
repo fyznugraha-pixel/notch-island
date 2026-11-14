@@ -36,6 +36,11 @@ import { t, Language } from "../../../services/i18n";
 import { SettingsSubtab } from "./SettingsSubnav";
 import { UpdateInfo, UpdateStatus } from "../../../services/updateService";
 import {
+  emitCrossWindowEvent,
+  listenCrossWindowEvent,
+} from "../../../utils/crossWindowSync";
+import { resetAllAppSettings } from "../../../services/settingsResetService";
+import {
   loadPomodoroSettings,
   savePomodoroSettings,
 } from "../../../services/pomodoroService";
@@ -200,39 +205,40 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
     return loadPomodoroSettings().showIdleTimer;
   });
 
+  React.useEffect(() => {
+    return listenCrossWindowEvent("gili_pomodoro_settings_updated", () => {
+      setPomodoroIdle(loadPomodoroSettings().showIdleTimer);
+    });
+  }, []);
+
   const handleTogglePomodoroIdle = () => {
     const next = !pomodoroIdle;
     setPomodoroIdle(next);
     const curr = loadPomodoroSettings();
     savePomodoroSettings({ ...curr, showIdleTimer: next });
-    window.dispatchEvent(new CustomEvent("gili_pomodoro_settings_updated"));
+    emitCrossWindowEvent("gili_pomodoro_settings_updated");
   };
 
   const [showResetConfirm, setShowResetConfirm] = React.useState(false);
 
   const handleRestartOnboarding = () => {
-    window.dispatchEvent(new CustomEvent("island_trigger_onboarding"));
+    try {
+      localStorage.removeItem("island_onboarding_completed");
+    } catch {}
+    emitCrossWindowEvent("island_trigger_onboarding");
     onClose();
   };
 
-  const handleResetAllSettings = () => {
+  const handleResetAllSettings = async () => {
     if (!showResetConfirm) {
       setShowResetConfirm(true);
       return;
     }
     try {
-      localStorage.removeItem("island_onboarding_completed");
-      localStorage.removeItem("island_theme");
-      localStorage.removeItem("island_idle_layout");
-      localStorage.removeItem("island_font_size");
-      localStorage.removeItem("island_tab_size");
-      localStorage.removeItem("island_ears");
-      localStorage.removeItem("island_transparency");
-      localStorage.removeItem("island_auto_compact");
-      localStorage.removeItem("island_show_greeting");
-      localStorage.removeItem("island_close_delay");
-    } catch {}
-    window.location.reload();
+      await resetAllAppSettings();
+    } finally {
+      window.location.reload();
+    }
   };
 
   const updateSubtitle =

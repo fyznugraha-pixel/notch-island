@@ -55,10 +55,26 @@ fn cleanup_legacy_registry() {
 }
 
 #[cfg(windows)]
-fn migrate_shortcuts() {
+fn create_gili_shortcut(lnk_path: &std::path::Path, target_exe: &std::path::Path) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+    // Bind paths via env vars so `-Command` does not evaluate paths as script tokens.
+    let script = "$w = New-Object -ComObject WScript.Shell; \
+        $s = $w.CreateShortcut($env:GILI_LNK_PATH); \
+        $s.TargetPath = $env:GILI_TARGET_EXE; \
+        $s.IconLocation = ($env:GILI_TARGET_EXE + ',0'); \
+        $s.Save()";
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
+        .env("GILI_LNK_PATH", lnk_path)
+        .env("GILI_TARGET_EXE", target_exe)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+}
+
+#[cfg(windows)]
+fn migrate_shortcuts() {
     let current_exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(_) => return,
@@ -76,66 +92,30 @@ fn migrate_shortcuts() {
         return;
     }
 
-    let desktop_notch = PathBuf::from(&user_profile).join("Desktop").join("Notch.lnk");
-    let desktop_gili = PathBuf::from(&user_profile).join("Desktop").join("Gili.lnk");
+    if !user_profile.is_empty() {
+        let desktop_dir = PathBuf::from(&user_profile).join("Desktop");
+        let desktop_notch = desktop_dir.join("Notch.lnk");
+        let desktop_gili = desktop_dir.join("Gili.lnk");
 
-    let start_notch = PathBuf::from(&app_data)
-        .join(r"Microsoft\Windows\Start Menu\Programs")
-        .join("Notch.lnk");
-    let start_gili = PathBuf::from(&app_data)
-        .join(r"Microsoft\Windows\Start Menu\Programs")
-        .join("Gili.lnk");
-
-    // Remove legacy Desktop Notch shortcut
-    if desktop_notch.exists() {
-        let _ = std::fs::remove_file(&desktop_notch);
+        if desktop_notch.exists() {
+            let _ = std::fs::remove_file(&desktop_notch);
+        }
+        if !desktop_gili.exists() {
+            create_gili_shortcut(&desktop_gili, &current_exe);
+        }
     }
 
-    // Remove legacy Start Menu Notch shortcut
-    if start_notch.exists() {
-        let _ = std::fs::remove_file(&start_notch);
-    }
+    if !app_data.is_empty() {
+        let programs_dir = PathBuf::from(&app_data).join(r"Microsoft\Windows\Start Menu\Programs");
+        let start_notch = programs_dir.join("Notch.lnk");
+        let start_gili = programs_dir.join("Gili.lnk");
 
-    let target_path_str = current_exe.to_string_lossy().replace('\'', "''");
-
-    // Ensure Desktop shortcut for Gili exists
-    if !desktop_gili.exists() {
-        let lnk_str = desktop_gili.to_string_lossy().replace('\'', "''");
-        // Pass paths as literal arguments ($args), NOT interpolated into the script text:
-        // single-quote escaping alone does not stop PowerShell expansion of $(...) or
-        // backticks inside a double-quoted '-Command' string. $args[...] is bound to the
-        // argument value verbatim, so no code can ever execute from a crafted path.
-        let script = "$w = New-Object -ComObject WScript.Shell; $s = $w.CreateShortcut($args[0]); $s.TargetPath = $args[1]; $s.IconLocation = $args[1] + ',0'; $s.Save()";
-        let _ = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                script,
-                &lnk_str,
-                &target_path_str,
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-    }
-
-    // Ensure Start Menu shortcut for Gili exists
-    if !start_gili.exists() {
-        let lnk_str = start_gili.to_string_lossy().replace('\'', "''");
-        let script = "$w = New-Object -ComObject WScript.Shell; $s = $w.CreateShortcut($args[0]); $s.TargetPath = $args[1]; $s.IconLocation = $args[1] + ',0'; $s.Save()";
-        let _ = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                script,
-                &lnk_str,
-                &target_path_str,
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+        if start_notch.exists() {
+            let _ = std::fs::remove_file(&start_notch);
+        }
+        if !start_gili.exists() {
+            create_gili_shortcut(&start_gili, &current_exe);
+        }
     }
 }
 

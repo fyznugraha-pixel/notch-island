@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Music, RotateCw, ChevronDown, Check } from "lucide-react";
 import { LyricsData, LyricsProviderId, LYRICS_PROVIDERS_META } from "../../services/lyricsService";
 import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
 import { getSongLyricsOffset, setSongLyricsOffset } from "../../services/mediaLyricsStore";
+import { WordFillLyricsLine, usePrefersReducedMotion } from "./WordFillLyricsLine";
 
 export interface LyricsViewProps {
   lyrics: LyricsData | null;
@@ -97,11 +98,21 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   };
 
   // High-precision live time tracking
+  const prefersReducedMotion = usePrefersReducedMotion();
   const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const [seekRevision, setSeekRevision] = useState(0);
   const anchorRef = useRef<{ time: number; timestamp: number }>({
     time: currentTime,
     timestamp: performance.now(),
   });
+
+  const getEffectiveTime = useCallback(() => {
+    const now = performance.now();
+    const liveTime = isPlaying
+      ? anchorRef.current.time + (now - anchorRef.current.timestamp) / 1000
+      : anchorRef.current.time;
+    return liveTime + offset + 0.2;
+  }, [isPlaying, offset]);
 
   // Re-sync anchor when currentTime from SMTC updates or isPlaying toggles
   useEffect(() => {
@@ -361,6 +372,9 @@ export const LyricsView = React.memo<LyricsViewProps>(({
           <div className="flex flex-col space-y-3 py-6">
             {lyrics.lines.map((line, index) => {
               const isActive = index === activeIndex;
+              const nextLineTime =
+                index + 1 < lyrics.lines.length ? lyrics.lines[index + 1].time : undefined;
+              const hasRenderableText = Boolean(line.text?.trim());
               return (
                 <div
                   key={`${index}-${line.time}`}
@@ -369,15 +383,32 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                     onSeek?.(line.time);
                     anchorRef.current = { time: line.time, timestamp: performance.now() };
                     setActiveIndex(index);
+                    setSeekRevision((prev) => prev + 1);
                   }}
-                  className={`cursor-pointer transition-all duration-300 transform origin-left rounded px-1 py-0.5 select-none ${
+                  className={`cursor-pointer transform origin-left rounded px-1 py-0.5 select-none ${
+                    prefersReducedMotion ? "" : "transition-all duration-300"
+                  } ${
                     isActive
                       ? "text-white font-bold text-[14.5px] leading-snug scale-[1.02]"
                       : "text-white/30 font-medium text-[12.5px] leading-snug hover:text-white/70 hover:scale-[1.01]"
                   }`}
-                  style={isActive ? { textShadow: "0 0 16px rgba(255,255,255,0.4)" } : undefined}
                 >
-                  {line.text || "•••"}
+                  {isActive && hasRenderableText ? (
+                    <WordFillLyricsLine
+                      key={`wf-${index}-${seekRevision}`}
+                      line={line}
+                      nextLineTime={nextLineTime}
+                      effectiveTime={currentTime + offset + 0.2}
+                      getEffectiveTime={getEffectiveTime}
+                      isActive
+                      isPlaying={isPlaying}
+                      prefersReducedMotion={prefersReducedMotion}
+                      baseColor="var(--lyrics-base-color, rgba(255, 255, 255, 0.36))"
+                      fillColor="var(--lyrics-fill-color, #ffffff)"
+                    />
+                  ) : (
+                    line.text || "•••"
+                  )}
                 </div>
               );
             })}

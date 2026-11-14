@@ -8,6 +8,7 @@ import { MediaPayload } from "../../types";
 import { MediaThumbnail } from "./MediaThumbnail";
 import { AudioVisualizer } from "./AudioVisualizer";
 import { ScrollingText } from "./ScrollingText";
+import { WordFillLyricsLine, usePrefersReducedMotion } from "./WordFillLyricsLine";
 
 export interface IdleLyricsProps {
   lyricsData: LyricsData | null;
@@ -58,6 +59,7 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   onClick,
 }) => {
   const safeTime = typeof currentTime === "number" && !isNaN(currentTime) ? currentTime : 0;
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const [offset, setOffset] = useState<number>(() => {
     try {
@@ -78,6 +80,15 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
     timestamp: performance.now(),
   });
   const lastEmittedRef = useRef({ curr: "", prev: "", next: "" });
+
+  const getEffectiveTime = useCallback(() => {
+    const now = performance.now();
+    const liveTime = isPlaying
+      ? anchorRef.current.time + (now - anchorRef.current.timestamp) / 1000
+      : anchorRef.current.time;
+    const safeOffset = typeof offset === "number" && !isNaN(offset) ? offset : 0;
+    return liveTime + safeOffset + 0.2;
+  }, [isPlaying, offset]);
 
   const tick = useCallback(() => {
     if (!lyricsData?.synced || !lyricsData.lines.length) {
@@ -162,6 +173,12 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
   const isInstrumental = lyricsData?.instrumental;
   const lines = lyricsData?.lines || [];
   const hasSyncedLyrics = lyricsData?.synced && lines.length > 0;
+  const activeSyncedLine =
+    !isInstrumental && hasSyncedLyrics && activeIndex >= 0 && lines[activeIndex]?.text?.trim()
+      ? { ...lines[activeIndex], text: lines[activeIndex].text.trim() }
+      : null;
+  const activeNextLineTime =
+    activeSyncedLine && activeIndex + 1 < lines.length ? lines[activeIndex + 1].time : undefined;
 
   const currLine = isInstrumental
     ? t("lyrics_idle_instrumental")
@@ -256,10 +273,10 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={hasSyncedLyrics ? `line-${activeIndex}` : `track-${songTitle}-${currLine}`}
-            initial={{ opacity: 0.85, y: 3 }}
+            initial={prefersReducedMotion ? false : { opacity: 0.85, y: 3 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -3 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -3 }}
+            transition={{ duration: prefersReducedMotion ? 0.08 : 0.2, ease: [0.16, 1, 0.3, 1] }}
             className="w-full flex flex-col justify-center items-center select-none pointer-events-none"
           >
             {/* Line 1: Synced Active Lyric (Layer paling depan z-20, overflow-visible, descenders utuh) */}
@@ -267,7 +284,22 @@ export const IdleLyrics: React.FC<IdleLyricsProps> = ({
               <ScrollingText
                 text={currLine}
                 className={`${activeFontClass} font-bold text-white tracking-tight w-full text-center leading-[1.25]`}
-              />
+              >
+                {activeSyncedLine ? (
+                  <WordFillLyricsLine
+                    line={activeSyncedLine}
+                    nextLineTime={activeNextLineTime}
+                    effectiveTime={safeTime + offset + 0.2}
+                    getEffectiveTime={getEffectiveTime}
+                    isActive
+                    isPlaying={isPlaying}
+                    prefersReducedMotion={prefersReducedMotion}
+                    singleLine
+                    baseColor="var(--idle-lyrics-base-color, rgba(255, 255, 255, 0.42))"
+                    fillColor="var(--idle-lyrics-fill-color, #ffffff)"
+                  />
+                ) : undefined}
+              </ScrollingText>
             </div>
 
             {/* Line 2: Next Lyric (Upcoming, Dimmed, z-10, rapat di bawahnya) */}

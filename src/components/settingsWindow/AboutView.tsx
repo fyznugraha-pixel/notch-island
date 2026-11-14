@@ -18,6 +18,76 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "4.6.2",
+    date: "14 Nov 2026",
+    highlights: [
+      {
+        icon: <Music size={14} />,
+        titleId: "Animasi Lirik Jalan Per Kata (Syllable Sync)",
+        titleEn: "Word-by-Word Lyrics Fill Animation",
+        descId: "Teks lirik pada Notch, Idle Lyrics, dan Mini Player (mode Bar maupun Card) kini terisi halus kata demi kata mengikuti waktu pemutaran lagu, lengkap dengan dukungan aksesibilitas pengurangan gerak (Reduced Motion).",
+        descEn: "Lyrics across the Notch, Idle Lyrics, and Mini Player (both Bar and Card modes) now fill smoothly word by word in real time with playback, including Reduced Motion accessibility support.",
+        badge: "new",
+      },
+      {
+        icon: <SlidersHorizontal size={14} />,
+        titleId: "Prioritas Auto Lirik Per Kata & Provider Better Lyrics",
+        titleEn: "Word-Timed Auto Lyrics Priority & Better Lyrics Provider",
+        descId: "Menambahkan provider Better Lyrics (TTML) serta parser timing per kata untuk KuGou (KRC), NetEase (YRC), dan Enhanced LRC. Mode Auto kini mengutamakan lirik per kata lebih dulu, lalu QQ Music dan Genius, serta memakai LRCLIB sebagai opsi terakhir ketika sumber lain kosong. Cache lirik lama tanpa timing per kata juga otomatis diperbarui.",
+        descEn: "Added the Better Lyrics (TTML) provider along with word-timing parsers for KuGou (KRC), NetEase (YRC), and Enhanced LRC. Auto mode now prioritizes word-timed lyrics first, followed by QQ Music and Genius, using LRCLIB only as the last fallback when other sources have no match. Legacy disk caches without word timings automatically refresh.",
+        badge: "improve",
+      },
+      {
+        icon: <Bug size={14} />,
+        titleId: "Sinkronisasi Offset Per Lagu & Anti-Race Saat Ganti Lagu",
+        titleEn: "Per-Track Lyrics Offset & Track-Switch Race Protection",
+        descId: "Request pencarian lirik dari lagu sebelumnya kini otomatis dibatalkan saat lagu cepat berganti dan hasilnya diverifikasi terhadap lagu yang aktif agar tidak tertukar. Pengaturan offset lirik juga disimpan terpisah untuk tiap lagu dan tidak terbawa ke lagu lain.",
+        descEn: "Pending lyrics requests from previous tracks are now canceled when skipping songs rapidly and verified against the active track to prevent mismatched lyrics. Lyrics timing offsets are also isolated per track instead of leaking across other songs.",
+        badge: "fix",
+      },
+      {
+        icon: <Minimize2 size={14} />,
+        titleId: "Batas Hover Mini Player Akurat & Kalibrasi DPI Multi-Monitor",
+        titleEn: "Exact Mini Player Hover Bounds & Multi-Monitor DPI Calibration",
+        descId: "Area luar sudut membulat Mini Player kini benar-benar tembus klik (click-through) tanpa memicu status hover saat kursor berada di luar jendela. Perhitungan DPI per-monitor untuk posisi dan drag-to-notch diperbaiki, serta toolbar Mini Player kini memuat pilihan provider per kata.",
+        descEn: "Areas outside the rounded Mini Player frame now pass clicks cleanly without triggering hover states when the cursor is outside the window. Per-monitor DPI scaling for positioning and drag-to-notch has been calibrated, and the toolbar now includes word-timed lyrics providers.",
+        badge: "fix",
+      },
+      {
+        icon: <Volume2 size={14} />,
+        titleId: "Perbaikan Audio Notifikasi Kustom Kembali ke Bawaan",
+        titleEn: "Reliable Custom Notification Sound Playback",
+        descId: "Memperbaiki decoding buffer audio kustom di Web Audio API beserta fallback pemutaran HTML Audio agar suara notifikasi unggahan pengguna tidak lagi jatuh ke suara bawaan Glass saat diputar.",
+        descEn: "Fixed Web Audio buffer decoding and added an HTML Audio fallback so user-uploaded notification sounds play reliably without falling back to the default Glass chime.",
+        badge: "fix",
+      },
+      {
+        icon: <Palette size={14} />,
+        titleId: "Kontras Light Mode & Reset Semua Pengaturan Lebih Bersih",
+        titleEn: "Light Mode Contrast Polish & Clean Settings Reset",
+        descId: "Menyesuaikan warna teks, border, track slider, dan tombol overlay untuk Light Mode pada Volume Mixer, Audio Output, Drop Shelf (beserta banner dan modal transfer LAN), dan pemilih warna kustom. Tombol Reset Semua Pengaturan kini ikut membersihkan Tauri Store dan menyinkronkan reset ke semua jendela.",
+        descEn: "Refined text contrast, borders, slider tracks, and overlay buttons for Light Mode in Volume Mixer, Audio Output, Drop Shelf (including banners and LAN transfer modals), and Custom Color Picker. Reset All Settings now also clears Tauri Store keys and syncs the reset across all windows.",
+        badge: "improve",
+      },
+      {
+        icon: <Bot size={14} />,
+        titleId: "Routing Vision AI, Kontrol Anggaran & Keamanan Kredensial Model",
+        titleEn: "Vision-Aware AI Routing, Budget Controls & Model Credential Security",
+        descId: "Quick AI dan AI Chat kini memfilter model berkemampuan vision saat melampirkan gambar, menerapkan kebijakan batas anggaran (peringatan, downgrade ke Tier cepat, atau blokir), mendukung pembatalan stream aktif, menyimpan API key per-model lewat Windows Credential Manager, membatasi ukuran dekode gambar clipboard, dan memproses kuota Free Proxy secara atomik.",
+        descEn: "Quick AI and full AI Chat now filter for vision-capable models when images are attached, enforce budget threshold actions (warn, fast-tier downgrade, or block), support canceling active streams, store per-model API keys via Windows Credential Manager, enforce safe clipboard image decode limits, and process Free Proxy quotas atomically.",
+        badge: "improve",
+      },
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Sinkronisasi Lintas Jendela, Jadwal Pengingat & Keamanan Backend",
+        titleEn: "Cross-Window Sync, Reminder Scheduling & Backend Reliability",
+        descId: "Menyelaraskan perubahan Pomodoro, Pengingat Air, Catatan Mini, dan Shortcut antar jendela serta mencegah duplikasi suara alarm pada monitor kedua. Jadwal Water Reminder kini mendukung jam aktif lintas tengah malam, Pengingat Sholat otomatis memperbarui jadwal saat ganti hari, dan server LAN Drop Shelf serta manajemen COM/Wi-Fi/autostart Rust diperketat.",
+        descEn: "Synchronized Pomodoro, Water, Mini Note, and Shortcut state across windows while preventing duplicate alerts on the secondary display. Water Reminder now supports overnight active hours, Prayer Reminder refreshes cleanly across midnight transitions, and the Drop Shelf LAN server plus Windows COM/Wi-Fi/autostart handling have been hardened.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "4.6.1",
     date: "12 Nov 2026",
     highlights: [

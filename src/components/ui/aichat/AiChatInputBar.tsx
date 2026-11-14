@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
+import { readRasterImageFileForVision } from "../../../utils/imageUtils";
 import type { ResponseLengthMode } from "./AiChatTypes";
 
 interface ResponseLengthItem {
@@ -116,15 +117,24 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
     };
   }, [isAttachOpen, isLengthOpen]);
 
+  const canSend = Boolean(inputPrompt.trim() || hasActiveContext);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!isStreaming && inputPrompt.trim()) {
+      if (!isStreaming && canSend) {
         onSend();
       }
     } else if (e.key === "Escape" && isStreaming && onStopStreaming) {
       e.preventDefault();
       onStopStreaming();
+    }
+  };
+
+  const attachImageFile = async (file: File) => {
+    const dataUrl = await readRasterImageFileForVision(file);
+    if (dataUrl && onAttachImageContext) {
+      onAttachImageContext(dataUrl, file.name || "Screenshot", Math.round(dataUrl.length * 0.75));
     }
   };
 
@@ -138,14 +148,7 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
           e.preventDefault();
           const file = item.getAsFile();
           if (file) {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const dataUrl = reader.result as string;
-              if (onAttachImageContext) {
-                onAttachImageContext(dataUrl, file.name || "Screenshot", file.size);
-              }
-            };
-            reader.readAsDataURL(file);
+            void attachImageFile(file);
           }
           return;
         }
@@ -160,19 +163,12 @@ export const AiChatInputBar: React.FC<AiChatInputBarProps> = ({
     if (files && files.length > 0) {
       const file = files[0];
       if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          if (onAttachImageContext) {
-            onAttachImageContext(dataUrl, file.name, file.size);
-          }
-        };
-        reader.readAsDataURL(file);
+        void attachImageFile(file);
       }
     }
   };
 
-  const canSend = Boolean(inputPrompt.trim());
+  // Image/context-only messages without text can still be submitted.
 
   return (
     <div className="flex flex-col shrink-0 select-none w-full">

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { LyricLine } from "./types";
+import { parseEnhancedLrcLine, parseLrcTimestamp, shiftWordsByOffset } from "./wordTiming";
 
 export function cleanTitle(title: string): string {
   if (!title) return "";
@@ -104,13 +105,22 @@ export function parseLrc(lrcContent: string): LyricLine[] {
 
     const matches = [...trimmed.matchAll(timeRegex)];
     if (matches.length > 0) {
-      const text = trimmed.replace(timeRegex, "").trim();
+      const rawBody = trimmed.replace(timeRegex, "").trim();
+      const firstTagTime = parseLrcTimestamp(matches[0][1], matches[0][2], matches[0][3]);
+      const enhanced = parseEnhancedLrcLine(rawBody, firstTagTime);
+
       for (const match of matches) {
-        const mins = parseInt(match[1], 10);
-        const secs = parseInt(match[2], 10);
-        const millis = match[3] ? parseInt(match[3].padEnd(3, "0").slice(0, 3), 10) : 0;
-        const timeInSeconds = mins * 60 + secs + millis / 1000;
-        parsed.push({ time: timeInSeconds, text });
+        const timeInSeconds = parseLrcTimestamp(match[1], match[2], match[3]);
+        const words = enhanced.words
+          ? timeInSeconds === firstTagTime
+            ? enhanced.words
+            : shiftWordsByOffset(enhanced.words, timeInSeconds - firstTagTime)
+          : undefined;
+        parsed.push({
+          time: timeInSeconds,
+          text: enhanced.cleanText,
+          ...(words ? { words } : {}),
+        });
       }
     }
   }
@@ -126,7 +136,7 @@ export function isDummyLyricLine(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length < 2) return true;
 
-  const dummyRegex = /^(纯音乐[，,]?\s*请[您]?欣赏|此歌曲为没有填词的纯音乐|暂无歌词|没有歌词|此歌曲为纯音乐|纯音乐|instrumental|no lyrics|written by\b|composed by\b|arranged by\b|lyrics by\b|作词\s*[:：]|作曲\s*[:：]|编曲\s*[:：]|制作人\s*[:：]|监制\s*[:：]|混音\s*[:：]|母带\s*[:：]|词\s*[:：]|曲\s*[:：])/i;
+  const dummyRegex = /^(纯音乐[，,]?\s*请[您]?欣赏|此歌曲为没有填词的纯音乐|暂无歌词|没有歌词|此歌曲为纯音乐|纯音乐|instrumental|no lyrics|written by\b|composed by\b|arranged by\b|lyrics by\b|produced by\b|mixed by\b|mastered by\b|vocals by\b|作词\s*[:：]|作曲\s*[:：]|编曲\s*[:：]|制作人\s*[:：]|监制\s*[:：]|混音\s*[:：]|母带\s*[:：]|词\s*[:：]|曲\s*[:：])/i;
 
   return dummyRegex.test(trimmed);
 }

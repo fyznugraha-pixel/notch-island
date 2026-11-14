@@ -1,3 +1,5 @@
+import { emitCrossWindowEvent, listenCrossWindowEvent } from "../utils/crossWindowSync";
+
 export interface WeatherLocation {
   name: string;
   admin1?: string;
@@ -70,9 +72,7 @@ export function getSavedCustomCity(): WeatherLocation | null {
 export function saveCustomCity(city: WeatherLocation) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(city));
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent(WEATHER_LOCATION_EVENT));
-    }
+    emitCrossWindowEvent(WEATHER_LOCATION_EVENT);
   } catch (err) {
     console.error("Failed to save custom weather city:", err);
   }
@@ -81,9 +81,7 @@ export function saveCustomCity(city: WeatherLocation) {
 export function clearCustomCity() {
   try {
     localStorage.removeItem(STORAGE_KEY);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent(WEATHER_LOCATION_EVENT));
-    }
+    emitCrossWindowEvent(WEATHER_LOCATION_EVENT);
   } catch (err) {
     console.error("Failed to clear custom weather city:", err);
   }
@@ -91,8 +89,15 @@ export function clearCustomCity() {
 
 export function subscribeWeatherChange(callback: () => void): () => void {
   if (typeof window === "undefined") return () => {};
-  window.addEventListener(WEATHER_LOCATION_EVENT, callback);
-  return () => window.removeEventListener(WEATHER_LOCATION_EVENT, callback);
+  const unsubCrossWindow = listenCrossWindowEvent(WEATHER_LOCATION_EVENT, () => callback());
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === STORAGE_KEY) callback();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    unsubCrossWindow();
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 function getGpsCoordinates(): Promise<{ latitude: number; longitude: number } | null> {

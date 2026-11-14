@@ -527,9 +527,6 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
   if (forceRefresh) {
     try {
       localStorage.removeItem(SCHEDULE_CACHE_KEY);
-      if (!getSavedCustomCity()) {
-        localStorage.removeItem("island_cached_weather_location");
-      }
     } catch {}
   }
   const loc = await resolveWeatherLocation();

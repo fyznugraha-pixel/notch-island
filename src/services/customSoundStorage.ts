@@ -13,6 +13,7 @@ const DB_VERSION = 1;
 const STORE_NAME = "sounds";
 
 const cachedObjectUrls = new Map<string, string>();
+const cachedBuffers = new Map<string, ArrayBuffer>();
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -104,6 +105,7 @@ export async function saveCustomSoundFromBuffer(
   const blob = new Blob([arrayBuffer], { type: resolvedMime });
   const objectUrl = URL.createObjectURL(blob);
   cachedObjectUrls.set(id, objectUrl);
+  cachedBuffers.set(id, arrayBuffer.slice(0));
 
   return record;
 }
@@ -114,6 +116,7 @@ export async function saveCustomSound(file: File): Promise<CustomSoundRecord> {
 }
 
 export async function deleteCustomSound(id: string): Promise<void> {
+  cachedBuffers.delete(id);
   const existingUrl = cachedObjectUrls.get(id);
   if (existingUrl) {
     URL.revokeObjectURL(existingUrl);
@@ -134,24 +137,50 @@ export async function deleteCustomSound(id: string): Promise<void> {
   }
 }
 
+async function getCustomSoundRecord(id: string): Promise<CustomSoundRecord | null> {
+  const db = await openDB();
+  return new Promise<CustomSoundRecord | null>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(id);
+    req.onsuccess = () => resolve((req.result as CustomSoundRecord) || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function toArrayBuffer(data: ArrayBuffer | ArrayBufferView): ArrayBuffer {
+  if (data instanceof ArrayBuffer) return data;
+  return Uint8Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)).buffer;
+}
+
+export async function getCustomSoundBuffer(id: string): Promise<ArrayBuffer | null> {
+  const cached = cachedBuffers.get(id);
+  if (cached) return cached.slice(0);
+
+  try {
+    const record = await getCustomSoundRecord(id);
+    if (!record || !record.data) return null;
+    const raw = toArrayBuffer(record.data);
+    cachedBuffers.set(id, raw.slice(0));
+    return raw.slice(0);
+  } catch (err) {
+    console.debug("Failed to read custom sound buffer:", err);
+    return null;
+  }
+}
+
 export async function ensureCustomSoundAudioUrl(id: string): Promise<string | null> {
   const cached = cachedObjectUrls.get(id);
   if (cached) return cached;
 
   try {
-    const db = await openDB();
-    const record = await new Promise<CustomSoundRecord | null>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readonly");
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.get(id);
-      req.onsuccess = () => resolve((req.result as CustomSoundRecord) || null);
-      req.onerror = () => reject(req.error);
-    });
-
+    const record = await getCustomSoundRecord(id);
     if (!record || !record.data) return null;
 
+    const raw = toArrayBuffer(record.data);
+    cachedBuffers.set(id, raw.slice(0));
     const mime = getAudioMimeType(record.fileName || "", record.mimeType);
-    const blob = new Blob([record.data], { type: mime });
+    const blob = new Blob([raw], { type: mime });
     const objectUrl = URL.createObjectURL(blob);
     cachedObjectUrls.set(id, objectUrl);
     return objectUrl;
@@ -163,6 +192,6 @@ export async function ensureCustomSoundAudioUrl(id: string): Promise<string | nu
 
 export function preloadActiveCustomSound(soundId: string): void {
   if (soundId.startsWith("custom_")) {
-    ensureCustomSoundAudioUrl(soundId).catch(() => {});
+    getCustomSoundBuffer(soundId).catch(() => {});
   }
 }

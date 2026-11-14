@@ -62,13 +62,17 @@ fn repair_autostart(exe: &Path) {
     };
 
     let exe_str = exe.to_string_lossy().to_string();
-    let registered = current.trim().trim_matches('"').trim();
-    if registered.eq_ignore_ascii_case(&exe_str) {
+    let expected_value = format!("\"{}\"", exe_str);
+    if current.trim().eq_ignore_ascii_case(&expected_value) {
         return;
     }
 
-    append_startup_log(&format!("autostart repaired: '{}' -> '{}'", registered, exe_str));
-    let _ = run_key.set_value(AUTOSTART_VALUE_NAME, &format!("{} ", exe_str));
+    append_startup_log(&format!(
+        "autostart repaired: '{}' -> '{}'",
+        current.trim(),
+        expected_value
+    ));
+    let _ = run_key.set_value(AUTOSTART_VALUE_NAME, &expected_value);
 }
 
 #[cfg(windows)]
@@ -79,33 +83,45 @@ fn repair_shortcuts(exe: &Path) {
     let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
     let app_data = std::env::var("APPDATA").unwrap_or_default();
 
-    let shortcuts = [
-        PathBuf::from(&user_profile).join("Desktop").join("Gili.lnk"),
-        PathBuf::from(&app_data)
-            .join(r"Microsoft\Windows\Start Menu\Programs")
-            .join("Gili.lnk"),
-    ];
-    let existing: Vec<String> = shortcuts
-        .iter()
-        .filter(|p| p.exists())
-        .map(|p| p.to_string_lossy().to_string())
-        .collect();
+    let mut candidates = Vec::new();
+    if !user_profile.is_empty() {
+        candidates.push(PathBuf::from(&user_profile).join("Desktop").join("Gili.lnk"));
+    }
+    if !app_data.is_empty() {
+        candidates.push(
+            PathBuf::from(&app_data)
+                .join(r"Microsoft\Windows\Start Menu\Programs")
+                .join("Gili.lnk"),
+        );
+    }
+    let existing: Vec<PathBuf> = candidates.into_iter().filter(|p| p.exists()).collect();
     if existing.is_empty() {
         return;
     }
 
-    // Paths go in as $args so nothing is interpolated into the script text.
+    // Pass paths through environment variables because PowerShell `-Command` joins
+    // extra CLI tokens into script source text instead of populating `$args`.
     let script = "$w = New-Object -ComObject WScript.Shell; \
-        foreach ($p in $args[1..($args.Length-1)]) { \
-            $s = $w.CreateShortcut($p); \
-            if ($s.TargetPath -ne $args[0]) { $s.TargetPath = $args[0]; $s.IconLocation = $args[0] + ',0'; $s.Save() } \
+        for ($i = 0; $i -lt [int]$env:GILI_LNK_COUNT; $i++) { \
+            $p = [Environment]::GetEnvironmentVariable(\"GILI_LNK_$i\"); \
+            if ($p) { \
+                $s = $w.CreateShortcut($p); \
+                if ($s.TargetPath -ne $env:GILI_TARGET_EXE) { \
+                    $s.TargetPath = $env:GILI_TARGET_EXE; \
+                    $s.IconLocation = ($env:GILI_TARGET_EXE + ',0'); \
+                    $s.Save(); \
+                } \
+            } \
         }";
 
     let mut cmd = std::process::Command::new("powershell");
     cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
-        .arg(exe.to_string_lossy().to_string())
-        .args(&existing)
+        .env("GILI_TARGET_EXE", exe)
+        .env("GILI_LNK_COUNT", existing.len().to_string())
         .creation_flags(CREATE_NO_WINDOW);
+    for (idx, path) in existing.iter().enumerate() {
+        cmd.env(format!("GILI_LNK_{}", idx), path);
+    }
     let _ = cmd.output();
 }
 

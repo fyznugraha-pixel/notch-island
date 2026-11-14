@@ -1,6 +1,6 @@
 import { LyricsProvider, LyricsData, LyricLine } from "./types";
 import { cleanTitle, cleanArtist, parseLrc, hasActualLyrics, isSameTrack } from "./utils";
-import { fetchJson, rethrowIfFetchError } from "./lyricsHttp";
+import { fetchJson, isAbortError, rethrowIfFetchError, throwIfAborted } from "./lyricsHttp";
 
 function pickBestLrclibMatch(list: any[], wantedTitle: string, duration?: number): any {
   if (!Array.isArray(list) || list.length === 0) return null;
@@ -85,7 +85,13 @@ function processLrclibResponse(data: any): LyricsData | null {
 export const lrclibProvider: LyricsProvider = {
   id: "lrclib",
   name: "LRCLIB",
-  async fetchLyrics(artist: string, title: string, duration?: number): Promise<LyricsData | null> {
+  async fetchLyrics(
+    artist: string,
+    title: string,
+    duration?: number,
+    signal?: AbortSignal
+  ): Promise<LyricsData | null> {
+    throwIfAborted(signal);
     let cleanedArtist = cleanArtist(artist);
     let cleanedTitle = cleanTitle(title) || title;
 
@@ -107,16 +113,21 @@ export const lrclibProvider: LyricsProvider = {
       }
     }
 
-    const headers = { "User-Agent": "Gili/4.6.1 (https://github.com/faiz)" };
+    const headers = { "User-Agent": "Gili/4.6.2 (https://github.com/faiz)" };
 
     try {
       // 1. Run exact get + targeted search in parallel for instant response (< 500ms)
       const getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanedTitle)}&artist_name=${encodeURIComponent(cleanedArtist)}`;
       const searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanedTitle)}&artist_name=${encodeURIComponent(cleanedArtist)}`;
 
+      const catchNonAbort = (err: unknown) => {
+        if (isAbortError(err)) throw err;
+        return null;
+      };
+
       const [getData, searchData] = await Promise.all([
-        fetchJson(getUrl, { headers }).catch(() => null),
-        fetchJson(searchUrl, { headers }).catch(() => null),
+        fetchJson(getUrl, { headers, signal }).catch(catchNonAbort),
+        fetchJson(searchUrl, { headers, signal }).catch(catchNonAbort),
       ]);
 
       // Check exact GET response first
@@ -142,7 +153,7 @@ export const lrclibProvider: LyricsProvider = {
 
       // 2. Fallback to broad query search
       const broadQuery = encodeURIComponent(`${cleanedArtist} ${cleanedTitle}`.trim());
-      const broadData = await fetchJson(`https://lrclib.net/api/search?q=${broadQuery}`, { headers });
+      const broadData = await fetchJson(`https://lrclib.net/api/search?q=${broadQuery}`, { headers, signal });
       if (Array.isArray(broadData) && broadData.length > 0) {
         const bestMatch = pickBestLrclibMatch(broadData, cleanedTitle, duration);
         if (bestMatch) {
@@ -155,7 +166,7 @@ export const lrclibProvider: LyricsProvider = {
       if (cleanedArtist) {
         const titleOnlyData = await fetchJson(
           `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanedTitle)}`,
-          { headers }
+          { headers, signal }
         );
         if (Array.isArray(titleOnlyData) && titleOnlyData.length > 0) {
           const bestMatch = pickBestLrclibMatch(titleOnlyData, cleanedTitle, duration);

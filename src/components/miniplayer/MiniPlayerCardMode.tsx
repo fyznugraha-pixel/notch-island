@@ -6,6 +6,7 @@ import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
 import { MediaThumbnail } from "../ui/MediaThumbnail";
 import { ScrollingText } from "../ui/ScrollingText";
+import { WordFillLyricsLine, usePrefersReducedMotion } from "../ui/WordFillLyricsLine";
 import {
   sanitizeLyricText,
   clampExtremeText,
@@ -49,10 +50,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     offset
   );
 
-  const prefersReducedMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const totalDuration = liveDuration || duration;
   const canSeek = Boolean(
@@ -67,8 +65,14 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   const [autoTranslateY, setAutoTranslateY] = useState<number>(0);
   const [manualTranslateY, setManualTranslateY] = useState<number>(0);
   const [isManualScrolling, setIsManualScrolling] = useState<boolean>(false);
+  const isManualScrollingRef = useRef<boolean>(false);
   const [plainTranslateY, setPlainTranslateY] = useState<number>(0);
   const manualTimeoutRef = useRef<number | null>(null);
+
+  const setManualScrolling = useCallback((next: boolean) => {
+    isManualScrollingRef.current = next;
+    setIsManualScrolling(next);
+  }, []);
 
   const computeCenteredTranslateY = useCallback((index: number): number => {
     const viewport = viewportRef.current;
@@ -114,7 +118,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
 
   // Reset scroll state when track changes
   useEffect(() => {
-    setIsManualScrolling(false);
+    setManualScrolling(false);
     setPlainTranslateY(0);
     if (manualTimeoutRef.current) {
       window.clearTimeout(manualTimeoutRef.current);
@@ -158,9 +162,10 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       const minY = Math.min(0, Math.round(viewportH / 2 - listH + 24));
       const maxY = Math.round(viewportH / 2 - 16);
 
-      setIsManualScrolling(true);
+      const wasManual = isManualScrollingRef.current;
+      setManualScrolling(true);
       setManualTranslateY((prev) => {
-        const base = isManualScrolling ? prev : autoTranslateY;
+        const base = wasManual ? prev : autoTranslateY;
         return Math.max(minY, Math.min(maxY, Math.round(base - e.deltaY * 0.75)));
       });
 
@@ -168,7 +173,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
         window.clearTimeout(manualTimeoutRef.current);
       }
       manualTimeoutRef.current = window.setTimeout(() => {
-        setIsManualScrolling(false);
+        setManualScrolling(false);
         manualTimeoutRef.current = null;
       }, MANUAL_SCROLL_HOLD_MS);
     },
@@ -176,8 +181,8 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       lyrics?.plain_lyrics,
       lyrics?.synced,
       lyrics?.lines?.length,
-      isManualScrolling,
       autoTranslateY,
+      setManualScrolling,
     ]
   );
 
@@ -186,7 +191,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
       e.stopPropagation();
       if (!canSeek) return;
 
-      setIsManualScrolling(false);
+      setManualScrolling(false);
       if (manualTimeoutRef.current) {
         window.clearTimeout(manualTimeoutRef.current);
         manualTimeoutRef.current = null;
@@ -325,6 +330,17 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
               const displayLine = cleaned
                 ? preventOrphanWord(clampExtremeText(cleaned, 200))
                 : "♪ •••";
+              const canWordFill = Boolean(isActive && cleaned);
+              const nextLineTime =
+                lyrics && index + 1 < lyrics.lines.length
+                  ? lyrics.lines[index + 1].time
+                  : totalDuration || undefined;
+              const activeCardLine =
+                canWordFill
+                  ? cleaned === line.text
+                    ? line
+                    : { ...line, text: cleaned }
+                  : null;
 
               return (
                 <div
@@ -342,7 +358,9 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
                       ? "none"
                       : "transform 270ms cubic-bezier(0.22, 1, 0.36, 1), opacity 270ms cubic-bezier(0.22, 1, 0.36, 1)",
                     textWrap: "balance",
-                    textShadow: isActive
+                    textShadow: canWordFill
+                      ? undefined
+                      : isActive
                       ? "0 1px 10px rgba(0, 0, 0, 0.45)"
                       : "0 1px 4px rgba(0, 0, 0, 0.3)",
                   }}
@@ -354,24 +372,17 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
                       : "text-[13px] font-medium text-white leading-[1.35]"
                   }`}
                 >
-                  {isActive && line.words && line.words.length > 0 ? (
-                    line.words.map((word, wIdx) => {
-                      const wordActive = effectivePosition >= word.time;
-                      return (
-                        <span
-                          key={`${wIdx}-${word.time}`}
-                          style={{
-                            opacity: wordActive ? 1 : 0.45,
-                            transition: prefersReducedMotion
-                              ? "none"
-                              : "opacity 160ms ease-out",
-                          }}
-                        >
-                          {word.text}
-                          {wIdx < line.words!.length - 1 ? " " : ""}
-                        </span>
-                      );
-                    })
+                  {activeCardLine ? (
+                    <WordFillLyricsLine
+                      line={activeCardLine}
+                      nextLineTime={nextLineTime}
+                      effectiveTime={effectivePosition}
+                      isActive
+                      isPlaying={isPlaying}
+                      prefersReducedMotion={prefersReducedMotion}
+                      baseColor="rgba(255, 255, 255, 0.42)"
+                      fillColor="#ffffff"
+                    />
                   ) : (
                     displayLine
                   )}

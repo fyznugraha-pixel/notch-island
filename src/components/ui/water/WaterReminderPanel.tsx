@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  WATER_STORAGE_KEY,
   WaterData,
   loadWaterData,
   logDrink,
   updateWaterSettings,
   StreakCelebrationEvent,
 } from "../../../services/waterService";
+import { listenCrossWindowEvent } from "../../../utils/crossWindowSync";
 import { playWaterDrinkSound } from "../../../services/soundService";
 import { WaterCapsuleView } from "./WaterCapsuleView";
 import { WaterStreakView } from "./WaterStreakView";
@@ -39,25 +41,22 @@ export const WaterReminderPanel: React.FC<WaterReminderPanelProps> = ({
 
   // Live data sync across components
   useEffect(() => {
-    const handleChanged = (e: Event) => {
-      const custom = e as CustomEvent<WaterData>;
-      if (custom.detail) {
-        setData(custom.detail);
-      } else {
+    const unsubChanged = listenCrossWindowEvent<WaterData>("gili_water_changed", (detail) => {
+      setData(detail ?? loadWaterData());
+    });
+    const unsubCelebration = listenCrossWindowEvent<StreakCelebrationEvent>("gili_streak_celebration", (detail) => {
+      if (detail) setCelebration(detail);
+    });
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === WATER_STORAGE_KEY) {
         setData(loadWaterData());
       }
     };
-    const handleCelebration = (e: Event) => {
-      const custom = e as CustomEvent<StreakCelebrationEvent>;
-      if (custom.detail) {
-        setCelebration(custom.detail);
-      }
-    };
-    window.addEventListener("gili_water_changed", handleChanged);
-    window.addEventListener("gili_streak_celebration", handleCelebration);
+    window.addEventListener("storage", onStorage);
     return () => {
-      window.removeEventListener("gili_water_changed", handleChanged);
-      window.removeEventListener("gili_streak_celebration", handleCelebration);
+      unsubChanged();
+      unsubCelebration();
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 

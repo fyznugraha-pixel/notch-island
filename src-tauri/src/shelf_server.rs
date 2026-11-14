@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::UdpSocket;
@@ -5,9 +6,82 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
+
+fn with_header_safe<R: Read>(response: Response<R>, name: &[u8], value: &[u8]) -> Response<R> {
+    match Header::from_bytes(name, value) {
+        Ok(header) => response.with_header(header),
+        Err(_) => response,
+    }
+}
+
+fn escape_html(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+fn percent_encode_rfc5987(input: &str) -> String {
+    let mut encoded = String::with_capacity(input.len() * 3);
+    for &b in input.as_bytes() {
+        if b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'!' | b'#' | b'$' | b'&' | b'+' | b'-' | b'.' | b'^' | b'_' | b'`' | b'|' | b'~'
+            )
+        {
+            encoded.push(b as char);
+        } else {
+            encoded.push_str(&format!("%{:02X}", b));
+        }
+    }
+    encoded
+}
+
+fn build_content_disposition(filename: &str) -> String {
+    let safe_name: String = filename
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | '\0' | '\r' | '\n'))
+        .collect();
+    let trimmed = safe_name.trim();
+    let final_name = if trimmed.is_empty() {
+        "file.bin"
+    } else {
+        trimmed
+    };
+
+    let ascii_fallback: String = final_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && !c.is_ascii_control() && !matches!(c, '"' | ';' | '\\') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let ascii_fallback = if ascii_fallback.trim().is_empty() {
+        "file.bin".to_string()
+    } else {
+        ascii_fallback
+    };
+
+    format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        ascii_fallback,
+        percent_encode_rfc5987(final_name)
+    )
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ShelfFileMeta {
@@ -189,7 +263,9 @@ fn detect_device_name(user_agent: &str, device_param: Option<&str>) -> String {
 
 pub fn get_shelf_received_dir() -> PathBuf {
     if let Ok(userprofile) = std::env::var("USERPROFILE") {
-        let dir = PathBuf::from(userprofile).join("Downloads").join("Gili Shelf");
+        let dir = PathBuf::from(userprofile)
+            .join("Downloads")
+            .join("Gili Shelf");
         if std::fs::create_dir_all(&dir).is_ok() {
             return dir;
         }
@@ -219,7 +295,9 @@ fn urlencoding_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte_val) = u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16) {
+            if let Ok(byte_val) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
                 res.push(byte_val);
                 i += 3;
                 continue;
@@ -250,13 +328,18 @@ fn ensure_server_running(app: &AppHandle) -> Result<(Arc<Server>, u16), String> 
     for port in [8731, 8732, 8733, 0] {
         let addr = format!("0.0.0.0:{}", port);
         if let Ok(srv) = Server::http(&addr) {
-            chosen_port = srv.server_addr().to_ip().map(|ip| ip.port()).unwrap_or(port);
+            chosen_port = srv
+                .server_addr()
+                .to_ip()
+                .map(|ip| ip.port())
+                .unwrap_or(port);
             chosen_server = Some(Arc::new(srv));
             break;
         }
     }
 
-    let srv = chosen_server.ok_or_else(|| "Gagal memulai local HTTP server pada port 8731+".to_string())?;
+    let srv = chosen_server
+        .ok_or_else(|| "Gagal memulai local HTTP server pada port 8731+".to_string())?;
     let is_running = Arc::new(AtomicBool::new(true));
     let active_session = Arc::new(Mutex::new(None));
 
@@ -264,6 +347,24 @@ fn ensure_server_running(app: &AppHandle) -> Result<(Arc<Server>, u16), String> 
     let is_running_clone = is_running.clone();
     let session_clone = active_session.clone();
     let app_handle = app.clone();
+
+    let (req_tx, req_rx) = std::sync::mpsc::sync_channel::<tiny_http::Request>(64);
+    let shared_rx = Arc::new(Mutex::new(req_rx));
+    for _ in 0..8 {
+        let rx_worker = Arc::clone(&shared_rx);
+        let worker_session = session_clone.clone();
+        let worker_app = app_handle.clone();
+        std::thread::spawn(move || loop {
+            let next_req = match rx_worker.lock() {
+                Ok(guard) => guard.recv(),
+                Err(_) => break,
+            };
+            match next_req {
+                Ok(req) => handle_http_request(req, &worker_session, &worker_app),
+                Err(_) => break,
+            }
+        });
+    }
 
     std::thread::spawn(move || {
         while is_running_clone.load(Ordering::Relaxed) {
@@ -273,7 +374,9 @@ fn ensure_server_running(app: &AppHandle) -> Result<(Arc<Server>, u16), String> 
                 Err(_) => continue,
             };
 
-            handle_http_request(request, &session_clone, &app_handle);
+            if req_tx.send(request).is_err() {
+                break;
+            }
         }
     });
 
@@ -298,35 +401,45 @@ fn handle_http_request(
     let method = request.method().clone();
 
     // 1. Check active session
-    let session_opt = {
-        let guard = session_arc.lock().unwrap();
-        guard.as_ref().cloned()
-    };
+    let session_opt = session_arc
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().cloned());
 
     let session = match session_opt {
         Some(s) => s,
         None => {
-            let _ = request.respond(
+            let response = with_header_safe(
                 Response::from_string("Sesi transfer belum aktif atau telah berakhir.")
-                    .with_status_code(StatusCode(404))
-                    .with_header(Header::from_bytes(&b"Content-Type"[..], &b"text/plain; charset=utf-8"[..]).unwrap()),
+                    .with_status_code(StatusCode(404)),
+                b"Content-Type",
+                b"text/plain; charset=utf-8",
             );
+            let _ = request.respond(response);
             return;
         }
     };
 
     // Check expiration (5 minutes / 300 secs)
     let (created_at, active_token) = match &session {
-        ActiveSession::Send { created_at, token, .. } => (*created_at, token.clone()),
-        ActiveSession::Receive { created_at, token, .. } => (*created_at, token.clone()),
+        ActiveSession::Send {
+            created_at, token, ..
+        } => (*created_at, token.clone()),
+        ActiveSession::Receive {
+            created_at, token, ..
+        } => (*created_at, token.clone()),
     };
 
     if created_at.elapsed() > Duration::from_secs(300) {
-        let _ = request.respond(
-            Response::from_string("Tautan telah kadaluarsa (berlaku 5 menit). Silakan scan ulang dari rak laptop.")
-                .with_status_code(StatusCode(410))
-                .with_header(Header::from_bytes(&b"Content-Type"[..], &b"text/plain; charset=utf-8"[..]).unwrap()),
+        let response = with_header_safe(
+            Response::from_string(
+                "Tautan telah kadaluarsa (berlaku 5 menit). Silakan scan ulang dari rak laptop.",
+            )
+            .with_status_code(StatusCode(410)),
+            b"Content-Type",
+            b"text/plain; charset=utf-8",
         );
+        let _ = request.respond(response);
         return;
     }
 
@@ -355,8 +468,11 @@ fn handle_http_request(
             if parts.len() == 2 && method == Method::Get {
                 // Serve Download HTML page (Board 64)
                 let html = render_download_html(&active_token, files, &get_computer_name());
-                let response = Response::from_string(html)
-                    .with_header(Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap());
+                let response = with_header_safe(
+                    Response::from_string(html),
+                    b"Content-Type",
+                    b"text/html; charset=utf-8",
+                );
                 let _ = request.respond(response);
                 return;
             } else if parts.len() == 4 && parts[2] == "file" && method == Method::Get {
@@ -364,20 +480,23 @@ fn handle_http_request(
                 if let Ok(idx) = parts[3].parse::<usize>() {
                     if idx < files.len() {
                         let file_meta = &files[idx];
-                        if let Ok(mut f) = File::open(&file_meta.path) {
-                            let mut buf = Vec::new();
-                            if f.read_to_end(&mut buf).is_ok() {
-                                let filename = PathBuf::from(&file_meta.path)
-                                    .file_name()
-                                    .map(|n| n.to_string_lossy().to_string())
-                                    .unwrap_or_else(|| "file.bin".to_string());
-                                let disposition = format!("attachment; filename=\"{}\"", filename);
-                                let response = Response::from_data(buf)
-                                    .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/octet-stream"[..]).unwrap())
-                                    .with_header(Header::from_bytes(&b"Content-Disposition"[..], disposition.as_bytes()).unwrap());
-                                let _ = request.respond(response);
-                                return;
-                            }
+                        if let Ok(f) = File::open(&file_meta.path) {
+                            let filename = PathBuf::from(&file_meta.path)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "file.bin".to_string());
+                            let disposition = build_content_disposition(&filename);
+                            let response = with_header_safe(
+                                with_header_safe(
+                                    Response::from_file(f),
+                                    b"Content-Type",
+                                    b"application/octet-stream",
+                                ),
+                                b"Content-Disposition",
+                                disposition.as_bytes(),
+                            );
+                            let _ = request.respond(response);
+                            return;
                         }
                     }
                 }
@@ -400,21 +519,49 @@ fn handle_http_request(
             if parts.len() == 2 && method == Method::Get {
                 // Serve Upload HTML page (Board 64)
                 let html = render_upload_html(&active_token, &get_computer_name());
-                let response = Response::from_string(html)
-                    .with_header(Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap());
+                let response = with_header_safe(
+                    Response::from_string(html),
+                    b"Content-Type",
+                    b"text/html; charset=utf-8",
+                );
                 let _ = request.respond(response);
                 return;
             } else if parts.len() == 3 && parts[2] == "upload" && method == Method::Post {
                 // Handle file upload stream: /u/<token>/upload?name=...&size=...&device=...
                 let query = parse_query_params(&raw_url);
-                let raw_filename = query.get("name").cloned().unwrap_or_else(|| format!("file_{}.bin", now_millis()));
+                let raw_filename = query
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| format!("file_{}.bin", now_millis()));
                 let safe_filename = PathBuf::from(&raw_filename)
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| format!("file_{}.bin", now_millis()));
-                
-                let total_size: u64 = query.get("size").and_then(|s| s.parse().ok()).unwrap_or(0);
-                let device_name = detect_device_name(&user_agent, query.get("device").map(|s| s.as_str()));
+
+                const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+                if request
+                    .body_length()
+                    .map_or(false, |len| (len as u64) > MAX_UPLOAD_BYTES)
+                {
+                    let response = with_header_safe(
+                        Response::from_string(
+                            r#"{"ok":false,"error":"File exceeds maximum upload limit"}"#,
+                        )
+                        .with_status_code(StatusCode(413)),
+                        b"Content-Type",
+                        b"application/json",
+                    );
+                    let _ = request.respond(response);
+                    return;
+                }
+
+                let total_size: u64 = query
+                    .get("size")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0)
+                    .min(MAX_UPLOAD_BYTES);
+                let device_name =
+                    detect_device_name(&user_agent, query.get("device").map(|s| s.as_str()));
                 let file_id = format!("{}_{}", now_millis(), safe_filename);
 
                 let dest_path = target_dir.join(&safe_filename);
@@ -423,14 +570,22 @@ fn handle_http_request(
                 let reader = request.as_reader();
                 let mut buffer = [0u8; 64 * 1024];
                 let mut transferred = 0u64;
+                let mut created_partial = false;
 
                 let write_res = File::create(&dest_path).and_then(|mut f| {
+                    created_partial = true;
                     let start_time = Instant::now();
                     let mut last_emit = Instant::now();
                     loop {
                         let bytes_read = reader.read(&mut buffer)?;
                         if bytes_read == 0 {
                             break;
+                        }
+                        if transferred.saturating_add(bytes_read as u64) > MAX_UPLOAD_BYTES {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "File exceeds maximum upload limit",
+                            ));
                         }
                         f.write_all(&buffer[..bytes_read])?;
                         transferred += bytes_read as u64;
@@ -446,16 +601,19 @@ fn handle_http_request(
                                 50
                             };
 
-                            let _ = app.emit("shelf-transfer-progress", ShelfTransferProgressPayload {
-                                id: file_id.clone(),
-                                name: safe_filename.clone(),
-                                size: total_size.max(transferred),
-                                transferred,
-                                progress,
-                                status: "transferring".to_string(),
-                                device_name: device_name.clone(),
-                                speed_formatted: Some(speed_formatted),
-                            });
+                            let _ = app.emit(
+                                "shelf-transfer-progress",
+                                ShelfTransferProgressPayload {
+                                    id: file_id.clone(),
+                                    name: safe_filename.clone(),
+                                    size: total_size.max(transferred),
+                                    transferred,
+                                    progress,
+                                    status: "transferring".to_string(),
+                                    device_name: device_name.clone(),
+                                    speed_formatted: Some(speed_formatted),
+                                },
+                            );
                         }
                     }
                     Ok(())
@@ -463,90 +621,138 @@ fn handle_http_request(
 
                 match write_res {
                     Ok(_) => {
-                        let ext = safe_filename
-                            .split('.')
-                            .last()
-                            .unwrap_or("")
-                            .to_lowercase();
+                        let ext = safe_filename.split('.').last().unwrap_or("").to_lowercase();
 
                         let mut thumbnail: Option<String> = None;
-                        let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "ico" | "svg");
-                        if is_img && transferred <= 25 * 1024 * 1024 {
+                        let is_raster_img = matches!(
+                            ext.as_str(),
+                            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
+                        );
+                        if (ext == "svg" || ext == "ico") && transferred <= 512 * 1024 {
                             if let Ok(bytes) = std::fs::read(&dest_path) {
-                                use base64::{Engine as _, engine::general_purpose::STANDARD};
-                                if ext == "svg" && bytes.len() <= 512 * 1024 {
-                                    let b64 = STANDARD.encode(&bytes);
-                                    thumbnail = Some(format!("data:image/svg+xml;base64,{}", b64));
-                                } else if ext == "ico" && bytes.len() <= 512 * 1024 {
-                                    let b64 = STANDARD.encode(&bytes);
-                                    thumbnail = Some(format!("data:image/x-icon;base64,{}", b64));
-                                } else if let Ok(img) = image::load_from_memory(&bytes) {
-                                    let thumb = img.resize(320, 320, image::imageops::FilterType::CatmullRom);
-                                    let mut buffer = std::io::Cursor::new(Vec::with_capacity(16384));
-                                    if thumb.write_to(&mut buffer, image::ImageFormat::Png).is_ok() {
-                                        let b64 = STANDARD.encode(buffer.into_inner());
-                                        thumbnail = Some(format!("data:image/png;base64,{}", b64));
-                                    }
+                                use base64::{engine::general_purpose::STANDARD, Engine as _};
+                                let mime = if ext == "svg" {
+                                    "image/svg+xml"
+                                } else {
+                                    "image/x-icon"
+                                };
+                                let b64 = STANDARD.encode(&bytes);
+                                thumbnail = Some(format!("data:{};base64,{}", mime, b64));
+                            }
+                        } else if is_raster_img && transferred <= 25 * 1024 * 1024 {
+                            if let Some(img) = crate::decode_safe_image_from_path(&dest_path) {
+                                use base64::{engine::general_purpose::STANDARD, Engine as _};
+                                let thumb =
+                                    img.resize(320, 320, image::imageops::FilterType::CatmullRom);
+                                let mut buffer = std::io::Cursor::new(Vec::with_capacity(16384));
+                                if thumb.write_to(&mut buffer, image::ImageFormat::Png).is_ok() {
+                                    let b64 = STANDARD.encode(buffer.into_inner());
+                                    thumbnail = Some(format!("data:image/png;base64,{}", b64));
                                 }
                             }
                         }
 
-                        let _ = app.emit("shelf-transfer-progress", ShelfTransferProgressPayload {
-                            id: file_id.clone(),
-                            name: safe_filename.clone(),
-                            size: transferred,
-                            transferred,
-                            progress: 100,
-                            status: "completed".to_string(),
-                            device_name: device_name.clone(),
-                            speed_formatted: None,
-                        });
+                        let _ = app.emit(
+                            "shelf-transfer-progress",
+                            ShelfTransferProgressPayload {
+                                id: file_id.clone(),
+                                name: safe_filename.clone(),
+                                size: transferred,
+                                transferred,
+                                progress: 100,
+                                status: "completed".to_string(),
+                                device_name: device_name.clone(),
+                                speed_formatted: None,
+                            },
+                        );
 
-                        let _ = app.emit("shelf-file-received", ShelfFileReceivedPayload {
-                            id: file_id,
-                            name: safe_filename.clone(),
-                            path: dest_path.to_string_lossy().to_string(),
-                            ext,
-                            size: transferred,
-                            size_formatted: format_file_size(transferred),
-                            device_name,
-                            added_at: now_millis(),
-                            thumbnail,
-                        });
+                        let _ = app.emit(
+                            "shelf-file-received",
+                            ShelfFileReceivedPayload {
+                                id: file_id,
+                                name: safe_filename.clone(),
+                                path: dest_path.to_string_lossy().to_string(),
+                                ext,
+                                size: transferred,
+                                size_formatted: format_file_size(transferred),
+                                device_name,
+                                added_at: now_millis(),
+                                thumbnail,
+                            },
+                        );
 
-                        let response = Response::from_string("{\"ok\":true}")
-                            .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                        let response = with_header_safe(
+                            Response::from_string("{\"ok\":true}"),
+                            b"Content-Type",
+                            b"application/json",
+                        );
                         let _ = request.respond(response);
                         return;
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        if created_partial {
+                            let _ = std::fs::remove_file(&dest_path);
+                        }
+                        let _ = app.emit(
+                            "shelf-transfer-progress",
+                            ShelfTransferProgressPayload {
+                                id: file_id,
+                                name: safe_filename,
+                                size: total_size.max(transferred),
+                                transferred,
+                                progress: 0,
+                                status: "error".to_string(),
+                                device_name,
+                                speed_formatted: None,
+                            },
+                        );
+                        let status = if e.kind() == std::io::ErrorKind::InvalidData {
+                            StatusCode(413)
+                        } else {
+                            StatusCode(500)
+                        };
+                        let err_msg = e.to_string().replace('\\', "\\\\").replace('"', "\\\"");
+                        let response = with_header_safe(
+                            Response::from_string(format!(
+                                r#"{{"ok":false,"error":"{}"}}"#,
+                                err_msg
+                            ))
+                            .with_status_code(status),
+                            b"Content-Type",
+                            b"application/json",
+                        );
+                        let _ = request.respond(response);
                         return;
                     }
                 }
             } else if parts.len() == 3 && parts[2] == "complete" && method == Method::Post {
                 let query = parse_query_params(&raw_url);
-                let device_name = detect_device_name(&user_agent, query.get("device").map(|s| s.as_str()));
+                let device_name =
+                    detect_device_name(&user_agent, query.get("device").map(|s| s.as_str()));
                 let count: usize = query.get("count").and_then(|s| s.parse().ok()).unwrap_or(0);
                 let total_bytes: u64 = query.get("bytes").and_then(|s| s.parse().ok()).unwrap_or(0);
 
-                let _ = app.emit("shelf-transfer-completed", ShelfTransferCompletedPayload {
-                    device_name,
-                    total_files: count,
-                    total_bytes,
-                });
+                let _ = app.emit(
+                    "shelf-transfer-completed",
+                    ShelfTransferCompletedPayload {
+                        device_name,
+                        total_files: count,
+                        total_bytes,
+                    },
+                );
 
-                let response = Response::from_string("{\"ok\":true}")
-                    .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap());
+                let response = with_header_safe(
+                    Response::from_string("{\"ok\":true}"),
+                    b"Content-Type",
+                    b"application/json",
+                );
                 let _ = request.respond(response);
                 return;
             }
         }
     }
 
-    let _ = request.respond(
-        Response::from_string("Not Found")
-            .with_status_code(StatusCode(404)),
-    );
+    let _ = request.respond(Response::from_string("Not Found").with_status_code(StatusCode(404)));
 }
 
 // -------------------------------------------------------------
@@ -554,7 +760,8 @@ fn handle_http_request(
 // -------------------------------------------------------------
 
 fn render_upload_html(token: &str, hostname: &str) -> String {
-    format!(r##"<!DOCTYPE html>
+    format!(
+        r##"<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="utf-8">
@@ -998,29 +1205,65 @@ fn render_upload_html(token: &str, hostname: &str) -> String {
         const isImg = f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|heic|svg)$/i.test(f.name);
         const isVid = f.type.startsWith('video/') || /\.(mp4|mov|webm|mkv)$/i.test(f.name);
 
-        let thumbHtml = '';
+        const thumbBox = document.createElement('div');
+        thumbBox.className = 'thumb-box';
         try {{
           const objUrl = URL.createObjectURL(f);
           if (isImg) {{
-            thumbHtml = `<img class="thumb-img" src="${{objUrl}}" alt="">`;
+            const img = document.createElement('img');
+            img.className = 'thumb-img';
+            img.src = objUrl;
+            img.alt = '';
+            thumbBox.appendChild(img);
           }} else if (isVid) {{
-            thumbHtml = `<video class="thumb-img" src="${{objUrl}}#t=0.5" muted playsinline preload="metadata"></video><div class="play-overlay"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></div>`;
+            const vid = document.createElement('video');
+            vid.className = 'thumb-img';
+            vid.src = objUrl + '#t=0.5';
+            vid.muted = true;
+            vid.playsInline = true;
+            vid.preload = 'metadata';
+            const overlay = document.createElement('div');
+            overlay.className = 'play-overlay';
+            overlay.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+            thumbBox.appendChild(vid);
+            thumbBox.appendChild(overlay);
           }} else {{
-            thumbHtml = `<span class="thumb-badge">${{getExt(f.name)}}</span>`;
+            const badge = document.createElement('span');
+            badge.className = 'thumb-badge';
+            badge.textContent = getExt(f.name);
+            thumbBox.appendChild(badge);
           }}
         }} catch(e) {{
-          thumbHtml = `<span class="thumb-badge">${{getExt(f.name)}}</span>`;
+          const badge = document.createElement('span');
+          badge.className = 'thumb-badge';
+          badge.textContent = getExt(f.name);
+          thumbBox.appendChild(badge);
         }}
 
-        row.innerHTML = `
-          <div class="thumb-box">${{thumbHtml}}</div>
-          <div class="file-meta">
-            <div class="file-name">${{f.name}}</div>
-            <div class="file-sub">${{formatSize(f.size)}}</div>
-          </div>
-          <div class="status-badge" id="status-${{idx}}">Siap</div>
-          <div class="row-progress" id="prog-${{idx}}"></div>
-        `;
+        const fileMeta = document.createElement('div');
+        fileMeta.className = 'file-meta';
+        const fileNameEl = document.createElement('div');
+        fileNameEl.className = 'file-name';
+        fileNameEl.textContent = f.name;
+        const fileSubEl = document.createElement('div');
+        fileSubEl.className = 'file-sub';
+        fileSubEl.textContent = formatSize(f.size);
+        fileMeta.appendChild(fileNameEl);
+        fileMeta.appendChild(fileSubEl);
+
+        const statusBadge = document.createElement('div');
+        statusBadge.className = 'status-badge';
+        statusBadge.id = `status-${{idx}}`;
+        statusBadge.textContent = 'Siap';
+
+        const rowProg = document.createElement('div');
+        rowProg.className = 'row-progress';
+        rowProg.id = `prog-${{idx}}`;
+
+        row.appendChild(thumbBox);
+        row.appendChild(fileMeta);
+        row.appendChild(statusBadge);
+        row.appendChild(rowProg);
         fileList.appendChild(row);
       }});
 
@@ -1096,7 +1339,10 @@ fn render_upload_html(token: &str, hostname: &str) -> String {
     }}
   </script>
 </body>
-</html>"##, token = token, hostname = hostname)
+</html>"##,
+        token = token,
+        hostname = escape_html(hostname)
+    )
 }
 
 fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) -> String {
@@ -1107,7 +1353,10 @@ fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) ->
         let is_vid = ["mp4", "mov", "webm", "mkv"].contains(&ext.as_str());
 
         let thumb_html = if is_img {
-            format!(r#"<img class="thumb-img" src="/d/{}/file/{}" loading="lazy" alt="">"#, token, idx)
+            format!(
+                r#"<img class="thumb-img" src="/d/{}/file/{}" loading="lazy" alt="">"#,
+                token, idx
+            )
         } else if is_vid {
             format!(
                 r#"<video class="thumb-img" src="/d/{}/file/{}#t=0.5" muted playsinline preload="metadata"></video>
@@ -1115,8 +1364,14 @@ fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) ->
                 token, idx
             )
         } else {
-            format!(r#"<span class="thumb-badge">{}</span>"#, ext.to_uppercase())
+            format!(
+                r#"<span class="thumb-badge">{}</span>"#,
+                escape_html(&ext.to_uppercase())
+            )
         };
+
+        let escaped_name = escape_html(&f.name);
+        let escaped_size = escape_html(&f.size_formatted);
 
         file_rows.push_str(&format!(
             r##"<div class="file-row">
@@ -1127,7 +1382,7 @@ fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) ->
           <div class="file-name">{}</div>
           <div class="file-sub">{}</div>
         </div>
-        <button class="unduh-btn" onclick="downloadSingle({}, '{}')">
+        <button class="unduh-btn" type="button" data-idx="{}" data-filename="{}">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
             <polyline points="7 10 12 15 17 10"></polyline>
@@ -1136,11 +1391,12 @@ fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) ->
           Unduh
         </button>
       </div>"##,
-            thumb_html, f.name, f.size_formatted, idx, f.name
+            thumb_html, escaped_name, escaped_size, idx, escaped_name
         ));
     }
 
-    format!(r##"<!DOCTYPE html>
+    format!(
+        r##"<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="utf-8">
@@ -1498,6 +1754,14 @@ fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) ->
       document.body.removeChild(link);
     }}
 
+    document.querySelector('.file-list')?.addEventListener('click', (e) => {{
+      const btn = e.target.closest('.unduh-btn');
+      if (!btn) return;
+      const idx = Number(btn.dataset.idx);
+      if (!Number.isInteger(idx)) return;
+      downloadSingle(idx, btn.dataset.filename || '');
+    }});
+
     async function downloadAll() {{
       for (let i = 0; i < totalFiles; i++) {{
         downloadSingle(i, '');
@@ -1508,7 +1772,7 @@ fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) ->
 </body>
 </html>"##,
         token = token,
-        hostname = hostname,
+        hostname = escape_html(hostname),
         count = files.len(),
         file_rows = file_rows
     )
@@ -1616,7 +1880,11 @@ pub fn get_shelf_transfer_status() -> Result<Option<ShelfSessionInfo>, String> {
             let local_ip = get_local_ip();
             let computer_name = get_computer_name();
             match s {
-                ActiveSession::Send { token, created_at, files } => {
+                ActiveSession::Send {
+                    token,
+                    created_at,
+                    files,
+                } => {
                     let elapsed = created_at.elapsed().as_secs();
                     let remaining = 300u64.saturating_sub(elapsed);
                     return Ok(Some(ShelfSessionInfo {
@@ -1630,7 +1898,9 @@ pub fn get_shelf_transfer_status() -> Result<Option<ShelfSessionInfo>, String> {
                         computer_name,
                     }));
                 }
-                ActiveSession::Receive { token, created_at, .. } => {
+                ActiveSession::Receive {
+                    token, created_at, ..
+                } => {
                     let elapsed = created_at.elapsed().as_secs();
                     let remaining = 300u64.saturating_sub(elapsed);
                     return Ok(Some(ShelfSessionInfo {
@@ -1648,4 +1918,45 @@ pub fn get_shelf_transfer_status() -> Result<Option<ShelfSessionInfo>, String> {
         }
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_content_disposition_handles_non_ascii_and_quotes() {
+        let cases = [
+            "laporan-Keuangan 2026 🚀.pdf",
+            "it's \"quoted\"; <script>\r\n.txt",
+            "日本語ファイル.png",
+            "   ",
+        ];
+        for name in cases {
+            let disp = build_content_disposition(name);
+            assert!(disp.is_ascii(), "header value must remain ASCII: {}", disp);
+            assert!(
+                Header::from_bytes(b"Content-Disposition", disp.as_bytes()).is_ok(),
+                "Header::from_bytes should never fail for {}",
+                name
+            );
+        }
+        let quoted = build_content_disposition("cat's \"pic\".png");
+        assert!(quoted.contains("filename=\"cat's _pic_.png\""));
+        assert!(quoted.contains("filename*=UTF-8''cat%27s%20%22pic%22.png"));
+    }
+
+    #[test]
+    fn test_render_download_html_escapes_filenames_and_hostname() {
+        let files = vec![ShelfFileMeta {
+            name: "a'b<img src=x onerror=alert(1)>.png".to_string(),
+            size: 128,
+            size_formatted: "128 B".to_string(),
+            path: "C:\\tmp\\test.png".to_string(),
+        }];
+        let html = render_download_html("tok123", &files, "PC<Evil>'\"");
+        assert!(html.contains("PC&lt;Evil&gt;&#39;&quot;"));
+        assert!(!html.contains("onclick=\"downloadSingle("));
+        assert!(html.contains("data-filename=\"a&#39;b&lt;img src=x onerror=alert(1)&gt;.png\""));
+    }
 }

@@ -376,19 +376,24 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
             backgroundColor: currentHex,
             boxShadow: `0 4px 12px ${currentHex}44`,
           }}
-          className="w-10 h-10 rounded-[10px] border border-white/20 shrink-0 flex items-center justify-center transition-colors"
+          className={`w-10 h-10 rounded-[10px] border shrink-0 flex items-center justify-center transition-colors ${
+            isLightMode ? "border-black/15" : "border-white/20"
+          }`}
         >
           <span
-            className={`text-[11px] font-mono font-bold ${
-              isLightContrast ? "text-black" : "text-white"
-            }`}
+            className="text-[11px] font-mono font-bold"
+            style={{ color: isLightContrast ? "#000000" : "#ffffff" }}
           >
             Aa
           </span>
         </div>
 
         {/* Hex Input */}
-        <div className="flex items-center flex-1 min-w-0 bg-black/40 border border-white/10 rounded-[10px] px-2.5 py-2 focus-within:border-blue-500/80 transition-colors">
+        <div
+          className={`flex items-center flex-1 min-w-0 rounded-[10px] px-2.5 py-2 focus-within:border-blue-500/80 transition-colors border ${
+            isLightMode ? "bg-black/[0.04] border-black/10" : "bg-black/40 border-white/10"
+          }`}
+        >
           <span className="text-zinc-500 font-mono text-[12px] select-none mr-1">
             #
           </span>
@@ -398,13 +403,17 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
             onChange={(e) => handleHexInputChange(`#${e.target.value}`)}
             maxLength={6}
             placeholder={mode === "text" ? "ffffff" : "0f172a"}
-            className="w-full bg-transparent text-[12.5px] font-mono font-semibold text-white outline-none uppercase"
+            className={`w-full bg-transparent text-[12.5px] font-mono font-semibold outline-none uppercase ${
+              isLightMode ? "text-[#1d1d1f]" : "text-white"
+            }`}
           />
           <Tooltip content={copied ? "Tersalin!" : isId ? "Salin Kode HEX" : "Copy HEX code"} side="top">
             <button
               type="button"
               onClick={handleCopyHex}
-              className="text-zinc-400 hover:text-white p-1 rounded transition-colors shrink-0"
+              className={`p-1 rounded transition-colors shrink-0 ${
+                isLightMode ? "text-neutral-500 hover:text-[#1d1d1f]" : "text-zinc-400 hover:text-white"
+              }`}
             >
             {copied ? (
               <Check size={14} className="text-emerald-400" />
@@ -471,7 +480,9 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
                 background:
                   "linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)",
               }}
-              className="w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ring-white/10"
+              className={`w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ${
+                isLightMode ? "ring-black/15" : "ring-white/10"
+              }`}
             />
           </div>
         </div>
@@ -490,7 +501,9 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
               value={hsl.l}
               onChange={(e) => handleLightnessChange(Number(e.target.value))}
               style={{ background: lightnessGradient }}
-              className="w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ring-white/10"
+              className={`w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ${
+                isLightMode ? "ring-black/15" : "ring-white/10"
+              }`}
             />
           </div>
         </div>
@@ -509,26 +522,32 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
               value={hsl.s}
               onChange={(e) => handleSaturationChange(Number(e.target.value))}
               style={{ background: saturationGradient }}
-              className="w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ring-white/10"
+              className={`w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ${
+                isLightMode ? "ring-black/15" : "ring-white/10"
+              }`}
             />
           </div>
         </div>
       </div>
 
       {/* 4. Categorized Color Templates / Presets */}
-      <div className="flex flex-col gap-2 pt-2 border-t border-white/[0.08]">
+      <div className={`flex flex-col gap-2 pt-2 border-t ${borderClass}`}>
         <div className="flex items-center justify-between">
-          <span className={`text-[11px] font-semibold text-white flex items-center gap-1.5`}>
+          <span className={`text-[11px] font-semibold flex items-center gap-1.5 ${isLightMode ? "text-[#1d1d1f]" : "text-white"}`}>
             <span>🎨</span>
             {isId ? "Pilihan Warna Template" : "Color Templates"}
           </span>
-          <span className="text-[10px] text-zinc-500 font-mono">
+          <span className={`text-[10px] font-mono ${textMuted}`}>
             32 {isId ? "Pilihan" : "Options"}
           </span>
         </div>
 
         {/* Category Pills */}
-        <div className="grid grid-cols-4 gap-1 p-0.5 rounded-[10px] bg-black/40 border border-white/10">
+        <div
+          className={`grid grid-cols-4 gap-1 p-0.5 rounded-[10px] border ${
+            isLightMode ? "bg-black/[0.04] border-black/10" : "bg-black/40 border-white/10"
+          }`}
+        >
           {categories.map((cat) => {
             const isActive = activeCategory === cat.id;
             return (
@@ -538,7 +557,11 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
                 onClick={() => setActiveCategory(cat.id)}
                 className={`py-1 px-1.5 rounded-[7px] text-[10px] font-medium flex items-center justify-center gap-1 transition-all ${
                   isActive
-                    ? "bg-white/15 text-white shadow-sm font-semibold"
+                    ? isLightMode
+                      ? "bg-white text-[#1d1d1f] shadow-sm font-semibold"
+                      : "bg-white/15 text-white shadow-sm font-semibold"
+                    : isLightMode
+                    ? "text-neutral-500 hover:text-[#1d1d1f] hover:bg-black/[0.04]"
                     : "text-zinc-400 hover:text-white hover:bg-white/5"
                 }`}
               >
@@ -569,9 +592,11 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
                     onChange(next);
                   }}
                   style={{ backgroundColor: item.hex }}
-                  className={`group relative h-[32px] w-full rounded-[9px] border border-white/20 flex flex-col items-center justify-center transition-all cursor-pointer ${
+                  className={`group relative h-[32px] w-full rounded-[9px] border flex flex-col items-center justify-center transition-all cursor-pointer ${
+                    isLightMode ? "border-black/15" : "border-white/20"
+                  } ${
                     isSelected
-                      ? "scale-105 ring-2 ring-blue-400 ring-offset-2 ring-offset-[#121216] shadow-lg z-10"
+                      ? `scale-105 ring-2 ring-blue-400 ring-offset-2 ${isLightMode ? "ring-offset-white" : "ring-offset-[#121216]"} shadow-lg z-10`
                       : "hover:scale-105 opacity-90 hover:opacity-100 shadow-sm"
                   }`}
                 >
@@ -579,17 +604,13 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
                   <Check
                     size={14}
                     strokeWidth={3}
-                    className={
-                      itemLuminance < 0.5
-                        ? "text-white drop-shadow"
-                        : "text-black drop-shadow"
-                    }
+                    className="drop-shadow"
+                    style={{ color: itemLuminance < 0.5 ? "#ffffff" : "#000000" }}
                   />
                 ) : (
                   <span
-                    className={`text-[8.5px] font-bold font-mono opacity-0 group-hover:opacity-100 transition-opacity ${
-                      itemLuminance < 0.5 ? "text-white/80" : "text-black/80"
-                    }`}
+                    className="text-[8.5px] font-bold font-mono opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ color: itemLuminance < 0.5 ? "rgba(255, 255, 255, 0.85)" : "rgba(0, 0, 0, 0.8)" }}
                   >
                     Aa
                   </span>

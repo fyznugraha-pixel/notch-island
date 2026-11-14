@@ -1,11 +1,17 @@
 import { LyricsProvider, LyricsData } from "./types";
 import { cleanTitle, cleanArtist, parseLrc, hasActualLyrics, pickMatchingCandidate } from "./utils";
-import { fetchJson, rethrowIfFetchError } from "./lyricsHttp";
+import { fetchJson, rethrowIfFetchError, throwIfAborted } from "./lyricsHttp";
 
 export const qqMusicProvider: LyricsProvider = {
   id: "qqmusic",
   name: "QQ Music",
-  async fetchLyrics(artist: string, title: string, duration?: number): Promise<LyricsData | null> {
+  async fetchLyrics(
+    artist: string,
+    title: string,
+    duration?: number,
+    signal?: AbortSignal
+  ): Promise<LyricsData | null> {
+    throwIfAborted(signal);
     const cleanedArtist = cleanArtist(artist);
     const cleanedTitle = cleanTitle(title) || title;
     const query = `${cleanedTitle} ${cleanedArtist}`.trim();
@@ -22,6 +28,7 @@ export const qqMusicProvider: LyricsProvider = {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
           Referer: "https://y.qq.com/",
         },
+        signal,
       });
 
       const songList = searchData?.data?.song?.list;
@@ -47,13 +54,14 @@ export const qqMusicProvider: LyricsProvider = {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
           Referer: "https://y.qq.com/",
         },
+        signal,
       });
 
       const b64 = lyricData?.lyric;
       if (!b64 || typeof b64 !== "string") return null;
 
-      // Decode base64 in browser
-      const binaryString = window.atob(b64);
+      // Decode base64
+      const binaryString = globalThis.atob(b64);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);

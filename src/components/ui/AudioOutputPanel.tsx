@@ -309,7 +309,7 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
                 (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
               }
             }}
-            className="flex-1 relative h-1.5 rounded-full bg-[#2a2a31] overflow-hidden cursor-pointer touch-none"
+            className="flex-1 relative h-1.5 rounded-full bg-[#2a2a31] light-track-surface overflow-hidden cursor-pointer touch-none"
           >
             <div
               className={`h-full bg-[#3882F6] pointer-events-none rounded-full ${

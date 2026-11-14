@@ -19,14 +19,35 @@ import { extractDominantColor } from "./colorExtractor";
 import { useResolvedThumbnail } from "../ui/MediaThumbnail";
 import { prefetchArtwork } from "../../services/artworkService";
 import { useSystemTextScale } from "../../hooks/useSystemTextScale";
+import { getLanguage, setLanguage, Language } from "../../services/i18n";
+import { setSoundEffectsEnabled } from "../../services/soundService";
 
 interface MiniplayerCursorHoverPayload {
   in_window: boolean;
   in_toolbar: boolean;
+  is_anchored_right?: boolean;
+}
+
+function resolveMiniPlayerTheme(): "solid" | "liquid" {
+  try {
+    const preset = localStorage.getItem("island_transparency_preset");
+    if (preset === "liquid_glass") return "liquid";
+    if (preset === "solid") return "solid";
+    const opacityRaw = localStorage.getItem("island_opacity");
+    const blurRaw = localStorage.getItem("island_blur");
+    const opacity = opacityRaw !== null ? Number(opacityRaw) : 1.0;
+    const blur = blurRaw !== null ? Number(blurRaw) : 0;
+    return (!Number.isNaN(opacity) && opacity < 0.92) || (!Number.isNaN(blur) && blur > 5)
+      ? "liquid"
+      : "solid";
+  } catch {
+    return "solid";
+  }
 }
 
 export const MiniPlayerApp: React.FC = () => {
   const effectiveTextScale = useSystemTextScale();
+  const [, setOptLanguage] = useState<Language>(() => getLanguage());
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const [lyrics, setLyrics] = useState<LyricsPayload | null>(null);
   const [tintColor, setTintColor] = useState<string>("#3a1414");
@@ -38,15 +59,12 @@ export const MiniPlayerApp: React.FC = () => {
       return "bar";
     }
   });
+  const modeRef = useRef<"bar" | "card">(mode);
+  modeRef.current = mode;
+  const effectiveTextScaleRef = useRef<number>(effectiveTextScale);
+  effectiveTextScaleRef.current = effectiveTextScale;
 
-  const [theme] = useState<"solid" | "liquid">(() => {
-    try {
-      const preset = localStorage.getItem("island_transparency_preset");
-      return preset === "liquid_glass" ? "liquid" : "solid";
-    } catch {
-      return "solid";
-    }
-  });
+  const [theme, setTheme] = useState<"solid" | "liquid">(resolveMiniPlayerTheme);
 
   const [isPinned, setIsPinned] = useState<boolean>(() => {
     try {
@@ -75,6 +93,7 @@ export const MiniPlayerApp: React.FC = () => {
   const [exitState, setExitState] = useState<"idle" | "closing" | "to-notch">("idle");
   const [enterKey, setEnterKey] = useState(1);
   const isExitingRef = useRef(false);
+  const triggerExitTimerRef = useRef<number | null>(null);
 
   const triggerExit = useCallback((type: "closing" | "to-notch") => {
     if (isExitingRef.current) return;
@@ -86,7 +105,11 @@ export const MiniPlayerApp: React.FC = () => {
     } catch {}
 
     const durationMs = 240;
-    window.setTimeout(async () => {
+    if (triggerExitTimerRef.current) {
+      window.clearTimeout(triggerExitTimerRef.current);
+    }
+    triggerExitTimerRef.current = window.setTimeout(async () => {
+      triggerExitTimerRef.current = null;
       try {
         await invoke("close_miniplayer");
         await invoke("reset_miniplayer_position");
@@ -147,6 +170,7 @@ export const MiniPlayerApp: React.FC = () => {
   const latestPosRef = useRef({ x: 0, y: 0, w: 440, h: 130 });
   const isInZoneRef = useRef(false);
   const inWindowRef = useRef(false);
+  const inToolbarRef = useRef(false);
 
   // Initialize media & lyrics store as listener
   useEffect(() => {
@@ -159,18 +183,67 @@ export const MiniPlayerApp: React.FC = () => {
     const unlistenLyrics = subscribeLyrics((l) => setLyrics(l));
     initMediaLyricsStore(false);
 
+    let isMounted = true;
+    let unlistenSettings: (() => void) | null = null;
+    listen<any>("gili-settings-sync", (event) => {
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object") return;
+      if (payload.type === "settings_reset") {
+        window.location.reload();
+        return;
+      }
+      if (payload.type !== "setting_key") return;
+      const { key, value } = payload;
+      if (key === "opt_language") {
+        setLanguage(value as Language, false);
+        setOptLanguage(value as Language);
+      } else if (key === "opt_sound_fx") {
+        setSoundEffectsEnabled(Boolean(value));
+      } else if (key === "opt_opacity" || key === "opt_blur") {
+        if (key === "opt_opacity") {
+          try { localStorage.setItem("island_opacity", String(value)); } catch {}
+        } else {
+          try { localStorage.setItem("island_blur", String(value)); } catch {}
+        }
+        setTheme(resolveMiniPlayerTheme());
+      }
+    }).then((fn) => {
+      if (!isMounted) fn();
+      else unlistenSettings = fn;
+    });
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === "island_opacity" || e.key === "island_blur" || e.key === "island_transparency_preset") {
+        setTheme(resolveMiniPlayerTheme());
+      }
+    };
+    window.addEventListener("storage", handleStorageSync);
+
     return () => {
+      isMounted = false;
       unlistenMedia();
       unlistenLyrics();
+      unlistenSettings?.();
+      window.removeEventListener("storage", handleStorageSync);
     };
   }, []);
 
   // Listen for window visibility to trigger enter animation and close requests
   useEffect(() => {
+    let isMounted = true;
     let unlistenVis: (() => void) | null = null;
     let unlistenCloseReq: (() => void) | null = null;
 
     listen<boolean>("miniplayer:visibility-changed", (event) => {
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = null;
+      }
+      inWindowRef.current = false;
+      inToolbarRef.current = false;
+      setShowToolbar(false);
+      setIsFaded(false);
+
       if (event.payload) {
         isExitingRef.current = false;
         setExitState("idle");
@@ -178,7 +251,7 @@ export const MiniPlayerApp: React.FC = () => {
         setEnterKey((k) => k + 1);
         invoke<MediaPayload>("get_current_media")
           .then((m) => {
-            if (m && (m.title || m.artist)) {
+            if (isMounted && m && (m.title || m.artist)) {
               prefetchArtwork(m);
               setMedia(m);
             }
@@ -190,16 +263,19 @@ export const MiniPlayerApp: React.FC = () => {
         } catch {}
       }
     }).then((un) => {
-      unlistenVis = un;
+      if (!isMounted) un();
+      else unlistenVis = un;
     });
 
     listen("miniplayer:request-close", () => {
       triggerExit("closing");
     }).then((un) => {
-      unlistenCloseReq = un;
+      if (!isMounted) un();
+      else unlistenCloseReq = un;
     });
 
     return () => {
+      isMounted = false;
       if (unlistenVis) unlistenVis();
       if (unlistenCloseReq) unlistenCloseReq();
     };
@@ -241,13 +317,17 @@ export const MiniPlayerApp: React.FC = () => {
       localStorage.removeItem("gili_miniplayer_pos");
     } catch {}
 
+    let isMounted = true;
     // Track window moves to check notch proximity and snap
-    const unlistenMove = win.onMoved(async (event) => {
-      if (isExitingRef.current) return;
+    let unlistenMoveFn: (() => void) | null = null;
+    win.onMoved(async (event) => {
+      if (!isMounted || isExitingRef.current) return;
       try {
         const { x, y } = event.payload;
-        const currentW = Math.round((mode === "card" ? 380 : 440) * effectiveTextScale);
-        const currentH = Math.round(340 * effectiveTextScale);
+        const liveMode = modeRef.current;
+        const liveScale = effectiveTextScaleRef.current;
+        const currentW = Math.round((liveMode === "card" ? 380 : 440) * liveScale);
+        const currentH = Math.round((liveMode === "card" ? 340 : 130) * liveScale);
         latestPosRef.current = { x, y, w: currentW, h: currentH };
 
         const dpr = window.devicePixelRatio || 1;
@@ -256,6 +336,7 @@ export const MiniPlayerApp: React.FC = () => {
         // If user was in the Notch zone and just released LButton, Windows OS may snap y < 0 back to y = 0.
         // Detect that release immediately before any snapped coordinates overwrite isInZoneRef.
         const isDownNow = await invoke<boolean>("is_lbutton_down").catch(() => false);
+        if (!isMounted) return;
         if (!isDownNow) {
           if (isInZoneRef.current) {
             if (dragCheckPollRef.current) {
@@ -277,15 +358,19 @@ export const MiniPlayerApp: React.FC = () => {
           width: currentW,
           height: currentH,
         }).catch(() => ({ is_near: false, is_in_zone: false }));
+        if (!isMounted) return;
 
         setIsInZone(prox.is_in_zone);
         isInZoneRef.current = prox.is_in_zone;
         await emit("miniplayer:drag-proximity", prox);
+        if (!isMounted) return;
 
         if (prox.is_near || prox.is_in_zone) {
           if (!dragCheckPollRef.current) {
             dragCheckPollRef.current = setInterval(async () => {
+              if (!isMounted) return;
               const isDown = await invoke<boolean>("is_lbutton_down").catch(() => false);
+              if (!isMounted) return;
               if (!isDown) {
                 if (dragCheckPollRef.current) {
                   clearInterval(dragCheckPollRef.current);
@@ -293,6 +378,7 @@ export const MiniPlayerApp: React.FC = () => {
                 }
 
                 const currentOuterPos = await win.outerPosition().catch(() => null);
+                if (!isMounted) return;
                 const checkX = currentOuterPos ? currentOuterPos.x : latestPosRef.current.x;
                 const checkY = currentOuterPos ? currentOuterPos.y : latestPosRef.current.y;
 
@@ -305,10 +391,12 @@ export const MiniPlayerApp: React.FC = () => {
                     height: currentH,
                   }
                 ).catch(() => ({ is_near: false, is_in_zone: false }));
+                if (!isMounted) return;
 
                 const shouldMerge = finalCheck.is_in_zone || isInZoneRef.current;
 
                 await emit("miniplayer:drag-proximity", { is_near: false, is_in_zone: false });
+                if (!isMounted) return;
                 setIsInZone(false);
                 isInZoneRef.current = false;
 
@@ -327,10 +415,14 @@ export const MiniPlayerApp: React.FC = () => {
           }
         }
       } catch {}
+    }).then((fn) => {
+      if (!isMounted) fn();
+      else unlistenMoveFn = fn;
     });
 
     return () => {
-      unlistenMove.then((f) => f());
+      isMounted = false;
+      unlistenMoveFn?.();
       if (dragCheckPollRef.current) {
         clearInterval(dragCheckPollRef.current);
         dragCheckPollRef.current = null;
@@ -359,15 +451,29 @@ export const MiniPlayerApp: React.FC = () => {
       if (modeTransitionTimerRef.current) {
         window.clearTimeout(modeTransitionTimerRef.current);
       }
+      if (triggerExitTimerRef.current) {
+        window.clearTimeout(triggerExitTimerRef.current);
+        triggerExitTimerRef.current = null;
+      }
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = null;
+      }
     };
   }, []);
 
   // Listen to Rust cursor hit-testing across click-through boundaries
   useEffect(() => {
+    let isMounted = true;
     let unlisten: (() => void) | null = null;
     listen<MiniplayerCursorHoverPayload>("miniplayer:cursor-hover", (event) => {
-      const { in_window, in_toolbar } = event.payload;
+      if (!isMounted) return;
+      const { in_window, in_toolbar, is_anchored_right } = event.payload;
       inWindowRef.current = in_window;
+      inToolbarRef.current = in_toolbar;
+      if (typeof is_anchored_right === "boolean") {
+        setIsAnchoredRight(is_anchored_right);
+      }
 
       if (in_window) {
         if (exitTimerRef.current) {
@@ -387,16 +493,23 @@ export const MiniPlayerApp: React.FC = () => {
       } else {
         if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
         exitTimerRef.current = setTimeout(() => {
+          if (!isMounted) return;
           setIsFaded(false);
           setShowToolbar(false);
           exitTimerRef.current = null;
-        }, 120);
+        }, 80);
       }
     }).then((fn) => {
-      unlisten = fn;
+      if (!isMounted) fn();
+      else unlisten = fn;
     });
 
     return () => {
+      isMounted = false;
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = null;
+      }
       if (unlisten) unlisten();
     };
   }, [fadeOnHover]);
@@ -419,7 +532,7 @@ export const MiniPlayerApp: React.FC = () => {
       setShowToolbar(false);
       setIsFaded(false);
       exitTimerRef.current = null;
-    }, 120);
+    }, 80);
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -594,10 +707,6 @@ export const MiniPlayerApp: React.FC = () => {
     <motion.div
       key={enterKey}
       ref={containerRef}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      onMouseDown={handleMouseDown}
-      onClick={handleClick}
       initial="initial"
       animate={exitState === "idle" ? "animate" : exitState}
       variants={motionVariants}
@@ -606,13 +715,17 @@ export const MiniPlayerApp: React.FC = () => {
         height: "100vh",
         transformOrigin: anchorOrigin,
       }}
-      className={`relative w-screen h-screen overflow-hidden select-none bg-transparent flex flex-col justify-end ${
+      className={`relative w-screen h-screen overflow-hidden select-none bg-transparent pointer-events-none flex flex-col justify-end ${
         isAnchoredRight ? "items-end" : "items-start"
       }`}
     >
       {/* Unified Morphing Shell: animates width, height, and borderRadius smoothly like Notch */}
       <motion.div
         initial={false}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onMouseDown={handleMouseDown}
+        onClick={handleClick}
         animate={{
           width: targetShellWidth,
           height: targetShellHeight,
@@ -632,7 +745,7 @@ export const MiniPlayerApp: React.FC = () => {
           backdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
           WebkitBackdropFilter: theme === "liquid" ? "blur(28px) saturate(180%)" : undefined,
         }}
-        className={`relative box-border overflow-hidden shadow-none ${
+        className={`relative box-border overflow-hidden shadow-none pointer-events-auto ${
           theme === "solid" ? "border border-white/[0.09]" : "border border-white/[0.16]"
         }`}
       >

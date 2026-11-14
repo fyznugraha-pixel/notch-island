@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronDown, TrendingUp, RotateCcw } from "lucide-react";
 import { t, getLanguage } from "../../../services/i18n";
+import { AI_MODELS } from "../../../services/aiChatService";
+import { getGiliFreeModel } from "../../../services/giliFreeService";
 import {
   CurrencyCode,
   CURRENCY_CONFIGS,
@@ -10,6 +12,7 @@ import {
   convertIdrToCurrency,
   convertCurrencyToIdr,
   formatIdrCostInCurrency,
+  parseCurrencyInput,
 } from "../../../services/aiCurrencyService";
 import type { AiUsageStats } from "./AiChatTypes";
 
@@ -101,9 +104,8 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanStr = customInputValue.replace(/,/g, "").trim();
-    const num = parseFloat(cleanStr);
-    if (!isNaN(num) && num >= 0) {
+    const num = parseCurrencyInput(customInputValue, currConfig.decimals);
+    if (num !== null && num >= 0) {
       const limitIdr = convertCurrencyToIdr(num, currency);
       onUpdateLimit?.(limitIdr);
       setShowCustomInput(false);
@@ -416,20 +418,21 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
               <div className="mt-2 pt-2 border-t border-white/[0.06]">
                 {showCustomInput ? (
                   <form onSubmit={handleCustomSubmit} className="flex items-center gap-1.5 animate-in fade-in duration-150">
-                    <div className="flex items-center gap-1 px-2 h-6 rounded-lg bg-black/50 border border-white/15 text-[10.5px] grow">
+                    <div className="flex items-center gap-1 px-2 h-6 rounded-lg bg-black/50 border border-white/15 focus-within:border-[#38bdf8]/70 focus-within:ring-1 focus-within:ring-[#38bdf8]/40 text-[10.5px] grow">
                       <span className="text-[#a1a1aa] text-[10px]">{currConfig.symbol}</span>
                       <input
                         type="text"
                         value={customInputValue}
                         onChange={(e) => {
                           if (currConfig.decimals > 0) {
-                            const val = e.target.value.replace(/[^0-9.]/g, "");
+                            const val = e.target.value.replace(/[^0-9.,]/g, "");
                             setCustomInputValue(val);
                           } else {
                             const digitsOnly = e.target.value.replace(/\D/g, "");
                             setCustomInputValue(digitsOnly ? Number(digitsOnly).toLocaleString(currConfig.locale) : "");
                           }
                         }}
+                        aria-label={t("aichat_usage_custom_placeholder")}
                         placeholder={t("aichat_usage_custom_placeholder")}
                         className="bg-transparent text-white outline-none w-full tabular-nums text-[10.5px]"
                         autoFocus
@@ -480,7 +483,7 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
                           setCustomInputValue(
                             currConfig.decimals > 0
                               ? valInCurr.toFixed(2)
-                              : String(Math.round(valInCurr))
+                              : Math.round(valInCurr).toLocaleString(currConfig.locale)
                           );
                         }
                       }}
@@ -574,12 +577,16 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
                   data-scrollable="true"
                   className="flex flex-col gap-1.5 grow min-h-0 overflow-y-auto no-scrollbar pr-0.5"
                 >
-                  {modelEntries.map(([name, count], i) => {
+                  {modelEntries.map(([modelKey, count], i) => {
                     const pct = Math.min(100, Math.round((count / totalModelTokens) * 100));
+                    const displayName =
+                      modelKey === "gili-free"
+                        ? getGiliFreeModel().name
+                        : AI_MODELS.find((m) => m.id === modelKey)?.name || modelKey;
                     return (
-                      <div key={name} className="tabular-nums shrink-0">
+                      <div key={modelKey} className="tabular-nums shrink-0">
                         <div className="flex items-baseline justify-between gap-1.5 text-[10.5px]">
-                          <span className="text-[#e4e4e7] truncate min-w-0">{name}</span>
+                          <span className="text-[#e4e4e7] truncate min-w-0">{displayName}</span>
                           <span className="font-semibold text-white shrink-0">{count.toLocaleString(numLocale)}</span>
                         </div>
                         <div className="h-1.5 mt-0.5 rounded-full bg-white/[0.08] overflow-hidden">

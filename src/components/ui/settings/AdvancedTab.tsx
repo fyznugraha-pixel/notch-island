@@ -8,6 +8,7 @@ import {
 import { SettingRow } from "./SettingRow";
 import { t } from "../../../services/i18n";
 import { UpdateInfo, UpdateStatus } from "../../../services/updateService";
+import { resetAllAppSettings } from "../../../services/settingsResetService";
 
 export interface AdvancedTabProps {
   currentAppVersion: string;
@@ -41,27 +42,17 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  const handleResetAllSettings = () => {
+  const handleResetAllSettings = async () => {
     if (!showResetConfirm) {
       setShowResetConfirm(true);
       return;
     }
 
     try {
-      localStorage.removeItem("island_onboarding_completed");
-      localStorage.removeItem("island_theme");
-      localStorage.removeItem("island_idle_layout");
-      localStorage.removeItem("island_font_size");
-      localStorage.removeItem("island_tab_size");
-      localStorage.removeItem("island_ears");
-      localStorage.removeItem("island_transparency");
-      localStorage.removeItem("island_auto_compact");
-      localStorage.removeItem("island_auto_compact_mode");
-      localStorage.removeItem("island_show_greeting");
-      localStorage.removeItem("island_close_delay");
-    } catch {}
-
-    window.location.reload();
+      await resetAllAppSettings();
+    } finally {
+      window.location.reload();
+    }
   };
 
   const updateSubtitle =

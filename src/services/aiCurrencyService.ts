@@ -260,6 +260,37 @@ export function formatCurrencyAmount(
 }
 
 /**
+ * Parses a localized manual budget string into a numeric value in the active currency.
+ * Preserves grouping dots/commas cleanly for zero-decimal currencies such as IDR and JPY.
+ */
+export function parseCurrencyInput(rawValue: string, decimals: number): number | null {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+
+  if (decimals === 0) {
+    const digitsOnly = trimmed.replace(/[^\d]/g, "");
+    if (!digitsOnly) return null;
+    const parsed = Number(digitsOnly);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+
+  let normalized = trimmed.replace(/[^\d.,]/g, "");
+  if (!normalized) return null;
+
+  const lastComma = normalized.lastIndexOf(",");
+  const lastDot = normalized.lastIndexOf(".");
+  if (lastComma > lastDot) {
+    // Handles comma decimal separators such as de-DE ("12,50" or "1.200,50")
+    normalized = normalized.replace(/\./g, "").replace(",", ".");
+  } else {
+    normalized = normalized.replace(/,/g, "");
+  }
+
+  const parsed = parseFloat(normalized);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/**
  * High-level helper: takes cost in IDR, converts to target currency, and formats for UI display.
  */
 export function formatIdrCostInCurrency(

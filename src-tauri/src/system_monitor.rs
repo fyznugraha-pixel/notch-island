@@ -60,6 +60,7 @@ struct MetricsState {
     last_net_time: Option<Instant>,
     last_proc_times: HashMap<u32, u64>,
     last_proc_check: Option<Instant>,
+    last_proc_sys_total: u64,
     cached_top_proc: (String, f32),
     base_ghz: f32,
 }
@@ -74,6 +75,7 @@ static METRICS_STATE: LazyLock<Mutex<MetricsState>> = LazyLock::new(|| {
         last_net_time: None,
         last_proc_times: HashMap::new(),
         last_proc_check: None,
+        last_proc_sys_total: 0,
         cached_top_proc: (String::new(), 0.0),
         base_ghz: 0.0,
     })
@@ -184,7 +186,6 @@ pub async fn get_system_metrics() -> SystemMetrics {
         };
 
         let mut cpu_usage = 15.0f32;
-        let mut total_sys_delta = 1u64;
         let mut wifi_down_mbps = 0.0f32;
         let mut wifi_up_mbps = 0.0f32;
         let mut base_ghz = 3.2f32;
@@ -202,7 +203,6 @@ pub async fn get_system_metrics() -> SystemMetrics {
                 let kernel_d = kernel.saturating_sub(st.last_kernel);
                 let user_d = user.saturating_sub(st.last_user);
                 let sys_d = kernel_d.saturating_add(user_d);
-                total_sys_delta = sys_d.max(1);
                 if sys_d > 0 {
                     let active = sys_d.saturating_sub(idle_d);
                     cpu_usage = ((active as f64 / sys_d as f64) * 100.0).clamp(1.0, 100.0) as f32;
@@ -269,7 +269,14 @@ pub async fn get_system_metrics() -> SystemMetrics {
                     }
                 }
 
-                if best_pid > 0 {
+                let proc_sys_total = kernel.saturating_add(user);
+                let proc_sys_delta = if st.last_proc_sys_total > 0 {
+                    proc_sys_total.saturating_sub(st.last_proc_sys_total)
+                } else {
+                    0
+                };
+
+                if best_pid > 0 && proc_sys_delta > 0 {
                     unsafe {
                         if let Ok(h) =
                             OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, best_pid)
@@ -291,8 +298,7 @@ pub async fn get_system_metrics() -> SystemMetrics {
                                     if let Some(first) = name.get_mut(0..1) {
                                         first.make_ascii_uppercase();
                                     }
-                                    let pct = ((best_delta as f64 / total_sys_delta.max(1) as f64)
-                                        * 100.0)
+                                    let pct = ((best_delta as f64 / proc_sys_delta as f64) * 100.0)
                                         .clamp(0.5, cpu_usage as f64)
                                         as f32;
                                     st.cached_top_proc = (name, (pct * 10.0).round() / 10.0);
@@ -305,6 +311,7 @@ pub async fn get_system_metrics() -> SystemMetrics {
 
                 st.last_proc_times = next_map;
                 st.last_proc_check = Some(now);
+                st.last_proc_sys_total = proc_sys_total;
             }
 
             if !st.cached_top_proc.0.is_empty() {

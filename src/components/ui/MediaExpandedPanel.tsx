@@ -305,7 +305,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                 }}
                 className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
                   showLyrics
-                    ? "bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.35)]"
+                    ? "is-active bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.35)]"
                     : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
                 }`}
               >

@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from "react";
 
 export interface ScrollingTextProps {
   text: string;
+  children?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
   speed?: number;
@@ -11,6 +12,7 @@ export interface ScrollingTextProps {
 
 export const ScrollingText = ({
   text,
+  children,
   className = "",
   style,
   speed = 28,
@@ -115,7 +117,7 @@ export const ScrollingText = ({
               }
         }
       >
-        {text}
+        {children ?? text}
       </span>
     </div>
   );

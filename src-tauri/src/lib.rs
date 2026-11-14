@@ -15,6 +15,27 @@ mod app_icon;
 pub mod ai_credentials;
 pub mod backdrop_blur;
 
+pub(crate) struct ComGuard(bool);
+
+impl ComGuard {
+    pub(crate) fn init(coinit: windows::Win32::System::Com::COINIT) -> Self {
+        let initialized = unsafe {
+            windows::Win32::System::Com::CoInitializeEx(None, coinit).is_ok()
+        };
+        Self(initialized)
+    }
+}
+
+impl Drop for ComGuard {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe {
+                windows::Win32::System::Com::CoUninitialize();
+            }
+        }
+    }
+}
+
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
     pid: u32,
@@ -41,14 +62,14 @@ async fn set_default_audio_endpoint(id: String) -> Result<(), String> {
 #[tauri::command]
 async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
     tauri::async_runtime::spawn_blocking(move || {
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
+        use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume};
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
         use windows::core::Interface;
 
         let mut sessions = Vec::new();
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
                 if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
                     if let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
@@ -121,7 +142,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
 #[tauri::command]
 fn set_app_volume(pid: u32, volume: f32, name: Option<String>) {
     tauri::async_runtime::spawn_blocking(move || {
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
+        use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume};
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
         use windows::core::Interface;
@@ -129,8 +150,8 @@ fn set_app_volume(pid: u32, volume: f32, name: Option<String>) {
         let target_name_lower = name.as_ref().map(|n| n.trim().to_lowercase());
         let clamped_vol = volume.clamp(0.0, 1.0);
 
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
                 if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
                     if let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
@@ -231,12 +252,109 @@ pub struct ClipboardImageItem {
     pub id: String,
     pub path: String,
     pub thumbnail: String,
+    pub vision_data_url: Option<String>,
     pub width: u32,
     pub height: u32,
 }
 
+pub(crate) fn decode_safe_image_from_path(path: &std::path::Path) -> Option<image::DynamicImage> {
+    const MAX_DIM: u32 = 12_000;
+    const MAX_PIXELS: u64 = 64_000_000;
+    const MAX_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
+
+    let (w, h) = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
+    if w == 0 || h == 0 || w > MAX_DIM || h > MAX_DIM || (w as u64).saturating_mul(h as u64) > MAX_PIXELS {
+        return None;
+    }
+
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DIM);
+    limits.max_image_height = Some(MAX_DIM);
+    limits.max_alloc = Some(MAX_ALLOC_BYTES);
+
+    let mut reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    reader.limits(limits);
+    reader.decode().ok()
+}
+
+fn encode_dynamic_image_data_url(
+    img: &image::DynamicImage,
+    max_dim: u32,
+    jpeg_quality: u8,
+) -> Option<String> {
+    use base64::Engine;
+    use image::codecs::jpeg::JpegEncoder;
+
+    let (w, h) = (img.width(), img.height());
+    let resized = if w.max(h) > max_dim {
+        img.resize(max_dim, max_dim, image::imageops::FilterType::CatmullRom)
+    } else {
+        img.clone()
+    };
+
+    let mut cursor = std::io::Cursor::new(Vec::with_capacity(32768));
+    let rgb = resized.to_rgb8();
+    let mut encoder = JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
+    if encoder.encode_image(&rgb).is_ok() {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+        return Some(format!("data:image/jpeg;base64,{}", b64));
+    }
+
+    cursor.set_position(0);
+    cursor.get_mut().clear();
+    if resized.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+        return Some(format!("data:image/png;base64,{}", b64));
+    }
+    None
+}
+
+fn prune_clipboard_image_cache(dir: &std::path::Path, max_files: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let max_age = std::time::Duration::from_secs(24 * 60 * 60);
+    let now = std::time::SystemTime::now();
+    let mut kept: Vec<(std::time::SystemTime, std::path::PathBuf)> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        if let Ok(age) = now.duration_since(modified) {
+            if age > max_age {
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
+        }
+        kept.push((modified, path));
+    }
+
+    if kept.len() > max_files {
+        kept.sort_by_key(|(ts, _)| *ts);
+        let overflow = kept.len() - max_files;
+        for (_, path) in kept.into_iter().take(overflow) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 #[tauri::command]
-async fn read_clipboard_image(app: tauri::AppHandle) -> Result<Option<ClipboardImageItem>, String> {
+async fn read_clipboard_image(
+    app: tauri::AppHandle,
+    persist_file: Option<bool>,
+    include_vision: Option<bool>,
+) -> Result<Option<ClipboardImageItem>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -278,45 +396,35 @@ async fn read_clipboard_image(app: tauri::AppHandle) -> Result<Option<ClipboardI
             .as_millis();
         let id = format!("clip_img_{}", now);
 
-        let cache_dir = std::env::temp_dir().join("gili_clipboard_images");
-        let _ = std::fs::create_dir_all(&cache_dir);
-        let img_path = cache_dir.join(format!("{}.png", id));
-
         let img_buffer = match image::RgbaImage::from_raw(width, height, rgba.to_vec()) {
             Some(buf) => buf,
             None => return Ok(None),
         };
 
-        img_buffer.save(&img_path).map_err(|e| e.to_string())?;
-
-        let max_thumb_dim = 320.0;
-        let scale = (max_thumb_dim / (width.max(height) as f32)).min(1.0);
-        let thumb_w = ((width as f32 * scale).round() as u32).max(1);
-        let thumb_h = ((height as f32 * scale).round() as u32).max(1);
-
-        let resized = image::imageops::resize(&img_buffer, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
-        let mut cursor = std::io::Cursor::new(Vec::new());
-        use base64::Engine;
-        // JPEG requires RGB8 (no alpha channel). Convert to RGB8 for compact base64 data URI.
-        let rgb = image::DynamicImage::ImageRgba8(resized.clone()).into_rgb8();
-        let thumbnail = if rgb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-            format!("data:image/jpeg;base64,{}", b64)
+        let saved_path = if persist_file.unwrap_or(false) {
+            let cache_dir = std::env::temp_dir().join("gili_clipboard_images");
+            let _ = std::fs::create_dir_all(&cache_dir);
+            prune_clipboard_image_cache(&cache_dir, 30);
+            let img_path = cache_dir.join(format!("{}.png", id));
+            img_buffer.save(&img_path).map_err(|e| e.to_string())?;
+            img_path.to_string_lossy().to_string()
         } else {
-            cursor.set_position(0);
-            cursor.get_mut().clear();
-            if resized.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-                format!("data:image/png;base64,{}", b64)
-            } else {
-                String::new()
-            }
+            String::new()
+        };
+
+        let dyn_img = image::DynamicImage::ImageRgba8(img_buffer);
+        let thumbnail = encode_dynamic_image_data_url(&dyn_img, 320, 82).unwrap_or_default();
+        let vision_data_url = if include_vision.unwrap_or(false) {
+            encode_dynamic_image_data_url(&dyn_img, 1600, 88)
+        } else {
+            None
         };
 
         Ok(Some(ClipboardImageItem {
             id,
-            path: img_path.to_string_lossy().to_string(),
+            path: saved_path,
             thumbnail,
+            vision_data_url,
             width,
             height,
         }))
@@ -496,8 +604,12 @@ async fn extract_image_text(path: String) -> Result<String, String> {
 
 #[tauri::command]
 async fn extract_clipboard_text(app: tauri::AppHandle) -> Result<String, String> {
-    if let Some(clip_img) = read_clipboard_image(app).await? {
-        extract_image_text(clip_img.path).await
+    if let Some(clip_img) = read_clipboard_image(app, Some(true), Some(false)).await? {
+        let res = extract_image_text(clip_img.path.clone()).await;
+        if !clip_img.path.is_empty() {
+            let _ = std::fs::remove_file(&clip_img.path);
+        }
+        res
     } else {
         Err("No image in clipboard".to_string())
     }
@@ -645,9 +757,9 @@ fn resolve_smtc_session(
 async fn smtc_action(action: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        use windows::Win32::System::Com::COINIT_MULTITHREADED;
 
-        let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
 
         let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
             .map_err(|e| e.to_string())?
@@ -679,9 +791,11 @@ async fn fetch_external_lyrics_api(
     body: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        // --- SSRF guard: only lyrics providers, no private/loopback/link-local hosts ---
+        // --- SSRF guard: only lyrics & artwork providers, no private/loopback/link-local hosts ---
         const ALLOWED_LYRICS_HOSTS: &[&str] = &[
             "lrclib.net",
+            "lyrics-api.boidu.dev",
+            "api.betterlyrics.org",
             "genius.com",
             "krcs.kugou.com",
             "lyrics.kugou.com",
@@ -689,6 +803,8 @@ async fn fetch_external_lyrics_api(
             "c.y.qq.com",
             "y.qq.com",
             "music.163.com",
+            "itunes.apple.com",
+            "api.deezer.com",
         ];
 
         fn validate_lyrics_url(raw: &str) -> Result<(), String> {
@@ -727,9 +843,13 @@ async fn fetch_external_lyrics_api(
 
         validate_lyrics_url(&url)?;
 
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(6))
-            .build();
+        static LYRICS_HTTP_AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+        let agent = LYRICS_HTTP_AGENT.get_or_init(|| {
+            ureq::AgentBuilder::new()
+                .timeout_connect(std::time::Duration::from_secs(4))
+                .timeout(std::time::Duration::from_secs(6))
+                .build()
+        });
 
         let req_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
         let mut request = match req_method.as_str() {
@@ -835,6 +955,36 @@ async fn ai_http_request(
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
+static ACTIVE_AI_STREAMS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+> = std::sync::OnceLock::new();
+
+fn active_ai_streams() -> &'static std::sync::Mutex<
+    std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>,
+> {
+    ACTIVE_AI_STREAMS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+struct AiStreamRegistryGuard(String);
+
+impl Drop for AiStreamRegistryGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = active_ai_streams().lock() {
+            map.remove(&self.0);
+        }
+    }
+}
+
+#[tauri::command]
+fn cancel_ai_http_stream(stream_id: String) -> Result<(), String> {
+    if let Ok(map) = active_ai_streams().lock() {
+        if let Some(flag) = map.get(&stream_id) {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn ai_http_stream(
     app: tauri::AppHandle,
@@ -844,9 +994,25 @@ async fn ai_http_stream(
     headers: Option<std::collections::HashMap<String, String>>,
     body: Option<String>,
 ) -> Result<(), String> {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    if let Ok(mut map) = active_ai_streams().lock() {
+        map.insert(stream_id.clone(), Arc::clone(&cancel_flag));
+    }
+
+    let flag_clone = Arc::clone(&cancel_flag);
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Emitter;
         use std::io::BufRead;
+
+        let _guard = AiStreamRegistryGuard(stream_id.clone());
+        if flag_clone.load(Ordering::SeqCst) {
+            return;
+        }
 
         let agent = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(120))
@@ -864,34 +1030,53 @@ async fn ai_http_stream(
             }
         }
 
+        if flag_clone.load(Ordering::SeqCst) {
+            return;
+        }
+
         let resp_result = if let Some(b) = body {
             request.send_string(&b)
         } else {
             request.call()
         };
 
+        if flag_clone.load(Ordering::SeqCst) {
+            return;
+        }
+
         match resp_result {
             Ok(resp) => {
                 let reader = std::io::BufReader::new(resp.into_reader());
                 for line in reader.lines() {
+                    if flag_clone.load(Ordering::SeqCst) {
+                        return;
+                    }
                     match line {
                         Ok(l) => {
                             let _ = app.emit(&format!("ai-stream-chunk:{}", stream_id), l);
                         }
                         Err(e) => {
-                            let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Read error: {}", e));
+                            if !flag_clone.load(Ordering::SeqCst) {
+                                let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Read error: {}", e));
+                            }
                             return;
                         }
                     }
                 }
-                let _ = app.emit(&format!("ai-stream-done:{}", stream_id), ());
+                if !flag_clone.load(Ordering::SeqCst) {
+                    let _ = app.emit(&format!("ai-stream-done:{}", stream_id), ());
+                }
             }
             Err(ureq::Error::Status(status, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
-                let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("HTTP {}: {}", status, body));
+                if !flag_clone.load(Ordering::SeqCst) {
+                    let body = resp.into_string().unwrap_or_default();
+                    let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("HTTP {}: {}", status, body));
+                }
             }
             Err(e) => {
-                let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Network error: {}", e));
+                if !flag_clone.load(Ordering::SeqCst) {
+                    let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Network error: {}", e));
+                }
             }
         }
     })
@@ -1216,78 +1401,105 @@ async fn capture_window_context(
     hwnd: isize,
     read_mode: String,
 ) -> Result<CapturedWindowContextPayload, String> {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW};
-    use base64::Engine;
+    let (title, rgba_img, temp_path) =
+        tauri::async_runtime::spawn_blocking(move || -> Result<(String, image::RgbaImage, std::path::PathBuf), String> {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW};
 
-    let target_hwnd = HWND(hwnd as _);
-    let mut title = String::new();
-    let text_len = unsafe { GetWindowTextLengthW(target_hwnd) };
-    if text_len > 0 {
-        let mut buf = vec![0u16; (text_len + 1) as usize];
-        let len = unsafe { GetWindowTextW(target_hwnd, &mut buf) };
-        if len > 0 {
-            title = String::from_utf16_lossy(&buf[..len as usize]).trim().to_string();
-        }
-    }
+            let target_hwnd = HWND(hwnd as _);
+            let mut title = String::new();
+            let text_len = unsafe { GetWindowTextLengthW(target_hwnd) };
+            if text_len > 0 {
+                let mut buf = vec![0u16; (text_len + 1) as usize];
+                let len = unsafe { GetWindowTextW(target_hwnd, &mut buf) };
+                if len > 0 {
+                    title = String::from_utf16_lossy(&buf[..len as usize]).trim().to_string();
+                }
+            }
 
-    let rgba_img = unsafe { capture_hwnd_to_rgba(target_hwnd) }?;
+            let rgba_img = unsafe { capture_hwnd_to_rgba(target_hwnd) }?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let temp_path = std::env::temp_dir().join(format!(
+                "gili_win_ocr_{}_{}.png",
+                std::process::id(),
+                now
+            ));
+            let _ = rgba_img.save(&temp_path);
+            Ok((title, rgba_img, temp_path))
+        })
+        .await
+        .map_err(|e| format!("Window capture task panicked: {}", e))??;
 
     // Run OCR on the captured image to get text context
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
-    let temp_path = std::env::temp_dir().join(format!("gili_win_ocr_{}_{}.png", std::process::id(), now));
-    let _ = rgba_img.save(&temp_path);
     let ocr_res = extract_image_text(temp_path.to_string_lossy().to_string()).await;
-    let _ = std::fs::remove_file(&temp_path);
 
-    let has_meaningful_text = match &ocr_res {
-        Ok(t) => t.trim().len() >= 15,
-        Err(_) => false,
-    };
+    tauri::async_runtime::spawn_blocking(move || -> Result<CapturedWindowContextPayload, String> {
+        use base64::Engine;
 
-    let raw_text = match ocr_res {
-        Ok(t) if t.trim().len() >= 15 => t,
-        _ => {
-            if !title.is_empty() {
-                format!("Konteks jendela: {}\n(Teks tidak terdeteksi via OCR. Tangkapan layar visual jendela otomatis disertakan)", title)
-            } else {
-                "Tangkapan layar visual jendela disertakan".to_string()
-            }
-        }
-    };
+        let _ = std::fs::remove_file(&temp_path);
 
-    let needs_screenshot = read_mode == "screenshot" || !has_meaningful_text;
-
-    let image_data_url = if needs_screenshot {
-        let (w, h) = (rgba_img.width(), rgba_img.height());
-        let max_dim = 1400.0f32;
-        let dyn_img = if (w as f32) > max_dim || (h as f32) > max_dim {
-            let scale = max_dim / (w.max(h) as f32);
-            let tw = ((w as f32 * scale).round() as u32).max(1);
-            let th = ((h as f32 * scale).round() as u32).max(1);
-            image::DynamicImage::ImageRgba8(rgba_img).resize(tw, th, image::imageops::FilterType::Triangle)
-        } else {
-            image::DynamicImage::ImageRgba8(rgba_img)
+        let has_meaningful_text = match &ocr_res {
+            Ok(t) => t.trim().len() >= 15,
+            Err(_) => false,
         };
 
-        let mut jpeg_bytes = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
-        if dyn_img.to_rgb8().write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
-            Some(format!("data:image/jpeg;base64,{}", b64))
+        let raw_text = match ocr_res {
+            Ok(t) if t.trim().len() >= 15 => t,
+            _ => {
+                if !title.is_empty() {
+                    format!(
+                        "Konteks jendela: {}\n(Teks tidak terdeteksi via OCR. Tangkapan layar visual jendela otomatis disertakan)",
+                        title
+                    )
+                } else {
+                    "Tangkapan layar visual jendela disertakan".to_string()
+                }
+            }
+        };
+
+        let needs_screenshot = read_mode == "screenshot" || !has_meaningful_text;
+
+        let image_data_url = if needs_screenshot {
+            let (w, h) = (rgba_img.width(), rgba_img.height());
+            let max_dim = 1400.0f32;
+            let dyn_img = if (w as f32) > max_dim || (h as f32) > max_dim {
+                let scale = max_dim / (w.max(h) as f32);
+                let tw = ((w as f32 * scale).round() as u32).max(1);
+                let th = ((h as f32 * scale).round() as u32).max(1);
+                image::DynamicImage::ImageRgba8(rgba_img)
+                    .resize(tw, th, image::imageops::FilterType::Triangle)
+            } else {
+                image::DynamicImage::ImageRgba8(rgba_img)
+            };
+
+            let mut jpeg_bytes = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
+            if dyn_img
+                .to_rgb8()
+                .write_to(&mut cursor, image::ImageFormat::Jpeg)
+                .is_ok()
+            {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+                Some(format!("data:image/jpeg;base64,{}", b64))
+            } else {
+                None
+            }
         } else {
             None
-        }
-    } else {
-        None
-    };
+        };
 
-    Ok(CapturedWindowContextPayload {
-        title: if !title.is_empty() { title } else { "Jendela".to_string() },
-        preview_text: raw_text.clone(),
-        image_data_url,
-        character_count: raw_text.len(),
+        Ok(CapturedWindowContextPayload {
+            title: if !title.is_empty() { title } else { "Jendela".to_string() },
+            preview_text: raw_text.clone(),
+            image_data_url,
+            character_count: raw_text.len(),
+        })
     })
+    .await
+    .map_err(|e| format!("Window capture encode task panicked: {}", e))?
 }
 
 #[tauri::command]
@@ -1297,9 +1509,9 @@ async fn smtc_seek(position_sec: f64) -> Result<(), String> {
     }
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        use windows::Win32::System::Com::COINIT_MULTITHREADED;
 
-        let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
 
         let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
             .map_err(|e| e.to_string())?
@@ -1600,25 +1812,60 @@ fn get_available_monitors(app: tauri::AppHandle, window: tauri::WebviewWindow) -
         .collect()
 }
 
-static IS_SYNCING_DISPLAYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SYNC_DISPLAYS_QUEUE: std::sync::Mutex<(bool, Option<bool>)> = std::sync::Mutex::new((false, None));
 
 fn sync_all_displays_windows(
     app: &tauri::AppHandle,
     is_all: bool,
 ) {
-    let app_handle = app.clone();
-    std::thread::spawn(move || {
-        // Prevent concurrent calls creating duplicate windows
-        if IS_SYNCING_DISPLAYS.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    {
+        let mut state = match SYNC_DISPLAYS_QUEUE.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        state.1 = Some(is_all);
+        if state.0 {
             return;
         }
+        state.0 = true;
+    }
+
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
         struct SyncGuard;
         impl Drop for SyncGuard {
             fn drop(&mut self) {
-                IS_SYNCING_DISPLAYS.store(false, std::sync::atomic::Ordering::SeqCst);
+                if let Ok(mut state) = SYNC_DISPLAYS_QUEUE.lock() {
+                    state.0 = false;
+                }
             }
         }
         let _guard = SyncGuard;
+
+        loop {
+            let next_is_all = {
+                let mut state = match SYNC_DISPLAYS_QUEUE.lock() {
+                    Ok(g) => g,
+                    Err(p) => p.into_inner(),
+                };
+                match state.1.take() {
+                    Some(val) => val,
+                    None => {
+                        state.0 = false;
+                        return;
+                    }
+                }
+            };
+            sync_all_displays_windows_inner(&app_handle, next_is_all);
+        }
+    });
+}
+
+fn sync_all_displays_windows_inner(
+    app_handle: &tauri::AppHandle,
+    is_all: bool,
+) {
+        let app_handle = app_handle.clone();
 
         let state_guard = app_handle.state::<PillSize>();
         if !is_all {
@@ -1765,10 +2012,22 @@ fn sync_all_displays_windows(
                                         .lock()
                                         .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr))
                                         .unwrap_or((NotchPos::Top, 0.0, false, 1.0));
-                                    let sf = sec_for_events.scale_factor().unwrap_or_else(|_| mon_for_events.scale_factor());
+                                    let live_mon = sec_for_events
+                                        .current_monitor()
+                                        .ok()
+                                        .flatten()
+                                        .or_else(|| {
+                                            sec_for_events.available_monitors().ok().and_then(|mons| {
+                                                let target_name = mon_for_events.name();
+                                                mons.into_iter()
+                                                    .find(|m| target_name.is_some() && m.name() == target_name)
+                                            })
+                                        })
+                                        .unwrap_or_else(|| mon_for_events.clone());
+                                    let sf = sec_for_events.scale_factor().unwrap_or_else(|_| live_mon.scale_factor());
                                     let eff_sf = if d > 0.0 { (d as f64).max(sf) } else { sf * get_system_text_scale() };
                                     let p_off = if isl { (off as f64 * eff_sf).round() as i32 } else { 0 };
-                                    position_notch_window_on_monitor(&sec_for_events, &mon_for_events, p, p_off);
+                                    position_notch_window_on_monitor(&sec_for_events, &live_mon, p, p_off);
                                 }
                                 _ => {}
                             }
@@ -1780,7 +2039,6 @@ fn sync_all_displays_windows(
                 }
             }
         }
-    });
 }
 
 #[tauri::command]
@@ -1997,6 +2255,10 @@ fn calculate_notch_hit(
     sf: f64,
     pill: &PillState,
 ) -> bool {
+    if pill.width <= 0.0 || pill.height <= 0.0 {
+        return false;
+    }
+
     let effective_sf = if pill.dpr > 0.0 {
         (pill.dpr as f64).max(sf)
     } else {
@@ -2384,9 +2646,9 @@ fn set_master_volume(level: f32) {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
         use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-        use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        use windows::Win32::System::Com::{CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
                 if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
                     if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
@@ -2405,10 +2667,10 @@ async fn get_master_volume() -> f32 {
     tauri::async_runtime::spawn_blocking(|| {
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
         use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-        use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        use windows::Win32::System::Com::{CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
         let mut vol = 0.5;
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
                 if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
                     if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
@@ -2609,12 +2871,12 @@ fn get_connected_bluetooth_devices() -> Vec<(String, Option<u8>)> {
                 continue;
             }
 
-            let u16_slice = std::slice::from_raw_parts(
-                name_buf.as_ptr() as *const u16,
-                name_buf.len() / 2,
-            );
-            let len = u16_slice.iter().position(|&c| c == 0).unwrap_or(u16_slice.len());
-            let friendly_name = String::from_utf16_lossy(&u16_slice[..len]).trim().to_string();
+            let u16_words: Vec<u16> = name_buf
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .take_while(|&w| w != 0)
+                .collect();
+            let friendly_name = String::from_utf16_lossy(&u16_words).trim().to_string();
             if friendly_name.is_empty() {
                 continue;
             }
@@ -2760,11 +3022,28 @@ fn get_system_info(app_handle: tauri::AppHandle) -> (String, String, bool) {
 #[derive(serde::Serialize)]
 struct FilePreviewResult {
     size_formatted: String,
+    size_bytes: u64,
     thumbnail: Option<String>,
+    vision_data_url: Option<String>,
+}
+
+fn is_supported_raster_image_ext(ext: &str) -> bool {
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
+    )
+}
+
+fn is_supported_raster_image_path(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(is_supported_raster_image_ext)
+        .unwrap_or(false)
 }
 
 #[tauri::command]
-async fn get_file_preview(path: String) -> Result<FilePreviewResult, String> {
+async fn get_file_preview(path: String, include_vision: Option<bool>) -> Result<FilePreviewResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use std::fs;
         use std::path::Path;
@@ -2793,25 +3072,32 @@ async fn get_file_preview(path: String) -> Result<FilePreviewResult, String> {
             .to_lowercase();
 
         let mut thumbnail: Option<String> = None;
-        let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "ico" | "svg");
+        let mut vision_data_url: Option<String> = None;
+        let want_vision = include_vision.unwrap_or(false);
+        let is_raster_img = is_supported_raster_image_ext(&ext);
+        let is_img = is_raster_img || matches!(ext.as_str(), "ico" | "svg");
 
-        // Only attempt image decoding if it's an image under 25MB to prevent memory exhaustion
         if is_img && len <= 25 * 1024 * 1024 {
-            if let Ok(bytes) = fs::read(p) {
-                use base64::{Engine as _, engine::general_purpose::STANDARD};
-                if ext == "svg" && bytes.len() <= 512 * 1024 {
-                    let b64 = STANDARD.encode(&bytes);
-                    thumbnail = Some(format!("data:image/svg+xml;base64,{}", b64));
-                } else if ext == "ico" && bytes.len() <= 512 * 1024 {
-                    let b64 = STANDARD.encode(&bytes);
-                    thumbnail = Some(format!("data:image/x-icon;base64,{}", b64));
-                } else if let Ok(img) = image::load_from_memory(&bytes) {
-                    let thumb = img.resize(320, 320, image::imageops::FilterType::CatmullRom);
-
-                    let mut buffer = std::io::Cursor::new(Vec::with_capacity(16384));
-                    if thumb.write_to(&mut buffer, image::ImageFormat::Png).is_ok() {
-                        let b64 = STANDARD.encode(buffer.into_inner());
-                        thumbnail = Some(format!("data:image/png;base64,{}", b64));
+            if is_raster_img {
+                if let Some(img) = decode_safe_image_from_path(p) {
+                    thumbnail = encode_dynamic_image_data_url(&img, 320, 82);
+                    if want_vision {
+                        vision_data_url = encode_dynamic_image_data_url(&img, 1600, 88);
+                    }
+                }
+            } else if len <= 512 * 1024 {
+                if let Ok(bytes) = fs::read(p) {
+                    use base64::{Engine as _, engine::general_purpose::STANDARD};
+                    if ext == "svg" {
+                        if !want_vision {
+                            let b64 = STANDARD.encode(&bytes);
+                            thumbnail = Some(format!("data:image/svg+xml;base64,{}", b64));
+                        }
+                    } else if ext == "ico" {
+                        if !want_vision {
+                            let b64 = STANDARD.encode(&bytes);
+                            thumbnail = Some(format!("data:image/x-icon;base64,{}", b64));
+                        }
                     }
                 }
             }
@@ -2819,7 +3105,9 @@ async fn get_file_preview(path: String) -> Result<FilePreviewResult, String> {
 
         Ok(FilePreviewResult {
             size_formatted,
+            size_bytes: len,
             thumbnail,
+            vision_data_url,
         })
     })
     .await
@@ -2979,8 +3267,12 @@ fn copy_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
 
         if OpenClipboard(None).is_ok() {
             let _ = EmptyClipboard();
-            let _ = SetClipboardData(15, windows::Win32::Foundation::HANDLE(h_global.0));
+            let set_res = SetClipboardData(15, windows::Win32::Foundation::HANDLE(h_global.0));
             let _ = CloseClipboard();
+            if let Err(e) = set_res {
+                let _ = GlobalFree(h_global);
+                return Err(format!("Failed to set clipboard data: {}", e));
+            }
             INTERNAL_CLIPBOARD_SEQ.store(GetClipboardSequenceNumber(), std::sync::atomic::Ordering::Relaxed);
             Ok(())
         } else {
@@ -2991,25 +3283,46 @@ fn copy_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn pick_files_dialog() -> Result<Vec<String>, String> {
+async fn pick_files_dialog(
+    filter_mode: Option<String>,
+    multiselect: Option<bool>,
+) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
-            COINIT_APARTMENTTHREADED,
+            CoCreateInstance, CoTaskMemFree, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
         };
+        use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
         use windows::Win32::UI::Shell::{
             FileOpenDialog, IFileOpenDialog, FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST,
             SIGDN_FILESYSPATH,
         };
 
-        let com_init = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok() };
+        let images_only = filter_mode.as_deref() == Some("images");
+        let allow_multi = multiselect.unwrap_or(true);
+        let _com = ComGuard::init(COINIT_APARTMENTTHREADED);
+
         let result = (|| -> windows::core::Result<Vec<String>> {
             unsafe {
                 let dialog: IFileOpenDialog =
                     CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
                 let mut options = dialog.GetOptions()?;
-                options |= FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST;
+                options |= FOS_FILEMUSTEXIST;
+                if allow_multi {
+                    options |= FOS_ALLOWMULTISELECT;
+                } else {
+                    options &= !FOS_ALLOWMULTISELECT;
+                }
                 dialog.SetOptions(options)?;
+
+                if images_only {
+                    let specs = [COMDLG_FILTERSPEC {
+                        pszName: windows::core::w!("Gambar (PNG, JPG, WebP, GIF, BMP)"),
+                        pszSpec: windows::core::w!("*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp"),
+                    }];
+                    dialog.SetFileTypes(&specs)?;
+                    let _ = dialog.SetFileTypeIndex(1);
+                    let _ = dialog.SetDefaultExtension(windows::core::w!("png"));
+                }
 
                 dialog.Show(None)?;
 
@@ -3025,15 +3338,13 @@ async fn pick_files_dialog() -> Result<Vec<String>, String> {
                     paths.push(path_str);
                 }
 
+                if images_only {
+                    paths.retain(|p| is_supported_raster_image_path(p));
+                }
+
                 Ok(paths)
             }
         })();
-
-        if com_init {
-            unsafe {
-                CoUninitialize();
-            }
-        }
 
         match result {
             Ok(paths) => Ok(paths),
@@ -3790,9 +4101,13 @@ pub fn run() {
             fetch_external_lyrics_api,
             ai_http_request,
             ai_http_stream,
+            cancel_ai_http_stream,
             ai_credentials::save_secure_ai_key,
             ai_credentials::get_secure_ai_key,
             ai_credentials::delete_secure_ai_key,
+            ai_credentials::save_secure_ai_model_key,
+            ai_credentials::get_all_secure_ai_model_keys,
+            ai_credentials::delete_secure_ai_model_key,
             get_open_windows,
             capture_window_context,
             update_pill_size,
@@ -4342,11 +4657,11 @@ pub fn run() {
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
                 use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-                use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+                use windows::Win32::System::Com::COINIT_MULTITHREADED;
                 use tauri::Emitter;
                 
                 // Wajib inisialisasi COM untuk memanggil Windows API dari thread baru
-                let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+                let _com = ComGuard::init(COINIT_MULTITHREADED);
                 
                 let mut last_title = String::new();
                 let mut last_artist = String::new();
@@ -5551,5 +5866,50 @@ mod hit_test {
             "Lofi Hip Hop Radio",
             "Lofi Girl"
         ));
+    }
+
+    #[test]
+    fn test_calculate_notch_hit_hidden_zero_size() {
+        let win_pos = tauri::PhysicalPosition { x: 400, y: 0 };
+        let win_size = tauri::PhysicalSize { width: 820, height: 600 };
+        let hidden_pill = PillState {
+            width: 0.0,
+            height: 0.0,
+            is_bottom: false,
+            pos: NotchPos::Top,
+            top_offset: 12.0,
+            is_island: true,
+            dpr: 1.25,
+            target_monitor: None,
+            ..Default::default()
+        };
+
+        let center_top = POINT { x: 810, y: 0 };
+        let near_edge = POINT { x: 810, y: 12 };
+        assert!(!calculate_notch_hit(center_top, win_pos, win_size, 1.0, &hidden_pill));
+        assert!(!calculate_notch_hit(near_edge, win_pos, win_size, 1.0, &hidden_pill));
+    }
+
+    #[test]
+    fn test_supported_raster_image_filter_excludes_svg_and_ico() {
+        assert!(is_supported_raster_image_path("photo.PNG"));
+        assert!(is_supported_raster_image_path(r"C:\tmp\img.jpeg"));
+        assert!(is_supported_raster_image_path("/tmp/anim.webp"));
+        assert!(!is_supported_raster_image_path("vector.svg"));
+        assert!(!is_supported_raster_image_path("favicon.ico"));
+        assert!(!is_supported_raster_image_path("notes.txt"));
+        assert!(!is_supported_raster_image_path("no_extension"));
+    }
+
+    #[test]
+    fn test_com_guard_balanced_init_and_drop() {
+        use windows::Win32::System::Com::COINIT_MULTITHREADED;
+        {
+            let guard = ComGuard::init(COINIT_MULTITHREADED);
+            assert!(guard.0);
+        }
+        // Re-initializing after Drop must succeed without mismatched apartment/refcount
+        let guard2 = ComGuard::init(COINIT_MULTITHREADED);
+        assert!(guard2.0);
     }
 }

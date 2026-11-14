@@ -153,21 +153,38 @@ function resolveFallbackPricing(
 }
 
 // Known catalog entries keep their pricing; remote pricing overrides when provided by API.
-function toModelConfig(provider: AiProviderId, remote: RemoteModel): AiModelConfig {
+export function toModelConfig(provider: AiProviderId, remote: RemoteModel): AiModelConfig {
   const lowerRemote = remote.id.toLowerCase();
+  const normalizedRemoteSegment = (lowerRemote.split("/").pop() || lowerRemote).replace(
+    /-(latest|\d{8})$/,
+    ""
+  );
+  const baseRemote = lowerRemote.replace(/-(latest|\d{8})$/, "");
   const hasRemotePricing =
     typeof remote.inputCostPer1M === "number" &&
     Number.isFinite(remote.inputCostPer1M) &&
     typeof remote.outputCostPer1M === "number" &&
     Number.isFinite(remote.outputCostPer1M);
 
-  const known = AI_MODELS.find((m) => {
-    if (provider !== "custom" && m.provider !== provider) return false;
-    if (m.id.toLowerCase() === lowerRemote) return true;
-    const baseKnown = m.id.toLowerCase().replace(/-(latest|\d{8})$/, "");
-    const baseRemote = lowerRemote.replace(/-(latest|\d{8})$/, "");
-    return baseKnown === baseRemote || baseRemote.includes(baseKnown) || baseKnown.includes(baseRemote);
-  });
+  const candidates = AI_MODELS.filter((m) => provider === "custom" || m.provider === provider);
+  const known =
+    candidates.find((m) => m.id.toLowerCase() === lowerRemote) ||
+    candidates.find((m) => {
+      const baseKnown = m.id.toLowerCase().replace(/-(latest|\d{8})$/, "");
+      return baseKnown === baseRemote || baseKnown === normalizedRemoteSegment;
+    }) ||
+    [...candidates]
+      .filter((m) => {
+        const baseKnown = m.id.toLowerCase().replace(/-(latest|\d{8})$/, "");
+        return baseRemote.includes(baseKnown);
+      })
+      .sort((a, b) => b.id.length - a.id.length)[0] ||
+    [...candidates]
+      .filter((m) => {
+        const baseKnown = m.id.toLowerCase().replace(/-(latest|\d{8})$/, "");
+        return baseKnown.startsWith(`${baseRemote}-`);
+      })
+      .sort((a, b) => a.id.length - b.id.length)[0];
   if (known) {
     return {
       ...known,
@@ -214,7 +231,9 @@ async function requestJson(url: string, headers: Record<string, string>): Promis
       if (errBody?.message) msg = `Penyedia menolak key: ${errBody.message}`;
       else if (errBody?.error?.message) msg = `Penyedia menolak key: ${errBody.error.message}`;
     } catch {}
-    throw new Error(msg);
+    const err = new Error(msg) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
   if (!res.ok) {
     let msg = `Penyedia membalas status ${res.status}`;
@@ -223,7 +242,9 @@ async function requestJson(url: string, headers: Record<string, string>): Promis
       if (errBody?.message) msg = errBody.message;
       else if (errBody?.error?.message) msg = errBody.error.message;
     } catch {}
-    throw new Error(msg);
+    const err = new Error(msg) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -296,7 +317,65 @@ async function listClaudeModels(key: string, customBaseUrl?: string): Promise<Re
   }));
 }
 
-async function listGeminiModels(key: string): Promise<RemoteModel[]> {
+function normalizeGeminiModelsUrl(baseUrl: string): string {
+  const clean = baseUrl.trim().replace(/\/+$/, "");
+  if (clean.endsWith("/models")) return clean;
+  if (clean.endsWith("/v1beta") || clean.endsWith("/v1")) return `${clean}/models`;
+  return `${clean}/v1beta/models`;
+}
+
+async function listGeminiModels(key: string, customBaseUrl?: string): Promise<RemoteModel[]> {
+  const baseUrl = customBaseUrl?.trim();
+  if (baseUrl) {
+    const clean = baseUrl.replace(/\/+$/, "");
+    const isNativeGeminiBase =
+      baseUrl.includes("googleapis.com") || /\/v1beta(\/models)?$/i.test(clean);
+    if (!isNativeGeminiBase) {
+      const modelsUrl = resolveModelsEndpoint(baseUrl);
+      const geminiFilter = (id: string) => id.toLowerCase().includes("gemini");
+      try {
+        let items = await listOpenAiCompatibleModels(modelsUrl, key, geminiFilter);
+        if (items.length === 0) {
+          items = await listOpenAiCompatibleModels(modelsUrl, key);
+        }
+        if (items.length > 0) return items;
+      } catch (err: any) {
+        if (err?.status === 401 || err?.status === 403 || err?.message?.includes("menolak key")) {
+          throw err;
+        }
+      }
+    }
+
+    const json = await requestJson(
+      `${normalizeGeminiModelsUrl(baseUrl)}?key=${encodeURIComponent(key)}`,
+      { "x-goog-api-key": key }
+    );
+    if (Array.isArray(json?.models)) {
+      return json.models
+        .filter(
+          (m: { name: string; supportedGenerationMethods?: string[] }) =>
+            m.name.includes("gemini") &&
+            (!m.supportedGenerationMethods ||
+              m.supportedGenerationMethods.includes("generateContent"))
+        )
+        .map((m: { name: string; displayName?: string; description?: string }) => ({
+          id: m.name.replace(/^models\//, ""),
+          displayName: m.displayName,
+          description: m.description,
+        }));
+    }
+    if (Array.isArray(json?.data)) {
+      return json.data
+        .filter((m: { id?: string }) => m && typeof m.id === "string")
+        .map((m: { id: string; name?: string; description?: string }) => ({
+          id: m.id,
+          displayName: m.name,
+          description: m.description,
+        }));
+    }
+    return [];
+  }
+
   const json = await requestJson(
     `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
     {}
@@ -323,7 +402,7 @@ async function listOpenAiCompatibleModels(
   try {
     json = await requestJson(url, { Authorization: `Bearer ${key}` });
   } catch (err: any) {
-    if (err?.message?.includes("404")) {
+    if (err?.status === 404 || err?.message?.includes("404")) {
       const altUrl = url.includes("/v1/models")
         ? url.replace("/v1/models", "/models")
         : url.replace("/models", "/v1/models");
@@ -381,7 +460,7 @@ async function listRemoteModels(
     case "claude":
       return listClaudeModels(key, customBaseUrl);
     case "gemini":
-      return listGeminiModels(key);
+      return listGeminiModels(key, customBaseUrl);
     case "openai": {
       const url = effectiveBase
         ? resolveModelsEndpoint(effectiveBase)

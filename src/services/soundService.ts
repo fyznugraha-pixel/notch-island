@@ -1,6 +1,10 @@
 // Crisp, satisfying iOS / macOS Sonoma-inspired acoustic UI synthesis (Web Audio API)
 import { getDndStatus } from "./notificationHistoryService";
-import { ensureCustomSoundAudioUrl, preloadActiveCustomSound } from "./customSoundStorage";
+import {
+  ensureCustomSoundAudioUrl,
+  getCustomSoundBuffer,
+  preloadActiveCustomSound,
+} from "./customSoundStorage";
 
 let sharedAudioCtx: AudioContext | null = null;
 let lastVolumeTickMs = 0;
@@ -279,72 +283,89 @@ function playDefaultGlassChime(): void {
 
 const notifAudioBufferCache = new Map<string, AudioBuffer>();
 
-async function playAudioFileWithWebAudio(url: string, volume = 0.75): Promise<void> {
-  const ctx = getAudioContext();
-  if (!ctx) {
-    playDefaultGlassChime();
-    return;
-  }
-
-  if (ctx.state === "suspended") {
-    await ctx.resume().catch(() => {});
-  }
-
+async function tryPlayHtmlAudio(url: string | null, volume: number): Promise<boolean> {
+  if (!url || typeof Audio === "undefined") return false;
   try {
-    let buffer = notifAudioBufferCache.get(url);
-    if (!buffer) {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const arrayBuffer = await res.arrayBuffer();
-      buffer = await ctx.decodeAudioData(arrayBuffer);
-      notifAudioBufferCache.set(url, buffer);
-    }
-
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(volume, ctx.currentTime);
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    source.start(0);
-  } catch (err) {
-    console.debug("Failed to play audio file via Web Audio API, falling back to glass:", err);
-    playDefaultGlassChime();
+    const el = new Audio(url);
+    el.volume = volume;
+    await el.play();
+    return true;
+  } catch {
+    return false;
   }
 }
 
-function preloadNotifSoundBuffer(soundId: string): void {
-  if (typeof window === "undefined") return;
-  if (soundId.startsWith("custom_")) {
-    ensureCustomSoundAudioUrl(soundId).then((url) => {
-      if (url && !notifAudioBufferCache.has(url)) {
-        fetch(url)
-          .then((res) => (res.ok ? res.arrayBuffer() : null))
-          .then(async (ab) => {
-            if (!ab) return;
-            const ctx = getAudioContext();
-            if (!ctx) return;
-            const buf = await ctx.decodeAudioData(ab);
-            notifAudioBufferCache.set(url, buf);
-          })
-          .catch(() => {});
+async function decodeAndCacheNotifAudio(
+  cacheKey: string,
+  loadArrayBuffer: () => Promise<ArrayBuffer | null>
+): Promise<AudioBuffer | null> {
+  const cached = notifAudioBufferCache.get(cacheKey);
+  if (cached) return cached;
+
+  const ctx = getAudioContext();
+  if (!ctx) return null;
+
+  const raw = await loadArrayBuffer();
+  if (!raw) return null;
+
+  // decodeAudioData detaches its input ArrayBuffer, so pass a fresh slice
+  const buffer = await ctx.decodeAudioData(raw.slice(0));
+  notifAudioBufferCache.set(cacheKey, buffer);
+  return buffer;
+}
+
+async function playBufferedNotifAudio(
+  cacheKey: string,
+  loadArrayBuffer: () => Promise<ArrayBuffer | null>,
+  volume = 0.75,
+  getFallbackUrl?: () => Promise<string | null>
+): Promise<void> {
+  const ctx = getAudioContext();
+  if (ctx) {
+    if (ctx.state === "suspended") {
+      await ctx.resume().catch(() => {});
+    }
+    try {
+      const buffer = await decodeAndCacheNotifAudio(cacheKey, loadArrayBuffer);
+      if (buffer) {
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(volume, ctx.currentTime);
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        source.start(0);
+        return;
       }
-    });
+    } catch (err) {
+      console.debug("Web Audio decode/playback failed, trying HTML Audio fallback:", err);
+    }
+  }
+
+  if (getFallbackUrl) {
+    const fallbackUrl = await getFallbackUrl().catch(() => null);
+    if (await tryPlayHtmlAudio(fallbackUrl, volume)) return;
+  }
+
+  playDefaultGlassChime();
+}
+
+async function fetchPresetAudioBuffer(fileUrl: string): Promise<ArrayBuffer | null> {
+  const res = await fetch(fileUrl);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.arrayBuffer();
+}
+
+function preloadNotifSoundBuffer(soundId: string): void {
+  if (typeof window === "undefined" || soundId === "glass") return;
+  if (soundId.startsWith("custom_")) {
+    decodeAndCacheNotifAudio(soundId, () => getCustomSoundBuffer(soundId)).catch(() => {});
     return;
   }
 
   const item = NOTIF_SOUND_LIST.find((s) => s.id === soundId);
-  if (item?.file && !notifAudioBufferCache.has(item.file)) {
-    fetch(item.file)
-      .then((res) => (res.ok ? res.arrayBuffer() : null))
-      .then(async (ab) => {
-        if (!ab) return;
-        const ctx = getAudioContext();
-        if (!ctx) return;
-        const buf = await ctx.decodeAudioData(ab);
-        notifAudioBufferCache.set(item.file!, buf);
-      })
-      .catch(() => {});
+  if (item?.file) {
+    decodeAndCacheNotifAudio(item.file, () => fetchPresetAudioBuffer(item.file!)).catch(() => {});
   }
 }
 
@@ -363,21 +384,23 @@ function playSoundById(soundId: string): void {
   }
 
   if (soundId.startsWith("custom_")) {
-    ensureCustomSoundAudioUrl(soundId)
-      .then((url) => {
-        if (!url) {
-          playDefaultGlassChime();
-          return;
-        }
-        playAudioFileWithWebAudio(url, 0.8);
-      })
-      .catch(() => playDefaultGlassChime());
+    playBufferedNotifAudio(
+      soundId,
+      () => getCustomSoundBuffer(soundId),
+      0.8,
+      () => ensureCustomSoundAudioUrl(soundId)
+    );
     return;
   }
 
   const item = NOTIF_SOUND_LIST.find((s) => s.id === soundId);
   if (item && item.file) {
-    playAudioFileWithWebAudio(item.file, 0.75);
+    playBufferedNotifAudio(
+      item.file,
+      () => fetchPresetAudioBuffer(item.file!),
+      0.75,
+      async () => item.file!
+    );
   } else {
     playDefaultGlassChime();
   }

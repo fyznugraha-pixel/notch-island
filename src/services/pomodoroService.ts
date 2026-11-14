@@ -89,6 +89,15 @@ export function recordCompletedFocusSession(durationMinutes: number): PomodoroDa
 
 export const recordPomodoroSession = recordCompletedFocusSession;
 
+export function normalizePomodoroMode(raw: unknown): PomodoroMode | undefined {
+  if (typeof raw !== "string") return undefined;
+  const norm = raw.trim().toLowerCase().replace(/-/g, "_");
+  if (norm === "focus") return "focus";
+  if (norm === "shortbreak" || norm === "short_break") return "short_break";
+  if (norm === "longbreak" || norm === "long_break") return "long_break";
+  return undefined;
+}
+
 export function getModeDurationSeconds(mode: PomodoroMode, settings: PomodoroSettings): number {
   if (mode === "short_break") return Math.max(1, settings.shortBreakMinutes) * 60;
   if (mode === "long_break") return Math.max(1, settings.longBreakMinutes) * 60;

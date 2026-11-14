@@ -1,4 +1,5 @@
 import { t, getLanguage } from "./i18n";
+import { emitCrossWindowEvent } from "../utils/crossWindowSync";
 
 export type NoteColor = "blue" | "mint" | "amber" | "coral";
 
@@ -68,7 +69,7 @@ export function saveMiniNotes(notes: MiniNoteItem[]): void {
 }
 
 export function notifyNotesUpdated(): void {
-  window.dispatchEvent(new CustomEvent("gili_notes_updated"));
+  emitCrossWindowEvent("gili_notes_updated");
 }
 
 export function createQuickNoteItem(

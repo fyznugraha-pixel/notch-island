@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Volume2, ClipboardList, Timer, ScanText } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
@@ -7,6 +7,10 @@ import {
   loadPomodoroSettings,
   savePomodoroSettings,
 } from "../../../services/pomodoroService";
+import {
+  emitCrossWindowEvent,
+  listenCrossWindowEvent,
+} from "../../../utils/crossWindowSync";
 
 export interface ModulesTabProps {
   optVolume: boolean;
@@ -35,12 +39,18 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
     return loadPomodoroSettings().showIdleTimer;
   });
 
+  useEffect(() => {
+    return listenCrossWindowEvent("gili_pomodoro_settings_updated", () => {
+      setPomodoroIdle(loadPomodoroSettings().showIdleTimer);
+    });
+  }, []);
+
   const handleTogglePomodoroIdle = () => {
     const next = !pomodoroIdle;
     setPomodoroIdle(next);
     const curr = loadPomodoroSettings();
     savePomodoroSettings({ ...curr, showIdleTimer: next });
-    window.dispatchEvent(new CustomEvent("gili_pomodoro_settings_updated"));
+    emitCrossWindowEvent("gili_pomodoro_settings_updated");
   };
 
   return (

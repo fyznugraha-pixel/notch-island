@@ -1,6 +1,8 @@
-import React, { useMemo, useEffect, useState } from "react";
+import React, { useMemo, useEffect } from "react";
 import { MediaPayload, LyricsPayload } from "../../services/mediaLyricsStore";
-import { useLyricsSync } from "./lyricsSync";
+import { useLyricsSync, BASE_LYRICS_OFFSET } from "./lyricsSync";
+import type { LyricLine } from "../../services/lyrics/types";
+import { usePrefersReducedMotion } from "../ui/WordFillLyricsLine";
 import {
   computeBarLyricLayout,
   findContextLineText,
@@ -45,28 +47,21 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   const currentBarWidth = BAR_WIDTH;
   const currentSlotWidth = LYRIC_SLOT_WIDTH;
 
+  const offset =
+    typeof lyrics?.offset === "number"
+      ? lyrics.offset
+      : parseFloat(localStorage.getItem("notch_lyrics_offset") || "0") || 0;
+
   const { activeIndex, activeLine, livePosition, liveDuration, seekLocal } = useLyricsSync(
     lyrics,
     position,
     duration,
     isPlaying,
-    typeof lyrics?.offset === "number"
-      ? lyrics.offset
-      : parseFloat(localStorage.getItem("notch_lyrics_offset") || "0") || 0
+    offset
   );
 
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return false;
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  });
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const handleChange = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
-    mq.addEventListener("change", handleChange);
-    return () => mq.removeEventListener("change", handleChange);
-  }, []);
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const effectivePosition = livePosition + offset + BASE_LYRICS_OFFSET;
 
   useEffect(() => {
     onWidthChange?.(currentBarWidth);
@@ -195,6 +190,15 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     });
   }, [activeText, contextText, prefersReducedMotion, currentSlotWidth, effectiveScale]);
 
+  const activeLyricLine = useMemo<LyricLine | null>(() => {
+    if (!lyrics?.synced || activeIndex < 0 || !activeLine) return null;
+    const cleaned = sanitizeLyricText(activeLine.text);
+    if (!cleaned) return null;
+    return cleaned === activeLine.text
+      ? activeLine
+      : { ...activeLine, text: cleaned };
+  }, [lyrics?.synced, activeIndex, activeLine]);
+
   const titleArtistText = media?.title
     ? `${media.title} · ${media.artist || "Artis tidak diketahui"}`
     : "Gili Mini Player";
@@ -249,6 +253,8 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
           <BarLyricSlot
             lineKey={lineKey}
             layout={lyricLayout}
+            activeLyricLine={activeLyricLine}
+            effectivePosition={effectivePosition}
             currentLineTime={currentLineTime}
             nextLineTime={nextLineTime}
             isPlaying={isPlaying}

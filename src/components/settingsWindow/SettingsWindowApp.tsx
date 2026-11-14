@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -254,7 +254,12 @@ export const SettingsWindowApp: React.FC = () => {
   const [shortcuts, setShortcuts] = useState<Record<ShortcutActionId, string | null>>(() => {
     try {
       const raw = localStorage.getItem("island_shortcuts");
-      if (raw) return { ...DEFAULT_SHORTCUTS, ...JSON.parse(raw) };
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return { ...DEFAULT_SHORTCUTS, ...parsed };
+        }
+      }
     } catch {}
     return { ...DEFAULT_SHORTCUTS };
   });
@@ -268,10 +273,14 @@ export const SettingsWindowApp: React.FC = () => {
   const [shortcutStatuses, setShortcutStatuses] = useState<Record<ShortcutActionId, ShortcutStatus>>(() => {
     const init = {} as Record<ShortcutActionId, ShortcutStatus>;
     for (const action of SHORTCUT_ACTIONS) {
-      init[action.id] = "ok";
+      init[action.id] = "inactive";
     }
     return init;
   });
+  const pendingShortcutRequestsRef = useRef<
+    Map<string, { resolve: (result: any) => void; timer: number }>
+  >(new Map());
+  const isShortcutSuspendedRef = useRef(false);
 
   // System / Update State
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
@@ -359,7 +368,8 @@ export const SettingsWindowApp: React.FC = () => {
         if (typeof c === "boolean") setOptClipboard(c);
         const ocr = await s.get("opt_ocr");
         if (typeof ocr === "boolean") setOptOcr(ocr);
-        setOptMedia(true);
+        const m = await s.get("opt_media");
+        if (typeof m === "boolean") setOptMedia(m);
 
         const p = await s.get("opt_position");
         if (isValidNotchPosition(p)) setOptPosition(p);
@@ -383,7 +393,10 @@ export const SettingsWindowApp: React.FC = () => {
         if (typeof nt === "number") setOptNotifTime(nt);
 
         const ns = await s.get("opt_notif_sound");
-        if (typeof ns === "string") setOptNotifSound(ns);
+        if (typeof ns === "string") {
+          setOptNotifSound(ns);
+          setSavedNotifSound(ns);
+        }
 
         const cd = await s.get("opt_close_delay");
         if (cd === 0 || cd === 1 || cd === 3 || cd === -1) setOptCloseDelay(cd);
@@ -440,7 +453,7 @@ export const SettingsWindowApp: React.FC = () => {
         if (fsz === "small" || fsz === "default" || fsz === "large") setOptFontSize(fsz);
 
         const savedShortcuts = await s.get("shortcuts");
-        if (savedShortcuts && typeof savedShortcuts === "object") {
+        if (savedShortcuts && typeof savedShortcuts === "object" && !Array.isArray(savedShortcuts)) {
           setShortcuts({ ...DEFAULT_SHORTCUTS, ...(savedShortcuts as Record<ShortcutActionId, string | null>) });
         }
 
@@ -467,6 +480,21 @@ export const SettingsWindowApp: React.FC = () => {
       const payload = event.payload;
       if (!payload || typeof payload !== "object") return;
 
+      if (payload.type === "shortcuts_ipc_reply" && typeof payload.requestId === "string") {
+        const pending = pendingShortcutRequestsRef.current.get(payload.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timer);
+          pendingShortcutRequestsRef.current.delete(payload.requestId);
+          pending.resolve(payload.result ?? { success: true });
+        }
+        return;
+      }
+
+      if (payload.type === "settings_reset") {
+        window.location.reload();
+        return;
+      }
+
       if (payload.type === "tabs_preferences" && payload.data) {
         setTabsPrefs(normalizeTabsPreferences(payload.data));
         return;
@@ -477,12 +505,38 @@ export const SettingsWindowApp: React.FC = () => {
         return;
       }
 
-      if (payload.type === "setting_key") {
-        const { key, value } = payload;
-        switch (key) {
+      if (payload.type === "shortcuts_update" && payload.shortcuts) {
+        setShortcuts(payload.shortcuts);
+        return;
+      }
+
+      if (payload.type === "shortcuts_enabled" && typeof payload.enabled === "boolean") {
+        setShortcutsEnabled(payload.enabled);
+        return;
+      }
+
+      const syncKey =
+        payload.type === "setting_key"
+          ? payload.key
+          : payload.type === "opt_target_monitor"
+          ? "opt_target_monitor"
+          : null;
+
+      if (syncKey) {
+        const value = payload.value;
+        switch (syncKey) {
           case "opt_language":
             setLanguage(value as Language, false);
             setOptLanguage(value as Language);
+            break;
+          case "show_greeting":
+            setShowGreeting(Boolean(value));
+            break;
+          case "greeting_name_mode":
+            setGreetingNameMode(value === "custom" ? "custom" : "auto");
+            break;
+          case "custom_greeting_name":
+            setCustomGreetingName(typeof value === "string" ? value : "");
             break;
           case "opt_theme":
             setOptTheme(value);
@@ -494,7 +548,7 @@ export const SettingsWindowApp: React.FC = () => {
             setIslandTopOffset(Number(value));
             break;
           case "opt_position":
-            setOptPosition(value);
+            if (isValidNotchPosition(value)) setOptPosition(value);
             break;
           case "opt_target_monitor":
             if (typeof value === "string") setOptTargetMonitor(value);
@@ -504,6 +558,9 @@ export const SettingsWindowApp: React.FC = () => {
             break;
           case "opt_opacity":
             setOptOpacity(Number(value));
+            break;
+          case "opt_blur":
+            setOptBlur(Number(value));
             break;
           case "opt_idle_color_enabled":
             setOptIdleColorEnabled(Boolean(value));
@@ -529,6 +586,15 @@ export const SettingsWindowApp: React.FC = () => {
           case "opt_font_size":
             setOptFontSize(value);
             break;
+          case "opt_notif_time":
+            setOptNotifTime(Number(value));
+            break;
+          case "opt_notif_sound":
+            if (typeof value === "string") {
+              setOptNotifSound(value);
+              setSavedNotifSound(value);
+            }
+            break;
           case "opt_close_delay":
             setOptCloseDelay(Number(value));
             break;
@@ -541,8 +607,21 @@ export const SettingsWindowApp: React.FC = () => {
               try { localStorage.setItem("island_auto_compact_mode", value); } catch {}
             }
             break;
+          case "opt_volume":
+            setOptVolume(Boolean(value));
+            break;
+          case "opt_clipboard":
+            setOptClipboard(Boolean(value));
+            break;
+          case "opt_ocr":
+            setOptOcr(Boolean(value));
+            break;
+          case "opt_media":
+            setOptMedia(Boolean(value));
+            break;
           case "opt_sound_fx":
             setOptSoundFx(Boolean(value));
+            setSoundEffectsEnabled(Boolean(value));
             break;
           case "opt_idle_layout":
             setIdleLayout(parseIdleLayout(value));
@@ -553,7 +632,23 @@ export const SettingsWindowApp: React.FC = () => {
       }
     });
 
+    unlistenSync.then(() => {
+      invoke("broadcast_settings_sync", {
+        payload: { type: "request_shortcut_statuses" },
+      }).catch(() => {});
+    });
+
     return () => {
+      for (const pending of pendingShortcutRequestsRef.current.values()) {
+        window.clearTimeout(pending.timer);
+      }
+      pendingShortcutRequestsRef.current.clear();
+      if (isShortcutSuspendedRef.current) {
+        isShortcutSuspendedRef.current = false;
+        invoke("broadcast_settings_sync", {
+          payload: { type: "shortcuts_resume_request" },
+        }).catch(() => {});
+      }
       unlistenNav.then((f) => f());
       unlistenSync.then((f) => f());
     };
@@ -659,7 +754,10 @@ export const SettingsWindowApp: React.FC = () => {
   const handleChangeNotifSound = async (soundId: string) => {
     setOptNotifSound(soundId);
     setSavedNotifSound(soundId);
-    if (store) await store.set("opt_notif_sound", soundId);
+    if (store) {
+      await store.set("opt_notif_sound", soundId);
+      await store.save();
+    }
     broadcastSetting("opt_notif_sound", soundId);
   };
 
@@ -866,20 +964,57 @@ export const SettingsWindowApp: React.FC = () => {
     broadcastSetting("opt_sound_fx", next);
   };
 
+  const requestMainShortcutAction = useCallback(
+    <T,>(payload: Record<string, unknown>, fallback: T, timeoutMs = 4000): Promise<T> => {
+      const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise<T>((resolve) => {
+        const timer = window.setTimeout(() => {
+          pendingShortcutRequestsRef.current.delete(requestId);
+          resolve(fallback);
+        }, timeoutMs);
+        pendingShortcutRequestsRef.current.set(requestId, {
+          resolve: (res) => resolve(res as T),
+          timer,
+        });
+        invoke("broadcast_settings_sync", {
+          payload: { ...payload, requestId },
+        }).catch(() => {
+          window.clearTimeout(timer);
+          pendingShortcutRequestsRef.current.delete(requestId);
+          resolve(fallback);
+        });
+      });
+    },
+    []
+  );
+
+  const handleSuspendShortcuts = useCallback(async () => {
+    isShortcutSuspendedRef.current = true;
+    await requestMainShortcutAction({ type: "shortcuts_suspend_request" }, { success: true }, 1500);
+  }, [requestMainShortcutAction]);
+
+  const handleResumeShortcuts = useCallback(async () => {
+    if (!isShortcutSuspendedRef.current) return;
+    isShortcutSuspendedRef.current = false;
+    await requestMainShortcutAction({ type: "shortcuts_resume_request" }, { success: true }, 1500);
+  }, [requestMainShortcutAction]);
+
   const handleUpdateShortcut = async (
     actionId: ShortcutActionId,
     newShortcut: string | null
   ): Promise<{ success: boolean; error?: string }> => {
-    const updated = { ...shortcuts, [actionId]: newShortcut };
-    setShortcuts(updated);
-    try {
-      localStorage.setItem("island_shortcuts", JSON.stringify(updated));
-    } catch {}
-    if (store) await store.set("shortcuts", updated);
-    invoke("broadcast_settings_sync", {
-      payload: { type: "shortcuts_update", actionId, newShortcut, shortcuts: updated, shortcutsEnabled },
-    }).catch(() => {});
-    return { success: true };
+    const fallbackError =
+      optLanguage === "id" ? "Jendela utama tidak merespons" : "Main window did not respond";
+    const result = await requestMainShortcutAction<{ success: boolean; error?: string }>(
+      { type: "shortcuts_update_request", actionId, newShortcut },
+      { success: false, error: fallbackError },
+      4000
+    );
+    if (result.success) {
+      isShortcutSuspendedRef.current = false;
+      setShortcuts((prev) => ({ ...prev, [actionId]: newShortcut }));
+    }
+    return result;
   };
 
   const handleResetShortcut = async (actionId: ShortcutActionId) => {
@@ -889,13 +1024,14 @@ export const SettingsWindowApp: React.FC = () => {
 
   const handleToggleShortcutsEnabled = async (enabled: boolean) => {
     setShortcutsEnabled(enabled);
-    try {
-      localStorage.setItem("island_shortcuts_enabled", String(enabled));
-    } catch {}
-    if (store) await store.set("shortcuts_enabled", enabled);
-    invoke("broadcast_settings_sync", {
-      payload: { type: "shortcuts_enabled", enabled, shortcuts },
-    }).catch(() => {});
+    if (!enabled) {
+      isShortcutSuspendedRef.current = false;
+    }
+    await requestMainShortcutAction(
+      { type: "shortcuts_enabled_request", enabled },
+      { success: true },
+      2000
+    );
   };
 
   const handleClearTempFiles = async () => {
@@ -979,7 +1115,10 @@ export const SettingsWindowApp: React.FC = () => {
     SIDEBAR_SECTIONS.find((s) => s.id === activeSection) || SIDEBAR_SECTIONS[0];
   const isId = optLanguage === "id";
 
-  const handleCloseWindow = () => {
+  const handleCloseWindow = async () => {
+    if (isShortcutSuspendedRef.current) {
+      await handleResumeShortcuts().catch(() => {});
+    }
     const win = getCurrentWindow();
     win.destroy().catch(() => win.close().catch(() => {}));
   };
@@ -1372,6 +1511,8 @@ export const SettingsWindowApp: React.FC = () => {
                       onUpdateShortcut={handleUpdateShortcut}
                       onResetShortcut={handleResetShortcut}
                       onToggleShortcutsEnabled={handleToggleShortcutsEnabled}
+                      onSuspendShortcuts={handleSuspendShortcuts}
+                      onResumeShortcuts={handleResumeShortcuts}
                       isLightMode={isLightMode}
                     />
                   )}

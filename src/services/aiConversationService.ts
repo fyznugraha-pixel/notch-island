@@ -81,11 +81,40 @@ function loadRawConversations(): AiConversation[] {
   }
 }
 
+export function sanitizeConversationsForStorage(conversations: AiConversation[]): AiConversation[] {
+  return conversations.map((conv) => ({
+    ...conv,
+    messages: conv.messages.map((msg) => {
+      if (!msg.context?.imageDataUrl) return msg;
+      const { imageDataUrl: _omitted, ...restContext } = msg.context;
+      return {
+        ...msg,
+        context: {
+          ...restContext,
+          previewText: restContext.previewText || "[Gambar terlampir]",
+        },
+      };
+    }),
+  }));
+}
+
 function saveRawConversations(conversations: AiConversation[]): void {
-  try {
-    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
-  } catch (err) {
-    console.warn("Gagal menyimpan riwayat percakapan:", err);
+  const sanitized = sanitizeConversationsForStorage(conversations);
+  for (let limit = sanitized.length; limit >= 1; limit--) {
+    try {
+      const slice = limit === sanitized.length ? sanitized : sanitized.slice(0, limit);
+      localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(slice));
+      return;
+    } catch (err) {
+      if (limit === 1) {
+        console.warn("Gagal menyimpan riwayat percakapan:", err);
+      }
+    }
+  }
+  if (sanitized.length === 0) {
+    try {
+      localStorage.setItem(CONVERSATIONS_KEY, "[]");
+    } catch {}
   }
 }
 
@@ -223,8 +252,8 @@ export function updateConversationMessages(
 
   conv.messages = messages;
   conv.updatedAt = Date.now();
-  if (totalTokens !== undefined) {
-    conv.totalTokens = totalTokens;
+  if (typeof totalTokens === "number" && Number.isFinite(totalTokens)) {
+    conv.totalTokens = (conv.totalTokens || 0) + Math.max(0, Math.round(totalTokens));
   }
 
   // Update title from first user prompt if still default

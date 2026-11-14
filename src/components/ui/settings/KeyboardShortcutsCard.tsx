@@ -34,6 +34,8 @@ interface KeyboardShortcutsCardProps {
   onUpdateShortcut: (actionId: ShortcutActionId, shortcut: string | null) => Promise<{ success: boolean; error?: string }>;
   onResetShortcut: (actionId: ShortcutActionId) => Promise<void>;
   onToggleShortcutsEnabled: (enabled: boolean) => void;
+  onSuspendShortcuts?: () => Promise<void>;
+  onResumeShortcuts?: () => Promise<void>;
   isLightMode?: boolean;
 }
 
@@ -83,6 +85,8 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
   onUpdateShortcut,
   onResetShortcut,
   onToggleShortcutsEnabled,
+  onSuspendShortcuts,
+  onResumeShortcuts,
   isLightMode,
 }) => {
   const isLight =
@@ -92,6 +96,57 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
   const [recordingChips, setRecordingChips] = useState<string[]>([]);
   const [rowErrors, setRowErrors] = useState<Partial<Record<ShortcutActionId, string>>>({});
   const recordingContainerRef = useRef<HTMLDivElement | null>(null);
+  const recordingActionRef = useRef<ShortcutActionId | null>(null);
+
+  const suspendShortcuts = useCallback(async () => {
+    if (onSuspendShortcuts) {
+      await onSuspendShortcuts();
+    } else {
+      await shortcutManager.suspendAll();
+    }
+  }, [onSuspendShortcuts]);
+
+  const resumeShortcuts = useCallback(async () => {
+    if (onResumeShortcuts) {
+      await onResumeShortcuts();
+    } else {
+      await shortcutManager.resumeAll(shortcutsEnabled);
+    }
+  }, [onResumeShortcuts, shortcutsEnabled]);
+
+  const resumeShortcutsRef = useRef(resumeShortcuts);
+  useEffect(() => {
+    resumeShortcutsRef.current = resumeShortcuts;
+  }, [resumeShortcuts]);
+
+  useEffect(() => {
+    recordingActionRef.current = recordingAction;
+  }, [recordingAction]);
+
+  useEffect(() => {
+    if (!shortcutsEnabled && recordingActionRef.current !== null) {
+      recordingActionRef.current = null;
+      setRecordingAction(null);
+      setRecordingChips([]);
+    }
+  }, [shortcutsEnabled]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (recordingActionRef.current !== null) {
+        recordingActionRef.current = null;
+        resumeShortcutsRef.current().catch(() => {});
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      if (recordingActionRef.current !== null) {
+        recordingActionRef.current = null;
+        resumeShortcutsRef.current().catch(() => {});
+      }
+    };
+  }, []);
 
   const getActionLabels = useCallback((): Record<ShortcutActionId, string> => {
     const map: Partial<Record<ShortcutActionId, string>> = {};
@@ -103,29 +158,36 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
   const startRecording = useCallback(
     async (actionId: ShortcutActionId) => {
+      recordingActionRef.current = actionId;
       setRecordingAction(actionId);
       setRecordingChips([]);
       setRowErrors((prev) => ({ ...prev, [actionId]: undefined }));
-      await shortcutManager.suspendAll();
+      await suspendShortcuts();
     },
-    []
+    [suspendShortcuts]
   );
 
   const cancelRecording = useCallback(async () => {
+    const prevAction = recordingActionRef.current;
+    recordingActionRef.current = null;
     setRecordingAction(null);
     setRecordingChips([]);
-    await shortcutManager.resumeAll(shortcutsEnabled);
-  }, [shortcutsEnabled]);
+    if (prevAction) {
+      setRowErrors((prev) => ({ ...prev, [prevAction]: undefined }));
+    }
+    await resumeShortcuts();
+  }, [resumeShortcuts]);
 
   const handleClearShortcut = useCallback(
     async (actionId: ShortcutActionId) => {
+      recordingActionRef.current = null;
       setRecordingAction(null);
       setRecordingChips([]);
       setRowErrors((prev) => ({ ...prev, [actionId]: undefined }));
       await onUpdateShortcut(actionId, null);
-      await shortcutManager.resumeAll(shortcutsEnabled);
+      await resumeShortcuts();
     },
-    [onUpdateShortcut, shortcutsEnabled]
+    [onUpdateShortcut, resumeShortcuts]
   );
 
   useEffect(() => {
@@ -184,9 +246,11 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
         const result = await onUpdateShortcut(recordingAction, parsed.accelerator);
         if (result.success) {
+          recordingActionRef.current = null;
           setRecordingAction(null);
           setRecordingChips([]);
           setRowErrors((prev) => ({ ...prev, [recordingAction]: undefined }));
+          await resumeShortcuts();
         } else {
           setRecordingChips(parsed.displayChips);
           setRowErrors((prev) => ({
@@ -194,15 +258,22 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
             [recordingAction]: result.error || t("shortcut_err_conflict"),
           }));
         }
-        await shortcutManager.resumeAll(shortcutsEnabled);
+      }
+    };
+
+    const handleWindowBlur = (e: FocusEvent) => {
+      if (e.target === window) {
+        void cancelRecording();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("blur", handleWindowBlur);
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [recordingAction, shortcuts, cancelRecording, handleClearShortcut, onUpdateShortcut, shortcutsEnabled, getActionLabels]);
+  }, [recordingAction, shortcuts, cancelRecording, handleClearShortcut, onUpdateShortcut, resumeShortcuts, getActionLabels]);
 
   return (
     <div

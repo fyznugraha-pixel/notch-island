@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { load } from "@tauri-apps/plugin-store";
 import { MediaPayload } from "./types";
 import { NotchSurface } from "./components/ui/NotchSurface";
 import {
@@ -20,7 +21,8 @@ import {
   computeNotchGlassCssVars,
   resolveNotchThemeMode,
 } from "./components/ui/settings/TransparencyControlSection";
-import { getLanguage, Language } from "./services/i18n";
+import { getLanguage, setLanguage, Language } from "./services/i18n";
+import { getCachedWeather, fetchCurrentWeather, subscribeWeatherChange } from "./services/weatherService";
 import { getTextWidth } from "./utils/text";
 import { getPerceivedLuminance } from "./utils/colorUtils";
 import {
@@ -33,6 +35,34 @@ import {
 } from "./utils/notchGeometry";
 
 export type NotchShape = "notch" | "island";
+
+interface SystemMetricsPayload {
+  cpu_usage: number;
+  mem_usage: number;
+  mem_used_gb: number;
+  mem_total_gb: number;
+  wifi_down_mbps: number;
+  wifi_up_mbps: number;
+}
+
+function normalizeBatteryPayload(raw: unknown): { is_charging: boolean; percent: number } | null {
+  if (!raw) return null;
+  if (Array.isArray(raw) && raw.length >= 2) {
+    const percent = Number(raw[1]);
+    if (!Number.isNaN(percent) && percent <= 100) {
+      return { is_charging: Boolean(raw[0]), percent };
+    }
+    return null;
+  }
+  if (typeof raw === "object") {
+    const obj = raw as { is_charging?: unknown; percent?: unknown };
+    const percent = Number(obj.percent);
+    if (!Number.isNaN(percent) && percent <= 100) {
+      return { is_charging: Boolean(obj.is_charging), percent };
+    }
+  }
+  return null;
+}
 
 const smoothSpring = {
   type: "spring" as const,
@@ -89,32 +119,24 @@ export const SecondaryNotchApp: React.FC = () => {
   });
   const [idleLayout, setIdleLayout] = useState<IdleLayoutConfig>(() => getSavedIdleLayout());
   const [optLanguage, setOptLanguage] = useState<Language>(() => getLanguage());
+  const [optMedia, setOptMedia] = useState<boolean>(true);
 
   const [time, setTime] = useState<Date>(() => new Date());
   const [battery, setBattery] = useState<{ is_charging: boolean; percent: number } | null>(null);
   const [weather, setWeather] = useState<{ temp: string; code: number; locationName?: string } | null>(() => {
-    try {
-      const raw = localStorage.getItem("island_weather");
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
+    const cached = getCachedWeather();
+    return cached
+      ? { temp: cached.temp, code: cached.code, locationName: cached.locationName }
+      : null;
   });
   const [media, setMedia] = useState<MediaPayload | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [networkPing, setNetworkPing] = useState<number | null>(null);
-  const [sysMetrics, setSysMetrics] = useState<{
-    cpu: number;
-    ram: number;
-    ramUsedGb?: number;
-    ramTotalGb?: number;
-    netDownMbps?: number;
-    netUpMbps?: number;
-  } | null>(null);
+  const [sysMetrics, setSysMetrics] = useState<SystemMetricsPayload | null>(null);
   const [pendingTodosCount, setPendingTodosCount] = useState<number>(() => {
     try {
-      const todos = JSON.parse(localStorage.getItem("island_todos") || "[]");
-      return todos.filter((t: any) => !t.done).length;
+      const todos = JSON.parse(localStorage.getItem("island_todo_list") || "[]");
+      return todos.filter((t: any) => !t.completed).length;
     } catch {
       return 0;
     }
@@ -134,14 +156,77 @@ export const SecondaryNotchApp: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    invoke<[boolean, number] | null>("get_battery_status")
-      .then((res) => {
-        if (res) setBattery({ is_charging: res[0], percent: res[1] });
+    let isMounted = true;
+    const updateWeather = async () => {
+      const data = await fetchCurrentWeather();
+      if (isMounted && data) {
+        setWeather({
+          temp: data.temp,
+          code: data.code,
+          locationName: data.locationName,
+        });
+      }
+    };
+
+    updateWeather();
+    const interval = setInterval(updateWeather, 1000 * 60 * 10);
+    const unsubscribe = subscribeWeatherChange(() => {
+      updateWeather();
+    });
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      unsubscribe();
+    };
+  }, []);
+
+  const needsSystemMetrics =
+    idleLayout.left === "cpu" ||
+    idleLayout.left === "ram" ||
+    idleLayout.left === "netspeed" ||
+    idleLayout.center === "cpu" ||
+    idleLayout.center === "ram" ||
+    idleLayout.center === "netspeed" ||
+    idleLayout.right === "cpu" ||
+    idleLayout.right === "ram" ||
+    idleLayout.right === "netspeed";
+
+  useEffect(() => {
+    if (!needsSystemMetrics) return;
+    let mounted = true;
+    const fetchMetrics = async () => {
+      try {
+        const res = await invoke<SystemMetricsPayload>("get_system_metrics");
+        if (mounted && res) setSysMetrics(res);
+      } catch {}
+    };
+
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 1500);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [needsSystemMetrics]);
+
+  useEffect(() => {
+    load("settings.json", { autoSave: false })
+      .then(async (s) => {
+        const mediaPref = await s.get("opt_media");
+        if (typeof mediaPref === "boolean") setOptMedia(mediaPref);
       })
       .catch(() => {});
 
-    const unlistenBattery = listen<[boolean, number]>("battery-update", (e) => {
-      if (e.payload) setBattery({ is_charging: e.payload[0], percent: e.payload[1] });
+    invoke<unknown>("get_battery_status")
+      .then((res) => {
+        setBattery(normalizeBatteryPayload(res));
+      })
+      .catch(() => {});
+
+    const unlistenBattery = listen<unknown>("battery-update", (e) => {
+      const parsed = normalizeBatteryPayload(e.payload);
+      if (parsed) setBattery(parsed);
     });
 
     const unlistenMedia = listen<MediaPayload>("media-update", (e) => {
@@ -159,37 +244,50 @@ export const SecondaryNotchApp: React.FC = () => {
       setNetworkPing(typeof e.payload === "number" ? e.payload : null);
     });
 
-    const unlistenSys = listen<any>("system-info-update", (e) => {
-      if (e.payload) setSysMetrics(e.payload);
-    });
-
     const unlistenSettings = listen<any>("gili-settings-sync", (e) => {
-      const { type, value } = e.payload || {};
-      if (type === "notch_shape") setNotchShape(value);
-      else if (type === "island_top_offset") setIslandTopOffset(Number(value));
-      else if (type === "opt_position") setOptPosition(value);
-      else if (type === "opt_ears") setOptEars(Boolean(value));
-      else if (type === "opt_theme") setOptTheme(value);
-      else if (type === "opt_opacity") setOptOpacity(Number(value));
-      else if (type === "opt_blur") setOptBlur(Number(value));
-      else if (type === "opt_idle_layout") setIdleLayout(parseIdleLayout(value));
-      else if (type === "opt_idle_size") setOptIdleSize(value);
-      else if (type === "opt_font_size") setOptFontSize(value);
-      else if (type === "opt_idle_color_enabled") setOptIdleColorEnabled(Boolean(value));
-      else if (type === "opt_idle_color") setOptIdleColor(value);
-      else if (type === "opt_idle_text_color_enabled") setOptIdleTextColorEnabled(Boolean(value));
-      else if (type === "opt_idle_text_color") setOptIdleTextColor(value);
-      else if (type === "opt_language") setOptLanguage(value);
+      const payload = e.payload;
+      if (!payload || typeof payload !== "object") return;
+      if (payload.type === "settings_reset") {
+        window.location.reload();
+        return;
+      }
+      const syncKey = payload.type === "setting_key" ? payload.key : payload.type;
+      const value = payload.value;
+      if (syncKey === "notch_shape") setNotchShape(value);
+      else if (syncKey === "island_top_offset") setIslandTopOffset(Number(value));
+      else if (syncKey === "opt_position") setOptPosition(value);
+      else if (syncKey === "opt_ears") setOptEars(Boolean(value));
+      else if (syncKey === "opt_theme") setOptTheme(value);
+      else if (syncKey === "opt_opacity") setOptOpacity(Number(value));
+      else if (syncKey === "opt_blur") setOptBlur(Number(value));
+      else if (syncKey === "opt_idle_layout") setIdleLayout(parseIdleLayout(value));
+      else if (syncKey === "opt_idle_size") setOptIdleSize(value);
+      else if (syncKey === "opt_font_size") setOptFontSize(value);
+      else if (syncKey === "opt_idle_color_enabled") setOptIdleColorEnabled(Boolean(value));
+      else if (syncKey === "opt_idle_color") setOptIdleColor(value);
+      else if (syncKey === "opt_idle_text_color_enabled") setOptIdleTextColorEnabled(Boolean(value));
+      else if (syncKey === "opt_idle_text_color") setOptIdleTextColor(value);
+      else if (syncKey === "opt_media") setOptMedia(Boolean(value));
+      else if (syncKey === "opt_language") {
+        setLanguage(value, false);
+        setOptLanguage(value);
+      }
     });
 
     const handleStorage = () => {
       try {
-        const todos = JSON.parse(localStorage.getItem("island_todos") || "[]");
-        setPendingTodosCount(todos.filter((t: any) => !t.done).length);
+        const todos = JSON.parse(localStorage.getItem("island_todo_list") || "[]");
+        setPendingTodosCount(todos.filter((t: any) => !t.completed).length);
         const shelf = JSON.parse(localStorage.getItem("island_shelf_files") || "[]");
         setStashedFilesCount(shelf.length);
-        const rawWeather = localStorage.getItem("island_weather");
-        if (rawWeather) setWeather(JSON.parse(rawWeather));
+        const cached = getCachedWeather();
+        if (cached) {
+          setWeather({
+            temp: cached.temp,
+            code: cached.code,
+            locationName: cached.locationName,
+          });
+        }
       } catch {}
     };
     window.addEventListener("storage", handleStorage);
@@ -198,14 +296,23 @@ export const SecondaryNotchApp: React.FC = () => {
       unlistenBattery.then((f) => f());
       unlistenMedia.then((f) => f());
       unlistenPing.then((f) => f());
-      unlistenSys.then((f) => f());
       unlistenSettings.then((f) => f());
       window.removeEventListener("storage", handleStorage);
     };
   }, []);
 
-  const isSystemDark = useMemo(() => {
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const [isSystemDark, setIsSystemDark] = useState<boolean>(() => {
+    return typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+      : true;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (e: MediaQueryListEvent) => setIsSystemDark(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
   const isLightMode = useMemo(() => {
@@ -250,12 +357,12 @@ export const SecondaryNotchApp: React.FC = () => {
       pendingTodosCount,
       stashedFilesCount,
       fps: undefined,
-      cpuUsage: sysMetrics?.cpu,
-      ramUsage: sysMetrics?.ram,
-      ramUsedGb: sysMetrics?.ramUsedGb,
-      ramTotalGb: sysMetrics?.ramTotalGb,
-      netDownMbps: sysMetrics?.netDownMbps,
-      netUpMbps: sysMetrics?.netUpMbps,
+      cpuUsage: sysMetrics?.cpu_usage,
+      ramUsage: sysMetrics?.mem_usage,
+      ramUsedGb: sysMetrics?.mem_used_gb,
+      ramTotalGb: sysMetrics?.mem_total_gb,
+      netDownMbps: sysMetrics?.wifi_down_mbps,
+      netUpMbps: sysMetrics?.wifi_up_mbps,
       focusMode: "Normal",
       optLanguage,
       isLightMode: effectiveIsLight,
@@ -313,7 +420,7 @@ export const SecondaryNotchApp: React.FC = () => {
   }, [media, optFontSize, optIdleSize, idleWidth]);
 
   const idleHeight = optIdleSize === "compact" ? 28 : optIdleSize === "large" ? 36 : 32;
-  const isMediaActive = Boolean(media && isPlaying);
+  const isMediaActive = Boolean(optMedia && media && isPlaying);
 
   const currentWidth = isMediaActive ? mediaPillWidth : idleWidth;
   const currentHeight = isMediaActive ? Math.round(48 * (idleHeight / 32)) : idleHeight;
@@ -336,6 +443,17 @@ export const SecondaryNotchApp: React.FC = () => {
   const isRightPos = isRightNotchPosition(optPosition);
   const isTopPos = isTopNotchPosition(optPosition);
   const isSideCenter = isSideCenterNotchPosition(optPosition);
+
+  const cornerRadius = isMediaActive ? "16px" : idleHeight >= 36 ? "14px" : "12px";
+  const pillBorderRadius = isIsland
+    ? `${Math.round(currentHeight / 2)}px`
+    : optPosition === "left"
+    ? `0px ${cornerRadius} ${cornerRadius} 0px`
+    : optPosition === "right"
+    ? `${cornerRadius} 0px 0px ${cornerRadius}`
+    : isBot
+    ? `${cornerRadius} ${cornerRadius} 0px 0px`
+    : `0px 0px ${cornerRadius} ${cornerRadius}`;
 
   const isIdleEmpty =
     idleLayout.left === "none" && idleLayout.center === "none" && idleLayout.right === "none";
@@ -370,12 +488,12 @@ export const SecondaryNotchApp: React.FC = () => {
           {
             width: currentWidth,
             height: currentHeight,
-            borderRadius: isIsland
+            borderRadius: pillBorderRadius,
+            "--shape-radius-top": isIsland
               ? `${Math.round(currentHeight / 2)}px`
               : isBot
-              ? "32px 32px 0 0"
-              : "0 0 32px 32px",
-            "--shape-radius-top": isIsland ? `${Math.round(currentHeight / 2)}px` : isBot ? "32px" : "0px",
+              ? "32px"
+              : "0px",
             "--shape-radius-bottom": `${Math.round(currentHeight / 2)}px`,
             "--top-offset": isIsland ? `${islandTopOffset}px` : "0px",
             ...computeNotchGlassCssVars(Number(optOpacity), Number(optBlur), effectiveIsLight, false),

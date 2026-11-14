@@ -137,16 +137,20 @@ export function rolloverRecurringTasks(
     changed = true;
     let nextDue = item.dueAt;
     if (nextDue && nextDue < startOfToday) {
-      const d = new Date(nextDue);
-      nextDue = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-        d.getHours(),
-        d.getMinutes(),
-        d.getSeconds(),
-        0
-      ).getTime();
+      if (item.repeat && item.repeat !== "none") {
+        nextDue = computeNextRepeatDue(nextDue, item.repeat, startOfToday - 1);
+      } else {
+        const d = new Date(nextDue);
+        nextDue = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          d.getHours(),
+          d.getMinutes(),
+          d.getSeconds(),
+          0
+        ).getTime();
+      }
     }
 
     return {

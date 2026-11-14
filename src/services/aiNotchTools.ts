@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
-import { TodoItem, TodoRepeatRule } from "./todoUtils";
+import { TodoItem, TodoRepeatRule, computeNextRepeatDue } from "./todoUtils";
 import {
   MiniNoteItem,
   NoteColor,
@@ -27,6 +26,7 @@ import {
 } from "./prayerService";
 import { getInitialShelfFiles } from "./shelfService";
 import { playTaskCompleteSound } from "./soundService";
+import { normalizePomodoroMode } from "./pomodoroService";
 import { t, getLanguage } from "./i18n";
 
 export type GiliActionType =
@@ -354,6 +354,15 @@ const TAB_DISPLAY_NAMES: Record<string, { en: string; id: string }> = {
   settings: { en: "Settings", id: "Pengaturan" },
 };
 
+export function parseOptionalPercent(raw: unknown): number | null {
+  if (raw === null || raw === undefined || typeof raw === "boolean") return null;
+  if (typeof raw === "string" && raw.trim() === "") return null;
+  if (typeof raw === "object") return null;
+  const num = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
 /**
  * Executes a single Gili action and triggers corresponding app events / storage updates.
  */
@@ -421,6 +430,13 @@ export async function executeGiliAction(action: GiliActionPayload): Promise<Gili
           return { type, success: false, message: t("aichat_tool_todo_not_found", { query }) };
         }
 
+        if (target.repeat && target.repeat !== "none") {
+          const nextDueAt = target.dueAt
+            ? computeNextRepeatDue(target.dueAt, target.repeat)
+            : null;
+          target.previousDueAt = target.dueAt ?? null;
+          target.dueAt = nextDueAt;
+        }
         target.completed = true;
         target.lastCompletedAt = Date.now();
         localStorage.setItem("island_todo_list", JSON.stringify(list));
@@ -513,18 +529,20 @@ export async function executeGiliAction(action: GiliActionPayload): Promise<Gili
 
     case "update_note": {
       const query = (params.query || "").toLowerCase().trim();
+      if (!query) {
+        return { type, success: false, message: t("aichat_tool_note_not_found", { query }) };
+      }
       const newContent = (params.content || "").trim();
       const newTitle = (params.title || "").trim();
       const append = Boolean(params.append);
 
       try {
         const notes = loadMiniNotes();
-        const target =
-          notes.find(
-            (n) =>
-              n.title.toLowerCase().includes(query) ||
-              n.content.toLowerCase().includes(query)
-          ) || notes[0];
+        const target = notes.find(
+          (n) =>
+            n.title.toLowerCase().includes(query) ||
+            n.content.toLowerCase().includes(query)
+        );
         if (!target) {
           return { type, success: false, message: t("aichat_tool_note_not_found", { query }) };
         }
@@ -586,7 +604,7 @@ export async function executeGiliAction(action: GiliActionPayload): Promise<Gili
     case "control_pomodoro": {
       const action = (params.action || "start").toLowerCase();
       const minutes = Number(params.minutes);
-      const mode = params.mode;
+      const normalizedMode = normalizePomodoroMode(params.mode);
 
       try {
         window.dispatchEvent(
@@ -594,14 +612,10 @@ export async function executeGiliAction(action: GiliActionPayload): Promise<Gili
             detail: {
               action,
               durationMinutes: !isNaN(minutes) && minutes > 0 ? minutes : undefined,
-              mode:
-                mode === "focus" || mode === "shortBreak" || mode === "longBreak"
-                  ? mode
-                  : undefined,
+              mode: normalizedMode,
             },
           })
         );
-        emit("gili-pomodoro-action", action).catch(() => {});
 
         let msg = t("aichat_tool_pomo_started");
         if (action === "pause") msg = t("aichat_tool_pomo_paused");
@@ -723,18 +737,22 @@ export async function executeGiliAction(action: GiliActionPayload): Promise<Gili
         changes.push(`Mode: ${resolvedMode}`);
       }
 
-      if (params.volume !== undefined && !isNaN(Number(params.volume))) {
-        const vol = Math.max(0, Math.min(100, Math.round(Number(params.volume))));
+      const vol = parseOptionalPercent(params.volume);
+      if (vol !== null) {
         detail.volume = vol;
         changes.push(`Volume: ${vol}%`);
         invoke("set_master_volume", { level: vol / 100.0 }).catch(() => {});
       }
 
-      if (params.brightness !== undefined && !isNaN(Number(params.brightness))) {
-        const brt = Math.max(0, Math.min(100, Math.round(Number(params.brightness))));
+      const brt = parseOptionalPercent(params.brightness);
+      if (brt !== null) {
         detail.brightness = brt;
         changes.push(`Brightness: ${brt}%`);
         invoke("set_brightness", { level: brt }).catch(() => {});
+      }
+
+      if (changes.length === 0) {
+        return { type, success: false, message: t("aichat_tool_unknown_action") };
       }
 
       window.dispatchEvent(new CustomEvent("gili_ai_system_control", { detail }));
@@ -742,7 +760,7 @@ export async function executeGiliAction(action: GiliActionPayload): Promise<Gili
       return {
         type,
         success: true,
-        message: t("aichat_tool_sys_updated", { summary: changes.join(", ") || "OK" }),
+        message: t("aichat_tool_sys_updated", { summary: changes.join(", ") }),
         tabTarget: "quick_control",
       };
     }
@@ -775,17 +793,36 @@ export async function executeGiliAction(action: GiliActionPayload): Promise<Gili
   return { type, success: false, message: t("aichat_tool_unknown_action") };
 }
 
+const COMPLETE_ACTION_BLOCK_REGEX =
+  /```(?:gili_action|gili-action|action)(?=[ \t]*(?:\r?\n|\{|\[))([\s\S]*?)```/gi;
+const TRAILING_UNCLOSED_ACTION_BLOCK_REGEX =
+  /```(?:(?:gili_action|gili-action|action)(?=[ \t]*(?:\r?\n|\{|\[|$))[\s\S]*|gili(?:[_-][a-z]*)?)$/i;
+
 /**
- * Strips any complete or in-progress ```gili_action ... ``` block from streaming text
- * so raw JSON never flickers in the chat UI while the AI is still generating tokens.
+ * Strips complete ```gili_action ... ``` blocks from text, and optionally strips
+ * an in-progress trailing fence while streaming tokens arrive.
  */
-export function stripActionBlocksForDisplay(rawText: string): string {
+export function stripActionBlocksForDisplay(
+  rawText: string,
+  includeTrailingUnclosed: boolean = true
+): string {
   if (!rawText) return "";
-  // Remove complete blocks first
-  let cleaned = rawText.replace(/```(?:gili_action|gili-action|action)\s*[\s\S]*?```/gi, "");
-  // Remove trailing unclosed ```gili_action block (or partial ```gili... fence at the end)
-  cleaned = cleaned.replace(/```(?:gili_action|gili-action|action|gili[_-]?[a-z]*)[\s\S]*$/i, "");
+  let cleaned = rawText.replace(COMPLETE_ACTION_BLOCK_REGEX, "");
+  if (includeTrailingUnclosed) {
+    cleaned = cleaned.replace(TRAILING_UNCLOSED_ACTION_BLOCK_REGEX, "");
+  }
   return cleaned.trimEnd();
+}
+
+async function runParsedActionPayload(parsed: any): Promise<GiliActionResult[]> {
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  const executed: GiliActionResult[] = [];
+  for (const item of items) {
+    if (item && typeof item === "object" && item.action) {
+      executed.push(await executeGiliAction(item));
+    }
+  }
+  return executed;
 }
 
 /**
@@ -795,24 +832,54 @@ export function stripActionBlocksForDisplay(rawText: string): string {
 export async function parseAndExecuteGiliActions(
   rawText: string
 ): Promise<{ cleanText: string; results: GiliActionResult[] }> {
-  const actionRegex = /```(?:gili_action|gili-action|action)\s*([\s\S]*?)\s*```/gi;
+  const regex = new RegExp(COMPLETE_ACTION_BLOCK_REGEX.source, "gi");
   const results: GiliActionResult[] = [];
+  const validRanges: Array<{ start: number; end: number }> = [];
 
   let match: RegExpExecArray | null;
-  while ((match = actionRegex.exec(rawText)) !== null) {
+  while ((match = regex.exec(rawText)) !== null) {
     const jsonStr = match[1].trim();
     try {
       const parsed = JSON.parse(jsonStr);
-      if (parsed && parsed.action) {
-        const res = await executeGiliAction(parsed);
-        results.push(res);
+      const executed = await runParsedActionPayload(parsed);
+      if (executed.length > 0) {
+        results.push(...executed);
+        validRanges.push({ start: match.index, end: match.index + match[0].length });
       }
     } catch {
-      // If JSON is malformed, ignore
+      // Malformed or incomplete block: preserve raw text instead of swallowing it silently
     }
   }
 
-  const cleanText = stripActionBlocksForDisplay(rawText).trim();
+  // Handle trailing unclosed block only if its JSON is complete & valid (e.g. missing final ```)
+  const lastClosedEnd = validRanges.length > 0 ? validRanges[validRanges.length - 1].end : 0;
+  const tail = rawText.slice(lastClosedEnd);
+  const trailingMatch = /```(?:gili_action|gili-action|action)(?=[ \t]*(?:\r?\n|\{|\[))\s*([\s\S]+)$/i.exec(
+    tail
+  );
+  if (trailingMatch) {
+    try {
+      const parsed = JSON.parse(trailingMatch[1].trim());
+      const executed = await runParsedActionPayload(parsed);
+      if (executed.length > 0) {
+        results.push(...executed);
+        validRanges.push({
+          start: lastClosedEnd + trailingMatch.index,
+          end: rawText.length,
+        });
+      }
+    } catch {
+      // Truncated JSON stays visible in cleanText rather than being swallowed
+    }
+  }
 
-  return { cleanText, results };
+  let cleanText = "";
+  let cursor = 0;
+  for (const range of validRanges) {
+    cleanText += rawText.slice(cursor, range.start);
+    cursor = range.end;
+  }
+  cleanText += rawText.slice(cursor);
+
+  return { cleanText: cleanText.trim(), results };
 }

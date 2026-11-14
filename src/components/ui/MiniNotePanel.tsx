@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import { t, getLanguage, Language } from "../../services/i18n";
+import { listenCrossWindowEvent } from "../../utils/crossWindowSync";
 import {
   type NoteColor,
   type NoteCheckItem,
@@ -96,31 +97,61 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
   const hasDraggedRef = useRef(false);
 
   const notesRef = useRef(notes);
+  const isFirstRenderRef = useRef(true);
+  const isExternalSyncRef = useRef(false);
+  const hasPendingSaveRef = useRef(false);
+
   useEffect(() => {
     notesRef.current = notes;
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    if (isExternalSyncRef.current) {
+      isExternalSyncRef.current = false;
+      hasPendingSaveRef.current = false;
+      return;
+    }
+    hasPendingSaveRef.current = true;
   }, [notes]);
 
   // Debounced save to localStorage (300ms) to ensure smooth 60fps/120fps typing
   useEffect(() => {
+    if (!hasPendingSaveRef.current) return;
     const timer = window.setTimeout(() => {
-      saveMiniNotes(notes);
+      if (hasPendingSaveRef.current) {
+        saveMiniNotes(notes);
+        hasPendingSaveRef.current = false;
+      }
     }, 300);
     return () => window.clearTimeout(timer);
   }, [notes]);
 
-  // Flush pending changes immediately on unmount
+  // Flush pending local edits only, never clobbering external updates on unmount
   useEffect(() => {
     return () => {
-      saveMiniNotes(notesRef.current);
+      if (hasPendingSaveRef.current) {
+        saveMiniNotes(notesRef.current);
+        hasPendingSaveRef.current = false;
+      }
     };
   }, []);
 
   useEffect(() => {
     const syncNotes = () => {
+      isExternalSyncRef.current = true;
+      hasPendingSaveRef.current = false;
       setNotes(loadMiniNotes());
     };
-    window.addEventListener("gili_notes_updated", syncNotes);
-    return () => window.removeEventListener("gili_notes_updated", syncNotes);
+    const unlistenNotes = listenCrossWindowEvent("gili_notes_updated", syncNotes);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "gili_mini_notes_v2") syncNotes();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      unlistenNotes();
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   useEffect(() => {
@@ -128,7 +159,10 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
   }, [editingNoteId, onEditingChange]);
 
   const handleExitEditor = useCallback(() => {
-    saveMiniNotes(notesRef.current);
+    if (hasPendingSaveRef.current) {
+      saveMiniNotes(notesRef.current);
+      hasPendingSaveRef.current = false;
+    }
     setEditingNoteId(null);
   }, []);
 

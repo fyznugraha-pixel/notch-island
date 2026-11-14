@@ -18,6 +18,7 @@ import {
   subscribeWeatherChange,
 } from "../../services/weatherService";
 import { t } from "../../services/i18n";
+import { emitCrossWindowEvent } from "../../utils/crossWindowSync";
 
 export interface WeatherLocationSettingProps {
   isLightMode?: boolean;
@@ -201,9 +202,7 @@ export const WeatherLocationSetting: React.FC<WeatherLocationSettingProps> = ({
                 try {
                   localStorage.removeItem("island_onboarding_completed");
                 } catch {}
-                if (typeof window !== "undefined") {
-                  window.dispatchEvent(new CustomEvent("island_trigger_onboarding"));
-                }
+                emitCrossWindowEvent("island_trigger_onboarding");
               }}
               className="weather-action-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors"
             >

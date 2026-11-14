@@ -331,6 +331,18 @@ export function validateShortcut(
   return { valid: true };
 }
 
+export function areShortcutMapsEqual(
+  a: Record<ShortcutActionId, string | null>,
+  b: Record<ShortcutActionId, string | null>
+): boolean {
+  for (const action of SHORTCUT_ACTIONS) {
+    if ((a[action.id] ?? null) !== (b[action.id] ?? null)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 class ShortcutManagerService {
   private activeShortcuts: Record<ShortcutActionId, string | null> = { ...DEFAULT_SHORTCUTS };
   private activeHandlers: Partial<Record<ShortcutActionId, () => void>> = {};
@@ -343,69 +355,75 @@ class ShortcutManagerService {
     return next;
   }
 
+  private async applyAllInternal(
+    map: Record<ShortcutActionId, string | null>,
+    enabled: boolean,
+    handlers: Partial<Record<ShortcutActionId, () => void>>
+  ): Promise<Record<ShortcutActionId, ShortcutStatus>> {
+    this.isSuspended = false;
+    this.activeShortcuts = { ...map };
+    this.activeHandlers = { ...handlers };
+
+    const statusMap: Record<ShortcutActionId, ShortcutStatus> = {
+      toggle_notch: "inactive",
+      quick_task: "inactive",
+      quick_note: "inactive",
+      open_media: "inactive",
+      toggle_media_playback: "inactive",
+      toggle_focus_mode: "inactive",
+      toggle_hide: "inactive",
+      switch_monitor: "inactive",
+      toggle_miniplayer: "inactive",
+      open_ai_chat: "inactive",
+    };
+
+    try {
+      await unregisterAll();
+    } catch (e) {
+      console.warn("[ShortcutManager] unregisterAll failed:", e);
+    }
+
+    if (!enabled) {
+      return statusMap;
+    }
+
+    for (const action of SHORTCUT_ACTIONS) {
+      const shortcut = map[action.id];
+      if (!shortcut) {
+        statusMap[action.id] = "inactive";
+        continue;
+      }
+
+      try {
+        // Clean up any existing registration in Windows OS first to avoid self-collision
+        try {
+          await unregister(shortcut);
+        } catch {}
+
+        await register(shortcut, (event) => {
+          if (event.state === "Pressed") {
+            const handler = this.activeHandlers[action.id];
+            if (handler) {
+              handler();
+            }
+          }
+        });
+        statusMap[action.id] = "ok";
+      } catch (err: any) {
+        console.warn(`[ShortcutManager] Failed to register ${shortcut} for ${action.id}:`, err);
+        statusMap[action.id] = "conflict";
+      }
+    }
+
+    return statusMap;
+  }
+
   public async applyAll(
     map: Record<ShortcutActionId, string | null>,
     enabled: boolean,
     handlers: Partial<Record<ShortcutActionId, () => void>>
   ): Promise<Record<ShortcutActionId, ShortcutStatus>> {
-    return this.queueOperation(async () => {
-      this.isSuspended = false;
-      this.activeShortcuts = { ...map };
-      this.activeHandlers = { ...handlers };
-
-      const statusMap: Record<ShortcutActionId, ShortcutStatus> = {
-        toggle_notch: "inactive",
-        quick_task: "inactive",
-        quick_note: "inactive",
-        open_media: "inactive",
-        toggle_media_playback: "inactive",
-        toggle_focus_mode: "inactive",
-        toggle_hide: "inactive",
-        switch_monitor: "inactive",
-        toggle_miniplayer: "inactive",
-        open_ai_chat: "inactive",
-      };
-
-      try {
-        await unregisterAll();
-      } catch (e) {
-        console.warn("[ShortcutManager] unregisterAll failed:", e);
-      }
-
-      if (!enabled) {
-        return statusMap;
-      }
-
-      for (const action of SHORTCUT_ACTIONS) {
-        const shortcut = map[action.id];
-        if (!shortcut) {
-          statusMap[action.id] = "inactive";
-          continue;
-        }
-
-        try {
-          // Always clean up any existing registration in Windows OS first to avoid self-collision
-          try {
-            await unregister(shortcut);
-          } catch {}
-
-          await register(shortcut, (event) => {
-            if (event.state === "Pressed") {
-              const handler = this.activeHandlers[action.id];
-              if (handler) {
-                handler();
-              }
-            }
-          });
-          statusMap[action.id] = "ok";
-        } catch (err: any) {
-          console.warn(`[ShortcutManager] Failed to register ${shortcut} for ${action.id}:`, err);
-          statusMap[action.id] = "conflict";
-        }
-      }
-
-      return statusMap;
-    });
+    return this.queueOperation(() => this.applyAllInternal(map, enabled, handlers));
   }
 
   public updateHandlers(handlers: Partial<Record<ShortcutActionId, () => void>>): void {
@@ -436,20 +454,57 @@ class ShortcutManagerService {
   }
 
   public async resumeAll(enabled: boolean): Promise<Record<ShortcutActionId, ShortcutStatus>> {
-    this.isSuspended = false;
-    return this.applyAll(this.activeShortcuts, enabled, this.activeHandlers);
+    return this.queueOperation(() =>
+      this.applyAllInternal(this.activeShortcuts, enabled, this.activeHandlers)
+    );
+  }
+
+  public async resumeIfSuspended(enabled: boolean): Promise<Record<ShortcutActionId, ShortcutStatus> | null> {
+    return this.queueOperation(async () => {
+      if (!this.isSuspended) return null;
+      return this.applyAllInternal(this.activeShortcuts, enabled, this.activeHandlers);
+    });
+  }
+
+  public async restoreIfNotSuspended(
+    map: Record<ShortcutActionId, string | null>,
+    enabled: boolean,
+    handlers: Partial<Record<ShortcutActionId, () => void>>
+  ): Promise<Record<ShortcutActionId, ShortcutStatus> | null> {
+    return this.queueOperation(async () => {
+      if (this.isSuspended) return null;
+      return this.applyAllInternal(map, enabled, handlers);
+    });
+  }
+
+  public async unregisterIfNotSuspended(shortcut: string): Promise<void> {
+    return this.queueOperation(async () => {
+      if (this.isSuspended || !shortcut) return;
+      try {
+        await unregister(shortcut);
+      } catch (e) {
+        console.warn(`[ShortcutManager] unregister failed for ${shortcut}:`, e);
+      }
+    });
   }
 
   public async testRegister(
-    _actionId: ShortcutActionId,
+    actionId: ShortcutActionId,
     newShortcut: string | null,
     handler?: () => void
   ): Promise<ShortcutStatus> {
     if (!newShortcut) return "inactive";
 
     return this.queueOperation(async () => {
+      const normalized = newShortcut.toLowerCase();
+      for (const [id, existing] of Object.entries(this.activeShortcuts)) {
+        if (id !== actionId && existing && existing.toLowerCase() === normalized) {
+          return "conflict";
+        }
+      }
+
       try {
-        // Clean up any stale OS registration first
+        // Only clean up stale OS registration if this shortcut is not owned by another Gili action
         try {
           await unregister(newShortcut);
         } catch {}
@@ -460,7 +515,7 @@ class ShortcutManagerService {
           }
         });
 
-        // Always unregister test registration so applyAll can register it cleanly
+        // Unregister the temporary probe so applyAll owns final registration
         try {
           await unregister(newShortcut);
         } catch {}

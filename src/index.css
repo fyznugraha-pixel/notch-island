@@ -5,6 +5,22 @@ html, body {
   text-size-adjust: 100%;
 }
 
+:root {
+  --lyrics-base-color: rgba(255, 255, 255, 0.36);
+  --lyrics-fill-color: #ffffff;
+  --idle-lyrics-base-color: rgba(255, 255, 255, 0.42);
+  --idle-lyrics-fill-color: #ffffff;
+}
+
+html.light,
+.light,
+#notch-pill.light {
+  --lyrics-base-color: rgba(28, 28, 30, 0.42);
+  --lyrics-fill-color: #1d1d1f;
+  --idle-lyrics-base-color: rgba(28, 28, 30, 0.46);
+  --idle-lyrics-fill-color: #1d1d1f;
+}
+
 @keyframes marquee {
   0% { transform: translateX(0%); }
   100% { transform: translateX(-50%); }
@@ -1062,6 +1078,84 @@ html.light [class*="text-rose-400"],
 #notch-pill.light [class*="text-rose-400"] {
   color: #be123c !important;
 }
+html.light [class*="text-purple-200"],
+html.light [class*="text-purple-300"],
+.light [class*="text-purple-200"],
+.light [class*="text-purple-300"],
+#notch-pill.light [class*="text-purple-200"],
+#notch-pill.light [class*="text-purple-300"],
+html.light [class*="text-[#d896ff]"],
+html.light [class*="text-[#d0bcff]"],
+.light [class*="text-[#d896ff]"],
+.light [class*="text-[#d0bcff]"],
+#notch-pill.light [class*="text-[#d896ff]"],
+#notch-pill.light [class*="text-[#d0bcff]"] {
+  color: #6b21a8 !important;
+}
+html.light [class*="text-sky-300"],
+html.light [class*="text-[#7DD3FC]"],
+.light [class*="text-sky-300"],
+.light [class*="text-[#7DD3FC]"],
+#notch-pill.light [class*="text-sky-300"],
+#notch-pill.light [class*="text-[#7DD3FC]"] {
+  color: #0369a1 !important;
+}
+html.light [class*="text-cyan-300"],
+.light [class*="text-cyan-300"],
+#notch-pill.light [class*="text-cyan-300"] {
+  color: #0e7490 !important;
+}
+html.light [class*="text-blue-200"],
+html.light [class*="text-blue-300"],
+html.light [class*="text-[#bfdbfe]"],
+html.light [class*="text-[#8DB8FF]"],
+html.light [class*="text-[#8db8ff]"],
+.light [class*="text-blue-200"],
+.light [class*="text-blue-300"],
+.light [class*="text-[#bfdbfe]"],
+.light [class*="text-[#8DB8FF]"],
+.light [class*="text-[#8db8ff]"],
+#notch-pill.light [class*="text-blue-200"],
+#notch-pill.light [class*="text-blue-300"],
+#notch-pill.light [class*="text-[#bfdbfe]"],
+#notch-pill.light [class*="text-[#8DB8FF]"],
+#notch-pill.light [class*="text-[#8db8ff]"] {
+  color: #1d4ed8 !important;
+}
+html.light [class*="text-blue-400"],
+.light [class*="text-blue-400"],
+#notch-pill.light [class*="text-blue-400"] {
+  color: #2563eb !important;
+}
+html.light [class*="text-emerald-200"],
+html.light [class*="text-[#4ADE80]"],
+.light [class*="text-emerald-200"],
+.light [class*="text-[#4ADE80]"],
+#notch-pill.light [class*="text-emerald-200"],
+#notch-pill.light [class*="text-[#4ADE80]"] {
+  color: #047857 !important;
+}
+html.light [class*="text-red-300"],
+html.light [class*="text-red-400"],
+html.light [class*="text-[#ffb1a7]"],
+.light [class*="text-red-300"],
+.light [class*="text-red-400"],
+.light [class*="text-[#ffb1a7]"],
+#notch-pill.light [class*="text-red-300"],
+#notch-pill.light [class*="text-red-400"],
+#notch-pill.light [class*="text-[#ffb1a7]"] {
+  color: #b91c1c !important;
+}
+html.light [class*="text-[#a5a8ff]"],
+.light [class*="text-[#a5a8ff]"],
+#notch-pill.light [class*="text-[#a5a8ff]"] {
+  color: #4338ca !important;
+}
+html.light [class*="text-[#f4f4f5]"],
+.light [class*="text-[#f4f4f5]"],
+#notch-pill.light [class*="text-[#f4f4f5]"] {
+  color: #1d1d1f !important;
+}
 
 /* Quick Action Button Backgrounds */
 html.light [class*="bg-white/[0.04]"],
@@ -1378,6 +1472,31 @@ html.light .media-control-btn:hover,
 #notch-pill.light .media-control-btn:hover {
   color: #000000 !important;
   background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light .media-control-btn.is-active,
+.light .media-control-btn.is-active,
+#notch-pill.light .media-control-btn.is-active {
+  background-color: #1d1d1f !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16) !important;
+}
+html.light .media-control-btn.is-active:hover,
+.light .media-control-btn.is-active:hover,
+#notch-pill.light .media-control-btn.is-active:hover {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+.media-thumb-play-overlay {
+  background-color: rgba(0, 0, 0, 0.56) !important;
+  color: #ffffff !important;
+}
+.media-thumb-play-overlay svg,
+html.light .media-thumb-play-overlay svg,
+.light .media-thumb-play-overlay svg,
+#notch-pill.light .media-thumb-play-overlay svg {
+  color: #ffffff !important;
 }
 
 html.light .media-time-label,
@@ -1780,6 +1899,131 @@ html.light [class*="bg-[#1e1e24]"],
 .light [class*="bg-[#1e1e24]"],
 #notch-pill.light [class*="bg-[#1e1e24]"] {
   background-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Additional Light Mode Surface, Input, Switch & Tint Fixes */
+html.light [class*="bg-[#282830]"]:hover,
+.light [class*="bg-[#282830]"]:hover,
+#notch-pill.light [class*="bg-[#282830]"]:hover,
+html.light [class*="hover:bg-[#252528]"]:hover,
+.light [class*="hover:bg-[#252528]"]:hover,
+#notch-pill.light [class*="hover:bg-[#252528]"]:hover {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+html.light [class*="bg-[#1b1b21]"],
+html.light [class*="bg-[#16161d]"],
+html.light [class*="bg-[#14141b]"],
+html.light [class*="bg-[#1c1c23]"],
+html.light [class*="bg-[#1f1f27]"],
+html.light [class*="bg-[#25252e]"],
+html.light [class*="bg-black/40"],
+html.light [class*="bg-neutral-900"],
+html.light [class*="bg-neutral-800/"],
+.light [class*="bg-[#1b1b21]"],
+.light [class*="bg-[#16161d]"],
+.light [class*="bg-[#14141b]"],
+.light [class*="bg-[#1c1c23]"],
+.light [class*="bg-[#1f1f27]"],
+.light [class*="bg-[#25252e]"],
+.light [class*="bg-black/40"],
+.light [class*="bg-neutral-900"],
+.light [class*="bg-neutral-800/"],
+#notch-pill.light [class*="bg-[#1b1b21]"],
+#notch-pill.light [class*="bg-[#16161d]"],
+#notch-pill.light [class*="bg-[#14141b]"],
+#notch-pill.light [class*="bg-[#1c1c23]"],
+#notch-pill.light [class*="bg-[#1f1f27]"],
+#notch-pill.light [class*="bg-[#25252e]"],
+#notch-pill.light [class*="bg-black/40"],
+#notch-pill.light [class*="bg-neutral-900"],
+#notch-pill.light [class*="bg-neutral-800/"] {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Keep Floating Popover / Lyrics Provider Dropdown Solid White on Light Mode */
+html.light [class*="bg-neutral-900/"],
+.light [class*="bg-neutral-900/"],
+#notch-pill.light [class*="bg-neutral-900/"] {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Light Switch / Slider Track Surfaces (kept separate from active segment tabs) */
+html.light [class*="bg-[#32323d]"],
+html.light [class*="bg-[#3a3a3c]"],
+html.light .light-track-surface,
+.light [class*="bg-[#32323d]"],
+.light [class*="bg-[#3a3a3c]"],
+.light .light-track-surface,
+#notch-pill.light [class*="bg-[#32323d]"],
+#notch-pill.light [class*="bg-[#3a3a3c]"],
+#notch-pill.light .light-track-surface {
+  background-color: rgba(0, 0, 0, 0.14) !important;
+}
+
+html.light [class*="bg-[#39393d]"],
+.light [class*="bg-[#39393d]"],
+#notch-pill.light [class*="bg-[#39393d]"] {
+  background-color: rgba(120, 120, 128, 0.24) !important;
+}
+html.light [class*="bg-[#39393d]"]:hover,
+.light [class*="bg-[#39393d]"]:hover,
+#notch-pill.light [class*="bg-[#39393d]"]:hover {
+  background-color: rgba(120, 120, 128, 0.34) !important;
+}
+
+/* Settings Icon Tile Tints & AI Status / Error Banners on Light Mode */
+html.light [class*="bg-[#1e1c33]"],
+html.light [class*="bg-indigo-950/"],
+.light [class*="bg-[#1e1c33]"],
+.light [class*="bg-indigo-950/"],
+#notch-pill.light [class*="bg-[#1e1c33]"],
+#notch-pill.light [class*="bg-indigo-950/"] {
+  background-color: rgba(99, 102, 241, 0.12) !important;
+}
+html.light [class*="bg-[#14261d]"],
+html.light [class*="bg-emerald-950/"],
+.light [class*="bg-[#14261d]"],
+.light [class*="bg-emerald-950/"],
+#notch-pill.light [class*="bg-[#14261d]"],
+#notch-pill.light [class*="bg-emerald-950/"] {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+}
+html.light [class*="bg-[#2e1616]"],
+html.light [class*="bg-red-950/"],
+.light [class*="bg-[#2e1616]"],
+.light [class*="bg-red-950/"],
+#notch-pill.light [class*="bg-[#2e1616]"],
+#notch-pill.light [class*="bg-red-950/"] {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+}
+html.light [class*="bg-blue-950/"],
+.light [class*="bg-blue-950/"],
+#notch-pill.light [class*="bg-blue-950/"] {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+html.light [class*="bg-amber-950/"],
+.light [class*="bg-amber-950/"],
+#notch-pill.light [class*="bg-amber-950/"] {
+  background-color: rgba(245, 158, 11, 0.14) !important;
+}
+html.light [class*="bg-purple-950/"],
+.light [class*="bg-purple-950/"],
+#notch-pill.light [class*="bg-purple-950/"] {
+  background-color: rgba(168, 85, 247, 0.12) !important;
+}
+html.light [class*="bg-cyan-950/"],
+.light [class*="bg-cyan-950/"],
+#notch-pill.light [class*="bg-cyan-950/"] {
+  background-color: rgba(6, 182, 212, 0.12) !important;
+}
+html.light [class*="bg-teal-950/"],
+.light [class*="bg-teal-950/"],
+#notch-pill.light [class*="bg-teal-950/"] {
+  background-color: rgba(20, 184, 166, 0.12) !important;
 }
 
 /* Remove White Glow On Synced Lyrics In Light Mode */

@@ -16,6 +16,13 @@ export interface FilePreview {
 // In-memory cache for previews (thumbnails & formatted sizes) so they survive tab switches without re-fetching
 const previewCache = new Map<string, FilePreview>();
 const inFlightRequests = new Set<string>();
+const completedFetches = new Set<string>();
+
+function isImageExt(ext: string): boolean {
+  return ["png", "jpg", "jpeg", "webp", "gif", "bmp", "ico", "svg", "heic", "heif", "avif"].includes(
+    ext.toLowerCase().replace(/^\./, "").trim()
+  );
+}
 
 export function getCachedPreview(idOrPath: string): FilePreview | undefined {
   if (!idOrPath) return undefined;
@@ -33,6 +40,7 @@ export function setCachedPreview(id: string, path: string, preview: FilePreview)
 export function clearShelfPreviewCache(): void {
   previewCache.clear();
   inFlightRequests.clear();
+  completedFetches.clear();
   pendingQueue = [];
 }
 
@@ -76,7 +84,9 @@ function processQueue() {
     const file = pendingQueue.shift();
     if (!file) break;
 
-    if (previewCache.has(file.id) || previewCache.has(file.path)) {
+    const cached = getCachedPreview(file.id) || getCachedPreview(file.path);
+    const needsImageThumb = isImageExt(file.ext) && !cached?.thumbnail && !completedFetches.has(file.id);
+    if (cached && !needsImageThumb) {
       continue;
     }
 
@@ -106,6 +116,7 @@ function processQueue() {
         scheduleFlush();
       })
       .finally(() => {
+        completedFetches.add(file.id);
         inFlightRequests.delete(file.id);
         activeWorkers--;
         if (pendingQueue.length === 0 && activeWorkers === 0) {
@@ -138,16 +149,11 @@ export function queueFilePreviews(
     }
   }
 
-  const isImageExt = (ext: string) =>
-    ["png", "jpg", "jpeg", "webp", "gif", "bmp", "ico", "svg", "heic", "heif", "avif"].includes(
-      ext.toLowerCase().replace(/^\./, "").trim()
-    );
-
   const needed = files.filter((f) => {
     if (inFlightRequests.has(f.id)) return false;
     const cached = getCachedPreview(f.id) || getCachedPreview(f.path);
     if (!cached) return true;
-    if (isImageExt(f.ext) && !cached.thumbnail) return true;
+    if (isImageExt(f.ext) && !cached.thumbnail && !completedFetches.has(f.id)) return true;
     return false;
   });
 
@@ -203,7 +209,7 @@ export function getInitialShelfFiles(): StashedFile[] {
  *  whether a slow async load was superseded by a fresher user action. */
 let lastPersistAt = 0;
 
-export async function loadPersistedShelfFiles(): Promise<StashedFile[]> {
+export async function loadPersistedShelfFiles(): Promise<StashedFile[] | null> {
   const startedAt = lastPersistAt;
   try {
     const store = await getShelfStore();
@@ -213,16 +219,27 @@ export async function loadPersistedShelfFiles(): Promise<StashedFile[]> {
       if (Array.isArray(saved)) storeData = saved;
     }
 
+    // If a persist occurred while awaiting storage, discard this stale disk read.
+    if (lastPersistAt !== startedAt) {
+      return null;
+    }
+
     let localData: StashedFile[] | null = null;
     const local = localStorage.getItem(STORAGE_KEY);
-    if (local) {
+    if (local !== null) {
       const parsed = JSON.parse(local);
       if (Array.isArray(parsed)) localData = parsed;
     }
 
-    // Prefer whichever side is NON-EMPTY. If both have content, pick the one with
-    // the newest item timestamp (localStorage is written synchronously on every
-    // persist; the store can lag behind by up to its 300ms debounce).
+    // Explicit empty local list ("[]") means the user cleared the shelf synchronously.
+    if (localData !== null && localData.length === 0) {
+      if (store && storeData && storeData.length > 0) {
+        await store.set("files", []);
+        await store.save();
+      }
+      return [];
+    }
+
     const newest = (arr: StashedFile[] | null) =>
       arr && arr.length > 0 ? Math.max(...arr.map((f) => f.addedAt || 0)) : -1;
     const storeNewest = newest(storeData);
@@ -240,10 +257,8 @@ export async function loadPersistedShelfFiles(): Promise<StashedFile[]> {
       }
     }
 
-    // If a persist happened while we were awaiting storage, that in-memory
-    // result is newer than anything just read from disk — signal the caller.
     if (lastPersistAt !== startedAt) {
-      return result;
+      return null;
     }
     return result;
   } catch (err) {
@@ -257,11 +272,7 @@ export async function persistShelfFiles(files: StashedFile[], immediate = false)
   const cleanFiles = files.map(({ thumbnail, ...rest }) => rest);
 
   try {
-    if (cleanFiles.length === 0) {
-      localStorage.removeItem(STORAGE_KEY);
-    } else {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanFiles));
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanFiles));
   } catch (err) {
     console.warn("localStorage sync warning:", err);
   }

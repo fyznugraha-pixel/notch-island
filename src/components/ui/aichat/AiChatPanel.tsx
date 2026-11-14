@@ -28,12 +28,16 @@ import {
 import {
   initCredentials,
 } from "../../../services/aiCredentialService";
+import { isAbortError } from "../../../services/aiHttp";
+import { formatIdrCostInCurrency } from "../../../services/aiCurrencyService";
 import {
   loadRouterConfig,
   saveRouterConfig,
   evaluatePromptHeuristics,
+  isVisionCapableModel,
   resolveTierModel,
   calculateEstimatedCostIdr,
+  evaluateBudgetPolicy,
 } from "../../../services/aiRouterService";
 import {
   getRegisteredModels,
@@ -60,7 +64,8 @@ import {
   isGiliFreeEnabled,
   describeGiliFreeError,
 } from "../../../services/giliFreeService";
-import { t, type Language } from "../../../services/i18n";
+import { getLanguage, t, type Language } from "../../../services/i18n";
+import { readRasterImageFileForVision } from "../../../utils/imageUtils";
 import type {
   AiProviderId,
   AiModelConfig,
@@ -71,16 +76,28 @@ import type {
   ResponseLengthMode,
 } from "./AiChatTypes";
 
+export interface AiChatHandoffPayload {
+  conversationId?: string;
+  initialPrompt?: string;
+  initialContext?: AiMessageContext;
+  messages?: AiChatMessage[];
+  nonce: number;
+}
+
 interface AiChatPanelProps {
   onPrevTab?: () => void;
   accentColor?: string;
   optLanguage?: Language;
+  handoff?: AiChatHandoffPayload | null;
+  onConsumeHandoff?: () => void;
 }
 
 export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   onPrevTab,
   accentColor = "#3882F6",
   optLanguage,
+  handoff,
+  onConsumeHandoff,
 }) => {
   void optLanguage;
   const [provider, setProvider] = useState<AiProviderId>(loadActiveProvider);
@@ -124,6 +141,9 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const [activeView, setActiveView] = useState<
     "chat" | "connect" | "usage" | "window_picker" | "history"
   >(() => {
+    if (handoff) {
+      return "chat";
+    }
     try {
       const saved = sessionStorage.getItem("island_ai_active_view_state");
       if (saved === "connect" || saved === "usage" || saved === "history") {
@@ -165,6 +185,8 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef(true);
+  const isSendingRef = useRef(false);
 
   const activeConvIdRef = useRef(activeConversationId);
   useEffect(() => {
@@ -176,14 +198,69 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     messagesRef.current = messages;
   }, [messages]);
 
-  // Save current conversation on unmount (e.g. notch collapsed or tab changed)
+  // Abort active stream and save current conversation on unmount (e.g. notch collapsed or tab changed)
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       if (activeConvIdRef.current && messagesRef.current.length > 0) {
         updateConversationMessages(activeConvIdRef.current, messagesRef.current);
       }
     };
   }, []);
+
+  const lastAppliedHandoffNonceRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!handoff || lastAppliedHandoffNonceRef.current === handoff.nonce) return;
+    lastAppliedHandoffNonceRef.current = handoff.nonce;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsStreaming(false);
+    }
+
+    if (handoff.conversationId) {
+      const found = getConversationById(handoff.conversationId);
+      const nextMsgs = found?.messages || handoff.messages || [];
+      const convId = found?.id || handoff.conversationId;
+      activeConvIdRef.current = convId;
+      setActiveConversationId(convId);
+      setActiveConversationIdState(convId);
+      setMessages(nextMsgs);
+      if (found?.providerId && found.providerId !== provider) {
+        setProvider(found.providerId);
+        saveActiveProvider(found.providerId);
+      }
+      if (found?.modelId) {
+        const models = getRegisteredModels(found.providerId || provider);
+        const matched = models.find((m) => m.id === found.modelId);
+        if (matched) {
+          setActiveModel(matched);
+        }
+      }
+    } else if (handoff.messages && handoff.messages.length > 0) {
+      setMessages(handoff.messages);
+    } else {
+      if (handoff.initialPrompt !== undefined) {
+        setInputPrompt(handoff.initialPrompt);
+      }
+      if (handoff.initialContext) {
+        setActiveContext(handoff.initialContext);
+      }
+    }
+
+    setActiveView("chat");
+    try {
+      sessionStorage.setItem("island_ai_active_view_state", "chat");
+    } catch {}
+    onConsumeHandoff?.();
+  }, [handoff, onConsumeHandoff, provider]);
 
   // Listen for conversation switch from Quick AI Chat or external events
   useEffect(() => {
@@ -192,10 +269,19 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
       if (convId) {
         const found = getConversationById(convId);
         if (found) {
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+            setIsStreaming(false);
+          }
+          activeConvIdRef.current = found.id;
           setActiveConversationId(found.id);
           setActiveConversationIdState(found.id);
           setMessages(found.messages || []);
           setActiveView("chat");
+          try {
+            sessionStorage.setItem("island_ai_active_view_state", "chat");
+          } catch {}
         }
       }
     };
@@ -233,6 +319,9 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   }, [provider, keysVersion]);
 
   const handleSelectAuto = () => {
+    if (activeModel.id === "gili-free") {
+      setActiveModel(loadActiveModel(provider));
+    }
     setSelectedMode("auto");
     const updated = { ...routerConfig, selectedMode: "auto" as const };
     setRouterConfig(updated);
@@ -262,6 +351,21 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     saveActiveProvider(newProvider);
     saveActiveModel(newProvider, newModel.id);
 
+    const nextMode =
+      newModel.id === "gili-free"
+        ? "gili-free"
+        : selectedMode === "gili-free"
+          ? "auto"
+          : selectedMode === "auto"
+            ? "auto"
+            : newModel.id;
+    if (nextMode !== selectedMode) {
+      setSelectedMode(nextMode);
+      const updatedRouter = { ...routerConfig, selectedMode: nextMode };
+      setRouterConfig(updatedRouter);
+      saveRouterConfig(updatedRouter);
+    }
+
     setProvider(newProvider);
     setKeysVersion((v) => v + 1);
     setActiveModel(newModel);
@@ -269,10 +373,12 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   };
 
   const handleNewConversation = () => {
-    if (isStreaming && abortControllerRef.current) {
+    if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
     const newConv = createConversation(provider, activeModel.id);
+    activeConvIdRef.current = newConv.id;
     setActiveConversationId(newConv.id);
     setActiveConversationIdState(newConv.id);
     setMessages([]);
@@ -282,10 +388,12 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   };
 
   const handleSelectConversationFromHistory = (conv: AiConversation) => {
-    if (isStreaming && abortControllerRef.current) {
+    if (abortControllerRef.current) {
       abortControllerRef.current.abort();
-      setIsStreaming(false);
+      abortControllerRef.current = null;
     }
+    setIsStreaming(false);
+    activeConvIdRef.current = conv.id;
     setActiveConversationId(conv.id);
     setActiveConversationIdState(conv.id);
     setMessages(conv.messages || []);
@@ -312,14 +420,18 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     try {
       // 1. Check if clipboard has an image first (e.g. Snipping tool, copy image)
       try {
-        const clipImg = await invoke<any>("read_clipboard_image");
-        if (clipImg && clipImg.thumbnail) {
+        const clipImg = await invoke<any>("read_clipboard_image", {
+          persistFile: false,
+          includeVision: true,
+        });
+        const clipDataUrl = clipImg?.vision_data_url || clipImg?.thumbnail;
+        if (clipImg && clipDataUrl) {
           setActiveContext({
             type: "image",
             title: `Clipboard (Gambar) · ${clipImg.width}x${clipImg.height}`,
-            characterCount: Math.round((clipImg.thumbnail.length * 0.75) / 1024),
+            characterCount: Math.round((clipDataUrl.length * 0.75) / 1024),
             previewText: `[Gambar dari clipboard: ${clipImg.width}x${clipImg.height}]`,
-            imageDataUrl: clipImg.thumbnail,
+            imageDataUrl: clipDataUrl,
           });
           return;
         }
@@ -359,21 +471,33 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
 
   const handleAttachImageClick = async () => {
     try {
-      const paths = await invoke<string[]>("pick_files_dialog");
+      const paths = await invoke<string[]>("pick_files_dialog", {
+        filterMode: "images",
+        multiselect: false,
+      });
       if (Array.isArray(paths) && paths.length > 0 && paths[0]) {
         const filePath = paths[0];
-        const preview: any = await invoke("get_file_preview", { path: filePath });
-        if (preview && preview.thumbnail) {
+        const preview: any = await invoke("get_file_preview", {
+          path: filePath,
+          includeVision: true,
+        });
+        const visionUrl = preview?.vision_data_url;
+        if (visionUrl) {
           const fileName = filePath.split(/[/\\]/).pop() || "Gambar";
+          const sizeKb =
+            typeof preview.size_bytes === "number"
+              ? Math.max(1, Math.round(preview.size_bytes / 1024))
+              : 0;
           setActiveContext({
             type: "image",
             title: `Gambar · ${fileName}`,
-            characterCount: typeof preview.sizeFormatted === "number" ? preview.sizeFormatted : 0,
+            characterCount: sizeKb,
             previewText: `[Gambar terlampir: ${fileName}]`,
-            imageDataUrl: preview.thumbnail,
+            imageDataUrl: visionUrl,
           });
           return;
         }
+        return;
       }
     } catch {
       fileInputRef.current?.click();
@@ -394,17 +518,15 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     });
   };
 
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
+    const dataUrl = await readRasterImageFileForVision(file);
+    if (dataUrl) {
       handleAttachImageContext(dataUrl, file.name, file.size);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+    }
   };
 
   const handleStopStreaming = () => {
@@ -421,10 +543,30 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     editOptions?: {
       truncatedHistory: AiChatMessage[];
       userMessage: AiChatMessage;
+    },
+    overrideOptions?: {
+      forceGiliFree?: boolean;
     }
   ) => {
     let prompt = (promptToSend ?? inputPrompt).trim();
-    if (!prompt || isStreaming) return;
+    const effectiveContext = editOptions ? editOptions.userMessage.context : activeContext;
+    if ((!prompt && !effectiveContext) || isStreaming || isSendingRef.current) return;
+    if (!prompt && effectiveContext) {
+      const isEnLang = (optLanguage || getLanguage()) === "en";
+      prompt = effectiveContext.imageDataUrl
+        ? isEnLang
+          ? "Explain this image."
+          : "Jelaskan gambar ini."
+        : isEnLang
+          ? "Analyze this attached context."
+          : "Analisis konteks terlampir ini.";
+    }
+
+    isSendingRef.current = true;
+    setIsStreaming(true);
+    setStreamingTokens(0);
+    const myController = new AbortController();
+    abortControllerRef.current = myController;
 
     // Detect slash commands (/ringkas, /lengkap, /normal)
     let promptLengthOverride: ResponseLengthMode | undefined = overrideLength;
@@ -440,7 +582,9 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     }
 
     // Determine routing mode
-    const isAuto = selectedMode === "auto" || Boolean(overrideTier);
+    const isAuto =
+      !overrideOptions?.forceGiliFree &&
+      (selectedMode === "auto" || Boolean(overrideTier));
 
     let targetTier: RouterTier | undefined;
     let targetLengthMode: ResponseLengthMode = routerConfig.defaultLength;
@@ -449,186 +593,282 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     let keyToUse = activeKey;
     let isAutoRouted = false;
     let estCostIdr: number | undefined;
+    let useGiliFree = false;
+    let currentConvId: string | null = activeConversationId;
+    let accumulated = "";
+    let accumulatedReasoning = "";
+    let isTruncated = false;
+    let buildAssistantSnapshot: (
+      contentValue: string,
+      extraFields?: Partial<AiChatMessage>
+    ) => AiChatMessage[] = () => [];
 
-    if (isAuto) {
-      // 1. Context inheritance: check last assistant message tier
-      const baseHistory = editOptions ? editOptions.truncatedHistory : messages;
-      const lastAssistant = [...baseHistory].reverse().find((m) => m.role === "assistant");
-      const lastTier = lastAssistant?.tier;
+    try {
+      if (isAuto) {
+        // 1. Context inheritance: check last assistant message tier
+        const baseHistory = editOptions ? editOptions.truncatedHistory : messages;
+        const lastAssistant = [...baseHistory].reverse().find((m) => m.role === "assistant");
+        const lastTier = lastAssistant?.tier;
 
-      // 2. Evaluate heuristics with bias upward & vision awareness
-      const heuristic = evaluatePromptHeuristics(
-        prompt,
-        lastTier,
-        Boolean(activeContext?.imageDataUrl || editOptions?.userMessage?.context?.imageDataUrl)
-      );
-      targetTier = overrideTier || heuristic.tier;
-      targetLengthMode =
-        overrideLength ||
-        (heuristic.lengthMode === "auto"
-          ? routerConfig.defaultLength
-          : heuristic.lengthMode);
+        const hasImage = Boolean(
+          activeContext?.imageDataUrl || editOptions?.userMessage?.context?.imageDataUrl
+        );
 
-      // 3. Resolve tier model: prioritize verified models of the current active provider first
-      const currentActiveRegistered = getRegisteredModels(provider);
-      let candidateModels: AiModelConfig[] = [];
+        // 2. Evaluate heuristics with bias upward (`isManualModel` must be false in Auto mode)
+        const heuristic = evaluatePromptHeuristics(prompt, lastTier, false);
+        targetTier = overrideTier || heuristic.tier;
+        targetLengthMode =
+          overrideLength ||
+          (heuristic.lengthMode === "auto"
+            ? routerConfig.defaultLength
+            : heuristic.lengthMode);
 
-      if (currentActiveRegistered.length > 0) {
-        candidateModels = currentActiveRegistered;
-      } else {
-        const providers: AiProviderId[] = [
-          "custom",
-          "openai",
-          "deepseek",
-          "gemini",
-          "claude",
-          "openrouter",
-          "grok",
-        ];
-        for (const p of providers) {
-          const k = getEffectiveApiKey(p);
-          const registered = getRegisteredModels(p);
-          if (k && registered.length > 0) {
-            candidateModels.push(...registered);
+        // 3. Resolve tier model: prioritize verified models of active provider, falling back to vision providers for images
+        const currentActiveRegistered = getRegisteredModels(provider);
+        let candidateModels: AiModelConfig[] = [];
+
+        if (
+          currentActiveRegistered.length > 0 &&
+          (!hasImage || currentActiveRegistered.some(isVisionCapableModel))
+        ) {
+          candidateModels = currentActiveRegistered;
+        } else {
+          const providers: AiProviderId[] = [
+            "custom",
+            "openai",
+            "gemini",
+            "claude",
+            "openrouter",
+            "grok",
+            ...(hasImage ? [] : (["deepseek"] as AiProviderId[])),
+          ];
+          for (const p of providers) {
+            const k = getEffectiveApiKey(p);
+            const registered = getRegisteredModels(p);
+            if (k && registered.length > 0) {
+              candidateModels.push(...registered);
+            }
+          }
+          if (
+            candidateModels.length === 0 &&
+            availableModelsForProvider.length > 0 &&
+            (!hasImage || availableModelsForProvider.some(isVisionCapableModel))
+          ) {
+            candidateModels.push(...availableModelsForProvider);
           }
         }
-        if (candidateModels.length === 0 && availableModelsForProvider.length > 0) {
-          candidateModels.push(...availableModelsForProvider);
+
+        if (candidateModels.length === 0) {
+          const k = getEffectiveApiKey(provider);
+          const customBase = loadSavedBaseUrls()[provider]?.trim();
+          if (k && (!hasImage || provider !== "deepseek")) {
+            try {
+              const regResult = await verifyAndRegisterModels(provider, k, customBase);
+              if (regResult.ok && regResult.models.length > 0) {
+                candidateModels = regResult.models;
+                if (isMountedRef.current) setKeysVersion((v) => v + 1);
+              }
+            } catch {}
+          }
         }
+
+        if (myController.signal.aborted || !isMountedRef.current) {
+          return;
+        }
+
+        const visionCandidates = hasImage
+          ? candidateModels.filter(isVisionCapableModel)
+          : candidateModels;
+
+        if (visionCandidates.length === 0 && isGiliFreeEnabled()) {
+          modelToUse = getGiliFreeModel();
+          providerToUse = getGiliFreeModel().provider;
+          keyToUse = "";
+        } else {
+          const pool = visionCandidates.length > 0 ? visionCandidates : candidateModels;
+          const resolved = resolveTierModel(targetTier, pool, routerConfig, hasImage);
+          if (resolved) {
+            modelToUse = resolved.targetModel;
+            providerToUse = resolved.targetProvider;
+            keyToUse = getEffectiveApiKey(providerToUse, modelToUse.id) || activeKey;
+          } else if (pool.length > 0) {
+            modelToUse = pool[0];
+            providerToUse = pool[0].provider;
+            keyToUse = getEffectiveApiKey(providerToUse, modelToUse.id) || activeKey;
+          }
+        }
+        isAutoRouted = true;
+        estCostIdr =
+          modelToUse.id === "gili-free"
+            ? undefined
+            : calculateEstimatedCostIdr(
+                modelToUse,
+                Math.round(prompt.length / 4),
+                300
+              );
+      } else {
+        // Manual mode: Gate G10 preservation (never route)
+        targetTier = undefined;
+        targetLengthMode = routerConfig.defaultLength;
+        modelToUse = activeModel;
+        providerToUse = provider;
+        keyToUse = activeModel.id === "gili-free" ? "" : activeKey;
+        isAutoRouted = false;
+        estCostIdr = undefined;
       }
 
-      if (candidateModels.length === 0) {
-        const k = getEffectiveApiKey(provider);
-        const customBase = loadSavedBaseUrls()[provider]?.trim();
-        if (k) {
-          try {
-            const regResult = await verifyAndRegisterModels(provider, k, customBase);
-            if (regResult.ok && regResult.models.length > 0) {
-              candidateModels = regResult.models;
-              setKeysVersion((v) => v + 1);
-            }
-          } catch {}
-        }
+      if (promptLengthOverride) {
+        targetLengthMode = promptLengthOverride;
       }
 
-      if (candidateModels.length === 0 && isGiliFreeEnabled()) {
+      const isExplicitFree =
+        Boolean(overrideOptions?.forceGiliFree) ||
+        (!isAuto && (selectedMode === "gili-free" || activeModel.id === "gili-free")) ||
+        modelToUse.id === "gili-free";
+      useGiliFree = isExplicitFree || (!keyToUse && isGiliFreeEnabled());
+      if (useGiliFree) {
         modelToUse = getGiliFreeModel();
         providerToUse = getGiliFreeModel().provider;
         keyToUse = "";
+        estCostIdr = undefined;
+      } else if (!keyToUse) {
+        setActiveView("connect");
+        return;
       } else {
-        const resolved = resolveTierModel(targetTier, candidateModels, routerConfig);
-        if (resolved) {
-          modelToUse = resolved.targetModel;
-          providerToUse = resolved.targetProvider;
-          keyToUse = getEffectiveApiKey(providerToUse, modelToUse.id) || activeKey;
-        } else if (candidateModels.length > 0) {
-          modelToUse = candidateModels[0];
-          providerToUse = candidateModels[0].provider;
-          keyToUse = getEffectiveApiKey(providerToUse, modelToUse.id) || activeKey;
+        const budgetEval = evaluateBudgetPolicy(routerConfig, loadUsageStats());
+        if (budgetEval.isExceeded && budgetEval.action === "block") {
+          const blockMsg = `${t("aichat_usage_limit_reached")} (${formatIdrCostInCurrency(budgetEval.spentIdr)} / ${formatIdrCostInCurrency(budgetEval.limitIdr)})`;
+          let blockedConvId = activeConversationId;
+          if (!blockedConvId) {
+            const newConv = createConversation(
+              providerToUse,
+              modelToUse.id,
+              generateTitleFromPrompt(prompt)
+            );
+            blockedConvId = newConv.id;
+            activeConvIdRef.current = newConv.id;
+            setActiveConversationId(newConv.id);
+            setActiveConversationIdState(newConv.id);
+          }
+          const blockedUserMsg: AiChatMessage = editOptions
+            ? editOptions.userMessage
+            : {
+                id: `usr-${Date.now()}`,
+                role: "user",
+                content: prompt,
+                timestamp: Date.now(),
+                context: activeContext || undefined,
+              };
+          const errAssistantMsg: AiChatMessage = {
+            id: `ast-${Date.now() + 1}`,
+            role: "assistant",
+            content: "",
+            error: blockMsg,
+            timestamp: Date.now(),
+            provider: providerToUse,
+            modelId: modelToUse.id,
+            modelName: modelToUse.name,
+          };
+          const blockedMessages = editOptions
+            ? [...editOptions.truncatedHistory, errAssistantMsg]
+            : [...messages, blockedUserMsg, errAssistantMsg];
+          if (!editOptions) {
+            setInputPrompt("");
+            setActiveContext(null);
+          }
+          setMessages(blockedMessages);
+          updateConversationMessages(blockedConvId, blockedMessages);
+          return;
+        }
+
+        if (budgetEval.isExceeded && budgetEval.action === "downgrade_to_t0") {
+          const t0Spec = routerConfig.tierMapping.T0;
+          const t0Models = getRegisteredModels(t0Spec.provider);
+          const fallbackT0 =
+            t0Models.find((m) => m.id === t0Spec.modelId) ||
+            t0Models[0] ||
+            getRegisteredModels(providerToUse)[0];
+          if (fallbackT0) {
+            const t0Key = getEffectiveApiKey(fallbackT0.provider, fallbackT0.id);
+            if (t0Key) {
+              modelToUse = fallbackT0;
+              providerToUse = fallbackT0.provider;
+              keyToUse = t0Key;
+              targetTier = "T0";
+            }
+          }
         }
       }
-      isAutoRouted = true;
-      estCostIdr =
-        modelToUse.id === "gili-free"
-          ? undefined
-          : calculateEstimatedCostIdr(
-              modelToUse,
-              Math.round(prompt.length / 4),
-              300
-            );
-    } else {
-      // Manual mode: Gate G10 preservation (never route)
-      targetTier = undefined;
-      targetLengthMode = routerConfig.defaultLength;
-      modelToUse = activeModel;
-      providerToUse = provider;
-      keyToUse = activeModel.id === "gili-free" ? "" : activeKey;
-      isAutoRouted = false;
-      estCostIdr = undefined;
-    }
 
-    if (promptLengthOverride) {
-      targetLengthMode = promptLengthOverride;
-    }
+      // Ensure we have an active conversation ID
+      if (!currentConvId) {
+        const newConv = createConversation(
+          providerToUse,
+          modelToUse.id,
+          generateTitleFromPrompt(prompt)
+        );
+        currentConvId = newConv.id;
+        activeConvIdRef.current = newConv.id;
+        setActiveConversationId(newConv.id);
+        setActiveConversationIdState(newConv.id);
+      }
 
-    const isExplicitFree =
-      selectedMode === "gili-free" ||
-      activeModel.id === "gili-free" ||
-      modelToUse.id === "gili-free";
-    const useGiliFree = isExplicitFree || (!keyToUse && isGiliFreeEnabled());
-    if (useGiliFree) {
-      modelToUse = getGiliFreeModel();
-      providerToUse = getGiliFreeModel().provider;
-      keyToUse = "";
-      estCostIdr = undefined;
-    } else if (!keyToUse) {
-      setActiveView("connect");
-      return;
-    }
+      let userMessage: AiChatMessage;
+      let updatedMessages: AiChatMessage[];
 
-    // Ensure we have an active conversation ID
-    let currentConvId = activeConversationId;
-    if (!currentConvId) {
-      const newConv = createConversation(
-        providerToUse,
-        modelToUse.id,
-        generateTitleFromPrompt(prompt)
-      );
-      currentConvId = newConv.id;
-      setActiveConversationId(newConv.id);
-      setActiveConversationIdState(newConv.id);
-    }
+      if (editOptions) {
+        userMessage = editOptions.userMessage;
+        updatedMessages = editOptions.truncatedHistory;
+      } else {
+        userMessage = {
+          id: `usr-${Date.now()}`,
+          role: "user",
+          content: prompt,
+          timestamp: Date.now(),
+          context: activeContext || undefined,
+        };
+        updatedMessages = [...messages, userMessage];
+        setInputPrompt("");
+        setActiveContext(null);
+      }
 
-    let userMessage: AiChatMessage;
-    let updatedMessages: AiChatMessage[];
+      setMessages(updatedMessages);
+      updateConversationMessages(currentConvId, updatedMessages);
 
-    if (editOptions) {
-      userMessage = editOptions.userMessage;
-      updatedMessages = editOptions.truncatedHistory;
-    } else {
-      userMessage = {
-        id: `usr-${Date.now()}`,
-        role: "user",
-        content: prompt,
+      const assistantMsgId = `ast-${Date.now()}`;
+      const initialAssistantMessage: AiChatMessage = {
+        id: assistantMsgId,
+        role: "assistant",
+        content: "",
         timestamp: Date.now(),
-        context: activeContext || undefined,
+        provider: providerToUse,
+        modelId: modelToUse.id,
+        modelName: modelToUse.name,
+        tier: targetTier,
+        lengthMode: targetLengthMode,
+        isAutoRouted,
+        estimatedCostIdr: estCostIdr,
       };
-      updatedMessages = [...messages, userMessage];
-      setInputPrompt("");
-      setActiveContext(null);
-    }
 
-    setMessages(updatedMessages);
-    updateConversationMessages(currentConvId, updatedMessages);
+      const messagesWithAssistant = [...updatedMessages, initialAssistantMessage];
+      setMessages(messagesWithAssistant);
+      updateConversationMessages(currentConvId, messagesWithAssistant);
 
-    setIsStreaming(true);
-    setStreamingTokens(0);
+      buildAssistantSnapshot = (
+        contentValue: string,
+        extraFields: Partial<AiChatMessage> = {}
+      ): AiChatMessage[] =>
+        messagesWithAssistant.map((msg) =>
+          msg.id === assistantMsgId
+            ? {
+                ...msg,
+                content: contentValue,
+                reasoning: accumulatedReasoning || undefined,
+              ...extraFields,
+            }
+          : msg
+      );
 
-    const assistantMsgId = `ast-${Date.now()}`;
-    const initialAssistantMessage: AiChatMessage = {
-      id: assistantMsgId,
-      role: "assistant",
-      content: "",
-      timestamp: Date.now(),
-      provider: providerToUse,
-      modelId: modelToUse.id,
-      modelName: modelToUse.name,
-      tier: targetTier,
-      lengthMode: targetLengthMode,
-      isAutoRouted,
-      estimatedCostIdr: estCostIdr,
-    };
-
-    const messagesWithAssistant = [...updatedMessages, initialAssistantMessage];
-    setMessages(messagesWithAssistant);
-    updateConversationMessages(currentConvId, messagesWithAssistant);
-
-    abortControllerRef.current = new AbortController();
-
-    try {
-      let accumulated = "";
-      let accumulatedReasoning = "";
-      let isTruncated = false;
       const result = await streamChatCompletion({
         provider: providerToUse,
         apiKey: keyToUse,
@@ -637,12 +877,14 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         lengthMode: targetLengthMode,
         historyWindowSize: routerConfig.historyWindowSize,
         useGiliFree,
-        signal: abortControllerRef.current.signal,
+        signal: myController.signal,
         onTruncated: () => {
           isTruncated = true;
         },
         onReasoningChunk: (reasoningChunk: string) => {
+          if (myController.signal.aborted) return;
           accumulatedReasoning += reasoningChunk;
+          if (!isMountedRef.current || activeConvIdRef.current !== currentConvId) return;
           setStreamingTokens(estimateTextTokens(accumulated + accumulatedReasoning));
           setMessages((prev) =>
             prev.map((msg) =>
@@ -651,7 +893,9 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
           );
         },
         onChunk: (chunk: string) => {
+          if (myController.signal.aborted) return;
           accumulated += chunk;
+          if (!isMountedRef.current || activeConvIdRef.current !== currentConvId) return;
           setStreamingTokens(estimateTextTokens(accumulated + accumulatedReasoning));
           const displayContent = stripActionBlocksForDisplay(accumulated);
           setMessages((prev) =>
@@ -664,8 +908,21 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         },
       });
 
+      if (myController.signal.aborted) {
+        const partialMessages = buildAssistantSnapshot(
+          stripActionBlocksForDisplay(accumulated) || accumulated
+        );
+        updateConversationMessages(currentConvId, partialMessages);
+        if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
+          setMessages(partialMessages);
+        }
+        return;
+      }
+
       const totalTokens = result.inputTokens + result.outputTokens;
-      setSessionTokens((prev) => prev + totalTokens);
+      if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
+        setSessionTokens((prev) => prev + totalTokens);
+      }
 
       const actualCostIdr =
         modelToUse.id === "gili-free" || useGiliFree
@@ -675,34 +932,35 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
       // Execute any Gili notch actions embedded by the AI
       const { cleanText, results: executedActions } = await parseAndExecuteGiliActions(accumulated);
 
-      const finalMessages = messagesWithAssistant.map((msg) =>
-        msg.id === assistantMsgId
-          ? {
-            ...msg,
-            content: cleanText || accumulated,
-            reasoning: accumulatedReasoning || undefined,
-            tokens: result.outputTokens,
-            provider: providerToUse,
-            modelId: modelToUse.id,
-            modelName: modelToUse.name,
-            tier: targetTier,
-            lengthMode: targetLengthMode,
-            isAutoRouted,
-            estimatedCostIdr: actualCostIdr,
-            isTruncated,
-            notchActions: executedActions.length > 0 ? executedActions : undefined,
-          }
-          : msg
-      );
-      setMessages(finalMessages);
+      const finalMessages = buildAssistantSnapshot(cleanText || accumulated, {
+        tokens: result.outputTokens,
+        provider: providerToUse,
+        modelId: modelToUse.id,
+        modelName: modelToUse.name,
+        tier: targetTier,
+        lengthMode: targetLengthMode,
+        isAutoRouted,
+        estimatedCostIdr: actualCostIdr,
+        isTruncated,
+        notchActions: executedActions.length > 0 ? executedActions : undefined,
+      });
       updateConversationMessages(currentConvId, finalMessages, totalTokens);
+      if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
+        setMessages(finalMessages);
+      }
 
       recordTokenUsage(modelToUse, result.inputTokens, result.outputTokens);
     } catch (err: any) {
-      if (err?.name === "AbortError") {
-        // Aborted intentionally by user
+      if (isAbortError(err) || myController.signal.aborted) {
+        // Save the partial snapshot belonging to currentConvId so switching chats never mixes messages
+        const partialMessages = buildAssistantSnapshot(
+          stripActionBlocksForDisplay(accumulated) || accumulated
+        );
         if (currentConvId) {
-          updateConversationMessages(currentConvId, messagesRef.current);
+          updateConversationMessages(currentConvId, partialMessages);
+        }
+        if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
+          setMessages(partialMessages);
         }
       } else {
         let errorMsg =
@@ -722,34 +980,37 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
             }
           } catch {}
         }
-        const errorMessages = messagesWithAssistant.map((msg) =>
-          msg.id === assistantMsgId
-            ? {
-              ...msg,
-              error: errorMsg,
-              provider: providerToUse,
-              modelId: modelToUse.id,
-              modelName: modelToUse.name,
-              tier: targetTier,
-              lengthMode: targetLengthMode,
-              isAutoRouted,
-              estimatedCostIdr: estCostIdr,
-            }
-            : msg
-        );
-        setMessages(errorMessages);
+        const partialContent = stripActionBlocksForDisplay(accumulated) || accumulated;
+        const errorMessages = buildAssistantSnapshot(partialContent, {
+          error: errorMsg,
+          provider: providerToUse,
+          modelId: modelToUse.id,
+          modelName: modelToUse.name,
+          tier: targetTier,
+          lengthMode: targetLengthMode,
+          isAutoRouted,
+          estimatedCostIdr: estCostIdr,
+        });
         if (currentConvId) {
           updateConversationMessages(currentConvId, errorMessages);
         }
+        if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
+          setMessages(errorMessages);
+        }
       }
     } finally {
-      setIsStreaming(false);
-      abortControllerRef.current = null;
+      isSendingRef.current = false;
+      if (abortControllerRef.current === myController) {
+        abortControllerRef.current = null;
+        if (isMountedRef.current) {
+          setIsStreaming(false);
+        }
+      }
     }
   };
 
   const handleEscalateMessage = (msg: AiChatMessage) => {
-    if (isStreaming) return;
+    if (isStreaming || isSendingRef.current) return;
     const msgIdx = messages.findIndex((m) => m.id === msg.id);
     if (msgIdx <= 0) return;
     const userMsg = messages[msgIdx - 1];
@@ -762,7 +1023,16 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
       nextTier = "T2";
     }
 
-    handleSendPrompt(userMsg.content, nextTier, "detailed");
+    const escalatedUserMsg: AiChatMessage = {
+      ...userMsg,
+      timestamp: Date.now(),
+    };
+    const truncatedHistory = [...messages.slice(0, msgIdx - 1), escalatedUserMsg];
+
+    handleSendPrompt(userMsg.content, nextTier, "detailed", {
+      truncatedHistory,
+      userMessage: escalatedUserMsg,
+    });
   };
 
   const handleContinueMessage = (msg: AiChatMessage) => {
@@ -774,12 +1044,34 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     );
   };
 
-  const handleRetryLast = () => {
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-    if (lastUserMsg) {
-      setMessages((prev) => prev.filter((m) => !m.error));
-      handleSendPrompt(lastUserMsg.content);
+  const handleRetryLast = (overrideOptions?: { forceGiliFree?: boolean }) => {
+    if (isStreaming) return;
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserIdx = i;
+        break;
+      }
     }
+    if (lastUserIdx === -1) return;
+
+    const lastUserMsg = messages[lastUserIdx];
+    const retriedUserMsg: AiChatMessage = {
+      ...lastUserMsg,
+      timestamp: Date.now(),
+    };
+    const truncatedHistory = [...messages.slice(0, lastUserIdx), retriedUserMsg];
+
+    handleSendPrompt(
+      lastUserMsg.content,
+      undefined,
+      undefined,
+      {
+        truncatedHistory,
+        userMessage: retriedUserMsg,
+      },
+      overrideOptions
+    );
   };
 
   const handleEditMessage = (messageId: string, newContent: string) => {
@@ -819,8 +1111,11 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
           initialProvider={provider}
           initialKey={activeKey}
           initialModel={activeModel}
+          onKeyChanged={() => setKeysVersion((v) => v + 1)}
           onBack={() => {
-            if (activeKey || isGiliFreeEnabled()) {
+            setKeysVersion((v) => v + 1);
+            const freshKey = getEffectiveApiKey(provider, activeModel.id);
+            if (freshKey || isGiliFreeEnabled()) {
               setActiveView("chat");
             } else if (onPrevTab) {
               onPrevTab();
@@ -947,7 +1242,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
                 }}
                 onSwitchToFree={() => {
                   handleSelectModel(getGiliFreeModel());
-                  setTimeout(() => handleRetryLast(), 50);
+                  handleRetryLast({ forceGiliFree: true });
                 }}
                 accentColor={accentColor}
               />

@@ -28,6 +28,7 @@ export interface VolumeMixerPanelProps {
   onSetSoundLevel: (level: number) => void;
   audioSessions: AudioSession[];
   onUpdateAudioSessions: React.Dispatch<React.SetStateAction<AudioSession[]>>;
+  isLightMode?: boolean;
 }
 
 export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
@@ -36,6 +37,7 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
   onSetSoundLevel,
   audioSessions,
   onUpdateAudioSessions,
+  isLightMode = false,
 }) => {
   const isEn = getLanguage() === "en";
   const [activeView, setActiveView] = useState<"mixer" | "output">("mixer");
@@ -247,19 +249,33 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
               (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
             }
           }}
-          className="w-[46px] h-full flex-shrink-0 rounded-[16px] bg-[#2c2c2e] overflow-hidden flex flex-col justify-end relative cursor-pointer touch-none shadow-sm"
+          className={`w-[46px] h-full flex-shrink-0 rounded-[16px] overflow-hidden flex flex-col justify-end relative cursor-pointer touch-none shadow-sm ${
+            isLightMode ? "bg-black/[0.08] border border-black/[0.08]" : "bg-[#2c2c2e]"
+          }`}
         >
           {/* Top percentage text */}
-          <div className="absolute top-2.5 left-0 right-0 text-center text-[12px] font-bold font-mono text-white tabular-nums z-10 pointer-events-none drop-shadow-sm">
+          <div
+            className="absolute top-2.5 left-0 right-0 text-center text-[12px] font-bold font-mono tabular-nums z-10 pointer-events-none"
+            style={{
+              color: soundLevel >= 82
+                ? isLightMode ? "#ffffff" : "#1c1c1e"
+                : isLightMode ? "#1d1d1f" : "#ffffff",
+            }}
+          >
             {soundLevel}%
           </div>
 
-          {/* Bottom white filled portion with speaker icon */}
+          {/* Bottom filled portion with speaker icon */}
           <div
-            className={`w-full bg-white flex items-end justify-center pb-3 text-[#1c1c1e] pointer-events-none ${
-              isDraggingMaster ? "" : "transition-[height] duration-150 ease-out"
-            }`}
-            style={{ height: `${soundLevel}%` }}
+            className={`w-full flex items-end justify-center pb-3 pointer-events-none ${
+              isLightMode ? "bg-[#1d1d1f]" : "bg-white"
+            } ${isDraggingMaster ? "" : "transition-[height] duration-150 ease-out"}`}
+            style={{
+              height: `${soundLevel}%`,
+              color: soundLevel >= 20
+                ? isLightMode ? "#ffffff" : "#1c1c1e"
+                : isLightMode ? "#1d1d1f" : "#ffffff",
+            }}
           >
             <span className="relative">
               <Volume2 size={20} strokeWidth={2.4} />
@@ -318,10 +334,16 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                   return (
                     <div
                       key={`${session.name}-${idx}`}
-                      className="relative flex items-center gap-2.5 h-[42px] px-3 border-b border-[#38383a]/40 last:border-b-0"
+                      className={`relative flex items-center gap-2.5 h-[42px] px-3 border-b last:border-b-0 ${
+                        isLightMode ? "border-black/[0.07]" : "border-[#38383a]/40"
+                      }`}
                     >
                       {/* App Icon Badge */}
-                      <span className="w-[28px] h-[28px] rounded-[8px] bg-white/10 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+                      <span
+                        className={`w-[28px] h-[28px] rounded-[8px] border flex items-center justify-center shrink-0 overflow-hidden shadow-sm ${
+                          isLightMode ? "bg-black/[0.04] border-black/[0.08]" : "bg-white/10 border-white/10"
+                        }`}
+                      >
                         <MixerAppIcon name={session.name} exePath={session.path} />
                       </span>
 
@@ -385,7 +407,9 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                               (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                             }
                           }}
-                          className="relative h-[3.5px] rounded-[2px] bg-[#3a3a3c] cursor-pointer touch-none"
+                          className={`relative h-[3.5px] rounded-[2px] cursor-pointer touch-none ${
+                            isLightMode ? "bg-black/15" : "bg-[#3a3a3c]"
+                          }`}
                         >
                           {/* Active Blue Fill */}
                           <div
@@ -397,7 +421,11 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
 
                           {/* Circular White Thumb Knob */}
                           <span
-                            className={`absolute top-[-7px] w-[18px] h-[18px] -ml-[9px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.4)] pointer-events-none ${
+                            className={`absolute top-[-7px] w-[18px] h-[18px] -ml-[9px] rounded-full bg-white pointer-events-none ${
+                              isLightMode
+                                ? "border border-black/15 shadow-[0_2px_6px_rgba(0,0,0,0.22)]"
+                                : "shadow-[0_2px_6px_rgba(0,0,0,0.4)]"
+                            } ${
                               draggingSessionName === session.name ? "" : "transition-[left] duration-150 ease-out"
                             }`}
                             style={{ left: `${volPercent}%` }}

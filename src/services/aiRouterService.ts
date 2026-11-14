@@ -345,26 +345,39 @@ export function evaluatePromptHeuristics(
   };
 }
 
+export function isVisionCapableModel(model: AiModelConfig): boolean {
+  if (model.provider === "deepseek") return false;
+  const lower = model.id.toLowerCase();
+  if (lower.includes("deepseek") || lower.includes("o3-mini")) return false;
+  return true;
+}
+
 /**
  * Resolves the actual model configuration for a given tier based on available models.
  */
 export function resolveTierModel(
   tier: RouterTier,
   availableModels: AiModelConfig[],
-  routerConfig: RouterConfig
+  routerConfig: RouterConfig,
+  requiresVision: boolean = false
 ): { targetModel: AiModelConfig; targetProvider: AiProviderId } | null {
   if (availableModels.length === 0) return null;
 
-  // 1. Check user configured tierMapping
+  const visionPool = requiresVision
+    ? availableModels.filter(isVisionCapableModel)
+    : availableModels;
+  const effectiveModels = visionPool.length > 0 ? visionPool : availableModels;
+
+  // 1. Check user configured tierMapping against effectiveModels
   const mapping = routerConfig.tierMapping[tier];
   if (mapping) {
-    const exactMatch = availableModels.find(
+    const exactMatch = effectiveModels.find(
       (m) => m.id === mapping.modelId && m.provider === mapping.provider
     );
     if (exactMatch) {
       return { targetModel: exactMatch, targetProvider: exactMatch.provider };
     }
-    const idMatch = availableModels.find((m) => m.id === mapping.modelId);
+    const idMatch = effectiveModels.find((m) => m.id === mapping.modelId);
     if (idMatch) {
       return { targetModel: idMatch, targetProvider: idMatch.provider };
     }
@@ -374,23 +387,23 @@ export function resolveTierModel(
   if (tier === "T0") {
     // Prefer Fast models (Mini, Flash, Haiku, V3)
     const fast =
-      availableModels.find((m) => m.tier === "Fast") ||
-      availableModels.find((m) => m.tier === "Medium") ||
-      availableModels[0];
+      effectiveModels.find((m) => m.tier === "Fast") ||
+      effectiveModels.find((m) => m.tier === "Medium") ||
+      effectiveModels[0];
     return { targetModel: fast, targetProvider: fast.provider };
   } else if (tier === "T2") {
     // Prefer Max models (Sonnet 3.7, R1, o3-mini, Opus)
     const max =
-      availableModels.find((m) => m.tier === "Max") ||
-      availableModels.find((m) => m.tier === "Medium") ||
-      availableModels[0];
+      effectiveModels.find((m) => m.tier === "Max") ||
+      effectiveModels.find((m) => m.tier === "Medium") ||
+      effectiveModels[0];
     return { targetModel: max, targetProvider: max.provider };
   } else {
     // T1: Prefer Medium or balanced model
     const medium =
-      availableModels.find((m) => m.tier === "Medium") ||
-      availableModels.find((m) => m.tier === "Fast") ||
-      availableModels[0];
+      effectiveModels.find((m) => m.tier === "Medium") ||
+      effectiveModels.find((m) => m.tier === "Fast") ||
+      effectiveModels[0];
     return { targetModel: medium, targetProvider: medium.provider };
   }
 }
@@ -437,6 +450,51 @@ export function getSafetyMaxTokens(lengthMode: ResponseLengthMode): number {
     default:
       return 1000;
   }
+}
+
+export interface BudgetEvaluation {
+  hasLimit: boolean;
+  limitIdr: number;
+  spentIdr: number;
+  percentUsed: number;
+  isWarning: boolean;
+  isExceeded: boolean;
+  action: "warn" | "downgrade_to_t0" | "block";
+}
+
+export function evaluateBudgetPolicy(
+  config: RouterConfig,
+  stats: { estimatedCostIdr?: number; monthlyLimitIdr?: number }
+): BudgetEvaluation {
+  const statsLimit = Number(stats.monthlyLimitIdr) || 0;
+  const cfgLimit = Number(config.budget?.monthlyLimitIdr) || 0;
+  const limitIdr = statsLimit > 0 ? statsLimit : cfgLimit;
+  const spentIdr = Math.max(0, Number(stats.estimatedCostIdr) || 0);
+  const warnAtPercent = Math.max(1, Math.min(100, Number(config.budget?.warnAtPercent) || 80));
+  const action = config.budget?.actionOnLimit || "warn";
+
+  if (limitIdr <= 0) {
+    return {
+      hasLimit: false,
+      limitIdr: 0,
+      spentIdr,
+      percentUsed: 0,
+      isWarning: false,
+      isExceeded: false,
+      action,
+    };
+  }
+
+  const percentUsed = (spentIdr / limitIdr) * 100;
+  return {
+    hasLimit: true,
+    limitIdr,
+    spentIdr,
+    percentUsed,
+    isWarning: percentUsed >= warnAtPercent,
+    isExceeded: spentIdr >= limitIdr,
+    action,
+  };
 }
 
 /**

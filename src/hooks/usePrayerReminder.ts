@@ -15,6 +15,7 @@ interface UsePrayerReminderOptions {
   enabled?: boolean;
   isFocusMode: boolean;
   onTriggerToast: (toast: PrayerToastPayload) => void;
+  isSecondary?: boolean;
 }
 
 const TRIGGERED_STORAGE_KEY_PREFIX = "island_prayer_triggered_";
@@ -49,6 +50,7 @@ export function usePrayerReminder({
   enabled = true,
   isFocusMode,
   onTriggerToast,
+  isSecondary = false,
 }: UsePrayerReminderOptions) {
   const [schedule, setSchedule] = useState<PrayerScheduleData>(() =>
     getImmediatePrayerSchedule()
@@ -59,6 +61,7 @@ export function usePrayerReminder({
   }, [schedule]);
   const currentTodayKeyRef = useRef<string>(getTodayDateKey());
   const triggeredSetRef = useRef<Set<string>>(loadTriggeredKeys(currentTodayKeyRef.current));
+  const refreshingDateKeyRef = useRef<string | null>(null);
 
   const refreshSchedule = useCallback(async (force = false) => {
     try {
@@ -68,11 +71,24 @@ export function usePrayerReminder({
   }, []);
 
   useEffect(() => {
-    refreshSchedule(false);
+    if (!enabled) return;
+    if (!isSecondary) {
+      refreshSchedule(false);
+    } else {
+      setSchedule(getImmediatePrayerSchedule());
+    }
     const unsubLoc = subscribeWeatherChange(() => {
-      refreshSchedule(true);
+      if (!isSecondary) {
+        refreshSchedule(true);
+      } else {
+        setSchedule(getImmediatePrayerSchedule());
+      }
     });
     const handlePrayerUpdate = () => {
+      if (isSecondary) {
+        setSchedule(getImmediatePrayerSchedule());
+        return;
+      }
       const latestSettings = loadPrayerSettings();
       if (
         scheduleRef.current.calculationMethod &&
@@ -86,7 +102,7 @@ export function usePrayerReminder({
       unsubLoc();
       window.removeEventListener("gili_prayer_updated", handlePrayerUpdate);
     };
-  }, [refreshSchedule]);
+  }, [refreshSchedule, enabled, isSecondary]);
 
   const checkPrayerTimes = useCallback(() => {
     try {
@@ -103,8 +119,22 @@ export function usePrayerReminder({
         triggeredSetRef.current = loadTriggeredKeys(todayKey);
       }
 
-      if (schedule.dateKey !== todayKey) {
-        refreshSchedule(true);
+      let activeSchedule = scheduleRef.current;
+      if (activeSchedule.dateKey !== todayKey) {
+        // Immediately switch to today's synchronous/cached schedule instead of checking yesterday's timings
+        activeSchedule = getImmediatePrayerSchedule();
+        setSchedule(activeSchedule);
+        if (!isSecondary && refreshingDateKeyRef.current !== todayKey) {
+          refreshingDateKeyRef.current = todayKey;
+          refreshSchedule(false).finally(() => {
+            if (refreshingDateKeyRef.current === todayKey) {
+              refreshingDateKeyRef.current = null;
+            }
+          });
+        }
+        if (activeSchedule.dateKey !== todayKey) {
+          return;
+        }
       }
 
       const currentMinutes = now.getHours() * 60 + now.getMinutes();
@@ -112,7 +142,7 @@ export function usePrayerReminder({
       for (const prayerId of PRAYER_ORDER) {
         if (!settings.enabledPrayers[prayerId]) continue;
 
-        const timeStr = schedule.timings[prayerId];
+        const timeStr = activeSchedule.timings[prayerId];
         if (!timeStr) continue;
 
         const targetMinutes = timeStringToMinutes(timeStr);
@@ -128,13 +158,15 @@ export function usePrayerReminder({
           const preKey = `${todayKey}_${prayerId}_pre_${settings.preReminderMinutes}`;
           if (!triggeredSetRef.current.has(preKey)) {
             triggeredSetRef.current.add(preKey);
-            persistTriggeredKeys(todayKey, triggeredSetRef.current);
+            if (!isSecondary) {
+              persistTriggeredKeys(todayKey, triggeredSetRef.current);
+            }
             onTriggerToast({
               type: "pre_reminder",
               prayerId,
               prayerTime: timeStr,
               minutesLeft: settings.preReminderMinutes,
-              locationName: schedule.locationName,
+              locationName: activeSchedule.locationName,
             });
             return;
           }
@@ -148,12 +180,14 @@ export function usePrayerReminder({
           const exactKey = `${todayKey}_${prayerId}_exact`;
           if (!triggeredSetRef.current.has(exactKey)) {
             triggeredSetRef.current.add(exactKey);
-            persistTriggeredKeys(todayKey, triggeredSetRef.current);
+            if (!isSecondary) {
+              persistTriggeredKeys(todayKey, triggeredSetRef.current);
+            }
             onTriggerToast({
               type: "prayer_time",
               prayerId,
               prayerTime: timeStr,
-              locationName: schedule.locationName,
+              locationName: activeSchedule.locationName,
             });
             return;
           }
@@ -162,7 +196,7 @@ export function usePrayerReminder({
     } catch (err) {
       console.error("Prayer reminder check error:", err);
     }
-  }, [isFocusMode, onTriggerToast, refreshSchedule, schedule, enabled]);
+  }, [isFocusMode, onTriggerToast, refreshSchedule, enabled, isSecondary]);
 
   useEffect(() => {
     if (!enabled) return;

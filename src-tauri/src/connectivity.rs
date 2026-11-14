@@ -1,5 +1,8 @@
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
+
+static WLAN_PROFILE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -108,6 +111,7 @@ fn get_radio_state(kind: windows::Devices::Radios::RadioKind) -> Option<bool> {
 mod wlan_ffi {
     #![allow(non_snake_case, dead_code)]
     use std::ffi::c_void;
+    use windows::Win32::Foundation::HANDLE;
 
     #[repr(C)]
     pub struct WLAN_INTERFACE_INFO {
@@ -129,22 +133,22 @@ mod wlan_ffi {
             dwClientVersion: u32,
             pReserved: *const c_void,
             pdwNegotiatedVersion: *mut u32,
-            phClientHandle: *mut u32,
+            phClientHandle: *mut HANDLE,
         ) -> u32;
 
         pub fn WlanCloseHandle(
-            hClientHandle: u32,
+            hClientHandle: HANDLE,
             pReserved: *const c_void,
         ) -> u32;
 
         pub fn WlanEnumInterfaces(
-            hClientHandle: u32,
+            hClientHandle: HANDLE,
             pReserved: *const c_void,
             ppInterfaceList: *mut *mut WLAN_INTERFACE_INFO_LIST,
         ) -> u32;
 
         pub fn WlanScan(
-            hClientHandle: u32,
+            hClientHandle: HANDLE,
             pInterfaceGuid: *const windows::core::GUID,
             pDot11Ssid: *const c_void,
             pIeData: *const c_void,
@@ -161,7 +165,7 @@ fn trigger_background_scan() {
     std::thread::spawn(|| {
         use std::ptr;
         let mut ver = 0u32;
-        let mut handle = 0u32;
+        let mut handle = windows::Win32::Foundation::HANDLE::default();
         if unsafe { wlan_ffi::WlanOpenHandle(2, ptr::null(), &mut ver, &mut handle) } == 0 {
             let mut iface_list: *mut wlan_ffi::WLAN_INTERFACE_INFO_LIST = ptr::null_mut();
             if unsafe { wlan_ffi::WlanEnumInterfaces(handle, ptr::null(), &mut iface_list) } == 0 && !iface_list.is_null() {
@@ -477,7 +481,12 @@ r#"<?xml version="1.0"?>
 </WLANProfile>"#
             );
 
-            let temp_file = std::env::temp_dir().join(format!("wlan_prof_{}.xml", std::process::id()));
+            let seq = WLAN_PROFILE_SEQ.fetch_add(1, Ordering::Relaxed);
+            let temp_file = std::env::temp_dir().join(format!(
+                "wlan_prof_{}_{}.xml",
+                std::process::id(),
+                seq
+            ));
             std::fs::write(&temp_file, profile_xml).map_err(|e| e.to_string())?;
 
             let add_output = Command::new("netsh")
@@ -499,11 +508,41 @@ r#"<?xml version="1.0"?>
                 .map_err(|e| e.to_string())?;
 
             if !connect_output.status.success() {
+                let _ = Command::new("netsh")
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .args(["wlan", "delete", "profile", &format!("name={}", ssid)])
+                    .output();
                 return Err(String::from_utf8_lossy(&connect_output.stderr).to_string());
             }
 
-            // Check connection up to 3 seconds
-            for _ in 0..12 {
+            let is_ssid_connected = |stdout: &str| -> bool {
+                let mut current_state: Option<String> = None;
+                let mut current_ssid: Option<String> = None;
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if let Some((key, val)) = trimmed.split_once(':') {
+                        let k = key.trim();
+                        let v = val.trim();
+                        if k.eq_ignore_ascii_case("Name") {
+                            current_state = None;
+                            current_ssid = None;
+                        } else if k.eq_ignore_ascii_case("State") {
+                            current_state = Some(v.to_ascii_lowercase());
+                        } else if k.eq_ignore_ascii_case("SSID") && !k.eq_ignore_ascii_case("BSSID") {
+                            current_ssid = Some(v.to_string());
+                        }
+                        if current_ssid.as_deref() == Some(ssid.as_str())
+                            && matches!(current_state.as_deref(), Some("connected" | "terhubung"))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                false
+            };
+
+            // Verify actual association/connection (authentication failure disconnects after handshake).
+            for _ in 0..24 {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 if let Ok(output) = Command::new("netsh")
                     .creation_flags(CREATE_NO_WINDOW)
@@ -511,13 +550,17 @@ r#"<?xml version="1.0"?>
                     .output()
                 {
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    if stdout.contains(&format!("SSID                   : {}", ssid)) {
+                    if is_ssid_connected(&stdout) {
                         return Ok(());
                     }
                 }
             }
 
-            Ok(())
+            let _ = Command::new("netsh")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["wlan", "delete", "profile", &format!("name={}", ssid)])
+                .output();
+            Err(format!("Failed to connect to '{}'", ssid))
         }
         #[cfg(not(windows))]
         {
@@ -627,12 +670,12 @@ pub async fn get_bluetooth_status() -> Result<BluetoothStatus, String> {
                                 continue;
                             }
 
-                            let u16_slice = std::slice::from_raw_parts(
-                                name_buf.as_ptr() as *const u16,
-                                name_buf.len() / 2,
-                            );
-                            let len = u16_slice.iter().position(|&c| c == 0).unwrap_or(u16_slice.len());
-                            let friendly_name = String::from_utf16_lossy(&u16_slice[..len]).trim().to_string();
+                            let u16_words: Vec<u16> = name_buf
+                                .chunks_exact(2)
+                                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                                .take_while(|&w| w != 0)
+                                .collect();
+                            let friendly_name = String::from_utf16_lossy(&u16_words).trim().to_string();
                             if friendly_name.is_empty() {
                                 continue;
                             }

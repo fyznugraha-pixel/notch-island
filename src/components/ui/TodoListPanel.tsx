@@ -299,7 +299,7 @@ export const TodoListPanel = React.memo<TodoListPanelProps>(({
     if (!onUpdateDeadline) return;
     const base = task.dueAt && task.dueAt > Date.now() ? task.dueAt : Date.now();
     const nextDue = base + 60 * 60_000;
-    onUpdateDeadline(task.id, nextDue, task.reminders || [0, 10]);
+    onUpdateDeadline(task.id, nextDue, task.reminders || [0, 10], task.repeat);
   };
 
   // Render Calendar & Reminder Subview when active (Board 10)

@@ -15,6 +15,7 @@ interface DropShelfTransferModalProps {
   session: ShelfSessionInfo | null;
   incomingProgress: Record<string, ShelfTransferProgressPayload>;
   activeDeviceName?: string;
+  isLightMode?: boolean;
   onClose: () => void;
   onCancel: () => void;
 }
@@ -24,6 +25,7 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
   session,
   incomingProgress,
   activeDeviceName,
+  isLightMode = false,
   onClose,
   onCancel,
 }) => {
@@ -103,14 +105,36 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
   const isReceive = mode === "receive";
   const isReceiving = mode === "receiving";
 
+  const stepBadgeClass = isLightMode
+    ? "w-3.5 h-3.5 rounded-full bg-black/[0.06] border border-black/10 text-[9px] font-bold text-neutral-700 flex items-center justify-center shrink-0"
+    : "w-3.5 h-3.5 rounded-full bg-[#1b1b22] border border-white/10 text-[9px] font-bold text-zinc-300 flex items-center justify-center shrink-0";
+  const stepRowClass = isLightMode
+    ? "flex items-center gap-2 text-[11px] text-[#1d1d1f]"
+    : "flex items-center gap-2 text-[11px] text-zinc-200";
+  const statusPillClass = isLightMode
+    ? "h-6 px-2.5 rounded-full bg-black/[0.05] border border-black/10 text-neutral-600 text-[10px] font-medium flex items-center gap-1.5"
+    : "h-6 px-2.5 rounded-full bg-[#17171c] border border-white/10 text-zinc-200 text-[10px] font-medium flex items-center gap-1.5";
+
   return (
-    <div className="absolute inset-0 z-30 bg-[#000000]/95 backdrop-blur-xl flex flex-col px-4 py-1.5 select-none text-white animate-in fade-in duration-150">
+    <div
+      className={`absolute inset-0 z-30 backdrop-blur-xl flex flex-col px-4 py-1.5 select-none animate-in fade-in duration-150 ${
+        isLightMode ? "bg-white/95 text-[#1d1d1f]" : "bg-[#000000]/95 text-white"
+      }`}
+    >
       {/* Top Header */}
-      <div className="flex items-center gap-2 shrink-0 h-7 border-b border-white/[0.08] pb-1">
+      <div
+        className={`flex items-center gap-2 shrink-0 h-7 border-b pb-1 ${
+          isLightMode ? "border-black/[0.08]" : "border-white/[0.08]"
+        }`}
+      >
         <Tooltip content={isEn ? "Back" : "Kembali"} side="bottom">
           <button
             onClick={onClose}
-            className="w-6 h-6 rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-zinc-200 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+              isLightMode
+                ? "bg-black/[0.06] hover:bg-black/[0.12] text-[#1d1d1f]"
+                : "bg-white/[0.08] hover:bg-white/[0.15] text-zinc-200 hover:text-white"
+            }`}
             type="button"
           >
             <ChevronLeft size={14} strokeWidth={2.4} />
@@ -125,16 +149,22 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
 
         {/* Status indicator on header */}
         {isReceiving ? (
-          <div className="h-6 px-2.5 rounded-full bg-[#17171c] border border-white/10 text-zinc-200 text-[10px] font-medium flex items-center gap-1.5">
+          <div className={statusPillClass}>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span>{activeDeviceName || "Smartphone"}</span>
           </div>
         ) : (
-          <div className="h-6 px-2.5 rounded-full bg-[#17171c] border border-white/10 text-zinc-300 text-[10px] font-medium flex items-center gap-1.5 tabular-nums">
-            <span className="text-zinc-400">
+          <div className={`${statusPillClass} tabular-nums`}>
+            <span className={isLightMode ? "text-neutral-500" : "text-zinc-400"}>
               {isSend ? t("shelf_waiting_phone") : t("shelf_receive_mode_active")} ·
             </span>
-            <span className={secondsRemaining < 60 ? "text-amber-400 font-semibold" : "text-white font-semibold"}>
+            <span
+              className={
+                secondsRemaining < 60
+                  ? isLightMode ? "text-amber-600 font-semibold" : "text-amber-400 font-semibold"
+                  : isLightMode ? "text-[#1d1d1f] font-semibold" : "text-white font-semibold"
+              }
+            >
               {t("shelf_expires_in", { time: formattedTime })}
             </span>
           </div>
@@ -157,26 +187,30 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className="h-10 px-2.5 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center gap-2.5"
+                    className={`h-10 px-2.5 rounded-lg flex items-center gap-2.5 ${
+                      isLightMode
+                        ? "bg-black/[0.04] border border-black/[0.08]"
+                        : "bg-white/[0.04] border border-white/[0.06]"
+                    }`}
                   >
-                    <span className="font-mono text-[9.5px] text-zinc-400 uppercase w-7 shrink-0">
+                    <span className={`font-mono text-[9.5px] uppercase w-7 shrink-0 ${isLightMode ? "text-neutral-500" : "text-zinc-400"}`}>
                       {ext}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[12px] font-medium text-zinc-200 truncate">{item.name}</div>
-                      <div className="text-[9.5px] text-zinc-400">
+                      <div className={`text-[12px] font-medium truncate ${isLightMode ? "text-[#1d1d1f]" : "text-zinc-200"}`}>{item.name}</div>
+                      <div className={`text-[9.5px] ${isLightMode ? "text-neutral-500" : "text-zinc-400"}`}>
                         {item.size > 0 ? `${(item.size / 1024 / 1024).toFixed(1)} MB` : "--"}
                       </div>
                     </div>
                     <div className="shrink-0 flex items-center gap-1.5">
                       {isCompleted ? (
-                        <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1">
+                        <span className={`text-[11px] font-medium flex items-center gap-1 ${isLightMode ? "text-emerald-700" : "text-emerald-400"}`}>
                           <Check size={12} strokeWidth={2.6} />
                           <span>{isEn ? "done" : "selesai"}</span>
                         </span>
                       ) : (
                         <div className="flex items-center gap-1.5">
-                          <div className="w-14 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div className={`w-14 h-1.5 rounded-full overflow-hidden ${isLightMode ? "bg-black/10" : "bg-white/10"}`}>
                             <div
                               className="h-full bg-[#3882F6] rounded-full transition-all duration-150"
                               style={{ width: `${item.progress}%` }}
@@ -204,7 +238,11 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
               <button
                 type="button"
                 onClick={onCancel}
-                className="h-6 px-2.5 rounded bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white text-[10px] font-medium transition-colors cursor-pointer"
+                className={`h-6 px-2.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                  isLightMode
+                    ? "bg-black/[0.06] hover:bg-black/[0.12] text-neutral-700"
+                    : "bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white"
+                }`}
               >
                 {t("shelf_cancel")}
               </button>
@@ -222,7 +260,11 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
         /* QR Code & Step Instructions View (Boards 60 & 61) */
         <div className="flex-1 flex items-center gap-4 sm:gap-6 min-h-0 pt-1 pb-0.5 overflow-hidden">
           {/* Left: QR Code Box - perfectly sized so it never clips */}
-          <div className="w-[116px] h-[116px] sm:w-[124px] sm:h-[124px] shrink-0 rounded-xl bg-white p-1.5 flex items-center justify-center shadow-md">
+          <div
+            className={`w-[116px] h-[116px] sm:w-[124px] sm:h-[124px] shrink-0 rounded-xl bg-white p-1.5 flex items-center justify-center ${
+              isLightMode ? "border border-black/10 shadow-sm" : "shadow-md"
+            }`}
+          >
             {qrDataUrl ? (
               <img
                 src={qrDataUrl}
@@ -240,36 +282,42 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
           <div className="flex-1 flex flex-col justify-between min-h-0 py-0.5">
             {/* Numbered Steps */}
             <div className="space-y-1">
-              <div className="flex items-center gap-2 text-[11px] text-zinc-200">
-                <span className="w-3.5 h-3.5 rounded-full bg-[#1b1b22] border border-white/10 text-[9px] font-bold text-zinc-300 flex items-center justify-center shrink-0">
-                  1
-                </span>
+              <div className={stepRowClass}>
+                <span className={stepBadgeClass}>1</span>
                 <span className="truncate">{t("shelf_step_wifi")}</span>
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-zinc-200">
-                <span className="w-3.5 h-3.5 rounded-full bg-[#1b1b22] border border-white/10 text-[9px] font-bold text-zinc-300 flex items-center justify-center shrink-0">
-                  2
-                </span>
+              <div className={stepRowClass}>
+                <span className={stepBadgeClass}>2</span>
                 <span className="truncate">{isSend ? t("shelf_step_scan_send") : t("shelf_step_scan_receive")}</span>
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-zinc-200">
-                <span className="w-3.5 h-3.5 rounded-full bg-[#1b1b22] border border-white/10 text-[9px] font-bold text-zinc-300 flex items-center justify-center shrink-0">
-                  3
-                </span>
+              <div className={stepRowClass}>
+                <span className={stepBadgeClass}>3</span>
                 <span className="truncate">{isSend ? t("shelf_step_download") : t("shelf_step_upload")}</span>
               </div>
             </div>
 
             {/* URL Box & Actions */}
             <div className="mt-1 space-y-1">
-              <div className="h-7 rounded-lg bg-[#101015] border border-white/10 flex items-center gap-1.5 px-2">
-                <span className="text-[10.5px] font-mono text-zinc-300 truncate flex-1 select-all">
+              <div
+                className={`h-7 rounded-lg flex items-center gap-1.5 px-2 ${
+                  isLightMode ? "bg-black/[0.04] border border-black/10" : "bg-[#101015] border border-white/10"
+                }`}
+              >
+                <span
+                  className={`text-[10.5px] font-mono truncate flex-1 select-all ${
+                    isLightMode ? "text-neutral-700" : "text-zinc-300"
+                  }`}
+                >
                   {session?.url?.replace(/^https?:\/\//, "") || "..."}
                 </span>
                 <button
                   type="button"
                   onClick={handleCopyLink}
-                  className="h-5 px-1.5 rounded bg-white/[0.08] hover:bg-white/[0.15] text-[9.5px] font-medium text-zinc-200 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                  className={`h-5 px-1.5 rounded text-[9.5px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                    isLightMode
+                      ? "bg-black/[0.06] hover:bg-black/[0.12] text-[#1d1d1f]"
+                      : "bg-white/[0.08] hover:bg-white/[0.15] text-zinc-200 hover:text-white"
+                  }`}
                 >
                   {copied ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
                   <span>{copied ? (isEn ? "Copied" : "Tersalin") : t("shelf_copy_link")}</span>
@@ -277,7 +325,11 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
                 <button
                   type="button"
                   onClick={isSend ? onCancel : onClose}
-                  className="h-5 px-2 rounded bg-white/[0.05] hover:bg-white/[0.1] text-[9.5px] font-medium text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                  className={`h-5 px-2 rounded text-[9.5px] font-medium transition-colors cursor-pointer ${
+                    isLightMode
+                      ? "bg-black/[0.05] hover:bg-black/[0.10] text-neutral-700"
+                      : "bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 hover:text-white"
+                  }`}
                 >
                   {isSend ? t("shelf_cancel") : t("shelf_done")}
                 </button>

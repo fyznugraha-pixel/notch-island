@@ -113,6 +113,8 @@ export interface AiUsageStats {
   modelBreakdown: Record<string, number>;
   estimatedCostIdr: number;
   monthlyLimitIdr: number;
+  costMonth?: string;
+  thirtyDayDailyTotals?: Record<string, number>;
 }
 
 export interface ActiveWindowItem {

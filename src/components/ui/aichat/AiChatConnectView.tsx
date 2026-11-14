@@ -30,6 +30,7 @@ import {
   maskApiKey,
 } from "../../../services/aiChatService";
 import {
+  initCredentials,
   getSecureApiKey,
   getEffectiveApiKeySync,
 } from "../../../services/aiCredentialService";
@@ -48,6 +49,7 @@ interface AiChatConnectViewProps {
   initialProvider: AiProviderId;
   initialKey: string;
   initialModel: AiModelConfig;
+  onKeyChanged?: () => void;
   onBack: () => void;
   onSave: (provider: AiProviderId, key: string, model: AiModelConfig) => void;
   accentColor?: string;
@@ -106,6 +108,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
   initialProvider,
   initialKey,
   initialModel,
+  onKeyChanged,
   onBack,
   onSave,
   accentColor = "#3882F6",
@@ -136,13 +139,28 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
   });
 
   useEffect(() => {
-    if (isModelCustomKey) return;
-    getSecureApiKey(selectedProvider).then((secKey) => {
-      if (secKey && !apiKey) {
-        setApiKey(secKey);
+    let cancelled = false;
+    initCredentials().then(() => {
+      if (cancelled) return;
+      const modelKeys = loadSavedModelKeys();
+      const customKey = modelKeys[selectedModel.id];
+      if (customKey) {
+        setIsModelCustomKey(true);
+        setApiKey((prev) => prev || getDraftKey(selectedProvider, selectedModel.id) || customKey);
+        return;
       }
-    });
-  }, [selectedProvider, isModelCustomKey]);
+      if (!isModelCustomKey) {
+        getSecureApiKey(selectedProvider).then((secKey) => {
+          if (!cancelled && secKey) {
+            setApiKey((prev) => prev || secKey);
+          }
+        });
+      }
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvider, selectedModel.id, isModelCustomKey]);
 
   const [baseUrl, setBaseUrl] = useState<string>(() => {
     const draft = getDraftBaseUrl(initialProvider);
@@ -278,6 +296,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
       setApiKey("");
       setBaseUrl("");
     }
+    onKeyChanged?.();
     setTestResult(null);
     setSavedNotice(t("aichat_connect_key_deleted"));
     setTimeout(() => setSavedNotice(null), 2000);

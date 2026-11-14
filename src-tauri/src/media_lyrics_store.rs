@@ -21,10 +21,20 @@ pub struct MediaPayload {
     pub is_browser: bool,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct LyricWordPayload {
+    pub time: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "endTime")]
+    pub end_time: Option<f64>,
+    pub text: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct LyricLinePayload {
     pub time: f64,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<Vec<LyricWordPayload>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -41,6 +51,8 @@ pub struct LyricsPayload {
     pub offset: f64,
 }
 
+const CURRENT_LYRICS_CACHE_VERSION: u32 = 3;
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 struct CachedLyricsEntry {
     pub artist: String,
@@ -52,6 +64,8 @@ struct CachedLyricsEntry {
     pub provider: String,
     pub provider_name: String,
     pub cached_at_secs: u64,
+    #[serde(default)]
+    pub cache_version: u32,
 }
 
 static CURRENT_MEDIA: OnceLock<Arc<Mutex<MediaPayload>>> = OnceLock::new();
@@ -148,11 +162,7 @@ pub fn get_song_offset(app: &AppHandle, artist: &str, title: &str) -> f64 {
     let key = normalize_track_key(artist, title);
     let offsets_arc = get_offsets_store();
     let offsets = offsets_arc.lock().unwrap();
-    offsets
-        .get(&key)
-        .copied()
-        .or_else(|| offsets.get("__global_default__").copied())
-        .unwrap_or(0.0)
+    offsets.get(&key).copied().unwrap_or(0.0)
 }
 
 pub fn set_song_offset(app: &AppHandle, artist: &str, title: &str, offset: f64) -> Result<(), String> {
@@ -162,7 +172,6 @@ pub fn set_song_offset(app: &AppHandle, artist: &str, title: &str, offset: f64) 
     {
         let mut offsets = offsets_arc.lock().unwrap();
         offsets.insert(key.clone(), offset);
-        offsets.insert("__global_default__".to_string(), offset);
         let path = get_lyrics_offsets_path(app);
         if let Ok(json_str) = serde_json::to_string_pretty(&*offsets) {
             let _ = fs::write(path, json_str);
@@ -255,6 +264,18 @@ pub fn get_disk_cached_lyrics(app: &AppHandle, artist: &str, title: &str) -> Opt
         return None;
     }
 
+    let has_word_timings = entry
+        .lines
+        .iter()
+        .any(|line| line.words.as_ref().is_some_and(|words| !words.is_empty()));
+    if entry.cache_version < CURRENT_LYRICS_CACHE_VERSION
+        && entry.state != "instrumental"
+        && !has_word_timings
+    {
+        let _ = fs::remove_file(&path);
+        return None;
+    }
+
     let offset = get_song_offset(app, artist, title);
 
     Some(LyricsPayload {
@@ -304,6 +325,7 @@ pub fn save_disk_cached_lyrics(app: &AppHandle, payload: &LyricsPayload) -> Resu
         provider: payload.provider.clone(),
         provider_name: payload.provider_name.clone(),
         cached_at_secs: now_secs,
+        cache_version: CURRENT_LYRICS_CACHE_VERSION,
     };
 
     let serialized = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
@@ -468,6 +490,17 @@ pub fn store_lyrics_result(app: AppHandle, mut payload: LyricsPayload) -> Result
     // Save to disk cache
     let _ = save_disk_cached_lyrics(&app, &payload);
 
+    // Guard against stale async fetch completing after rapid track skip
+    let is_current_track = {
+        let media_arc = get_media_store();
+        let guard = media_arc.lock().unwrap();
+        normalize_track_key(&guard.artist, &guard.title)
+            == normalize_track_key(&payload.artist, &payload.title)
+    };
+    if !is_current_track {
+        return Ok(());
+    }
+
     // Update in-memory store
     {
         let lyrics_arc = get_lyrics_store();
@@ -497,8 +530,8 @@ pub fn broadcast_lyrics_loading(
         synced: false,
         lines: Vec::new(),
         plain_lyrics: None,
-        provider: req_provider.clone(),
-        provider_name: req_provider,
+        provider: req_provider,
+        provider_name: String::new(),
         offset,
     };
     {
@@ -519,4 +552,60 @@ pub fn clear_lyrics_disk_cache(app: AppHandle) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_legacy_line_without_words() {
+        let legacy_json = r#"{"time":12.34,"text":"Hello world"}"#;
+        let line: LyricLinePayload = serde_json::from_str(legacy_json).expect("legacy line json");
+        assert_eq!(line.time, 12.34);
+        assert_eq!(line.text, "Hello world");
+        assert!(line.words.is_none());
+    }
+
+    #[test]
+    fn round_trips_word_timed_line_with_camel_case_end_time() {
+        let line = LyricLinePayload {
+            time: 10.0,
+            text: "Never gonna".to_string(),
+            words: Some(vec![
+                LyricWordPayload {
+                    time: 10.0,
+                    end_time: Some(10.45),
+                    text: "Never ".to_string(),
+                },
+                LyricWordPayload {
+                    time: 10.45,
+                    end_time: None,
+                    text: "gonna".to_string(),
+                },
+            ]),
+        };
+        let encoded = serde_json::to_string(&line).expect("serialize word line");
+        assert!(encoded.contains(r#""endTime":10.45"#));
+        assert!(!encoded.contains(r#""endTime":null"#));
+        let decoded: LyricLinePayload = serde_json::from_str(&encoded).expect("deserialize word line");
+        assert_eq!(decoded, line);
+    }
+
+    #[test]
+    fn legacy_cached_entry_defaults_cache_version_to_zero() {
+        let legacy = r#"{
+            "artist":"The Weeknd",
+            "title":"Blinding Lights",
+            "state":"synced",
+            "synced":true,
+            "lines":[{"time":12.0,"text":"Yeah"}],
+            "plain_lyrics":null,
+            "provider":"lrclib",
+            "provider_name":"LRCLIB",
+            "cached_at_secs":1700000000
+        }"#;
+        let entry: CachedLyricsEntry = serde_json::from_str(legacy).expect("legacy cache entry");
+        assert_eq!(entry.cache_version, 0);
+    }
 }

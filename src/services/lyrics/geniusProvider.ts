@@ -1,11 +1,16 @@
 import { LyricsProvider, LyricsData, LyricLine } from "./types";
 import { cleanTitle, cleanArtist, hasActualLyrics, isSameTrack } from "./utils";
-import { fetchJson, fetchText, rethrowIfFetchError } from "./lyricsHttp";
+import { fetchJson, fetchText, rethrowIfFetchError, throwIfAborted } from "./lyricsHttp";
 
 export const geniusProvider: LyricsProvider = {
   id: "genius",
   name: "Genius",
-  async fetchLyrics(artist: string, title: string): Promise<LyricsData | null> {
+  async fetchLyrics(
+    artist: string,
+    title: string,
+    _duration?: number,
+    signal?: AbortSignal
+  ): Promise<LyricsData | null> {
     const cleanedArtist = cleanArtist(artist);
     const cleanedTitle = cleanTitle(title) || title;
     const query = `${cleanedArtist ? cleanedArtist + " " : ""}${cleanedTitle}`.trim();
@@ -18,6 +23,7 @@ export const geniusProvider: LyricsProvider = {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         },
+        signal,
       });
 
       const sections = searchData?.response?.sections;
@@ -37,7 +43,9 @@ export const geniusProvider: LyricsProvider = {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         },
+        signal,
       });
+      throwIfAborted(signal);
 
       if (!pageHtml) return null;
 

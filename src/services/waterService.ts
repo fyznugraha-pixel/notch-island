@@ -4,6 +4,7 @@
  */
 
 import { getLanguage } from "./i18n.ts";
+import { emitCrossWindowEvent } from "../utils/crossWindowSync.ts";
 
 export interface WaterIntakeRecord {
   id: string;
@@ -28,6 +29,7 @@ export interface WaterSettings {
   freezeCount: number; // default: 1 (max: 2)
 }
 
+export const WATER_STORAGE_KEY = "gili_water_data";
 export const STREAK_CHECKPOINTS = [3, 10, 30, 50, 100, 150, 200, 250, 300, 365];
 
 const getDayLabels = () =>
@@ -70,6 +72,7 @@ export interface WaterData {
   lastDrinkTimestamp: number | null;
   lastUndoneRecord: WaterIntakeRecord | null;
   celebratedMilestones: number[];
+  frozenDateKeys?: string[];
 }
 
 const STORAGE_KEY = "gili_water_data";
@@ -99,7 +102,30 @@ function createInitialData(): WaterData {
     lastDrinkTimestamp: null,
     lastUndoneRecord: null,
     celebratedMilestones: [],
+    frozenDateKeys: [],
   };
+}
+
+function sortRecordsDesc(records: WaterIntakeRecord[]): WaterIntakeRecord[] {
+  return [...records].sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function formatLocalDateKey(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseLocalDateKey(dateKey: string): Date {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, 12, 0, 0);
+}
+
+function shiftLocalDateKey(dateKey: string, deltaDays: number): Date {
+  const d = parseLocalDateKey(dateKey);
+  d.setDate(d.getDate() + deltaDays);
+  return d;
 }
 
 export function loadWaterData(): WaterData {
@@ -108,11 +134,13 @@ export function loadWaterData(): WaterData {
     if (raw) {
       const parsed = JSON.parse(raw);
       // Clean out any mock/sample data previously seeded from templates
-      const cleanRecords = (parsed.records || []).filter(
-        (r: WaterIntakeRecord) =>
-          typeof r.id === "string" &&
-          !r.id.startsWith("sample-") &&
-          !r.id.startsWith("past-")
+      const cleanRecords = sortRecordsDesc(
+        (parsed.records || []).filter(
+          (r: WaterIntakeRecord) =>
+            typeof r.id === "string" &&
+            !r.id.startsWith("sample-") &&
+            !r.id.startsWith("past-")
+        )
       );
       const hadMockData = cleanRecords.length !== (parsed.records || []).length;
 
@@ -126,6 +154,7 @@ export function loadWaterData(): WaterData {
         bestStreakDays: hadMockData && parsed.bestStreakDays === 14 ? 0 : (parsed.bestStreakDays || 0),
         lastDrinkTimestamp: cleanRecords.length > 0 ? cleanRecords[0].timestamp : null,
         celebratedMilestones: parsed.celebratedMilestones || [],
+        frozenDateKeys: Array.isArray(parsed.frozenDateKeys) ? parsed.frozenDateKeys : [],
         settings: {
           ...DEFAULT_WATER_SETTINGS,
           ...(parsed.settings || {}),
@@ -135,10 +164,15 @@ export function loadWaterData(): WaterData {
         },
       };
 
+      const resolved = applyPendingAutoFreezes(data);
       if (hadMockData) {
-        saveWaterData(data);
+        saveWaterData(resolved);
+      } else if (resolved !== data) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(resolved));
+        } catch {}
       }
-      return data;
+      return resolved;
     }
   } catch (err) {
     console.error("Failed to load water data:", err);
@@ -151,9 +185,7 @@ export function loadWaterData(): WaterData {
 export function saveWaterData(data: WaterData): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("gili_water_changed", { detail: data }));
-    }
+    emitCrossWindowEvent("gili_water_changed", data);
   } catch (err) {
     console.error("Failed to save water data:", err);
   }
@@ -164,14 +196,12 @@ export function saveWaterData(data: WaterData): void {
  */
 export function getLogicalDateKey(timestamp: number, dayStartHour = 3): string {
   const d = new Date(timestamp);
-  // If hour is before dayStartHour, consider it part of the previous day
-  if (d.getHours() < dayStartHour) {
-    d.setDate(d.getDate() - 1);
-  }
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  // Anchor to local noon before shifting calendar day to avoid DST 02:xx duplicate keys.
+  const logical =
+    d.getHours() < dayStartHour
+      ? new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 12, 0, 0)
+      : new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
+  return formatLocalDateKey(logical);
 }
 
 export function logDrink(amountMl: number, isManual = false, timestamp?: number): {
@@ -191,13 +221,13 @@ export function logDrink(amountMl: number, isManual = false, timestamp?: number)
     isManual,
   };
 
-  const updatedRecords = [record, ...data.records];
+  const updatedRecords = sortRecordsDesc([record, ...data.records]);
   const celebrated = [...(data.celebratedMilestones || [])];
 
   const intermediateData: WaterData = {
     ...data,
     records: updatedRecords,
-    lastDrinkTimestamp: record.timestamp,
+    lastDrinkTimestamp: updatedRecords[0]?.timestamp ?? null,
     snoozedUntil: null,
     lastUndoneRecord: null,
   };
@@ -241,19 +271,43 @@ export function logDrink(amountMl: number, isManual = false, timestamp?: number)
   saveWaterData(finalData);
 
   if (celebration && typeof window !== "undefined") {
-    window.dispatchEvent(
-      new CustomEvent("gili_streak_celebration", { detail: celebration })
-    );
+    emitCrossWindowEvent("gili_streak_celebration", celebration);
   }
 
   return { record, celebration, streakIncreased, targetAchieved };
 }
 
-export function useStreakFreeze(): boolean {
+export function useStreakFreeze(targetDateKey?: string): boolean {
   const data = loadWaterData();
   if (data.settings.freezeCount <= 0) return false;
+
+  const dayStartHour = data.settings.dayStartHour;
+  const todayKey = getLogicalDateKey(Date.now(), dayStartHour);
+  const yesterdayKey = formatLocalDateKey(shiftLocalDateKey(todayKey, -1));
+  const frozenSet = new Set(data.frozenDateKeys || []);
+
+  let keyToFreeze = targetDateKey;
+  if (!keyToFreeze) {
+    const thresholdMl = Math.round(
+      data.settings.dailyTargetMl * (data.settings.streakThresholdPercent / 100)
+    );
+    const todayTotal = getDailyIntake(parseLocalDateKey(todayKey), data).totalMl;
+    const yesterdayTotal = getDailyIntake(parseLocalDateKey(yesterdayKey), data).totalMl;
+
+    if (todayTotal < thresholdMl && !frozenSet.has(todayKey)) {
+      keyToFreeze = todayKey;
+    } else if (yesterdayTotal < thresholdMl && !frozenSet.has(yesterdayKey)) {
+      keyToFreeze = yesterdayKey;
+    } else {
+      keyToFreeze = todayKey;
+    }
+  }
+
+  if (frozenSet.has(keyToFreeze)) return false;
+
   const updated: WaterData = {
     ...data,
+    frozenDateKeys: [...frozenSet, keyToFreeze],
     settings: {
       ...data.settings,
       freezeCount: data.settings.freezeCount - 1,
@@ -265,9 +319,7 @@ export function useStreakFreeze(): boolean {
 
 export function triggerWaterToast(type: WaterToastType, amount?: number): void {
   if (typeof window !== "undefined") {
-    window.dispatchEvent(
-      new CustomEvent("gili_trigger_water_toast", { detail: { type, amount } })
-    );
+    emitCrossWindowEvent("gili_trigger_water_toast", { type, amount });
   }
 }
 
@@ -275,12 +327,13 @@ export function undoLastDrink(): boolean {
   const data = loadWaterData();
   if (data.records.length === 0) return false;
 
-  const [last, ...rest] = data.records;
+  const sorted = sortRecordsDesc(data.records);
+  const [last, ...rest] = sorted;
   const updatedData: WaterData = {
     ...data,
     records: rest,
     lastUndoneRecord: last,
-    lastDrinkTimestamp: rest[0]?.timestamp || null,
+    lastDrinkTimestamp: rest[0]?.timestamp ?? null,
   };
   saveWaterData(updatedData);
   return true;
@@ -288,7 +341,7 @@ export function undoLastDrink(): boolean {
 
 export function deleteDrink(id: string): void {
   const data = loadWaterData();
-  const updated = data.records.filter((r) => r.id !== id);
+  const updated = sortRecordsDesc(data.records.filter((r) => r.id !== id));
   const nextLastTimestamp = updated.length > 0 ? updated[0].timestamp : null;
   saveWaterData({ ...data, records: updated, lastDrinkTimestamp: nextLastTimestamp });
 }
@@ -320,6 +373,7 @@ export function resetAllWaterData(): void {
     snoozedUntil: null,
     bestStreakDays: 0,
     celebratedMilestones: [],
+    frozenDateKeys: [],
     lastDrinkTimestamp: null,
     lastUndoneRecord: null,
   };
@@ -362,16 +416,22 @@ export function getDailyIntake(targetDate = new Date(), dataOverride?: WaterData
   };
 }
 
-/**
- * Calculates current consecutive streak and past 7 days history.
- */
-export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date()) {
-  const data = dataOverride || loadWaterData();
+function evaluateStreakChain(
+  data: WaterData,
+  refDate: Date = new Date()
+): {
+  todayKey: string;
+  todayAnchor: Date;
+  dateTotals: Record<string, number>;
+  thresholdMl: number;
+  effectiveFrozenDates: Set<string>;
+  autoFrozenKeys: string[];
+  currentStreak: number;
+  remainingFreezeCount: number;
+} {
   const dayStartHour = data.settings.dayStartHour;
-  const now = refDate;
-  const todayKey = getLogicalDateKey(now.getTime(), dayStartHour);
+  const todayKey = getLogicalDateKey(refDate.getTime(), dayStartHour);
 
-  // Group all records by logical date
   const dateTotals: Record<string, number> = {};
   for (const r of data.records) {
     const k = getLogicalDateKey(r.timestamp, dayStartHour);
@@ -382,42 +442,96 @@ export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date
     data.settings.dailyTargetMl * (data.settings.streakThresholdPercent / 100)
   );
 
-  // Calculate streak looking backwards
+  const todayAnchor = parseLocalDateKey(todayKey);
+  const frozenDates = new Set(data.frozenDateKeys || []);
+
   let currentStreak = 0;
-  let cursor = new Date(now);
+  const cursor = new Date(todayAnchor);
 
-  // Check today first: logging any drink today activates today's streak
   const todayTotal = dateTotals[todayKey] || 0;
-  const todayHasDrinks = todayTotal > 0;
-
-  if (todayHasDrinks) {
+  if (todayTotal >= thresholdMl) {
     currentStreak++;
   }
 
-  // Walk backwards day by day from yesterday
+  // Walk backwards day by day from yesterday (noon-anchored so DST never duplicates keys)
   cursor.setDate(cursor.getDate() - 1);
-  let availableFreezes = data.settings.freezeCount;
+  let availableFreezes = Math.max(0, data.settings.freezeCount);
+  const pendingFreezes: string[] = [];
+  const autoFrozenKeys: string[] = [];
 
   for (let i = 0; i < 365; i++) {
-    const key = getLogicalDateKey(cursor.getTime(), dayStartHour);
+    const key = formatLocalDateKey(cursor);
     const dayTotal = dateTotals[key] || 0;
 
     if (dayTotal >= thresholdMl) {
-      currentStreak++;
-    } else {
-      // Check if we can freeze
-      if (data.settings.autoUseFreeze && availableFreezes > 0) {
-        availableFreezes--;
-        // Freeze sustains the streak but doesn't increment days count
-      } else {
-        break;
+      if (pendingFreezes.length > 0) {
+        autoFrozenKeys.push(...pendingFreezes);
+        pendingFreezes.length = 0;
       }
+      currentStreak++;
+    } else if (frozenDates.has(key)) {
+      // Explicitly frozen date already consumed freezeCount when applied
+    } else if (data.settings.autoUseFreeze && availableFreezes > 0) {
+      availableFreezes--;
+      pendingFreezes.push(key);
+    } else {
+      break;
     }
     cursor.setDate(cursor.getDate() - 1);
   }
 
-  // Pure read: never mutate the caller's object or persist here. Best-streak is
-  // persisted at write points (logDrink) instead.
+  const effectiveFrozenDates = new Set(frozenDates);
+  for (const k of autoFrozenKeys) {
+    effectiveFrozenDates.add(k);
+  }
+
+  return {
+    todayKey,
+    todayAnchor,
+    dateTotals,
+    thresholdMl,
+    effectiveFrozenDates,
+    autoFrozenKeys,
+    currentStreak,
+    remainingFreezeCount: Math.max(0, data.settings.freezeCount - autoFrozenKeys.length),
+  };
+}
+
+function applyPendingAutoFreezes(data: WaterData, refDate: Date = new Date()): WaterData {
+  if (!data.settings.autoUseFreeze || data.settings.freezeCount <= 0) return data;
+  const { autoFrozenKeys, remainingFreezeCount } = evaluateStreakChain(data, refDate);
+  if (autoFrozenKeys.length === 0) return data;
+
+  const existing = new Set(data.frozenDateKeys || []);
+  for (const k of autoFrozenKeys) existing.add(k);
+
+  return {
+    ...data,
+    frozenDateKeys: Array.from(existing),
+    settings: {
+      ...data.settings,
+      freezeCount: remainingFreezeCount,
+    },
+  };
+}
+
+/**
+ * Calculates current consecutive streak and past 7 days history.
+ */
+export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date()) {
+  const data = dataOverride || loadWaterData();
+  const {
+    todayKey,
+    todayAnchor,
+    dateTotals,
+    thresholdMl,
+    effectiveFrozenDates,
+    currentStreak,
+    remainingFreezeCount,
+  } = evaluateStreakChain(data, refDate);
+
+  // Pure read: never mutate the caller's object or persist here. Best-streak and
+  // pending auto-freezes are persisted on load / write points instead.
   const bestStreak = Math.max(data.bestStreakDays, currentStreak);
 
   // Generate 7-day display list:
@@ -429,17 +543,18 @@ export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date
   if (currentStreak > 0) {
     // Follow the start of the active streak cycle
     const streakOffset = Math.min(6, currentStreak - 1);
-    const startDate = new Date(now);
-    startDate.setDate(startDate.getDate() - streakOffset);
+    const startDate = shiftLocalDateKey(todayKey, -streakOffset);
 
     for (let i = 0; i < 7; i++) {
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
-      const k = getLogicalDateKey(d.getTime(), dayStartHour);
+      const k = formatLocalDateKey(d);
       const amount = dateTotals[k] || 0;
       const percent = Math.min(100, Math.round((amount / data.settings.dailyTargetMl) * 100));
       const isToday = k === todayKey;
-      const achieved = i <= streakOffset && (amount >= thresholdMl || (isToday && amount > 0));
+      const achieved =
+        i <= streakOffset &&
+        (amount >= thresholdMl || effectiveFrozenDates.has(k));
 
       sevenDayHistory.push({
         dateKey: k,
@@ -453,19 +568,19 @@ export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date
     }
   } else {
     // Streak not started: follow standard Windows system week starting on Senin (Monday)
-    const dayOfWeek = now.getDay(); // 0: Min, 1: Sen, 2: Sel, ...
+    const dayOfWeek = todayAnchor.getDay(); // 0: Min, 1: Sen, 2: Sel, ...
     const diffToMonday = (dayOfWeek + 6) % 7;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - diffToMonday);
+    const monday = new Date(todayAnchor);
+    monday.setDate(todayAnchor.getDate() - diffToMonday);
 
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
       d.setDate(d.getDate() + i);
-      const k = getLogicalDateKey(d.getTime(), dayStartHour);
+      const k = formatLocalDateKey(d);
       const amount = dateTotals[k] || 0;
       const percent = Math.min(100, Math.round((amount / data.settings.dailyTargetMl) * 100));
       const isToday = k === todayKey;
-      const achieved = amount >= thresholdMl || (isToday && amount > 0);
+      const achieved = amount >= thresholdMl || effectiveFrozenDates.has(k);
 
       sevenDayHistory.push({
         dateKey: k,
@@ -486,7 +601,7 @@ export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date
   return {
     currentStreak,
     bestStreak,
-    freezeCount: data.settings.freezeCount,
+    freezeCount: remainingFreezeCount,
     daysToNextMilestone,
     nextMilestoneTarget,
     nextCheckpoint,
@@ -537,10 +652,8 @@ export function getTwoHourDistribution(targetDate = new Date(), dataOverride?: W
 export function getWeeklyHistory(weekOffset = 0, dataOverride?: WaterData) {
   const data = dataOverride || loadWaterData();
   const dayStartHour = data.settings.dayStartHour;
-  const now = new Date();
-  now.setDate(now.getDate() + weekOffset * 7);
-
-  const todayKey = getLogicalDateKey(new Date().getTime(), dayStartHour);
+  const todayKey = getLogicalDateKey(Date.now(), dayStartHour);
+  const now = shiftLocalDateKey(todayKey, weekOffset * 7);
   const targetL = data.settings.dailyTargetMl / 1000;
   const streakThresholdL =
     (data.settings.dailyTargetMl * (data.settings.streakThresholdPercent / 100)) / 1000;
@@ -607,7 +720,7 @@ export function getWeeklyHistory(weekOffset = 0, dataOverride?: WaterData) {
   const startDay = days[0];
   const endDay = days[days.length - 1];
   const dateRangeStr = `${startDay.dateNum}-${endDay.dateNum} ${
-    monthNames[new Date(endDay.dateKey).getMonth()]
+    monthNames[parseLocalDateKey(endDay.dateKey).getMonth()]
   }`;
 
   const dailyAverageL = Number((totalWeekMl / 7 / 1000).toFixed(1));
@@ -730,6 +843,32 @@ export function getMonthlyHistory(
   };
 }
 
+export function isHourInActiveWindow(
+  hour: number,
+  startHour: number,
+  endHour: number
+): boolean {
+  if (startHour === endHour) return true;
+  if (startHour < endHour) {
+    return hour >= startHour && hour < endHour;
+  }
+  // Overnight window (e.g. 20:00 -> 04:00)
+  return hour >= startHour || hour < endHour;
+}
+
+export function isNearEndOfActiveWindow(
+  hour: number,
+  startHour: number,
+  endHour: number,
+  lookbackHours = 3
+): boolean {
+  if (startHour === endHour || !isHourInActiveWindow(hour, startHour, endHour)) {
+    return false;
+  }
+  const hoursUntilEnd = (endHour - hour + 24) % 24;
+  return hoursUntilEnd >= 1 && hoursUntilEnd <= lookbackHours;
+}
+
 /**
  * Formats next reminder time string like "15:30".
  */
@@ -743,15 +882,13 @@ export function getNextReminderTimeString(dataOverride?: WaterData): string {
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   }
 
+  const { activeStartHour, activeEndHour } = data.settings;
   const intervalMs = data.settings.reminderIntervalHours * 60 * 60 * 1000;
   let next: Date;
 
   if (!data.lastDrinkTimestamp) {
-    if (now.getHours() < data.settings.activeStartHour) {
-      return `${String(data.settings.activeStartHour).padStart(2, "0")}:00`;
-    }
-    if (now.getHours() >= data.settings.activeEndHour) {
-      return `${String(data.settings.activeStartHour).padStart(2, "0")}:00`;
+    if (!isHourInActiveWindow(now.getHours(), activeStartHour, activeEndHour)) {
+      return `${String(activeStartHour).padStart(2, "0")}:00`;
     }
     next = new Date(now.getTime() + intervalMs);
   } else {
@@ -761,12 +898,14 @@ export function getNextReminderTimeString(dataOverride?: WaterData): string {
     }
   }
 
-  // Clamp within active hours
-  if (next.getHours() < data.settings.activeStartHour) {
-    next.setHours(data.settings.activeStartHour, 0, 0, 0);
-  } else if (next.getHours() >= data.settings.activeEndHour) {
-    next.setDate(next.getDate() + 1);
-    next.setHours(data.settings.activeStartHour, 0, 0, 0);
+  // Clamp within active hours (supporting both same-day and overnight windows)
+  if (!isHourInActiveWindow(next.getHours(), activeStartHour, activeEndHour)) {
+    const clamped = new Date(next);
+    clamped.setHours(activeStartHour, 0, 0, 0);
+    if (clamped.getTime() < next.getTime()) {
+      clamped.setDate(clamped.getDate() + 1);
+    }
+    next = clamped;
   }
 
   return `${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}`;

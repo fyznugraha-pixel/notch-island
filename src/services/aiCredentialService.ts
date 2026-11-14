@@ -5,23 +5,40 @@ import type { AiProviderId } from "../components/ui/aichat/AiChatTypes";
 const LEGACY_KEYS_STORAGE = "island_ai_api_keys_v1";
 const LEGACY_MODEL_KEYS_STORAGE = "island_ai_model_keys_v1";
 const LEGACY_DRAFT_PREFIX = "island_ai_draft_key_";
+const LEGACY_SEC_FALLBACK_PREFIX = "_sec_k_";
+const AI_PROVIDERS: AiProviderId[] = [
+  "claude",
+  "openai",
+  "gemini",
+  "openrouter",
+  "deepseek",
+  "grok",
+  "custom",
+];
 
-// Memory cache for runtime performance (keys never logged or exposed to DOM)
+// Memory caches keep keys fast synchronously without keeping plaintext copies on disk.
 const credentialCache = new Map<string, string>();
+const modelKeyCache = new Map<string, string>();
+const dirtyProviders = new Set<string>();
+const dirtyModels = new Set<string>();
 
-/**
- * Saves an API key securely into Windows Credential Manager via native Rust backend.
- * Zero plaintext storage on disk.
- */
+let initPromise: Promise<void> | null = null;
+
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && Boolean((window as unknown as Record<string, unknown>).__TAURI_INTERNALS__);
+}
+
 export async function saveSecureApiKey(provider: AiProviderId, key: string): Promise<void> {
   const clean = key.trim();
-  credentialCache.set(provider, clean);
+  dirtyProviders.add(provider);
 
   if (!clean) {
-    localStorage.removeItem(`_sec_k_${provider}`);
+    credentialCache.delete(provider);
   } else {
-    localStorage.setItem(`_sec_k_${provider}`, clean);
+    credentialCache.set(provider, clean);
   }
+
+  localStorage.removeItem(`${LEGACY_SEC_FALLBACK_PREFIX}${provider}`);
 
   try {
     await invoke("save_secure_ai_key", { provider, key: clean });
@@ -29,80 +46,121 @@ export async function saveSecureApiKey(provider: AiProviderId, key: string): Pro
     console.warn("Native credential save error:", err);
   }
 
-  // Ensure any legacy plaintext copies in settings.json or localStorage are wiped
   cleanLegacyKeyStorage(provider);
 }
 
-/**
- * Retrieves an API key securely from Windows Credential Manager.
- */
 export async function getSecureApiKey(provider: AiProviderId): Promise<string> {
-  if (credentialCache.has(provider)) {
-    const cached = credentialCache.get(provider) || "";
-    if (cached) return cached;
-  }
+  const cached = credentialCache.get(provider);
+  if (cached) return cached;
 
   try {
     const key = await invoke<string>("get_secure_ai_key", { provider });
     const clean = (key || "").trim();
-    if (clean) {
+    if (clean && !dirtyProviders.has(provider)) {
       credentialCache.set(provider, clean);
-      localStorage.setItem(`_sec_k_${provider}`, clean);
       return clean;
     }
-  } catch (err) {
-    // fallback below
+    if (clean) return clean;
+  } catch {
+    // Tauri backend unavailable outside desktop shell
   }
 
-  const fallback = (localStorage.getItem(`_sec_k_${provider}`) || "").trim();
-  if (fallback) {
-    credentialCache.set(provider, fallback);
-    return fallback;
-  }
   return "";
 }
 
-/**
- * Synchronous read from runtime memory cache.
- */
 export function getEffectiveApiKeySync(provider: AiProviderId): string {
-  return credentialCache.get(provider) || localStorage.getItem(`_sec_k_${provider}`) || "";
+  return credentialCache.get(provider) || "";
 }
 
-/**
- * Initializes secure credentials: runs auto-migration of any leftover plaintext keys,
- * then pre-warms the memory cache from Windows Credential Manager.
- */
-export async function initCredentials(): Promise<void> {
-  await migrateLegacyPlaintextKeys();
-  const providers: AiProviderId[] = ["claude", "openai", "gemini", "openrouter", "deepseek", "grok", "custom"];
-  for (const prov of providers) {
-    const key = await getSecureApiKey(prov);
-    if (key) {
-      credentialCache.set(prov, key);
-      localStorage.setItem(`_sec_k_${prov}`, key);
-    }
+export async function saveSecureModelKey(modelId: string, key: string): Promise<void> {
+  const cleanId = modelId.trim();
+  if (!cleanId) return;
+  const clean = key.trim();
+  dirtyModels.add(cleanId);
+
+  if (!clean) {
+    modelKeyCache.delete(cleanId);
+  } else {
+    modelKeyCache.set(cleanId, clean);
+  }
+
+  try {
+    await invoke("save_secure_ai_model_key", { modelId: cleanId, key: clean });
+  } catch (err) {
+    console.warn("Native model credential save error:", err);
   }
 }
 
-/**
- * Permanently deletes an API key from Windows Credential Manager.
- */
+export async function deleteSecureModelKey(modelId: string): Promise<void> {
+  const cleanId = modelId.trim();
+  if (!cleanId) return;
+  dirtyModels.add(cleanId);
+  modelKeyCache.delete(cleanId);
+
+  try {
+    await invoke("delete_secure_ai_model_key", { modelId: cleanId });
+  } catch {}
+}
+
+export function getSecureModelKeySync(modelId: string): string {
+  return modelKeyCache.get(modelId.trim()) || "";
+}
+
+export function getAllSecureModelKeysSync(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [modelId, key] of modelKeyCache.entries()) {
+    if (key) out[modelId] = key;
+  }
+  return out;
+}
+
+export function initCredentials(): Promise<void> {
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    await migrateLegacyPlaintextKeys();
+
+    for (const prov of AI_PROVIDERS) {
+      if (dirtyProviders.has(prov)) continue;
+      const key = await getSecureApiKey(prov);
+      if (key && !dirtyProviders.has(prov)) {
+        credentialCache.set(prov, key);
+      }
+    }
+
+    try {
+      const modelKeys = await invoke<Record<string, string>>("get_all_secure_ai_model_keys");
+      if (modelKeys && typeof modelKeys === "object") {
+        for (const [modelId, rawKey] of Object.entries(modelKeys)) {
+          const clean = (rawKey || "").trim();
+          if (clean && !dirtyModels.has(modelId)) {
+            modelKeyCache.set(modelId, clean);
+          }
+        }
+      }
+    } catch {
+      // Non-Tauri environment
+    }
+  })().catch((err) => {
+    initPromise = null;
+    throw err;
+  });
+
+  return initPromise;
+}
+
 export async function deleteSecureApiKey(provider: AiProviderId): Promise<void> {
+  dirtyProviders.add(provider);
   credentialCache.delete(provider);
   try {
     await invoke("delete_secure_ai_key", { provider });
   } catch {}
-  localStorage.removeItem(`_sec_k_${provider}`);
+  localStorage.removeItem(`${LEGACY_SEC_FALLBACK_PREFIX}${provider}`);
   cleanLegacyKeyStorage(provider);
 }
 
-/**
- * Clean legacy plaintext key references
- */
 function cleanLegacyKeyStorage(provider: AiProviderId): void {
   try {
-    // 1. Remove from localStorage
     const raw = localStorage.getItem(LEGACY_KEYS_STORAGE);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -113,11 +171,10 @@ function cleanLegacyKeyStorage(provider: AiProviderId): void {
     }
     localStorage.removeItem(`${LEGACY_DRAFT_PREFIX}${provider}`);
 
-    // 2. Remove from settings.json
     load("settings.json", { autoSave: true })
       .then(async (s) => {
-        const raw = await s.get("ai_provider_keys");
-        const stored = (raw || {}) as Record<string, string>;
+        const storedRaw = await s.get("ai_provider_keys");
+        const stored = (storedRaw || {}) as Record<string, string>;
         if (stored[provider]) {
           delete stored[provider];
           await s.set("ai_provider_keys", stored);
@@ -128,20 +185,29 @@ function cleanLegacyKeyStorage(provider: AiProviderId): void {
   } catch {}
 }
 
-/**
- * Migrates legacy plaintext keys from localStorage & settings.json to Windows Credential Manager,
- * then wipes the plaintext copies completely.
- */
+function sweepPlaintextSecFallbacks(): void {
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(LEGACY_SEC_FALLBACK_PREFIX)) {
+      keysToRemove.push(k);
+    }
+  }
+  for (const k of keysToRemove) {
+    localStorage.removeItem(k);
+  }
+}
+
 export async function migrateLegacyPlaintextKeys(): Promise<number> {
   let migratedCount = 0;
-  const providers: AiProviderId[] = ["claude", "openai", "gemini", "openrouter", "deepseek", "grok", "custom"];
+  const nativeReady = isTauriRuntime();
 
   try {
-    const raw = localStorage.getItem(LEGACY_KEYS_STORAGE);
-    if (raw) {
-      const parsed = JSON.parse(raw);
+    const rawProviders = localStorage.getItem(LEGACY_KEYS_STORAGE);
+    if (rawProviders) {
+      const parsed = JSON.parse(rawProviders);
       if (parsed && typeof parsed === "object") {
-        for (const prov of providers) {
+        for (const prov of AI_PROVIDERS) {
           const legacyKey = parsed[prov];
           if (typeof legacyKey === "string" && legacyKey.trim()) {
             await saveSecureApiKey(prov, legacyKey.trim());
@@ -149,19 +215,77 @@ export async function migrateLegacyPlaintextKeys(): Promise<number> {
           }
         }
       }
-      localStorage.removeItem(LEGACY_KEYS_STORAGE);
+      if (nativeReady) {
+        localStorage.removeItem(LEGACY_KEYS_STORAGE);
+      }
     }
 
-    // Clean model keys
-    localStorage.removeItem(LEGACY_MODEL_KEYS_STORAGE);
+    // Migrate old _sec_k_<provider> entries into Credential Manager before removing them.
+    for (const prov of AI_PROVIDERS) {
+      const fallbackKey = (localStorage.getItem(`${LEGACY_SEC_FALLBACK_PREFIX}${prov}`) || "").trim();
+      if (fallbackKey) {
+        const existingNative = nativeReady
+          ? await invoke<string>("get_secure_ai_key", { provider: prov }).catch(() => "")
+          : "";
+        if (!existingNative.trim() && !dirtyProviders.has(prov)) {
+          await saveSecureApiKey(prov, fallbackKey);
+          migratedCount++;
+        } else if (!dirtyProviders.has(prov)) {
+          credentialCache.set(prov, existingNative.trim() || fallbackKey);
+        }
+      }
+    }
+    if (nativeReady) {
+      sweepPlaintextSecFallbacks();
+    }
 
-    // Clean settings.json
-    try {
-      const s = await load("settings.json", { autoSave: true });
-      s.delete("ai_provider_keys");
-      s.delete("ai_model_keys");
-      await s.save();
-    } catch {}
+    // Migrate per-model keys BEFORE removing LEGACY_MODEL_KEYS_STORAGE.
+    const rawModels = localStorage.getItem(LEGACY_MODEL_KEYS_STORAGE);
+    if (rawModels) {
+      const parsedModels = JSON.parse(rawModels);
+      if (parsedModels && typeof parsedModels === "object") {
+        for (const [modelId, rawKey] of Object.entries(parsedModels)) {
+          if (typeof rawKey === "string" && rawKey.trim() && !dirtyModels.has(modelId)) {
+            await saveSecureModelKey(modelId, rawKey.trim());
+            migratedCount++;
+          }
+        }
+      }
+      if (nativeReady) {
+        localStorage.removeItem(LEGACY_MODEL_KEYS_STORAGE);
+      }
+    }
+
+    if (nativeReady) {
+      try {
+        const s = await load("settings.json", { autoSave: true });
+        const storedProviderKeys = await s.get<Record<string, string>>("ai_provider_keys");
+        if (storedProviderKeys && typeof storedProviderKeys === "object") {
+          for (const prov of AI_PROVIDERS) {
+            const legacyKey = storedProviderKeys[prov];
+            if (typeof legacyKey === "string" && legacyKey.trim()) {
+              const existingNative = await invoke<string>("get_secure_ai_key", { provider: prov }).catch(() => "");
+              if (!existingNative.trim() && !dirtyProviders.has(prov)) {
+                await saveSecureApiKey(prov, legacyKey.trim());
+                migratedCount++;
+              }
+            }
+          }
+        }
+        const storedModelKeys = await s.get<Record<string, string>>("ai_model_keys");
+        if (storedModelKeys && typeof storedModelKeys === "object") {
+          for (const [modelId, legacyKey] of Object.entries(storedModelKeys)) {
+            if (typeof legacyKey === "string" && legacyKey.trim() && !dirtyModels.has(modelId)) {
+              await saveSecureModelKey(modelId, legacyKey.trim());
+              migratedCount++;
+            }
+          }
+        }
+        s.delete("ai_provider_keys");
+        s.delete("ai_model_keys");
+        await s.save();
+      } catch {}
+    }
   } catch (err) {
     console.warn("Error during key migration:", err);
   }
@@ -169,9 +293,6 @@ export async function migrateLegacyPlaintextKeys(): Promise<number> {
   return migratedCount;
 }
 
-/**
- * Masks the API key for safe UI rendering. Never exposes full key string.
- */
 export function maskApiKey(key: string): string {
   const clean = key.trim();
   if (!clean) return "";

@@ -1,11 +1,18 @@
 import { LyricsProvider, LyricsData } from "./types";
-import { cleanTitle, cleanArtist, parseLrc, hasActualLyrics, pickMatchingCandidate } from "./utils";
-import { fetchJson, rethrowIfFetchError } from "./lyricsHttp";
+import { cleanTitle, cleanArtist, parseLrc, hasActualLyrics, isDummyLyricLine, pickMatchingCandidate } from "./utils";
+import { fetchJson, rethrowIfFetchError, throwIfAborted } from "./lyricsHttp";
+import { parseYrcLines } from "./wordTiming";
 
 export const neteaseProvider: LyricsProvider = {
   id: "netease",
   name: "NetEase",
-  async fetchLyrics(artist: string, title: string, duration?: number): Promise<LyricsData | null> {
+  async fetchLyrics(
+    artist: string,
+    title: string,
+    duration?: number,
+    signal?: AbortSignal
+  ): Promise<LyricsData | null> {
+    throwIfAborted(signal);
     const cleanedArtist = cleanArtist(artist);
     const cleanedTitle = cleanTitle(title) || title;
     const query = `${cleanedTitle} ${cleanedArtist}`.trim();
@@ -15,20 +22,14 @@ export const neteaseProvider: LyricsProvider = {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
       Referer: "https://music.163.com/",
-      Cookie:
-        "NMTID=00OAVK3xqDG726ITU6jopU6jF2yMk0AAAGCO8l1BA; JSESSIONID-WYYY=8KQo11YK2GZP45RMlz8Kn80vHZ9%2FGvwzRKQXXy0iQoFKycWdBlQjbfT0MJrFa6hwRfmpf",
-      "Content-Type": "application/x-www-form-urlencoded",
     };
 
     try {
-      const searchUrl = "https://music.163.com/api/search/pc";
-      const body = `s=${encodeURIComponent(query)}&type=1&offset=0&limit=5`;
+      const searchUrl = `https://music.163.com/api/cloudsearch/pc?s=${encodeURIComponent(
+        query
+      )}&type=1&offset=0&limit=5`;
 
-      const searchData = await fetchJson(searchUrl, {
-        method: "POST",
-        headers,
-        body,
-      });
+      const searchData = await fetchJson(searchUrl, { headers, signal });
 
       const songs = searchData?.result?.songs;
       if (!Array.isArray(songs) || songs.length === 0) return null;
@@ -38,13 +39,30 @@ export const neteaseProvider: LyricsProvider = {
         cleanedTitle,
         duration,
         (s: any) => s.name,
-        (s: any) => (Number(s.duration) ? Number(s.duration) / 1000 : undefined)
+        (s: any) => {
+          const ms = Number(s.dt ?? s.duration);
+          return ms > 0 ? ms / 1000 : undefined;
+        }
       );
       const songId = matched?.id;
       if (!songId) return null;
 
-      const lyricUrl = `https://music.163.com/api/song/lyric?id=${songId}&lv=-1&tv=-1`;
-      const lyricData = await fetchJson(lyricUrl, { headers });
+      const lyricUrl = `https://music.163.com/api/song/lyric?id=${songId}&lv=-1&tv=-1&yv=-1`;
+      const lyricData = await fetchJson(lyricUrl, { headers, signal });
+
+      const rawYrc = lyricData?.yrc?.lyric;
+      if (typeof rawYrc === "string" && rawYrc.trim()) {
+        const yrcLines = parseYrcLines(rawYrc, isDummyLyricLine);
+        if (hasActualLyrics(yrcLines)) {
+          return {
+            synced: true,
+            lines: yrcLines,
+            plainLyrics: yrcLines.map((l) => l.text).join("\n"),
+            provider: "netease",
+            providerName: "NetEase",
+          };
+        }
+      }
 
       const rawLrc = lyricData?.lrc?.lyric;
       if (!rawLrc || typeof rawLrc !== "string") return null;

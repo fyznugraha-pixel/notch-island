@@ -2,9 +2,15 @@ import { streamAiRequest } from "./aiHttp";
 import {
   saveSecureApiKey,
   getEffectiveApiKeySync,
+  saveSecureModelKey,
+  deleteSecureModelKey,
+  getSecureModelKeySync,
+  getAllSecureModelKeysSync,
   maskApiKey as maskKeySecure,
 } from "./aiCredentialService";
 import {
+  loadRouterConfig,
+  saveRouterConfig,
   getLengthSystemInstruction,
   getSafetyMaxTokens,
   calculateEstimatedCostIdr,
@@ -214,11 +220,21 @@ export function loadSavedApiKeys(): Record<AiProviderId, string> {
 }
 
 export function loadSavedModelKeys(): Record<string, string> {
+  const secureKeys = getAllSecureModelKeysSync();
   try {
     const raw = localStorage.getItem(MODEL_KEYS_STORAGE);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const legacy = JSON.parse(raw);
+      if (legacy && typeof legacy === "object") {
+        for (const [k, v] of Object.entries(legacy)) {
+          if (!secureKeys[k] && typeof v === "string" && v.trim()) {
+            secureKeys[k] = v.trim();
+          }
+        }
+      }
+    }
   } catch {}
-  return {};
+  return secureKeys;
 }
 
 export function saveApiKey(provider: AiProviderId, key: string): void {
@@ -226,25 +242,27 @@ export function saveApiKey(provider: AiProviderId, key: string): void {
 }
 
 export function saveModelKey(modelId: string, key: string): void {
-  const modelKeys = loadSavedModelKeys();
   const clean = key.trim();
   if (!clean) {
-    delete modelKeys[modelId];
+    deleteSecureModelKey(modelId);
   } else {
-    modelKeys[modelId] = clean;
+    saveSecureModelKey(modelId, clean);
   }
-  localStorage.setItem(MODEL_KEYS_STORAGE, JSON.stringify(modelKeys));
 }
 
 export function removeModelKey(modelId: string): void {
-  saveModelKey(modelId, "");
+  deleteSecureModelKey(modelId);
 }
 
 export function getEffectiveApiKey(provider: AiProviderId, modelId?: string): string {
   if (modelId) {
+    const secureModelKey = getSecureModelKeySync(modelId);
+    if (secureModelKey.trim()) {
+      return secureModelKey.trim();
+    }
     const modelKeys = loadSavedModelKeys();
-    if (modelKeys[modelId]) {
-      return modelKeys[modelId];
+    if (modelKeys[modelId]?.trim()) {
+      return modelKeys[modelId].trim();
     }
   }
   const secureKey = getEffectiveApiKeySync(provider);
@@ -424,6 +442,60 @@ function normalizeSevenDayHistory(
   return normalized;
 }
 
+function getLocalMonthStr(date: Date = new Date()): string {
+  return getLocalDateStr(date).slice(0, 7);
+}
+
+function normalizeThirtyDayTotals(
+  existingTotals: unknown,
+  sevenDayHistory: AiTokenDailyUsage[],
+  legacyThirtyDaysTokens?: number
+): Record<string, number> {
+  const now = new Date();
+  const validDates = new Set<string>();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    validDates.add(getLocalDateStr(d));
+  }
+
+  const normalized: Record<string, number> = {};
+  const hasStoredMap =
+    Boolean(existingTotals) && typeof existingTotals === "object" && !Array.isArray(existingTotals);
+
+  if (hasStoredMap) {
+    for (const [dateKey, rawVal] of Object.entries(existingTotals as Record<string, unknown>)) {
+      if (validDates.has(dateKey)) {
+        const safeVal = Math.max(0, Math.round(Number(rawVal) || 0));
+        if (safeVal > 0) normalized[dateKey] = safeVal;
+      }
+    }
+  }
+
+  for (const day of sevenDayHistory) {
+    if (validDates.has(day.date)) {
+      const merged = Math.max(normalized[day.date] || 0, Math.max(0, Math.round(day.totalTokens || 0)));
+      if (merged > 0) normalized[day.date] = merged;
+    }
+  }
+
+  // On upgrade from pre-window stats, bucket earlier 30d remainder 8 days back so it rolls off cleanly.
+  if (!hasStoredMap && typeof legacyThirtyDaysTokens === "number" && legacyThirtyDaysTokens > 0) {
+    const sevenSum = Object.values(normalized).reduce((acc, v) => acc + v, 0);
+    const remainder = Math.max(0, Math.round(legacyThirtyDaysTokens) - sevenSum);
+    if (remainder > 0) {
+      const d8 = new Date(now);
+      d8.setDate(d8.getDate() - 8);
+      const d8Str = getLocalDateStr(d8);
+      if (validDates.has(d8Str)) {
+        normalized[d8Str] = (normalized[d8Str] || 0) + remainder;
+      }
+    }
+  }
+
+  return normalized;
+}
+
 export function createEmptyUsageStats(): AiUsageStats {
   const history = normalizeSevenDayHistory();
 
@@ -437,6 +509,8 @@ export function createEmptyUsageStats(): AiUsageStats {
     modelBreakdown: {},
     estimatedCostIdr: 0,
     monthlyLimitIdr: 0, // 0 = Tanpa Batas (Default)
+    costMonth: getLocalMonthStr(),
+    thirtyDayDailyTotals: {},
   };
 }
 
@@ -445,12 +519,12 @@ export function loadUsageStats(): AiUsageStats {
     const raw = localStorage.getItem(USAGE_STORAGE);
     if (raw) {
       const parsed = JSON.parse(raw);
-      // Purge stale dummy test data if detected
+      // Purge exact legacy hardcoded dummy test snapshot if detected (avoid false positives on single-day totals)
       const isLegacyDummy =
-        parsed.sevenDaysTokens === 18450 ||
-        parsed.thirtyDaysTokens === 48320 ||
-        (Array.isArray(parsed.dailyHistory) &&
-          parsed.dailyHistory.some((h: any) => h.totalTokens === 2240));
+        parsed.sevenDaysTokens === 18450 &&
+        parsed.thirtyDaysTokens === 48320 &&
+        !parsed.thirtyDayDailyTotals &&
+        !parsed.costMonth;
 
       if (isLegacyDummy) {
         const fresh = createEmptyUsageStats();
@@ -469,10 +543,33 @@ export function loadUsageStats(): AiUsageStats {
       const todayEntry = normalizedHistory[normalizedHistory.length - 1];
       const sevenDaysSum = normalizedHistory.reduce((acc, d) => acc + d.totalTokens, 0);
 
+      const normalizedThirtyDayTotals = normalizeThirtyDayTotals(
+        parsed.thirtyDayDailyTotals,
+        normalizedHistory,
+        Number(parsed.thirtyDaysTokens) || 0
+      );
+      const thirtyDaysSum = Object.values(normalizedThirtyDayTotals).reduce((acc, v) => acc + v, 0);
+
+      const currentMonth = getLocalMonthStr();
+      let rolledOver = !parsed.thirtyDayDailyTotals;
+      if (parsed.costMonth && parsed.costMonth !== currentMonth) {
+        parsed.estimatedCostIdr = 0;
+        rolledOver = true;
+      }
+
       parsed.dailyHistory = normalizedHistory;
       parsed.todayTokens = todayEntry ? todayEntry.totalTokens : 0;
       parsed.sevenDaysTokens = sevenDaysSum;
-      parsed.thirtyDaysTokens = Math.max(sevenDaysSum, Number(parsed.thirtyDaysTokens) || 0);
+      parsed.thirtyDaysTokens = Math.max(sevenDaysSum, thirtyDaysSum);
+      parsed.thirtyDayDailyTotals = normalizedThirtyDayTotals;
+      if (parsed.costMonth !== currentMonth) {
+        parsed.costMonth = currentMonth;
+        rolledOver = true;
+      }
+
+      if (rolledOver) {
+        localStorage.setItem(USAGE_STORAGE, JSON.stringify(parsed));
+      }
 
       return parsed;
     }
@@ -486,6 +583,18 @@ export function saveMonthlyLimit(limitIdr: number): AiUsageStats {
   stats.monthlyLimitIdr = Math.max(0, Math.round(limitIdr));
   localStorage.setItem("island_ai_limit_customized_v1", "true");
   localStorage.setItem(USAGE_STORAGE, JSON.stringify(stats));
+
+  const routerCfg = loadRouterConfig();
+  if (routerCfg.budget.monthlyLimitIdr !== stats.monthlyLimitIdr) {
+    saveRouterConfig({
+      ...routerCfg,
+      budget: {
+        ...routerCfg.budget,
+        monthlyLimitIdr: stats.monthlyLimitIdr,
+      },
+    });
+  }
+
   return stats;
 }
 
@@ -504,12 +613,17 @@ export function recordTokenUsage(model: AiModelConfig, inputTokens: number, outp
   const stats = loadUsageStats();
   stats.totalInputTokens = (stats.totalInputTokens || 0) + safeIn;
   stats.totalOutputTokens = (stats.totalOutputTokens || 0) + safeOut;
-  stats.thirtyDaysTokens = (stats.thirtyDaysTokens || 0) + total;
+
+  const currentMonth = getLocalMonthStr();
+  if (stats.costMonth !== currentMonth) {
+    stats.estimatedCostIdr = 0;
+    stats.costMonth = currentMonth;
+  }
 
   const costIdr = calculateEstimatedCostIdr(model, safeIn, safeOut);
   stats.estimatedCostIdr = Math.round(((stats.estimatedCostIdr || 0) + costIdr) * 10000) / 10000;
 
-  const modelKey = model.name;
+  const modelKey = model.id || model.name;
   stats.modelBreakdown[modelKey] = (stats.modelBreakdown[modelKey] || 0) + total;
 
   const todayStr = getLocalDateStr();
@@ -521,9 +635,19 @@ export function recordTokenUsage(model: AiModelConfig, inputTokens: number, outp
     existingDay.totalTokens += total;
   }
 
+  const updatedTotals = normalizeThirtyDayTotals(stats.thirtyDayDailyTotals, stats.dailyHistory);
+  updatedTotals[todayStr] = Math.max(
+    (stats.thirtyDayDailyTotals?.[todayStr] || 0) + total,
+    existingDay ? existingDay.totalTokens : total
+  );
+  stats.thirtyDayDailyTotals = updatedTotals;
+
   stats.todayTokens = existingDay ? existingDay.totalTokens : total;
   stats.sevenDaysTokens = stats.dailyHistory.reduce((acc, d) => acc + d.totalTokens, 0);
-  stats.thirtyDaysTokens = Math.max(stats.thirtyDaysTokens, stats.sevenDaysTokens);
+  stats.thirtyDaysTokens = Math.max(
+    stats.sevenDaysTokens,
+    Object.values(updatedTotals).reduce((acc, v) => acc + v, 0)
+  );
 
   localStorage.setItem(USAGE_STORAGE, JSON.stringify(stats));
 }
@@ -643,6 +767,11 @@ function formatWindowContextPrompt(previewText: string, windowTitle: string, use
   return `[Konteks Jendela/Layar yang Sedang Dibuka Pengguna]:\nBerikut adalah teks dan isi yang terbaca langsung dari jendela "${windowTitle}":\n"""\n${previewText}\n"""\n\nInstruksi Pengguna: ${userInstruction}`;
 }
 
+function extractSseData(line: string): string | null {
+  if (!line.startsWith("data:")) return null;
+  return line.slice(5).trim();
+}
+
 export async function streamChatCompletion({
   provider,
   apiKey,
@@ -704,42 +833,65 @@ ${notchInstruction}`;
     };
 
     const isEn = getLanguage() === "en";
-    const claudeMessages = windowedMessages
-      .filter((m) => m.role !== "system")
-      .map((m) => {
-        let text = m.content;
-        if (m.context?.previewText) {
-          text = formatWindowContextPrompt(
-            m.context.previewText,
-            m.context.title || m.context.type,
-            text
-          );
-        }
+    type ClaudeBlock =
+      | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+      | { type: "text"; text: string };
+    const claudeMessages: Array<{ role: "user" | "assistant"; content: string | ClaudeBlock[] }> = [];
 
-        if (m.role === "user" && m.context?.imageDataUrl) {
-          const match = m.context.imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
-            return {
-              role: "user",
-              content: [
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: match[1],
-                    data: match[2],
-                  },
-                },
-                {
-                  type: "text",
-                  text: text || (isEn ? "Explain this image." : "Jelaskan gambar ini."),
-                },
-              ],
-            };
-          }
+    for (const m of windowedMessages) {
+      if (m.role === "system") continue;
+      const role: "user" | "assistant" = m.role === "assistant" ? "assistant" : "user";
+      let text = m.content;
+      if (m.context?.previewText) {
+        text = formatWindowContextPrompt(
+          m.context.previewText,
+          m.context.title || m.context.type,
+          text
+        );
+      }
+
+      let nextContent: string | ClaudeBlock[] | null = null;
+      if (role === "user" && m.context?.imageDataUrl) {
+        const match = m.context.imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          nextContent = [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: match[1],
+                data: match[2],
+              },
+            },
+            {
+              type: "text",
+              text: text || (isEn ? "Explain this image." : "Jelaskan gambar ini."),
+            },
+          ];
         }
-        return { role: m.role, content: text };
-      });
+      }
+      if (nextContent === null) {
+        if (!text.trim()) continue;
+        nextContent = text;
+      }
+
+      const prev = claudeMessages[claudeMessages.length - 1];
+      if (prev && prev.role === role) {
+        if (typeof prev.content === "string" && typeof nextContent === "string") {
+          prev.content = `${prev.content}\n\n${nextContent}`;
+        } else {
+          const toBlocks = (c: string | ClaudeBlock[]): ClaudeBlock[] =>
+            typeof c === "string" ? [{ type: "text", text: c }] : c;
+          prev.content = [...toBlocks(prev.content), ...toBlocks(nextContent)];
+        }
+      } else {
+        claudeMessages.push({ role, content: nextContent });
+      }
+    }
+
+    while (claudeMessages.length > 0 && claudeMessages[0].role === "assistant") {
+      claudeMessages.shift();
+    }
 
     let apiInputTokens = 0;
     let apiOutputTokens = 0;
@@ -759,8 +911,8 @@ ${notchInstruction}`;
       }),
       signal,
       onChunk: (line) => {
-        if (line.startsWith("data: ")) {
-          const dataStr = line.slice(6).trim();
+        const dataStr = extractSseData(line);
+        if (dataStr !== null) {
           if (dataStr === "[DONE]") return;
           try {
             const parsed = JSON.parse(dataStr);
@@ -805,8 +957,19 @@ ${notchInstruction}`;
     return { inputTokens, outputTokens };
   }
 
-  if (provider === "gemini" && !useGiliFree) {
-    endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model.id}:streamGenerateContent?alt=sse&key=${apiKey}`;
+  const isGeminiNative =
+    !useGiliFree &&
+    provider === "gemini" &&
+    (!customBase || customBase.includes("googleapis.com") || /\/v1beta(\/|$)/i.test(customBase));
+
+  if (isGeminiNative) {
+    const cleanGeminiBase = customBase
+      ? customBase.replace(/\/+$/, "").replace(/\/models$/, "")
+      : "https://generativelanguage.googleapis.com/v1beta";
+    const geminiVersionedBase = cleanGeminiBase.endsWith("/v1beta")
+      ? cleanGeminiBase
+      : `${cleanGeminiBase}/v1beta`;
+    endpoint = `${geminiVersionedBase}/models/${encodeURIComponent(model.id)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
     const isEn = getLanguage() === "en";
     const geminiContents = windowedMessages.map((m) => {
       const parts: any[] = [];
@@ -839,6 +1002,7 @@ ${notchInstruction}`;
     let apiInputTokens = 0;
     let apiOutputTokens = 0;
     let rawOutputText = "";
+    let rawReasoningText = "";
 
     await streamAiRequest({
       url: endpoint,
@@ -855,8 +1019,9 @@ ${notchInstruction}`;
       }),
       signal,
       onChunk: (line) => {
-        if (line.startsWith("data: ")) {
-          const dataStr = line.slice(6).trim();
+        const dataStr = extractSseData(line);
+        if (dataStr !== null) {
+          if (dataStr === "[DONE]") return;
           try {
             const parsed = JSON.parse(dataStr);
             if (parsed.usageMetadata) {
@@ -867,10 +1032,18 @@ ${notchInstruction}`;
               if (promptTok > 0) apiInputTokens = promptTok;
               if (candTok > 0) apiOutputTokens = candTok;
             }
-            const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) {
-              rawOutputText += text;
-              filter.handleContent(text);
+            const parts = parsed.candidates?.[0]?.content?.parts;
+            if (Array.isArray(parts)) {
+              for (const part of parts) {
+                if (!part?.text) continue;
+                if (part.thought) {
+                  rawReasoningText += part.text;
+                  filter.handleReasoning(part.text);
+                } else {
+                  rawOutputText += part.text;
+                  filter.handleContent(part.text);
+                }
+              }
             }
             const finishReason =
               parsed.candidates?.[0]?.finishReason ||
@@ -889,7 +1062,9 @@ ${notchInstruction}`;
         ? apiInputTokens
         : estimateMessagesInputTokens(systemInstruction, windowedMessages);
     const outputTokens =
-      apiOutputTokens > 0 ? apiOutputTokens : estimateTextTokens(rawOutputText);
+      apiOutputTokens > 0
+        ? apiOutputTokens
+        : estimateTextTokens(rawOutputText + rawReasoningText);
     return { inputTokens, outputTokens };
   }
 
@@ -923,6 +1098,14 @@ ${notchInstruction}`;
   }
 
   const isEn = getLanguage() === "en";
+  const supportsImageUrl =
+    useGiliFree ||
+    provider === "openai" ||
+    provider === "openrouter" ||
+    provider === "grok" ||
+    provider === "custom" ||
+    (Boolean(customBase) && provider !== "deepseek");
+
   const openaiMessages: any[] = [
     {
       role: "system",
@@ -937,18 +1120,8 @@ ${notchInstruction}`;
           text
         );
       }
-      if (m.context?.imageDataUrl && provider === "deepseek") {
-        text += isEn
-          ? "\n[Note: User attached a window screenshot. Analyze based on the window title and text above]"
-          : "\n[Catatan: Pengguna melampirkan tangkapan layar jendela. Analisis berdasarkan judul dan teks jendela di atas]";
-      }
 
-      // Support image data URL for OpenAI, OpenRouter, and multimodal models
-      if (
-        m.role === "user" &&
-        m.context?.imageDataUrl &&
-        (useGiliFree || provider === "openai" || provider === "openrouter" || provider === "custom" || customBase)
-      ) {
+      if (m.role === "user" && m.context?.imageDataUrl && supportsImageUrl) {
         return {
           role: "user",
           content: [
@@ -959,6 +1132,12 @@ ${notchInstruction}`;
             },
           ],
         };
+      }
+
+      if (m.context?.imageDataUrl && !supportsImageUrl) {
+        text += isEn
+          ? "\n[Note: User attached an image. Analyze based on the attached title and text above]"
+          : "\n[Catatan: Pengguna melampirkan gambar. Analisis berdasarkan judul dan teks di atas]";
       }
 
       return { role: m.role, content: text };
@@ -975,11 +1154,18 @@ ${notchInstruction}`;
     !customBase &&
     (provider === "openai" || provider === "deepseek" || provider === "grok" || provider === "openrouter");
 
+  const isOpenAiReasoningModel =
+    !useGiliFree &&
+    (provider === "openai" || Boolean(customBase?.includes("openai.com"))) &&
+    /^(o1|o3|o4|gpt-5)(-|$)/i.test(model.id);
+
   const reqPayload: Record<string, any> = {
     model: model.id,
     messages: openaiMessages,
     stream: true,
-    max_tokens: safetyMaxTokens,
+    ...(isOpenAiReasoningModel
+      ? { max_completion_tokens: safetyMaxTokens }
+      : { max_tokens: safetyMaxTokens }),
   };
   if (includeStreamUsage) {
     reqPayload.stream_options = { include_usage: true };
@@ -992,8 +1178,8 @@ ${notchInstruction}`;
     body: JSON.stringify(reqPayload),
     signal,
     onChunk: (line) => {
-      if (line.startsWith("data: ")) {
-        const dataStr = line.slice(6).trim();
+      const dataStr = extractSseData(line);
+      if (dataStr !== null) {
         if (dataStr === "[DONE]") return;
         try {
           const parsed = JSON.parse(dataStr);

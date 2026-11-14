@@ -18,9 +18,11 @@ export interface MiniPlayerToolbarProps {
 
 const PROVIDERS: { id: LyricsProviderId; label: string }[] = [
   { id: "auto", label: "Auto" },
+  { id: "betterlyrics", label: "Better" },
+  { id: "kugou", label: "KuGou" },
+  { id: "netease", label: "NetEase" },
   { id: "lrclib", label: "LRCLIB" },
   { id: "qqmusic", label: "QQ" },
-  { id: "netease", label: "NetEase" },
 ];
 
 export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
@@ -33,14 +35,17 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
   onTogglePin,
   onReturnToNotch,
   media,
-  lyrics,
+  lyrics: _lyrics,
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [currentProvider, setCurrentProvider] = useState<LyricsProviderId>(() => {
     try {
-      const saved = localStorage.getItem("notch_lyrics_provider") as LyricsProviderId;
-      return saved || (lyrics?.provider as LyricsProviderId) || "auto";
+      const saved = localStorage.getItem("notch_lyrics_provider");
+      if (saved && (PROVIDERS.some((p) => p.id === saved) || saved === "genius")) {
+        return saved as LyricsProviderId;
+      }
+      return "auto";
     } catch {
       return "auto";
     }

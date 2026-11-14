@@ -294,8 +294,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             />
 
             {optAutoCompact && onChangeAutoCompactMode && (
-              <div className="flex items-center justify-between px-3 py-1.5 -mt-1 mb-1 rounded-xl bg-white/[0.03] border border-white/[0.05]">
-                <span className="text-[12px] text-white/70 font-medium">
+              <div
+                className={`flex items-center justify-between px-3 py-1.5 -mt-1 mb-1 rounded-xl border ${
+                  isLightMode ? "bg-black/[0.03] border-black/[0.06]" : "bg-white/[0.03] border-white/[0.05]"
+                }`}
+              >
+                <span className={`text-[12px] font-medium ${isLightMode ? "text-neutral-700" : "text-white/70"}`}>
                   {t("settings_auto_compact_target")}
                 </span>
                 <IosSegmentedControl

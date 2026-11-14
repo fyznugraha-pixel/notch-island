@@ -17,21 +17,27 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { AiBrandLogo, detectAiBrand } from "./AiBrandLogos";
+import { readRasterImageFileForVision } from "../../../utils/imageUtils";
 import { AiNotchActionCard } from "./AiNotchActionCard";
 import type {
   AiModelConfig,
   AiProviderId,
   AiChatMessage,
+  AiMessageContext,
 } from "./AiChatTypes";
 import {
   streamChatCompletion,
   recordTokenUsage,
+  loadUsageStats,
   estimateTextTokens,
   loadActiveProvider,
   getEffectiveApiKey,
   loadSavedBaseUrls,
   AI_MODELS,
 } from "../../../services/aiChatService";
+import { initCredentials } from "../../../services/aiCredentialService";
+import { isAbortError } from "../../../services/aiHttp";
+import { formatIdrCostInCurrency } from "../../../services/aiCurrencyService";
 import {
   getRegisteredModels,
   verifyAndRegisterModels,
@@ -40,6 +46,8 @@ import {
   loadRouterConfig,
   evaluatePromptHeuristics,
   resolveTierModel,
+  evaluateBudgetPolicy,
+  isVisionCapableModel,
 } from "../../../services/aiRouterService";
 import {
   parseAndExecuteGiliActions,
@@ -53,7 +61,7 @@ import {
   generateTitleFromPrompt,
 } from "../../../services/aiConversationService";
 import {
-  GILI_FREE_MODEL,
+  getGiliFreeModel,
   isGiliFreeEnabled,
   describeGiliFreeError,
 } from "../../../services/giliFreeService";
@@ -64,7 +72,12 @@ export interface QuickAiChatNotchCardProps {
   isIsland?: boolean;
   shortcutLabel?: string;
   onExpandedChange?: (expanded: boolean) => void;
-  onOpenFullChat: (initialPrompt?: string, messages?: AiChatMessage[]) => void;
+  onOpenFullChat: (
+    initialPrompt?: string,
+    messages?: AiChatMessage[],
+    conversationId?: string,
+    initialContext?: AiMessageContext
+  ) => void;
   onCancel: () => void;
   optLanguage?: Language;
 }
@@ -108,6 +121,18 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const responseScrollRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useRef(true);
+  const isSendingRef = useRef(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    initCredentials().catch(() => {});
+    return () => {
+      isMountedRef.current = false;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+    };
+  }, []);
 
   // Focus input automatically on mount
   useEffect(() => {
@@ -141,12 +166,16 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
         .catch(() => {});
     }
 
-    invoke<{ thumbnail?: string; width?: number; height?: number } | null>("read_clipboard_image")
+    invoke<{ thumbnail?: string; vision_data_url?: string; width?: number; height?: number } | null>(
+      "read_clipboard_image",
+      { persistFile: false, includeVision: true }
+    )
       .then((res) => {
         if (!isMounted) return;
-        if (res && res.thumbnail) {
+        const imgUrl = res?.vision_data_url || res?.thumbnail;
+        if (res && imgUrl) {
           setClipboardImage({
-            dataUrl: res.thumbnail,
+            dataUrl: imgUrl,
             width: res.width || 0,
             height: res.height || 0,
           });
@@ -159,21 +188,16 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     };
   }, []);
 
-  const attachImageFile = useCallback((file: File) => {
-    if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      if (dataUrl) {
-        setAttachedImage({
-          dataUrl,
-          title: file.name || "Pasted Image",
-          sizeKb: Math.round(file.size / 1024) || 1,
-        });
-        inputRef.current?.focus();
-      }
-    };
-    reader.readAsDataURL(file);
+  const attachImageFile = useCallback(async (file: File) => {
+    const dataUrl = await readRasterImageFileForVision(file);
+    if (dataUrl) {
+      setAttachedImage({
+        dataUrl,
+        title: file.name || "Pasted Image",
+        sizeKb: Math.max(1, Math.round((dataUrl.length * 0.75) / 1024)),
+      });
+      inputRef.current?.focus();
+    }
   }, []);
 
   const handlePasteClipboardImage = useCallback(async () => {
@@ -191,17 +215,21 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     }
 
     try {
-      const res = await invoke<{ thumbnail?: string; width?: number; height?: number } | null>(
-        "read_clipboard_image"
-      );
-      if (res && res.thumbnail) {
+      const res = await invoke<{
+        thumbnail?: string;
+        vision_data_url?: string;
+        width?: number;
+        height?: number;
+      } | null>("read_clipboard_image", { persistFile: false, includeVision: true });
+      const imgUrl = res?.vision_data_url || res?.thumbnail;
+      if (res && imgUrl) {
         setAttachedImage({
-          dataUrl: res.thumbnail,
+          dataUrl: imgUrl,
           title:
             res.width && res.height
               ? `Clipboard (${res.width}x${res.height})`
               : "Clipboard Image",
-          sizeKb: Math.max(1, Math.round((res.thumbnail.length * 0.75) / 1024)),
+          sizeKb: Math.max(1, Math.round((imgUrl.length * 0.75) / 1024)),
         });
         inputRef.current?.focus();
         return;
@@ -233,17 +261,21 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       const pastedText = e.clipboardData?.getData("text/plain");
       if (!pastedText) {
         try {
-          const res = await invoke<{ thumbnail?: string; width?: number; height?: number } | null>(
-            "read_clipboard_image"
-          );
-          if (res && res.thumbnail) {
+          const res = await invoke<{
+            thumbnail?: string;
+            vision_data_url?: string;
+            width?: number;
+            height?: number;
+          } | null>("read_clipboard_image", { persistFile: false, includeVision: true });
+          const imgUrl = res?.vision_data_url || res?.thumbnail;
+          if (res && imgUrl) {
             setAttachedImage({
-              dataUrl: res.thumbnail,
+              dataUrl: imgUrl,
               title:
                 res.width && res.height
                   ? `Clipboard (${res.width}x${res.height})`
                   : "Clipboard Image",
-              sizeKb: Math.max(1, Math.round((res.thumbnail.length * 0.75) / 1024)),
+              sizeKb: Math.max(1, Math.round((imgUrl.length * 0.75) / 1024)),
             });
           }
         } catch {}
@@ -264,8 +296,10 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        if (isStreaming && abortControllerRef.current) {
+        if ((isStreaming || isThinking) && abortControllerRef.current) {
           abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+          isSendingRef.current = false;
           setIsStreaming(false);
           setIsThinking(false);
         } else {
@@ -277,7 +311,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [isStreaming, onCancel]);
+  }, [isStreaming, isThinking, onCancel]);
 
   // Scroll response down while streaming
   useEffect(() => {
@@ -296,7 +330,10 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     const registered = getRegisteredModels(activeProvider);
     let candidateModels: AiModelConfig[] = [];
 
-    if (registered.length > 0 && (!hasImage || activeProvider !== "deepseek")) {
+    if (
+      registered.length > 0 &&
+      (!hasImage || (activeProvider !== "deepseek" && registered.some(isVisionCapableModel)))
+    ) {
       candidateModels = registered;
     } else {
       const providers: AiProviderId[] = [
@@ -317,30 +354,49 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       }
     }
 
-    if (candidateModels.length === 0) {
+    if (
+      candidateModels.length === 0 ||
+      (hasImage && !candidateModels.some(isVisionCapableModel))
+    ) {
       const activeKey = getEffectiveApiKey(activeProvider);
       if (activeKey && (!hasImage || activeProvider !== "deepseek")) {
         try {
           const customBase = loadSavedBaseUrls()[activeProvider]?.trim();
           const regResult = await verifyAndRegisterModels(activeProvider, activeKey, customBase);
           if (regResult.ok && regResult.models.length > 0) {
-            candidateModels = regResult.models;
+            candidateModels = [...candidateModels, ...regResult.models];
           }
         } catch {}
       }
-      if (candidateModels.length === 0) {
-        if (isGiliFreeEnabled()) {
-          return {
-            modelToUse: GILI_FREE_MODEL,
-            providerToUse: GILI_FREE_MODEL.provider,
-            keyToUse: "",
-          };
-        }
-        candidateModels = AI_MODELS.filter((m) => m.provider === activeProvider);
-      }
     }
 
-    const resolved = resolveTierModel(targetTier, candidateModels, routerConfig);
+    const visionCandidates = hasImage
+      ? candidateModels.filter(isVisionCapableModel)
+      : candidateModels;
+
+    if (visionCandidates.length === 0) {
+      if (isGiliFreeEnabled()) {
+        const giliFreeModel = getGiliFreeModel();
+        return {
+          modelToUse: giliFreeModel,
+          providerToUse: giliFreeModel.provider,
+          keyToUse: "",
+        };
+      }
+      const staticPool = AI_MODELS.filter(
+        (m) => m.provider === activeProvider && (!hasImage || isVisionCapableModel(m))
+      );
+      candidateModels =
+        staticPool.length > 0
+          ? staticPool
+          : hasImage
+            ? AI_MODELS.filter(isVisionCapableModel)
+            : AI_MODELS;
+    } else {
+      candidateModels = visionCandidates;
+    }
+
+    const resolved = resolveTierModel(targetTier, candidateModels, routerConfig, hasImage);
     const modelToUse = resolved?.targetModel || candidateModels[0] || AI_MODELS[0];
     const providerToUse = resolved?.targetProvider || modelToUse.provider;
     const keyToUse =
@@ -362,7 +418,11 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     const rawText = (overridePrompt ?? prompt).trim();
     const textToSend =
       rawText || (imgToSend ? t("quick_ai_explain_image_default") : "");
-    if ((!textToSend && !imgToSend) || isStreaming) return;
+    if ((!textToSend && !imgToSend) || isStreaming || isThinking || isSendingRef.current) return;
+
+    isSendingRef.current = true;
+    const myController = new AbortController();
+    abortControllerRef.current = myController;
 
     setSubmittedPrompt(textToSend);
     setSubmittedImage(imgToSend);
@@ -375,11 +435,46 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
     try {
       const resolvedRoute = await resolveAutoModel(textToSend, Boolean(imgToSend));
+      if (!isMountedRef.current || myController.signal.aborted) return;
+
       const isExplicitFree = resolvedRoute.modelToUse.id === "gili-free";
-      const useGiliFree = (isExplicitFree || !resolvedRoute.keyToUse) && isGiliFreeEnabled();
-      const modelToUse = useGiliFree ? GILI_FREE_MODEL : resolvedRoute.modelToUse;
-      const providerToUse = useGiliFree ? GILI_FREE_MODEL.provider : resolvedRoute.providerToUse;
-      const keyToUse = useGiliFree ? "" : resolvedRoute.keyToUse;
+      let useGiliFree = (isExplicitFree || !resolvedRoute.keyToUse) && isGiliFreeEnabled();
+      const giliFreeModel = getGiliFreeModel();
+      let modelToUse = useGiliFree ? giliFreeModel : resolvedRoute.modelToUse;
+      let providerToUse = useGiliFree ? giliFreeModel.provider : resolvedRoute.providerToUse;
+      let keyToUse = useGiliFree ? "" : resolvedRoute.keyToUse;
+
+      if (!useGiliFree && modelToUse.id !== "gili-free") {
+        const routerCfg = loadRouterConfig();
+        const budgetEval = evaluateBudgetPolicy(routerCfg, loadUsageStats());
+        if (budgetEval.isExceeded && budgetEval.action === "block") {
+          setIsThinking(false);
+          setErrorMessage(
+            `${t("aichat_usage_limit_reached")} (${formatIdrCostInCurrency(budgetEval.spentIdr)} / ${formatIdrCostInCurrency(budgetEval.limitIdr)})`
+          );
+          return;
+        }
+        if (budgetEval.isExceeded && budgetEval.action === "downgrade_to_t0") {
+          const t0Spec = routerCfg.tierMapping.T0;
+          const canUseModel = (m: AiModelConfig) =>
+            !imgToSend || (m.provider !== "deepseek" && isVisionCapableModel(m));
+          const t0Models = getRegisteredModels(t0Spec.provider).filter(canUseModel);
+          const providerPool = getRegisteredModels(providerToUse).filter(canUseModel);
+          const fallbackT0 =
+            t0Models.find((m) => m.id === t0Spec.modelId) ||
+            t0Models[0] ||
+            providerPool[0];
+          if (fallbackT0) {
+            const t0Key = getEffectiveApiKey(fallbackT0.provider, fallbackT0.id);
+            if (t0Key) {
+              modelToUse = fallbackT0;
+              providerToUse = fallbackT0.provider;
+              keyToUse = t0Key;
+            }
+          }
+        }
+      }
+
       setRoutedModel(modelToUse);
       setRoutedProvider(providerToUse);
 
@@ -389,7 +484,6 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
         return;
       }
 
-      abortControllerRef.current = new AbortController();
       let accumulated = "";
 
       const userMsg: AiChatMessage = {
@@ -415,14 +509,19 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
         messages: [userMsg],
         lengthMode: "compact", // Fast, hemat & ringkas
         useGiliFree,
-        signal: abortControllerRef.current.signal,
+        signal: myController.signal,
         onChunk: (chunk: string) => {
+          if (myController?.signal.aborted || !isMountedRef.current) return;
           setIsThinking(false);
           setIsStreaming(true);
           accumulated += chunk;
           setResponseContent(stripActionBlocksForDisplay(accumulated));
         },
       });
+
+      if (myController.signal.aborted || !isMountedRef.current) {
+        return;
+      }
 
       recordTokenUsage(modelToUse, result.inputTokens, result.outputTokens);
 
@@ -431,19 +530,29 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
       // Execute embedded Gili notch actions
       const { cleanText, results } = await parseAndExecuteGiliActions(accumulated);
+      if (myController.signal.aborted || !isMountedRef.current) {
+        return;
+      }
       if (results.length > 0) {
         setExecutedActions(results);
         setResponseContent(cleanText);
       }
     } catch (err: unknown) {
-      setIsThinking(false);
-      setIsStreaming(false);
-      const isAbort = err instanceof DOMException && err.name === "AbortError";
-      if (!isAbort) {
+      if (!isMountedRef.current) return;
+      if (!isAbortError(err) && !myController?.signal.aborted) {
         const errorText = err instanceof Error ? err.message : String(err);
         setErrorMessage(
           describeGiliFreeError(errorText) || t("quick_ai_failed_error")
         );
+      }
+    } finally {
+      if (abortControllerRef.current === myController) {
+        abortControllerRef.current = null;
+        isSendingRef.current = false;
+        if (isMountedRef.current) {
+          setIsThinking(false);
+          setIsStreaming(false);
+        }
       }
     }
   };
@@ -451,6 +560,8 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
   const handleStopStreaming = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      isSendingRef.current = false;
       setIsStreaming(false);
       setIsThinking(false);
     }
@@ -480,8 +591,21 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
   };
 
   const handleOpenInFullChat = () => {
+    try {
+      sessionStorage.setItem("island_ai_active_view_state", "chat");
+    } catch {}
+
     if (!submittedPrompt) {
-      onOpenFullChat(prompt);
+      const draftContext: AiMessageContext | undefined = attachedImage
+        ? {
+            type: "image",
+            title: attachedImage.title,
+            characterCount: attachedImage.sizeKb,
+            previewText: attachedImage.title,
+            imageDataUrl: attachedImage.dataUrl,
+          }
+        : undefined;
+      onOpenFullChat(prompt, undefined, undefined, draftContext);
       return;
     }
 
@@ -520,6 +644,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
           modelId: modelId,
           modelName: routedModel?.name,
           notchActions: executedActions.length > 0 ? executedActions : undefined,
+          error: errorMessage || undefined,
         },
       ];
 
@@ -528,7 +653,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       window.dispatchEvent(
         new CustomEvent("gili_ai_conversation_switch", { detail: { conversationId: conv.id } })
       );
-      onOpenFullChat(undefined, msgs);
+      onOpenFullChat(undefined, msgs, conv.id);
     } catch {
       onOpenFullChat(submittedPrompt);
     }
@@ -599,9 +724,10 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
           <button
             type="button"
+            disabled={isStreaming || isThinking}
             title={t("quick_ai_tooltip_full_chat")}
             onClick={handleOpenInFullChat}
-            className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-95"
+            className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ExternalLink size={12.5} strokeWidth={2} />
           </button>
@@ -869,7 +995,7 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5">
-              {isStreaming ? (
+              {isStreaming || isThinking ? (
                 <button
                   type="button"
                   onClick={handleStopStreaming}
