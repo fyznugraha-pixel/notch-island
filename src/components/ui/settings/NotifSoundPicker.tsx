@@ -14,6 +14,7 @@ import {
   deleteCustomSound,
   CustomSoundRecord,
 } from "../../../services/customSoundStorage";
+import { Tooltip } from "../Tooltip";
 import { t, getLanguage } from "../../../services/i18n";
 
 export interface NotifSoundPickerProps {
@@ -56,9 +57,19 @@ export const NotifSoundPicker: React.FC<NotifSoundPickerProps> = ({
         setIsOpen(false);
       }
     };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setIsOpen(false);
+      }
+    };
 
     window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKey);
+    };
   }, [isOpen]);
 
   const currentCustomItem = customSounds.find((s) => s.id === value);
@@ -236,17 +247,18 @@ export const NotifSoundPicker: React.FC<NotifSoundPickerProps> = ({
                         )}
                       </button>
 
-                      <button
-                        type="button"
-                        title={t("sound_delete_tooltip")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(item.id);
-                        }}
-                        className="opacity-60 group-hover:opacity-100 hover:text-red-400 p-1 rounded transition-all cursor-pointer shrink-0"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      <Tooltip content={t("sound_delete_tooltip")} side="top">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(item.id);
+                          }}
+                          className="opacity-60 group-hover:opacity-100 hover:text-red-400 p-1 rounded transition-all cursor-pointer shrink-0"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </Tooltip>
                     </div>
                   );
                 })}

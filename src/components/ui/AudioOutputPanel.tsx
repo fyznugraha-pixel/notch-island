@@ -309,7 +309,7 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
                 (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
               }
             }}
-            className="flex-1 relative h-1.5 rounded-full bg-[#2a2a31] overflow-hidden cursor-pointer touch-none"
+            className="flex-1 relative h-1.5 rounded-full bg-[#2a2a31] light-track-surface overflow-hidden cursor-pointer touch-none"
           >
             <div
               className={`h-full bg-[#3882F6] pointer-events-none rounded-full ${
@@ -326,7 +326,6 @@ export const AudioOutputPanel: React.FC<AudioOutputPanelProps> = ({
           <button
             type="button"
             onClick={handleTestSound}
-            title={isEn ? "Test audio output sound" : "Uji suara audio output"}
             className="h-[28px] px-2.5 rounded-lg border border-[#2a2a31] bg-white/[0.04] hover:bg-white/[0.12] text-[#e4e4e7] flex items-center gap-1 text-[11px] font-medium cursor-pointer transition-colors shrink-0"
           >
             <Play size={10} fill="currentColor" strokeWidth={2} />

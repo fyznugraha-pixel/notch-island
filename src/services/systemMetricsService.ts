@@ -27,30 +27,61 @@ let globalMetrics: SystemMetrics | null = null;
 const listeners = new Set<MetricsListener>();
 let unlistenFn: UnlistenFn | null = null;
 let activeSubscribers = 0;
+let isBackendSubscribed = false;
+let syncQueued = false;
+let transitionPromise: Promise<void> = Promise.resolve();
 
-async function startGlobalSubscription() {
-  if (unlistenFn) return;
+function scheduleSubscriptionSync() {
+  if (syncQueued) return;
+  syncQueued = true;
 
-  try {
-    unlistenFn = await listen<SystemMetrics>("gili-system-metrics", (event) => {
-      globalMetrics = event.payload;
-      listeners.forEach((fn) => fn(event.payload));
-    });
+  transitionPromise = transitionPromise
+    .then(async () => {
+      syncQueued = false;
+      const shouldBeSubscribed = activeSubscribers > 0;
 
-    await invoke("subscribe_system_metrics", { topic: "metrics" });
-  } catch (err) {
-    console.warn("Failed to subscribe to system metrics:", err);
-  }
-}
+      if (shouldBeSubscribed && !isBackendSubscribed) {
+        try {
+          const unlisten = await listen<SystemMetrics>("gili-system-metrics", (event) => {
+            globalMetrics = event.payload;
+            listeners.forEach((fn) => fn(event.payload));
+          });
 
-async function stopGlobalSubscription() {
-  if (unlistenFn) {
-    unlistenFn();
-    unlistenFn = null;
-  }
-  try {
-    await invoke("unsubscribe_system_metrics", { topic: "metrics" });
-  } catch {}
+          if (activeSubscribers <= 0) {
+            unlisten();
+            return;
+          }
+
+          unlistenFn = unlisten;
+          await invoke("subscribe_system_metrics", { topic: "metrics" });
+          isBackendSubscribed = true;
+
+          if (activeSubscribers <= 0) {
+            scheduleSubscriptionSync();
+          }
+        } catch (err) {
+          if (unlistenFn) {
+            unlistenFn();
+            unlistenFn = null;
+          }
+          console.warn("Failed to subscribe to system metrics:", err);
+        }
+      } else if (!shouldBeSubscribed && isBackendSubscribed) {
+        if (unlistenFn) {
+          unlistenFn();
+          unlistenFn = null;
+        }
+        isBackendSubscribed = false;
+        try {
+          await invoke("unsubscribe_system_metrics", { topic: "metrics" });
+        } catch {}
+
+        if (activeSubscribers > 0) {
+          scheduleSubscriptionSync();
+        }
+      }
+    })
+    .catch(() => {});
 }
 
 export function subscribeToSystemMetrics(callback: MetricsListener): () => void {
@@ -58,17 +89,16 @@ export function subscribeToSystemMetrics(callback: MetricsListener): () => void 
   activeSubscribers++;
 
   if (activeSubscribers === 1) {
-    startGlobalSubscription();
+    scheduleSubscriptionSync();
   } else if (globalMetrics) {
     callback(globalMetrics);
   }
 
   return () => {
     listeners.delete(callback);
-    activeSubscribers--;
-    if (activeSubscribers <= 0) {
-      activeSubscribers = 0;
-      stopGlobalSubscription();
+    activeSubscribers = Math.max(0, activeSubscribers - 1);
+    if (activeSubscribers === 0) {
+      scheduleSubscriptionSync();
     }
   };
 }

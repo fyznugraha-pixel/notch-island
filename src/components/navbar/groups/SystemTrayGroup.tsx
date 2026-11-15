@@ -1,9 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Bell, Wifi, Volume2, Zap } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Tooltip } from "../../ui/Tooltip";
 import { hexToRgba } from "../../../services/navbarConfigService";
+import {
+  useTaskbarLang,
+  tx,
+  dateLocale,
+  getNavbarTooltipSide,
+  type DockPosition,
+} from "../../../services/taskbarI18n";
+import { useNavbarLightMode } from "../navbarThemeUtils";
 
 interface SystemTrayGroupProps {
   accentColor?: string;
@@ -16,6 +24,9 @@ interface SystemTrayGroupProps {
   showClockDate?: boolean;
   singleItem?: "systemIcons" | "notifications" | "clockDate";
   isVertical?: boolean;
+  position?: DockPosition;
+  isHidden?: boolean;
+  isPreview?: boolean;
   onControlCenterClick?: () => void;
   onNotificationsClick?: () => void;
   onClockClick?: () => void;
@@ -72,17 +83,24 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
   showSeconds = false,
   use24HourClock = true,
   showDayOfWeek = true,
-  locale = "id-ID",
+  locale,
   showSystemIcons = true,
   showNotifications = true,
   showClockDate = true,
   singleItem,
   isVertical = false,
+  position = "bottom",
+  isHidden = false,
+  isPreview = false,
   onControlCenterClick,
   onNotificationsClick,
   onClockClick,
   onVolumeClick,
 }) => {
+  const lang = useTaskbarLang();
+  const isLightMode = useNavbarLightMode();
+  const tooltipSide = getNavbarTooltipSide(position);
+  const effectiveLocale = locale ?? dateLocale(lang);
   const renderSys = singleItem ? singleItem === "systemIcons" : showSystemIcons;
   const renderNotif = singleItem ? singleItem === "notifications" : showNotifications;
   const renderClock = singleItem ? singleItem === "clockDate" : showClockDate;
@@ -91,8 +109,12 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
   const [unreadCount, setUnreadCount] = useState(0);
   const [battery, setBattery] = useState<BatteryState | null>(null);
   const [isBatteryLoaded, setIsBatteryLoaded] = useState(false);
+  const isHiddenRef = useRef(isHidden);
+  isHiddenRef.current = isHidden;
 
   useEffect(() => {
+    if (!renderClock || isHidden) return;
+
     const updateDateTime = () => {
       const now = new Date();
       const hours = now.getHours();
@@ -113,20 +135,22 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
       }
 
       const dayName = showDayOfWeek
-        ? now.toLocaleDateString(locale, { weekday: "short" }) + ", "
+        ? now.toLocaleDateString(effectiveLocale, { weekday: "short" }) + ", "
         : "";
       const dateNum = now.getDate();
-      const monthName = now.toLocaleDateString(locale, { month: "short" });
+      const monthName = now.toLocaleDateString(effectiveLocale, { month: "short" });
       setDateStr(`${dayName}${dateNum} ${monthName}`);
     };
 
     updateDateTime();
+    if (isPreview) return;
+
     const interval = setInterval(updateDateTime, showSeconds ? 1000 : 10000);
     return () => clearInterval(interval);
-  }, [showSeconds, use24HourClock, showDayOfWeek, locale]);
+  }, [renderClock, isHidden, isPreview, showSeconds, use24HourClock, showDayOfWeek, effectiveLocale]);
 
-  // Real battery status & real notification listener
   useEffect(() => {
+    if (!renderSys || isHidden) return;
     let isMounted = true;
 
     const fetchBattery = () => {
@@ -143,16 +167,36 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
     };
 
     fetchBattery();
-    const batteryPollInterval = setInterval(fetchBattery, 5000);
+    const batteryPollInterval = !isPreview ? setInterval(fetchBattery, 5000) : null;
+
+    return () => {
+      isMounted = false;
+      if (batteryPollInterval) clearInterval(batteryPollInterval);
+    };
+  }, [renderSys, isHidden, isPreview]);
+
+  useEffect(() => {
+    if (!renderSys) return;
+    let isMounted = true;
 
     const unlistenBat = listen<unknown>("battery-update", (ev) => {
-      if (!isMounted) return;
+      if (!isMounted || isHiddenRef.current) return;
       const parsed = parseBatteryData(ev.payload);
       if (parsed) {
         setBattery(parsed);
         setIsBatteryLoaded(true);
       }
     });
+
+    return () => {
+      isMounted = false;
+      unlistenBat.then((fn) => fn());
+    };
+  }, [renderSys]);
+
+  useEffect(() => {
+    if (!renderNotif) return;
+    let isMounted = true;
 
     const unlistenNotif = listen("real-notif", () => {
       if (!isMounted) return;
@@ -161,142 +205,164 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
 
     return () => {
       isMounted = false;
-      clearInterval(batteryPollInterval);
-      unlistenBat.then((fn) => fn());
       unlistenNotif.then((fn) => fn());
     };
-  }, []);
+  }, [renderNotif]);
 
   const isCharging = battery ? battery.is_charging : false;
   const batteryPercent = battery ? battery.percent : 100;
   const batteryFillWidth = Math.max(2, Math.round((batteryPercent / 100) * 14));
 
+  const controlCenterLabel = tx(lang, "Control Center", "Pusat Kontrol");
+  const volumeLabel = tx(lang, "Sound output & volume", "Output suara & volume");
   const batteryTooltip = battery
-    ? `Pusat Kontrol · Baterai ${battery.percent}%${
-        isCharging ? " (Mengisi Daya)" : ""
+    ? `${controlCenterLabel} · ${tx(lang, "Battery", "Baterai")} ${battery.percent}%${
+        isCharging ? ` (${tx(lang, "Charging", "Mengisi Daya")})` : ""
       }`
-    : "Pusat Kontrol · Daya AC";
+    : `${controlCenterLabel} · ${tx(lang, "AC Power", "Daya AC")}`;
+
+  const trayLiftHoverClass =
+    position === "top"
+      ? "hover:translate-y-[1.5px]"
+      : position === "left"
+      ? "hover:translate-x-[1.5px]"
+      : position === "right"
+      ? "hover:-translate-x-[1.5px]"
+      : "hover:-translate-y-[1.5px]";
+
+  const pillContainerClass = `${
+    isVertical
+      ? "w-10 max-w-full min-w-0 py-1.5 px-0.5 flex-col gap-1"
+      : "h-10 px-1.5 flex-row gap-0.5"
+  } rounded-[12px] bg-transparent flex items-center justify-center text-white/70 hover:bg-white/[0.06] transition-colors shrink-0`;
+
+  const subTriggerClass =
+    "rounded-[8px] bg-transparent flex items-center justify-center cursor-pointer text-white/70 hover:text-white hover:bg-white/[0.11] active:scale-95 transition-all p-1 shrink-0";
 
   return (
     <div
       className={`flex ${
-        isVertical ? "flex-col" : "flex-row"
+        isVertical ? "flex-col w-full min-w-0 max-w-full" : "flex-row"
       } items-center gap-1 shrink-0`}
     >
-      {/* Control Center Pill */}
+      {/* Control Center Pill (sibling triggers avoid nested interactive controls) */}
       {renderSys && (
-        <Tooltip side="top" delay={150} content={batteryTooltip}>
-          <button
-            type="button"
-            data-flyout-trigger="control_center"
-            onClick={onControlCenterClick}
-            aria-label="Pusat kontrol"
-            style={{
-              transition:
-                "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, color 180ms ease",
-            }}
-            className={`${
-              isVertical ? "w-10 py-2 flex-col" : "h-10 px-2 flex-row"
-            } rounded-[12px] bg-transparent flex items-center justify-center cursor-pointer text-white/70 hover:text-white hover:bg-white/[0.09] hover:-translate-y-[1.5px] active:scale-95 shrink-0`}
-          >
-            <div
-              className={`flex ${
-                isVertical ? "flex-col gap-1.5" : "flex-row gap-2"
-              } items-center px-0.5`}
+        <div className={pillContainerClass}>
+          <Tooltip side={tooltipSide} delay={150} content={batteryTooltip}>
+            <button
+              type="button"
+              data-flyout-trigger="control_center"
+              onClick={onControlCenterClick}
+              aria-label={controlCenterLabel}
+              className={subTriggerClass}
             >
               <Wifi size={15} strokeWidth={2} />
-              <span
-                data-flyout-trigger="volume"
-                onClick={(e) => {
-                  if (onVolumeClick) {
-                    e.stopPropagation();
-                    onVolumeClick(e);
-                  }
-                }}
-                className="hover:text-white transition-colors cursor-pointer"
-                title="Output suara & volume"
-              >
-                <Volume2 size={15} strokeWidth={2} />
-              </span>
+            </button>
+          </Tooltip>
 
-              {/* Original Battery Shape with Zap Inside */}
-              <div
-                className={`flex ${
-                  isVertical ? "flex-col items-center gap-0.5" : "flex-row items-center gap-1.5"
+          <Tooltip side={tooltipSide} delay={150} content={volumeLabel}>
+            <button
+              type="button"
+              data-flyout-trigger="volume"
+              onClick={(e) => {
+                if (onVolumeClick) {
+                  e.stopPropagation();
+                  onVolumeClick(e);
+                } else {
+                  onControlCenterClick?.();
+                }
+              }}
+              aria-label={volumeLabel}
+              className={subTriggerClass}
+            >
+              <Volume2 size={15} strokeWidth={2} />
+            </button>
+          </Tooltip>
+
+          {/* Original Battery Shape with Zap Inside */}
+          <Tooltip side={tooltipSide} delay={150} content={batteryTooltip}>
+            <button
+              type="button"
+              data-flyout-trigger="control_center"
+              onClick={onControlCenterClick}
+              aria-label={batteryTooltip}
+              className={`${subTriggerClass} ${
+                isVertical ? "flex-col gap-0.5" : "flex-row gap-1.5 px-1"
+              }`}
+            >
+              <div className="relative flex items-center justify-center">
+                <svg
+                  width="20"
+                  height="10"
+                  viewBox="0 0 22 11"
+                  fill="none"
+                  aria-hidden="true"
+                  className={isCharging ? "text-emerald-400" : "text-white/85"}
+                >
+                  <rect
+                    x="0.5"
+                    y="0.5"
+                    width="18"
+                    height="10"
+                    rx="3"
+                    stroke="currentColor"
+                  />
+                  <rect
+                    x="2"
+                    y="2"
+                    width={batteryFillWidth}
+                    height="7"
+                    rx="1.8"
+                    fill={isCharging ? "#22c55e" : "currentColor"}
+                  />
+                  <rect
+                    x="19.5"
+                    y="3.5"
+                    width="2"
+                    height="4"
+                    rx="1"
+                    fill="currentColor"
+                  />
+                </svg>
+                {isCharging && (
+                  <Zap
+                    size={9}
+                    className="absolute left-1 text-white fill-white drop-shadow-[0_0_2px_rgba(0,0,0,0.9)]"
+                  />
+                )}
+              </div>
+
+              <span
+                className={`text-[11px] font-semibold tabular-nums font-mono leading-none ${
+                  isCharging ? "text-emerald-400 font-bold" : "text-white/85"
                 }`}
               >
-                <div className="relative flex items-center justify-center">
-                  <svg
-                    width="20"
-                    height="10"
-                    viewBox="0 0 22 11"
-                    fill="none"
-                    aria-hidden="true"
-                    className={isCharging ? "text-emerald-400" : "text-white/85"}
-                  >
-                    <rect
-                      x="0.5"
-                      y="0.5"
-                      width="18"
-                      height="10"
-                      rx="3"
-                      stroke="currentColor"
-                    />
-                    <rect
-                      x="2"
-                      y="2"
-                      width={batteryFillWidth}
-                      height="7"
-                      rx="1.8"
-                      fill={isCharging ? "#22c55e" : "currentColor"}
-                    />
-                    <rect
-                      x="19.5"
-                      y="3.5"
-                      width="2"
-                      height="4"
-                      rx="1"
-                      fill="currentColor"
-                    />
-                  </svg>
-                  {isCharging && (
-                    <Zap
-                      size={9}
-                      className="absolute left-1 text-white fill-white drop-shadow-[0_0_2px_rgba(0,0,0,0.9)]"
-                    />
-                  )}
-                </div>
-
-                <span
-                  className={`text-[11px] font-semibold tabular-nums font-mono leading-none ${
-                    isCharging ? "text-emerald-400 font-bold" : "text-white/85"
-                  }`}
-                >
-                  {battery ? `${battery.percent}%` : isBatteryLoaded ? "AC" : "--%"}
-                </span>
-              </div>
-            </div>
-          </button>
-        </Tooltip>
+                {battery ? `${battery.percent}%` : isBatteryLoaded ? "AC" : "--%"}
+              </span>
+            </button>
+          </Tooltip>
+        </div>
       )}
 
       {/* Notifications Bell */}
       {renderNotif && (
         <Tooltip
-          side="top"
+          side={tooltipSide}
           delay={150}
           content={
             <div className="flex items-center gap-1.5 font-medium text-[11.5px]">
-              <span>Notifikasi</span>
+              <span>{tx(lang, "Notifications", "Notifikasi")}</span>
               {unreadCount > 0 && (
                 <span
                   style={{
-                    backgroundColor: hexToRgba(accentColor, 0.25),
+                    backgroundColor: hexToRgba(accentColor, isLightMode ? 0.14 : 0.25),
                     color: accentColor,
                   }}
-                  className="text-[9.5px] px-1.5 py-0.2 rounded-full font-semibold border border-white/10"
+                  className={`text-[9.5px] px-1.5 py-0.2 rounded-full font-semibold border ${
+                    isLightMode ? "border-black/10" : "border-white/10"
+                  }`}
                 >
-                  {unreadCount} baru
+                  {unreadCount} {tx(lang, "new", "baru")}
                 </span>
               )}
             </div>
@@ -309,12 +375,16 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
               setUnreadCount(0);
               onNotificationsClick?.();
             }}
-            aria-label={`Notifikasi${unreadCount > 0 ? `, ${unreadCount} baru` : ""}`}
+            aria-label={`${tx(lang, "Notifications", "Notifikasi")}${
+              unreadCount > 0 ? `, ${unreadCount} ${tx(lang, "new", "baru")}` : ""
+            }`}
             style={{
               transition:
                 "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, color 180ms ease",
             }}
-            className="relative w-9 h-10 rounded-[12px] bg-transparent text-white/65 hover:text-white hover:bg-white/[0.09] hover:-translate-y-[1.5px] hover:scale-[1.06] active:scale-95 flex items-center justify-center p-0 cursor-pointer shrink-0"
+            className={`relative ${
+              isVertical ? "w-10 h-9" : "w-9 h-10"
+            } rounded-[12px] bg-transparent text-white/65 hover:text-white hover:bg-white/[0.09] ${trayLiftHoverClass} hover:scale-[1.06] active:scale-95 flex items-center justify-center p-0 cursor-pointer shrink-0`}
           >
             <Bell size={17} strokeWidth={1.8} />
             {unreadCount > 0 && (
@@ -332,21 +402,31 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
 
       {/* Clock & Calendar */}
       {renderClock && (
-        <Tooltip side="top" delay={150} content="Kalender & Waktu">
+        <Tooltip
+          side={tooltipSide}
+          delay={150}
+          content={tx(lang, "Calendar & Time", "Kalender & Waktu")}
+        >
           <button
             type="button"
             data-flyout-trigger="calendar"
             onClick={onClockClick}
-            aria-label="Jam dan kalender"
+            aria-label={tx(lang, "Clock and calendar", "Jam dan kalender")}
             style={{
               transition:
                 "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease",
             }}
             className={`rounded-[12px] bg-transparent text-white flex flex-col ${
-              isVertical ? "items-center px-1 py-1.5" : "items-end px-2 py-1"
-            } cursor-pointer hover:bg-white/[0.09] hover:-translate-y-[1.5px] active:scale-95 shrink-0`}
+              isVertical
+                ? "w-full max-w-full min-w-0 items-center px-0.5 py-1.5 overflow-hidden"
+                : "items-end px-2 py-1"
+            } cursor-pointer hover:bg-white/[0.09] ${trayLiftHoverClass} active:scale-95 shrink-0`}
           >
-            <span className="text-[12.5px] font-semibold tabular-nums leading-4 tracking-tight">
+            <span
+              className={`${
+                isVertical ? "text-[11px] text-center leading-tight" : "text-[12.5px] leading-4"
+              } font-semibold tabular-nums tracking-tight max-w-full`}
+            >
               {timeStr || "--:--"}
             </span>
             {!isVertical && (

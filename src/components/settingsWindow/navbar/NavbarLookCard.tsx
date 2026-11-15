@@ -10,6 +10,10 @@ import { hexToRgba } from "../../../services/navbarConfigService";
 import { useNotchTheme } from "../../../hooks/useNotchTheme";
 import { Language } from "../../../services/i18n";
 import { CustomColorPicker } from "./CustomColorPicker";
+import {
+  PRESET_LIQUID_GLASS,
+  PRESET_SOLID,
+} from "../../../utils/frostedGlass";
 
 const ACCENT_COLOR_NAMES: Record<string, { id: string; en: string }> = {
   "#3882f6": { id: "Biru Safir", en: "Sapphire Blue" },
@@ -34,11 +38,17 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
   optLanguage = "id",
 }) => {
   const isId = optLanguage === "id";
-  const { notchBgHex, notchLabel } = useNotchTheme();
+  const {
+    notchBgHex,
+    notchLabel,
+    notchOpacity,
+    notchBlur,
+    notchGlassMode,
+  } = useNotchTheme();
 
   const cardBg = isLightMode
-    ? "bg-white/70 border-black/[0.08]"
-    : "bg-white/[0.03] border-white/[0.07]";
+    ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
   const textTitle = isLightMode ? "text-neutral-900" : "text-white";
   const textSub = isLightMode ? "text-neutral-500" : "text-zinc-400";
 
@@ -55,7 +65,7 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
     {
       id: "liquid",
       label: "Liquid",
-      desc: isId ? "Kaca bening dengan blur & highlight" : "Clear glass with blur & specular highlights",
+      desc: isId ? "Buram kaca frosted real-time dengan grain" : "Real-time frosted acrylic glass with grain",
       icon: <Droplets size={14} />,
     },
     {
@@ -91,7 +101,7 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
   ];
 
   return (
-    <div className={`flex flex-col gap-4 p-4 rounded-[16px] border ${cardBg}`}>
+    <div className={`flex flex-col gap-4 p-5 rounded-[18px] border ${cardBg}`}>
       {/* Title */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-[10px] bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0">
@@ -125,8 +135,21 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
                   const patch: Partial<NavbarConfig> = { style: s.id };
                   if (s.id === "followNotch") {
                     patch.background = "followNotch";
-                  } else if (config.background === "followNotch") {
-                    patch.background = "black";
+                  } else {
+                    if (config.background === "followNotch") {
+                      patch.background = "black";
+                    }
+                    if (s.id === "liquid") {
+                      if (config.style === "solid" || (config.opacity ?? 100) >= 95) {
+                        patch.opacity = Math.round(PRESET_LIQUID_GLASS.opacity * 100);
+                      }
+                      if (config.blur == null || config.blur <= 2) {
+                        patch.blur = PRESET_LIQUID_GLASS.blur;
+                      }
+                    } else if (s.id === "solid" && config.style !== "solid") {
+                      patch.opacity = Math.round(PRESET_SOLID.opacity * 100);
+                      patch.blur = PRESET_SOLID.blur;
+                    }
                   }
                   onChange(patch);
                 }}
@@ -166,13 +189,23 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
       </div>
 
       {/* 2. Background Selection */}
-      <div className="flex flex-col gap-2 pt-1 border-t border-white/[0.06]">
+      <div
+        className={`flex flex-col gap-2 pt-1 border-t ${
+          isLightMode ? "border-black/[0.07]" : "border-white/[0.06]"
+        }`}
+      >
         <div className="flex items-center justify-between">
           <label className={`text-[11.5px] font-medium ${textTitle}`}>
             {isId ? "Warna Latar Belakang Dock" : "Dock Background Color"}
           </label>
           {isFollowNotch && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/[0.07] text-zinc-300 border border-white/10">
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+                isLightMode
+                  ? "bg-black/[0.05] text-neutral-700 border-black/10"
+                  : "bg-white/[0.07] text-zinc-300 border-white/10"
+              }`}
+            >
               <Lock size={10} />
               {isId ? `Terkunci ke Notch: ${notchLabel}` : `Locked to Notch: ${notchLabel}`}
             </span>
@@ -232,20 +265,36 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
 
         {/* Locked info banner when "followNotch" is active */}
         {isFollowNotch && (
-          <div className="flex items-center justify-between p-2.5 mt-1 rounded-[11px] bg-white/[0.03] border border-white/[0.07] text-[11px]">
+          <div
+            className={`flex items-center justify-between p-2.5 mt-1 rounded-[11px] border text-[11px] ${
+              isLightMode
+                ? "bg-black/[0.03] border-black/[0.08]"
+                : "bg-white/[0.03] border-white/[0.07]"
+            }`}
+          >
             <div className="flex items-center gap-2.5">
               <span
                 style={{ backgroundColor: notchBgHex }}
-                className="w-5 h-5 rounded-full border border-white/25 shrink-0 shadow-sm"
+                className={`w-5 h-5 rounded-full border shrink-0 shadow-sm ${
+                  isLightMode ? "border-black/20" : "border-white/25"
+                }`}
               />
               <span className={textSub}>
                 {isId ? (
                   <>
-                    Warna latar dock otomatis mengikuti warna idle Gili Notch saat ini (<strong>{notchLabel}</strong>) dan tidak bisa diubah manual. Pilih <strong>Warna Kustom</strong> jika ingin mengganti warna latar belakang.
+                    Tampilan dock otomatis mengikuti Gili Notch (<strong>{notchLabel}</strong>,{" "}
+                    {notchGlassMode === "solid"
+                      ? "Solid"
+                      : `${Math.round(notchOpacity * 100)}% transparansi · ${Math.round(notchBlur)}% blur`}
+                    ). Pilih <strong>Warna Kustom</strong> jika ingin mengatur manual.
                   </>
                 ) : (
                   <>
-                    Dock background automatically matches Gili Notch idle color (<strong>{notchLabel}</strong>) and cannot be changed manually. Choose <strong>Custom Color</strong> if you want a custom background.
+                    Dock appearance automatically follows Gili Notch (<strong>{notchLabel}</strong>,{" "}
+                    {notchGlassMode === "solid"
+                      ? "Solid"
+                      : `${Math.round(notchOpacity * 100)}% opacity · ${Math.round(notchBlur)}% blur`}
+                    ). Choose <strong>Custom Color</strong> to customize manually.
                   </>
                 )}
               </span>
@@ -267,7 +316,11 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
       </div>
 
       {/* 3. Accent Color Dots (Only for active app indicator & rim highlight) */}
-      <div className="flex flex-col gap-2.5 pt-1 border-t border-white/[0.06]">
+      <div
+        className={`flex flex-col gap-2.5 pt-1 border-t ${
+          isLightMode ? "border-black/[0.07]" : "border-white/[0.06]"
+        }`}
+      >
         <div className="flex items-center justify-between">
           <label className={`text-[11.5px] font-medium ${textTitle}`}>
             {isId
@@ -313,7 +366,9 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
                 }}
                 className={`relative w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   isSelected
-                    ? "scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#121216]"
+                    ? isLightMode
+                      ? "scale-110 ring-2 ring-neutral-900 ring-offset-2 ring-offset-[#f5f5f7]"
+                      : "scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#121216]"
                     : "hover:scale-105 opacity-80 hover:opacity-100"
                 }`}
               >
@@ -368,28 +423,69 @@ export const NavbarLookCard: React.FC<NavbarLookCardProps> = ({
         </div>
       </div>
 
-      {/* 4. Opacity Slider */}
-      <div className="flex flex-col gap-1.5 pt-1 border-t border-white/[0.06]">
-        <div className="flex justify-between items-center text-[11.5px]">
-          <span className={`font-medium ${textTitle}`}>
-            {isId ? "Transparansi Permukaan" : "Surface Opacity"}
-          </span>
-          <span
-            style={{ color: config.accent }}
-            className="font-semibold tabular-nums"
-          >
-            {config.opacity}%
-          </span>
+      {/* 4. Opacity & Blur Sliders */}
+      <div
+        className={`flex flex-col gap-3 pt-2 border-t ${
+          isLightMode ? "border-black/[0.08]" : "border-white/[0.06]"
+        }`}
+      >
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-between items-center text-[11.5px]">
+            <span className={`font-medium ${textTitle}`}>
+              {isId ? "Transparansi Permukaan" : "Surface Opacity"}
+            </span>
+            <span
+              style={{ color: config.accent }}
+              className="font-semibold tabular-nums"
+            >
+              {isFollowNotch
+                ? `${Math.round(notchOpacity * 100)}% (${isId ? "Notch" : "Notch"})`
+                : `${config.opacity}%`}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={15}
+            max={100}
+            disabled={isFollowNotch}
+            value={isFollowNotch ? Math.round(notchOpacity * 100) : config.opacity}
+            onChange={(e) => onChange({ opacity: Number(e.target.value) })}
+            aria-label={isId ? "Transparansi Permukaan" : "Surface Opacity"}
+            style={{ accentColor: config.accent }}
+            className={`w-full h-1.5 rounded-full appearance-none ${
+              isLightMode ? "bg-black/10" : "bg-white/10"
+            } ${isFollowNotch ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+          />
         </div>
-        <input
-          type="range"
-          min={10}
-          max={100}
-          value={config.opacity}
-          onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-          style={{ accentColor: config.accent }}
-          className="w-full cursor-pointer"
-        />
+
+        {(config.style === "liquid" || (isFollowNotch && notchGlassMode !== "solid")) && (
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between items-center text-[11.5px]">
+              <span className={`font-medium ${textTitle}`}>
+                {isId ? "Intensitas Blur Kaca" : "Glass Blur Intensity"}
+              </span>
+              <span
+                style={{ color: config.accent }}
+                className="font-semibold tabular-nums"
+              >
+                {isFollowNotch ? `${Math.round(notchBlur)}%` : `${config.blur ?? 68}%`}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              disabled={isFollowNotch}
+              value={isFollowNotch ? Math.round(notchBlur) : (config.blur ?? 68)}
+              onChange={(e) => onChange({ blur: Number(e.target.value) })}
+              aria-label={isId ? "Intensitas Blur Kaca" : "Glass Blur Intensity"}
+              style={{ accentColor: config.accent }}
+              className={`w-full h-1.5 rounded-full appearance-none ${
+                isLightMode ? "bg-black/10" : "bg-white/10"
+              } ${isFollowNotch ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

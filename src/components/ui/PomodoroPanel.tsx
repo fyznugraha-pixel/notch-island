@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Play,
   Pause,
@@ -18,6 +18,7 @@ import {
   formatPomodoroTime,
 } from "../../services/pomodoroService";
 import { TodoItem } from "./TodoListPanel";
+import { Tooltip } from "./Tooltip";
 import { t } from "../../services/i18n";
 
 export interface PomodoroPanelProps {
@@ -57,6 +58,28 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
 }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showTaskDropdown, setShowTaskDropdown] = useState(false);
+  const taskDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showTaskDropdown) return;
+    const handleDown = (e: MouseEvent | PointerEvent) => {
+      if (taskDropdownRef.current && !taskDropdownRef.current.contains(e.target as Node)) {
+        setShowTaskDropdown(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowTaskDropdown(false);
+      }
+    };
+    window.addEventListener("pointerdown", handleDown);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handleDown);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [showTaskDropdown]);
 
   const pendingTasks = todoItems.filter((item) => !item.completed);
   const focusedTask = pendingTasks.find((item) => item.id === focusedTaskId) || null;
@@ -220,7 +243,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
                         aria-checked={checked}
                         onClick={() => toggleBehavior(row.field)}
                         className={`w-8 h-4.5 rounded-full p-0.5 flex items-center transition-colors shrink-0 cursor-pointer ${
-                          checked ? "bg-[#3882F6] justify-end" : "bg-[#2a2a31] justify-start"
+                          checked ? "bg-[#3882F6] justify-end" : "bg-[#2a2a31] light-track-surface justify-start"
                         }`}
                       >
                         <span className="w-3.5 h-3.5 rounded-full bg-white shadow-sm" />
@@ -311,18 +334,19 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowSettings(true)}
-            title={t("pomo_settings_title")}
-            className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-          >
-            <SlidersHorizontal size={13} />
-          </button>
+          <Tooltip content={t("pomo_settings_title")} side="top">
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="w-7 h-7 rounded-full bg-[#17171c] hover:bg-[#23232a] text-zinc-200 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+            >
+              <SlidersHorizontal size={13} />
+            </button>
+          </Tooltip>
         </div>
 
         {/* Task Selector (FOKUS PADA) */}
-        <div className="relative">
+        <div ref={taskDropdownRef} className="relative">
           <button
             type="button"
             onClick={() => setShowTaskDropdown((v) => !v)}
@@ -396,7 +420,7 @@ export const PomodoroPanel: React.FC<PomodoroPanelProps> = ({
               return (
                 <div
                   key={idx}
-                  className="flex-1 h-1.5 rounded-full bg-[#2a2a31] overflow-hidden"
+                  className="flex-1 h-1.5 rounded-full bg-[#2a2a31] light-track-surface overflow-hidden"
                 >
                   <div
                     style={{

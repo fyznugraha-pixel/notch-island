@@ -69,16 +69,37 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef(true);
+  const timersRef = useRef<number[]>([]);
+
+  const scheduleTimeout = useCallback((fn: () => void, ms: number) => {
+    const id = window.setTimeout(() => {
+      timersRef.current = timersRef.current.filter((tId) => tId !== id);
+      if (isMountedRef.current) fn();
+    }, ms);
+    timersRef.current.push(id);
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      for (const id of timersRef.current) {
+        window.clearTimeout(id);
+      }
+      timersRef.current = [];
+    };
+  }, []);
 
   const loadStatus = useCallback(async () => {
     setIsLoading(true);
     try {
       const data = await fetchWifiStatus();
-      setStatus(data);
+      if (isMountedRef.current) setStatus(data);
     } catch (err) {
       console.error(err);
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
   }, []);
 
@@ -98,14 +119,16 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
     setPasswordSsid(null);
     try {
       await toggleWifiState(enable);
-      setTimeout(() => {
+      scheduleTimeout(() => {
         loadStatus();
       }, 700);
     } catch (err) {
       console.error(err);
-      setStatus((prev) => ({ ...prev, enabled: !enable }));
+      if (isMountedRef.current) {
+        setStatus((prev) => ({ ...prev, enabled: !enable }));
+      }
     } finally {
-      setIsToggling(false);
+      if (isMountedRef.current) setIsToggling(false);
     }
   };
 
@@ -128,13 +151,13 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
     setConnectingSsid(network.ssid);
     try {
       await connectToWifi(network.ssid);
-      setTimeout(() => {
+      scheduleTimeout(() => {
         loadStatus();
         setConnectingSsid(null);
       }, 1500);
     } catch (err) {
       console.error(err);
-      setConnectingSsid(null);
+      if (isMountedRef.current) setConnectingSsid(null);
     }
   };
 
@@ -145,23 +168,26 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
     setPasswordError(null);
     try {
       await connectToWifiWithPassword(ssid, passwordInput.trim());
+      if (!isMountedRef.current) return;
       setPasswordSsid(null);
       setPasswordInput("");
-      setTimeout(() => {
+      scheduleTimeout(() => {
         loadStatus();
         setConnectingSsid(null);
       }, 1500);
     } catch (err) {
       console.error(err);
-      setPasswordError(t("cc_connect_failed"));
-      setConnectingSsid(null);
+      if (isMountedRef.current) {
+        setPasswordError(t("cc_connect_failed"));
+        setConnectingSsid(null);
+      }
     }
   };
 
   const handleDisconnect = async () => {
     try {
       await disconnectFromWifi();
-      setTimeout(loadStatus, 500);
+      scheduleTimeout(loadStatus, 500);
     } catch (err) {
       console.error(err);
     }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bell,
@@ -379,6 +379,29 @@ export const TodoDeadlineAlertCard: React.FC<{
   onDismiss: () => void;
 }> = ({ alert, onSnooze, onComplete, onDismiss }) => {
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
+  const snoozeContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showSnoozeMenu) return;
+    const handleDown = (e: MouseEvent | PointerEvent) => {
+      if (snoozeContainerRef.current && !snoozeContainerRef.current.contains(e.target as Node)) {
+        setShowSnoozeMenu(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSnoozeMenu(false);
+      }
+    };
+    window.addEventListener("pointerdown", handleDown);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handleDown);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [showSnoozeMenu]);
+
   const { task, diffMinutes } = alert;
 
   const isOverdue = diffMinutes <= 0;
@@ -449,7 +472,7 @@ export const TodoDeadlineAlertCard: React.FC<{
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2 shrink-0 relative">
+      <div ref={snoozeContainerRef} className="flex items-center gap-2 shrink-0 relative">
         <div className="flex h-[36px] rounded-[11px] border border-[#3a3a43] overflow-hidden bg-white/[0.02]">
           <button
             type="button"
@@ -590,8 +613,9 @@ export const PomodoroIdlePill: React.FC<{
   isRunning: boolean;
   taskTitle?: string | null;
   isLightMode?: boolean;
+  customTextColor?: string | null;
   onClick: () => void;
-}> = ({ mode, remainingSec, totalSec, isRunning, taskTitle, isLightMode = false, onClick }) => {
+}> = ({ mode, remainingSec, totalSec, isRunning, taskTitle, isLightMode = false, customTextColor, onClick }) => {
   const circumference = 56.5;
   const progress = totalSec > 0 ? Math.max(0, Math.min(1, remainingSec / totalSec)) : 0;
   const dash = `${(progress * circumference).toFixed(1)} ${circumference}`;
@@ -602,7 +626,9 @@ export const PomodoroIdlePill: React.FC<{
     ? isLightMode ? "#e11d48" : "#ff8a7a"
     : isLightMode ? "#0d9488" : "#5eead4";
 
-  const timeColor = !isRunning
+  const timeColor = customTextColor
+    ? ""
+    : !isRunning
     ? isLightMode ? "text-neutral-500" : "text-[#a1a1aa]"
     : mode === "focus"
     ? isLightMode ? "text-[#1d1d1f]" : "text-white"
@@ -642,15 +668,21 @@ export const PomodoroIdlePill: React.FC<{
           )}
         </div>
         {taskTitle && (
-          <span className={`text-[12px] font-medium truncate max-w-[125px] ${
-            isLightMode ? "text-neutral-700" : "text-white/85"
-          }`}>
+          <span
+            style={customTextColor ? { color: customTextColor } : undefined}
+            className={`text-[12px] font-medium truncate max-w-[125px] ${
+              isLightMode ? "text-neutral-700" : "text-white/85"
+            }`}
+          >
             {taskTitle}
           </span>
         )}
       </div>
 
-      <span className={`text-[14px] font-semibold tabular-nums tracking-[0.01em] ${timeColor}`}>
+      <span
+        style={customTextColor ? { color: customTextColor } : undefined}
+        className={`text-[14px] font-semibold tabular-nums tracking-[0.01em] ${timeColor}`}
+      >
         {formatSecondsMMSS(remainingSec)}
       </span>
     </motion.div>

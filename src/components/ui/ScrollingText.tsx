@@ -2,16 +2,22 @@ import { useRef, useState, useEffect } from "react";
 
 export interface ScrollingTextProps {
   text: string;
+  children?: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
   speed?: number;
   pauseSeconds?: number;
+  align?: "left" | "center";
 }
 
 export const ScrollingText = ({
   text,
+  children,
   className = "",
+  style,
   speed = 28,
   pauseSeconds = 1.8,
+  align = "left",
 }: ScrollingTextProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -67,6 +73,8 @@ export const ScrollingText = ({
       ref={containerRef}
       className={`overflow-hidden whitespace-nowrap py-[1px] group/marquee ${className}`}
       style={{
+        ...style,
+        textAlign: shouldScroll ? "left" : align === "center" ? "center" : undefined,
         maskImage: shouldScroll
           ? "linear-gradient(to right, transparent 0%, black 8px, black calc(100% - 8px), transparent 100%)"
           : undefined,
@@ -109,7 +117,7 @@ export const ScrollingText = ({
               }
         }
       >
-        {text}
+        {children ?? text}
       </span>
     </div>
   );

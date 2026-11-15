@@ -9,8 +9,23 @@ import {
   NotchPosition,
   snapToPhysicalPixel,
 } from "../../utils/notchGeometry";
+import { hexToRgba, getPerceivedLuminance } from "../../utils/colorUtils";
 
 export type NotchSurfaceTone = "default" | "drag_over";
+
+function readInlinePx(raw: string): number | null {
+  if (!raw || !raw.endsWith("px")) return null;
+  const val = parseFloat(raw);
+  return Number.isFinite(val) ? val : null;
+}
+
+function readObservedBorderBoxSize(entry: ResizeObserverEntry): { width: number; height: number } {
+  const borderBox = entry.borderBoxSize?.[0];
+  if (borderBox) {
+    return { width: borderBox.inlineSize, height: borderBox.blockSize };
+  }
+  return { width: entry.contentRect.width, height: entry.contentRect.height };
+}
 
 interface NotchSurfaceProps {
   containerRef: React.RefObject<HTMLElement | null>;
@@ -24,6 +39,7 @@ interface NotchSurfaceProps {
   opacity?: number;
   blur?: number;
   isLightMode?: boolean;
+  customColor?: string | null;
 }
 
 /**
@@ -46,13 +62,13 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
   opacity,
   blur = 0,
   isLightMode = false,
+  customColor = null,
 }) => {
   const isBottom = isBottomNotchPosition(position);
   const isSideCenter = isSideCenterNotchPosition(position);
   const isIsland = notchShape === "island";
 
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const shadowRef = useRef<HTMLDivElement>(null);
   const fillPathRef = useRef<SVGPathElement>(null);
   const baseFillPathRef = useRef<SVGPathElement>(null);
   const strokePathRef = useRef<SVGPathElement>(null);
@@ -61,12 +77,46 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
   const strokeSvgRef = useRef<SVGSVGElement>(null);
   const latestFillPathStrRef = useRef<string>("");
 
+  const isGlass = themeMode === "glass";
+  const isClear = themeMode === "clear";
+  const isTranslucent = isGlass || isClear;
+
+  const effectiveOpacity =
+    typeof opacity === "number" && Number.isFinite(opacity)
+      ? Math.max(0.15, Math.min(1.0, opacity))
+      : isGlass
+      ? 0.78
+      : isClear
+      ? 0.54
+      : 1.0;
+
+  const effectiveBlur =
+    typeof blur === "number" && Number.isFinite(blur)
+      ? Math.max(0, Math.min(100, blur))
+      : 0;
+  const blurRatio = effectiveBlur / 100;
+
+  const acrylicConfigRef = useRef({
+    enabled: isTranslucent && effectiveBlur > 1,
+    blurStrength: Math.round(effectiveBlur),
+    opacity: effectiveOpacity,
+    isLight: isLightMode,
+  });
+  acrylicConfigRef.current = {
+    enabled: isTranslucent && effectiveBlur > 1,
+    blurStrength: Math.round(effectiveBlur),
+    opacity: effectiveOpacity,
+    isLight: isLightMode,
+  };
+
   const lastWidthRef = useRef<number>(-1);
   const lastHeightRef = useRef<number>(-1);
   const lastReRef = useRef<number>(-1);
   const lastRbRef = useRef<number>(-1);
   const lastRtRef = useRef<number>(-1);
   const lastDprRef = useRef<number>(-1);
+  const observedSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const lastAcrylicEnabledRef = useRef<boolean>(false);
 
   const morphProgressRef = useRef<number>(isIsland ? 1.0 : 0.0);
   const targetMorphRef = useRef<number>(isIsland ? 1.0 : 0.0);
@@ -102,14 +152,32 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
     // Force immediate recalculation when props change
     lastWidthRef.current = -1;
 
+    const reducedMotionQuery =
+      typeof window !== "undefined" && window.matchMedia
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+
+    if (containerRef.current && observedSizeRef.current === null) {
+      observedSizeRef.current = {
+        width: containerRef.current.offsetWidth,
+        height: containerRef.current.offsetHeight,
+      };
+    }
+
     const updateSurface = () => {
       animFrameId = null;
       const container = containerRef.current;
       if (!container) return;
 
       const dpr = window.devicePixelRatio || 1;
-      const cssW = parseFloat(container.style.width) || container.offsetWidth;
-      const cssH = parseFloat(container.style.height) || container.offsetHeight;
+      const cssW =
+        readInlinePx(container.style.width) ??
+        observedSizeRef.current?.width ??
+        container.offsetWidth;
+      const cssH =
+        readInlinePx(container.style.height) ??
+        observedSizeRef.current?.height ??
+        container.offsetHeight;
       const rawW = snapToPhysicalPixel(cssW, dpr);
       const rawH = snapToPhysicalPixel(cssH, dpr);
 
@@ -123,10 +191,7 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
       // Spring-based continuous morphing between Notch (m=0) and Island (m=1)
       const targetMorph = targetMorphRef.current;
       let currentMorph = morphProgressRef.current;
-      const isReducedMotion =
-        typeof window !== "undefined" &&
-        window.matchMedia &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const isReducedMotion = Boolean(reducedMotionQuery?.matches);
 
       let isMorphing = false;
       if (isReducedMotion) {
@@ -227,9 +292,12 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
 
         const fillPath = buildNotchPath(pathParams);
         const outlinePath = buildNotchOutlinePath(pathParams);
-        const { totalW, totalH, offsetLeft, offsetTop, bodyLeft, bodyTop } =
+        const { totalW, totalH, offsetLeft, offsetTop } =
           getNotchSurfaceMetrics(pathParams);
-        const snappedH = snapToPhysicalPixel(rawH, dpr);
+
+        // Read layout geometry before mutating wrapperRef styles to avoid read-after-write layout thrashing
+        const ac = acrylicConfigRef.current;
+        const containerRect = ac.enabled ? container.getBoundingClientRect() : null;
 
         if (wrapperRef.current) {
           wrapperRef.current.style.width = `${totalW}px`;
@@ -238,25 +306,24 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           wrapperRef.current.style.top = `${offsetTop}px`;
         }
 
-        if (shadowRef.current) {
-          if (isTranslucent || m >= 0.99) {
-            shadowRef.current.style.display = "none";
-          } else {
-            shadowRef.current.style.display = "";
-            shadowRef.current.style.opacity = String(Math.max(0, 1 - m * 2));
-            shadowRef.current.style.left = `${bodyLeft}px`;
-            shadowRef.current.style.top = `${bodyTop}px`;
-            shadowRef.current.style.width = `${rawW}px`;
-            shadowRef.current.style.height = `${snappedH}px`;
-            shadowRef.current.style.borderRadius =
-              position === "left"
-                ? `0px ${targetRb}px ${targetRb}px 0px`
-                : position === "right"
-                ? `${targetRb}px 0px 0px ${targetRb}px`
-                : isBottom
-                ? `${targetRb}px ${targetRb}px 0px 0px`
-                : `0px 0px ${targetRb}px ${targetRb}px`;
-          }
+        if (ac.enabled || lastAcrylicEnabledRef.current) {
+          lastAcrylicEnabledRef.current = ac.enabled;
+          invoke("sync_notch_acrylic", {
+            enabled: ac.enabled,
+            containerLeft: containerRect ? containerRect.left : 0,
+            containerTop: containerRect ? containerRect.top : 0,
+            width: rawW,
+            height: rawH,
+            earRadius: targetRe,
+            bottomRadius: targetRb,
+            topRadius: targetRt,
+            isIsland: isIslandPath,
+            position,
+            dpr,
+            blurStrength: ac.blurStrength,
+            opacity: ac.opacity,
+            isLight: ac.isLight,
+          }).catch(() => {});
         }
 
         if (svgRef.current) {
@@ -313,7 +380,11 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
 
     let observer: ResizeObserver | null = null;
     if (containerRef.current && typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(() => {
+      observer = new ResizeObserver((entries) => {
+        const entry = entries[entries.length - 1];
+        if (entry) {
+          observedSizeRef.current = readObservedBorderBoxSize(entry);
+        }
         wakeLoop(500);
       });
       observer.observe(containerRef.current);
@@ -332,56 +403,94 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
     };
   }, [containerRef, position, isBottom, isSideCenter, withEars, isExpanded, isIsland, themeMode, isLightMode]);
 
-  const isGlass = themeMode === "glass";
-  const isClear = themeMode === "clear";
-  const isTranslucent = isGlass || isClear;
   const needsClipGroup =
     isTranslucent || isIsland || Boolean(displayedImage) || surfaceTone === "drag_over";
 
-  // Real desktop backdrop capture behind notch (excluded via WDA_EXCLUDEFROMCAPTURE)
-  const [desktopBackdropUrl, setDesktopBackdropUrl] = useState<string | null>(null);
+  // Calibrated translucent stops so the real-time native Win32 DWM Acrylic blur underneath shines through cleanly
+  const expandFrostBoost = isExpanded ? 0.04 : 0;
 
+  const darkStop0 = Math.min(0.88, Math.max(0.18, effectiveOpacity * 0.56 + expandFrostBoost)).toFixed(2);
+  const darkStop1 = Math.min(0.90, Math.max(0.22, effectiveOpacity * 0.62 + expandFrostBoost)).toFixed(2);
+  const darkStop2 = Math.min(0.92, Math.max(0.26, effectiveOpacity * 0.68 + expandFrostBoost)).toFixed(2);
+
+  const lightStop0 = Math.min(0.88, Math.max(0.18, effectiveOpacity * 0.54 + expandFrostBoost)).toFixed(2);
+  const lightStop1 = Math.min(0.86, Math.max(0.16, effectiveOpacity * 0.48 + expandFrostBoost)).toFixed(2);
+  const lightStop2 = Math.min(0.88, Math.max(0.18, effectiveOpacity * 0.52 + expandFrostBoost)).toFixed(2);
+
+  // Subtle optical glass diffusion stops (scales with Blur slider)
+  const diffDarkTop = (blurRatio * 0.16).toFixed(2);
+  const diffDarkBot = (blurRatio * 0.22).toFixed(2);
+  const diffLightTop = (blurRatio * 0.14).toFixed(2);
+  const diffLightBot = (blurRatio * 0.18).toFixed(2);
+
+  // Sync Native Win32 DWM Acrylic Underlay immediately when theme, blur, or opacity changes
   useEffect(() => {
-    if (!isTranslucent) {
-      setDesktopBackdropUrl(null);
+    const container = containerRef.current;
+    const roundedBlur = Math.round(effectiveBlur);
+    const enabled = isTranslucent && roundedBlur > 1;
+    const dpr = window.devicePixelRatio || 1;
+
+    if (!container || lastWidthRef.current <= 0 || lastHeightRef.current <= 0) {
+      if (!enabled) {
+        invoke("sync_notch_acrylic", {
+          enabled: false,
+          containerLeft: 0,
+          containerTop: 0,
+          width: 0,
+          height: 0,
+          earRadius: 0,
+          bottomRadius: 0,
+          topRadius: 0,
+          isIsland,
+          position,
+          dpr,
+          blurStrength: 0,
+          opacity: effectiveOpacity,
+          isLight: isLightMode,
+        }).catch(() => {});
+      }
       return;
     }
 
-    let isMounted = true;
-    const captureBackdrop = async () => {
-      try {
-        const container = containerRef.current;
-        let clientRect: { x: number; y: number; width: number; height: number } | undefined;
-        if (container) {
-          const rect = container.getBoundingClientRect();
-          const pad = withEars ? 44 : 8;
-          clientRect = {
-            x: Math.max(0, rect.left - pad),
-            y: Math.max(0, rect.top - (isBottom ? 0 : 4)),
-            width: rect.width + pad * 2,
-            height: rect.height + pad * 2,
-          };
-        }
-        const dataUrl = await invoke<string>("capture_desktop_backdrop", {
-          windowLabel: "main",
-          clientRect,
-          blurSigma: blur && blur > 0 ? (blur / 100) * 20 : 13.0,
-        });
-        if (isMounted && dataUrl) {
-          setDesktopBackdropUrl(dataUrl);
-        }
-      } catch {
-        // Fallback gracefully if capture command is unavailable
-      }
-    };
+    const rect = container.getBoundingClientRect();
+    invoke("sync_notch_acrylic", {
+      enabled,
+      containerLeft: rect.left,
+      containerTop: rect.top,
+      width: lastWidthRef.current,
+      height: lastHeightRef.current,
+      earRadius: lastReRef.current,
+      bottomRadius: lastRbRef.current,
+      topRadius: lastRtRef.current,
+      isIsland: morphProgressRef.current >= 0.5,
+      position,
+      dpr,
+      blurStrength: roundedBlur,
+      opacity: effectiveOpacity,
+      isLight: isLightMode,
+    }).catch(() => {});
+  }, [isTranslucent, effectiveBlur, effectiveOpacity, isLightMode, isIsland, position, containerRef]);
 
-    captureBackdrop();
-    const interval = setInterval(captureBackdrop, isExpanded ? 1200 : 1800);
+  useEffect(() => {
     return () => {
-      isMounted = false;
-      clearInterval(interval);
+      invoke("sync_notch_acrylic", {
+        enabled: false,
+        containerLeft: 0,
+        containerTop: 0,
+        width: 0,
+        height: 0,
+        earRadius: 0,
+        bottomRadius: 0,
+        topRadius: 0,
+        isIsland: false,
+        position: "top",
+        dpr: 1,
+        blurStrength: 0,
+        opacity: 0.78,
+        isLight: false,
+      }).catch(() => {});
     };
-  }, [isTranslucent, isExpanded, withEars, isBottom, containerRef, blur]);
+  }, []);
 
   useEffect(() => {
     if (needsClipGroup && fillPathRef.current && latestFillPathStrRef.current) {
@@ -389,42 +498,51 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
     }
   }, [needsClipGroup]);
 
+  const isCustomLight = customColor
+    ? getPerceivedLuminance(customColor) >= 0.55
+    : isLightMode;
+
   const baseFill =
     surfaceTone === "drag_over"
       ? "url(#notch-drag-over-grad)"
-      : isTranslucent
-      ? "none"
-      : isLightMode
-      ? "#ffffff"
-      : "#000000";
+      : customColor
+      ? isTranslucent
+        ? hexToRgba(customColor, effectiveOpacity)
+        : customColor
+      : isGlass
+      ? isLightMode
+        ? "url(#notch-glass-fill-light)"
+        : "url(#notch-glass-fill-dark)"
+      : isClear
+      ? isLightMode
+        ? "url(#notch-clear-fill-light)"
+        : "url(#notch-clear-fill-dark)"
+      : "var(--notch-bg)";
 
   const effectiveStroke =
     surfaceTone === "drag_over"
       ? "rgba(34, 211, 238, 0.75)"
-      : isTranslucent
-      ? isLightMode
-        ? "rgba(255, 255, 255, 0.65)"
-        : "rgba(255, 255, 255, 0.22)"
-      : isLightMode
-      ? "rgba(0, 0, 0, 0.08)"
-      : "rgba(255, 255, 255, 0.08)";
+      : isGlass
+      ? isCustomLight
+        ? "url(#notch-glass-bevel-stroke-light)"
+        : "url(#notch-glass-bevel-stroke-dark)"
+      : isClear
+      ? isCustomLight
+        ? "url(#notch-glass-stroke-light)"
+        : "url(#notch-glass-stroke-dark)"
+      : isIsland
+      ? isCustomLight
+        ? "rgba(0, 0, 0, 0.12)"
+        : "rgba(255, 255, 255, 0.08)"
+      : isCustomLight
+      ? "rgba(0, 0, 0, 0.12)"
+      : "var(--notch-stroke)";
 
   return (
     <div
       ref={wrapperRef}
       className="absolute top-0 pointer-events-none select-none z-0 overflow-visible"
     >
-      {/* GPU-accelerated body shadow (solid mode only; hidden in liquid glass to eliminate body box shadow artifact) */}
-      {!isTranslucent && (
-        <div
-          ref={shadowRef}
-          className="absolute top-0 pointer-events-none notch-surface-shadow"
-          style={{
-            boxShadow: "0 12px 32px rgba(0, 0, 0, 0.55)",
-          }}
-        />
-      )}
-
       {/* Unified Frosted Backdrop Filter layer — only mounted in translucent modes */}
       {isTranslucent && (
         <div
@@ -452,17 +570,47 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
             </clipPath>
           )}
 
-          <filter
-            id="notch-ambient-blur"
-            x="-35%"
-            y="-35%"
-            width="170%"
-            height="170%"
-            colorInterpolationFilters="sRGB"
-          >
-            <feGaussianBlur stdDeviation="34" edgeMode="duplicate" />
-            <feColorMatrix type="saturate" values="1.85" />
-          </filter>
+          {Boolean(displayedImage) && (
+            <filter
+              id="notch-ambient-blur"
+              x="-35%"
+              y="-35%"
+              width="170%"
+              height="170%"
+              colorInterpolationFilters="sRGB"
+            >
+              <feGaussianBlur stdDeviation="34" edgeMode="duplicate" />
+              <feColorMatrix type="saturate" values="1.85" />
+            </filter>
+          )}
+
+          {/* Native 1:1 resolution frosted matte grain ("burem kasar") */}
+          {isTranslucent && effectiveBlur > 0 && (
+            <>
+              <filter id="notch-frosted-grain" x="0%" y="0%" width="100%" height="100%">
+                <feTurbulence
+                  type="fractalNoise"
+                  baseFrequency="0.82"
+                  numOctaves="3"
+                  stitchTiles="stitch"
+                  result="noise"
+                />
+                <feColorMatrix
+                  type="matrix"
+                  values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0.085 0"
+                  in="noise"
+                />
+              </filter>
+              <pattern
+                id="notch-frosted-grain-pattern"
+                patternUnits="userSpaceOnUse"
+                width="64"
+                height="64"
+              >
+                <rect width="64" height="64" filter="url(#notch-frosted-grain)" />
+              </pattern>
+            </>
+          )}
 
           <linearGradient id="notch-drag-over-grad" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="rgba(8, 51, 68, 0.96)" />
@@ -470,16 +618,58 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
             <stop offset="100%" stopColor="rgba(8, 51, 68, 0.96)" />
           </linearGradient>
 
-          {/* Authentic Liquid Glass Specular Gradient (User's Exact Recipe) */}
-          <linearGradient id="notch-liquid-specular-dark" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="rgba(255, 255, 255, 0.20)" />
-            <stop offset="50%" stopColor="rgba(255, 255, 255, 0.07)" />
-            <stop offset="100%" stopColor="rgba(255, 255, 255, 0.10)" />
+          {/* Clean Frosted Liquid Glass & Glass Base Fills (Dynamically driven by opacity + blur) */}
+          <linearGradient id="notch-glass-fill-dark" key={`g-dark-${darkStop0}-${darkStop1}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={`rgba(24, 24, 34, ${darkStop0})`} />
+            <stop offset="45%" stopColor={`rgba(16, 16, 24, ${darkStop1})`} />
+            <stop offset="100%" stopColor={`rgba(10, 10, 15, ${darkStop2})`} />
           </linearGradient>
-          <linearGradient id="notch-liquid-specular-light" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="rgba(255, 255, 255, 0.65)" />
-            <stop offset="50%" stopColor="rgba(255, 255, 255, 0.25)" />
-            <stop offset="100%" stopColor="rgba(255, 255, 255, 0.40)" />
+          <linearGradient id="notch-glass-fill-light" key={`g-light-${lightStop0}-${lightStop1}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={`rgba(255, 255, 255, ${lightStop0})`} />
+            <stop offset="45%" stopColor={`rgba(246, 246, 250, ${lightStop1})`} />
+            <stop offset="100%" stopColor={`rgba(235, 235, 242, ${lightStop2})`} />
+          </linearGradient>
+
+          <linearGradient id="notch-clear-fill-dark" key={`c-dark-${darkStop0}-${darkStop1}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={`rgba(24, 24, 34, ${darkStop0})`} />
+            <stop offset="45%" stopColor={`rgba(16, 16, 24, ${darkStop1})`} />
+            <stop offset="100%" stopColor={`rgba(10, 10, 15, ${darkStop2})`} />
+          </linearGradient>
+          <linearGradient id="notch-clear-fill-light" key={`c-light-${lightStop0}-${lightStop1}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={`rgba(255, 255, 255, ${lightStop0})`} />
+            <stop offset="45%" stopColor={`rgba(246, 246, 250, ${lightStop1})`} />
+            <stop offset="100%" stopColor={`rgba(240, 240, 246, ${lightStop2})`} />
+          </linearGradient>
+
+          {/* Subtle Apple Glass Top Lustre (delicate 14% max) */}
+          <radialGradient id="notch-glass-specular" cx="50%" cy="0%" r="85%">
+            <stop offset="0%" stopColor="rgba(255, 255, 255, 0.14)" />
+            <stop offset="35%" stopColor="rgba(255, 255, 255, 0.03)" />
+            <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
+          </radialGradient>
+
+          {/* Smooth Optical Glass Diffusion Bed Gradient (scales with Blur slider) */}
+          <linearGradient
+            id="notch-optical-diffusion-dark"
+            key={`opt-diff-dark-${diffDarkTop}-${diffDarkBot}`}
+            x1="0%"
+            y1="0%"
+            x2="0%"
+            y2="100%"
+          >
+            <stop offset="0%" stopColor={`rgba(18, 18, 24, ${diffDarkTop})`} />
+            <stop offset="100%" stopColor={`rgba(10, 10, 16, ${diffDarkBot})`} />
+          </linearGradient>
+          <linearGradient
+            id="notch-optical-diffusion-light"
+            key={`opt-diff-light-${diffLightTop}-${diffLightBot}`}
+            x1="0%"
+            y1="0%"
+            x2="0%"
+            y2="100%"
+          >
+            <stop offset="0%" stopColor={`rgba(240, 240, 248, ${diffLightTop})`} />
+            <stop offset="100%" stopColor={`rgba(224, 224, 236, ${diffLightBot})`} />
           </linearGradient>
 
           {/* Crisp 1px Top Rim Highlight */}
@@ -499,7 +689,7 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           </radialGradient>
         </defs>
 
-        {/* Direct Vector Base Path (zero offscreen clip-mask FBO needed in Solid Notch mode) */}
+        {/* Direct Vector Base Path */}
         <path
           ref={baseFillPathRef}
           fill={baseFill}
@@ -513,49 +703,27 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           <g clipPath="url(#notch-unified-clip)">
             {isTranslucent && (
               <>
-                {/* Real captured desktop wallpaper behind notch with GPU blur */}
-                {desktopBackdropUrl ? (
-                  <image
-                    href={desktopBackdropUrl}
-                    x="0"
-                    y="0"
-                    width="100%"
-                    height="100%"
-                    preserveAspectRatio="none"
-                    style={{
-                      filter: "blur(26px) saturate(175%) brightness(1.05)",
-                      transform: "scale(1.08)",
-                      transformOrigin: "center",
-                    }}
-                  />
-                ) : (
-                  /* Ambient fallback tint before first capture frame */
+                {/* Pure Optical Glass Diffusion Bed (scales directly with Blur slider) */}
+                {effectiveBlur > 0 && (
                   <rect
                     width="100%"
                     height="100%"
-                    fill={isLightMode ? "rgba(240, 244, 255, 0.70)" : "rgba(20, 16, 56, 0.65)"}
+                    fill={isLightMode ? "url(#notch-optical-diffusion-light)" : "url(#notch-optical-diffusion-dark)"}
                   />
                 )}
 
-                {/* Crystal sapphire tint: User's exact recipe rgba(22,16,72,.50) (dark) / crisp light tint */}
-                <rect
-                  width="100%"
-                  height="100%"
-                  fill={
-                    isLightMode
-                      ? "rgba(235, 240, 255, 0.40)"
-                      : typeof opacity === "number"
-                      ? `rgba(22, 16, 72, ${Math.max(0.2, Math.min(0.85, opacity * 0.55)).toFixed(2)})`
-                      : "rgba(22, 16, 72, 0.50)"
-                  }
-                />
+                {/* Native 1:1 Frosted Matte Acrylic Grain ("burem kasar" texture) */}
+                {isTranslucent && effectiveBlur > 0 && (
+                  <rect
+                    width="100%"
+                    height="100%"
+                    fill="url(#notch-frosted-grain-pattern)"
+                    opacity={Math.min(1, blurRatio * 1.15)}
+                  />
+                )}
 
-                {/* Multi-stop specular highlight: linear-gradient(180deg, rgba(255,255,255,.20) 0%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.10) 100%) */}
-                <rect
-                  width="100%"
-                  height="100%"
-                  fill={isLightMode ? "url(#notch-liquid-specular-light)" : "url(#notch-liquid-specular-dark)"}
-                />
+                {/* Subtle Apple Top Lustre */}
+                <rect width="100%" height="100%" fill="url(#notch-glass-specular)" />
 
                 {/* Crisp 1px Top Rim Glint */}
                 <rect

@@ -8,8 +8,18 @@ import { NavbarIconTheme, NavbarPosition } from "../../../types/navbar";
 import { hexToRgba } from "../../../services/navbarConfigService";
 import { renderAppIcon, normalizeIconUrl } from "./appIcons";
 import { useWindowsPinnedApps } from "../../../hooks/useWindowsPinnedApps";
-import { matchesAppId, getRunningAppMeta } from "./pinnedAppsHelpers";
+import { getRunningAppMeta, isBrowserPwaShortcut, matchesPinnedApp } from "./pinnedAppsHelpers";
+import {
+  registerNavbarPopup,
+  unregisterNavbarPopup,
+} from "../../../services/navbarPopupService";
 import { AppContextMenu } from "./AppContextMenu";
+import {
+  useTaskbarLang,
+  tx,
+  getNavbarTooltipSide,
+} from "../../../services/taskbarI18n";
+import { useNavbarLightMode } from "../navbarThemeUtils";
 
 export interface NavbarAppItem {
   id: string;
@@ -44,6 +54,29 @@ interface RunningWindowInfo {
   icon_base64?: string;
 }
 
+function areRunningWindowsEqual(
+  prev: RunningWindowInfo[],
+  next: RunningWindowInfo[]
+): boolean {
+  if (prev === next) return true;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i];
+    const b = next[i];
+    if (
+      a.hwnd !== b.hwnd ||
+      a.title !== b.title ||
+      a.process_name !== b.process_name ||
+      a.is_active !== b.is_active ||
+      a.is_minimized !== b.is_minimized ||
+      a.icon_base64 !== b.icon_base64
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 interface PinnedAppsGroupProps {
   apps?: NavbarAppItem[];
   iconSize?: number;
@@ -54,6 +87,8 @@ interface PinnedAppsGroupProps {
   showAppLabels?: boolean;
   accentColor?: string;
   isPreview?: boolean;
+  isHidden?: boolean;
+  showPinnedApps?: boolean;
   showRunningApps?: boolean;
   onAppClick?: (app: NavbarAppItem, forceNewInstance?: boolean) => void;
   onPreviewStateChange?: (isShowing: boolean) => void;
@@ -104,6 +139,8 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   showAppLabels = false,
   accentColor = "#0a84ff",
   isPreview = false,
+  isHidden = false,
+  showPinnedApps = true,
   showRunningApps = true,
   onAppClick,
   onPreviewStateChange,
@@ -114,6 +151,9 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   const [contextMenuAppId, setContextMenuAppId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
   const [runningWindows, setRunningWindows] = useState<RunningWindowInfo[]>([]);
+  const windowIconCacheRef = useRef<Map<number, string>>(new Map());
+  const runningAppOrderRef = useRef<string[]>([]);
+  const windowOrderRef = useRef<number[]>([]);
 
   const [customOrder, setCustomOrder] = useState<string[]>(() => {
     try {
@@ -209,19 +249,48 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   };
 
   useEffect(() => {
-    if (isPreview) return;
+    if (isHidden) return;
     let isCancelled = false;
     const syncWindows = async () => {
       try {
-        const windows = await invoke<RunningWindowInfo[]>("get_running_windows");
+        const cache = windowIconCacheRef.current;
+        const windows = await invoke<RunningWindowInfo[]>("get_running_windows", {
+          knownHwnds: Array.from(cache.keys()),
+        });
         if (!isCancelled && windows) {
-          setRunningWindows(windows);
+          const activeHwnds = new Set<number>();
+          for (const w of windows) {
+            activeHwnds.add(w.hwnd);
+            if (w.icon_base64) {
+              cache.set(w.hwnd, w.icon_base64);
+            } else {
+              const cachedIcon = cache.get(w.hwnd);
+              if (cachedIcon) {
+                w.icon_base64 = cachedIcon;
+              }
+            }
+          }
+          for (const cachedHwnd of cache.keys()) {
+            if (!activeHwnds.has(cachedHwnd)) {
+              cache.delete(cachedHwnd);
+            }
+          }
+          setRunningWindows((prev) =>
+            areRunningWindowsEqual(prev, windows) ? prev : windows
+          );
         }
       } catch {}
     };
 
+    if (isPreview) {
+      syncWindows();
+      return () => {
+        isCancelled = true;
+      };
+    }
+
     syncWindows();
-    const interval = setInterval(syncWindows, 800);
+    const interval = setInterval(syncWindows, 1200);
     const handleFastSync = () => {
       syncWindows();
     };
@@ -231,7 +300,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
       clearInterval(interval);
       window.removeEventListener("gili_sync_running_windows", handleFastSync);
     };
-  }, [isPreview]);
+  }, [isPreview, isHidden]);
 
   // 1. Base pinned apps from Windows Taskband + extra user-pinned apps, minus unpinned
   const rawBasePinned: NavbarAppItem[] =
@@ -260,44 +329,57 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   });
   const basePinnedApps = Array.from(mergedPinnedMap.values());
 
+  // Preserve stable first-seen window ordering regardless of Win32 Z-order changes
+  const liveHwndSet = new Set(runningWindows.map((w) => w.hwnd));
+  const nextWindowOrder = windowOrderRef.current.filter((h) => liveHwndSet.has(h));
+  for (const w of runningWindows) {
+    if (!nextWindowOrder.includes(w.hwnd)) {
+      nextWindowOrder.push(w.hwnd);
+    }
+  }
+  windowOrderRef.current = nextWindowOrder;
+  const windowOrderIndex = new Map<number, number>();
+  nextWindowOrder.forEach((h, idx) => windowOrderIndex.set(h, idx));
+  const sortByWindowOrder = <T extends { hwnd: number }>(items: T[]) =>
+    [...items].sort(
+      (a, b) => (windowOrderIndex.get(a.hwnd) ?? 0) - (windowOrderIndex.get(b.hwnd) ?? 0)
+    );
+
   // 2. Match pinned apps with live running windows
   const matchedHwnds = new Set<number>();
-  const livePinnedApps: NavbarAppItem[] = basePinnedApps.map((app) => {
-    const allMatches = runningWindows.filter((w) => {
-      const p = w.process_name.toLowerCase();
-      if (app.targetPath && p && app.targetPath.toLowerCase().includes(p)) {
-        return true;
+  const pwaClaimedHwnds = new Set<number>();
+  basePinnedApps.forEach((app) => {
+    if (!isBrowserPwaShortcut(app)) return;
+    runningWindows.forEach((w) => {
+      if (matchesPinnedApp(app, w)) {
+        pwaClaimedHwnds.add(w.hwnd);
       }
-      return matchesAppId(app.id, p, w.title);
+    });
+  });
+
+  const livePinnedApps: NavbarAppItem[] = basePinnedApps.map((app) => {
+    const isPwa = isBrowserPwaShortcut(app);
+    const allMatches = runningWindows.filter((w) => {
+      if (!isPwa && pwaClaimedHwnds.has(w.hwnd)) return false;
+      return matchesPinnedApp(app, w);
     });
 
     allMatches.forEach((w) => matchedHwnds.add(w.hwnd));
 
-    if (isPreview) {
-      const isDemoActive =
-        app.id === "chrome" || app.name.toLowerCase().includes("chrome");
-      const isDemoRunning =
-        isDemoActive ||
-        app.id === "explorer" ||
-        app.id === "spotify" ||
-        app.name.toLowerCase().includes("explorer");
-      return {
-        ...app,
-        isRunning: isDemoRunning,
-        isActive: isDemoActive,
-      };
-    }
-
     const isRunning = allMatches.length > 0;
     const activeWin = allMatches.find((w) => w.is_active);
     const isActive = activeWin !== undefined;
-    const hwnd = activeWin ? activeWin.hwnd : allMatches[0]?.hwnd;
+    const hwnd =
+      activeWin?.hwnd ??
+      allMatches.find((w) => !w.is_minimized)?.hwnd ??
+      allMatches[0]?.hwnd;
     const activeTitle = activeWin?.title || allMatches[0]?.title || app.name;
-    const rawLive = app.icon || allMatches.find((w) => w.icon_base64)?.icon_base64;
+    const orderedMatches = sortByWindowOrder(allMatches);
+    const rawLive = app.icon || orderedMatches.find((w) => w.icon_base64)?.icon_base64;
     const liveIcon = normalizeIconUrl(rawLive);
 
     const windowsList: WindowPreviewItem[] = isRunning
-      ? allMatches.map((w) => ({
+      ? orderedMatches.map((w) => ({
           id: `win-${w.hwnd}`,
           hwnd: w.hwnd,
           title: w.title || app.name,
@@ -319,32 +401,32 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
 
   // 3. Collect unpinned running applications
   const unpinnedRunningApps: NavbarAppItem[] = [];
-  if (showRunningApps && !isPreview) {
+  if (showRunningApps) {
     const processGroupMap = new Map<string, RunningWindowInfo[]>();
 
     runningWindows.forEach((w) => {
       if (matchedHwnds.has(w.hwnd)) return;
-      const p = w.process_name.toLowerCase();
-      const isAlreadyPinned = basePinnedApps.some(
-        (pinned) =>
-          matchesAppId(pinned.id, p, w.title) ||
-          (pinned.targetPath && pinned.targetPath.toLowerCase().includes(p))
-      );
+      const isAlreadyPinned = basePinnedApps.some((pinned) => matchesPinnedApp(pinned, w));
       if (isAlreadyPinned) return;
 
+      const p = w.process_name.toLowerCase();
       const existing = processGroupMap.get(p) || [];
       existing.push(w);
       processGroupMap.set(p, existing);
     });
 
     processGroupMap.forEach((windows, procKey) => {
-      const meta = getRunningAppMeta(procKey, windows[0]?.title || procKey);
+      const orderedWindows = sortByWindowOrder(windows);
+      const meta = getRunningAppMeta(procKey, orderedWindows[0]?.title || procKey);
       if (basePinnedApps.some((p) => p.id === meta.id)) return;
 
       const activeWin = windows.find((w) => w.is_active);
       const isActive = activeWin !== undefined;
-      const hwnd = activeWin ? activeWin.hwnd : windows[0]?.hwnd;
-      const rawAppIcon = windows.find((w) => w.icon_base64)?.icon_base64 || undefined;
+      const hwnd =
+        activeWin?.hwnd ??
+        windows.find((w) => !w.is_minimized)?.hwnd ??
+        windows[0]?.hwnd;
+      const rawAppIcon = orderedWindows.find((w) => w.icon_base64)?.icon_base64 || undefined;
       const appIcon = normalizeIconUrl(rawAppIcon);
 
       unpinnedRunningApps.push({
@@ -356,7 +438,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
         isRunning: true,
         isActive,
         hwnd,
-        windows: windows.map((w) => ({
+        windows: orderedWindows.map((w) => ({
           id: `win-${w.hwnd}`,
           hwnd: w.hwnd,
           title: w.title || meta.name,
@@ -365,9 +447,30 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
         })),
       });
     });
+
+    // Lock running app slots by first-seen order so activating or minimizing never shifts positions
+    const activeUnpinnedIds = new Set(unpinnedRunningApps.map((a) => a.id));
+    const nextRunningAppOrder = runningAppOrderRef.current.filter((id) =>
+      activeUnpinnedIds.has(id)
+    );
+    for (const a of unpinnedRunningApps) {
+      if (!nextRunningAppOrder.includes(a.id)) {
+        nextRunningAppOrder.push(a.id);
+      }
+    }
+    runningAppOrderRef.current = nextRunningAppOrder;
+    unpinnedRunningApps.sort(
+      (a, b) => nextRunningAppOrder.indexOf(a.id) - nextRunningAppOrder.indexOf(b.id)
+    );
   }
 
-  const combinedApps = [...livePinnedApps, ...unpinnedRunningApps];
+  const visiblePinnedApps = showPinnedApps
+    ? livePinnedApps
+    : showRunningApps
+    ? livePinnedApps.filter((app) => app.isRunning)
+    : [];
+
+  const combinedApps = [...visiblePinnedApps, ...unpinnedRunningApps];
 
   // Apply custom user drag order if any
   const liveApps = [...combinedApps].sort((a, b) => {
@@ -427,14 +530,14 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
 
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
-      if (!drag.hasMoved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+      if (!drag.hasMoved && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
         drag.hasMoved = true;
         setDraggingAppId(drag.id);
         setHoveredAppId(null);
         setHoveredSlotId(null);
         setHoveredIndex(null);
         setContextMenuAppId(null);
-        invoke("set_navbar_popup_open", { open: true }).catch(() => {});
+        void registerNavbarPopup("drag:pinned", null);
       }
 
       if (drag.hasMoved) {
@@ -512,7 +615,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
       dragSessionRef.current = null;
 
       if (drag.hasMoved) {
-        invoke("set_navbar_popup_open", { open: false }).catch(() => {});
+        void unregisterNavbarPopup("drag:pinned");
       } else {
         setContextMenuAppId(null);
         onAppClick?.(drag.app, drag.shiftKey);
@@ -527,12 +630,21 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
       window.removeEventListener("pointermove", handleWinPointerMove);
       window.removeEventListener("pointerup", handleWinPointerUp);
       window.removeEventListener("pointercancel", handleWinPointerUp);
+      void unregisterNavbarPopup("drag:pinned");
     };
   }, [onAppClick, iconSize]);
 
   const handlePointerDown = (e: React.PointerEvent, app: NavbarAppItem) => {
     if (isPreview || e.button !== 0) return;
     e.stopPropagation();
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    if (hoveredAppId) {
+      setHoveredAppId(null);
+      onPreviewStateChange?.(false);
+    }
     const slotEl = slotRefs.current.get(app.id);
     const rect = slotEl
       ? slotEl.getBoundingClientRect()
@@ -624,14 +736,23 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     }
   };
 
+  const lang = useTaskbarLang();
+  const isLightMode = useNavbarLightMode();
+  const tooltipSide = getNavbarTooltipSide(position);
+
+  if (liveApps.length === 0) {
+    return null;
+  }
+
   return (
     <div
       ref={containerRef}
       data-pinned-apps-group
       className={`relative flex ${
-        isVertical ? "flex-col" : "flex-row"
+        isVertical ? "flex-col w-full min-w-0 max-w-full" : "flex-row"
       } items-center gap-1 shrink-0`}
     >
+      <AnimatePresence initial={false}>
       {liveApps.map((app, idx) => {
         const isPinned = basePinnedApps.some((p) => p.id === app.id);
         const showLabelPill =
@@ -645,7 +766,14 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
 
         const isHoveredThis = hoveredSlotId === app.id && !draggingAppId;
         let hoverScale = isHoveredThis ? 1.08 : 1;
-        let hoverLiftY = isHoveredThis ? (position === "top" ? 2 : -2.5) : 0;
+        let hoverLiftX = 0;
+        let hoverLiftY = 0;
+        if (isHoveredThis) {
+          if (position === "top") hoverLiftY = 2;
+          else if (position === "left") hoverLiftX = 2;
+          else if (position === "right") hoverLiftX = -2;
+          else hoverLiftY = -2.5;
+        }
 
         if (magnifyOnHover && hoveredIndex !== null && !isVertical && !draggingAppId) {
           const dist = Math.abs(hoveredIndex - idx);
@@ -668,8 +796,41 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
 
         return (
           <motion.div
-            layout={!isDraggingThis ? "position" : false}
-            transition={{ type: "spring", stiffness: 460, damping: 36, mass: 0.7 }}
+            layout={Boolean(draggingAppId) && !isDraggingThis ? "position" : false}
+            initial={
+              isVertical
+                ? { height: 0, opacity: 0, scale: 0.6 }
+                : { width: 0, opacity: 0, scale: 0.6 }
+            }
+            animate={
+              isVertical
+                ? { height: iconSize, opacity: 1, scale: 1 }
+                : { width: showLabelPill ? "auto" : iconSize, opacity: 1, scale: 1 }
+            }
+            exit={
+              isVertical
+                ? {
+                    height: 0,
+                    opacity: 0,
+                    scale: 0.6,
+                    marginTop: -2,
+                    marginBottom: -2,
+                    pointerEvents: "none",
+                  }
+                : {
+                    width: 0,
+                    opacity: 0,
+                    scale: 0.6,
+                    marginLeft: -2,
+                    marginRight: -2,
+                    pointerEvents: "none",
+                  }
+            }
+            transition={
+              draggingAppId
+                ? { type: "spring", stiffness: 460, damping: 36, mass: 0.7 }
+                : { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const }
+            }
             key={app.id}
             ref={(el) => {
               if (el) slotRefs.current.set(app.id, el);
@@ -677,7 +838,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
             }}
             onMouseEnter={() => handleMouseEnter(app, idx)}
             onMouseLeave={handleMouseLeave}
-            className={`relative ${isDraggingThis ? "z-40" : "z-10"}`}
+            className={`relative flex items-center justify-center shrink-0 ${isDraggingThis ? "z-40" : "z-10"}`}
           >
             {/* Shared Fluid Hover Highlight Pill */}
             {isHoveredThis && (
@@ -756,7 +917,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
             </AnimatePresence>
 
             <Tooltip
-              side={position === "top" ? "bottom" : "top"}
+              side={tooltipSide}
               delay={120}
               content={
                 isShowingPreview || isShowingContextMenu || isDraggingThis ? null : (
@@ -765,8 +926,14 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
                       {app.activeTitle || app.name}
                     </span>
                     {app.isActive && (
-                      <span className="text-[9.5px] px-1 py-0.2 rounded bg-white/20 font-semibold text-white shrink-0">
-                        Aktif
+                      <span
+                        className={`text-[9.5px] px-1 py-0.2 rounded font-semibold shrink-0 ${
+                          isLightMode
+                            ? "bg-black/10 text-zinc-900"
+                            : "bg-white/20 text-white"
+                        }`}
+                      >
+                        {tx(lang, "Active", "Aktif")}
                       </span>
                     )}
                   </div>
@@ -802,12 +969,19 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
                     ? "none"
                     : "transform 260ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, color 180ms ease",
                   transform:
-                    !isDraggingThis && (hoverScale !== 1 || hoverLiftY !== 0)
-                      ? `translate3d(0, ${hoverLiftY}px, 0) scale(${hoverScale})`
+                    !isDraggingThis &&
+                    (hoverScale !== 1 || hoverLiftX !== 0 || hoverLiftY !== 0)
+                      ? `translate3d(${hoverLiftX}px, ${hoverLiftY}px, 0) scale(${hoverScale})`
                       : undefined,
                 }}
                 className={`relative rounded-[12px] flex items-center justify-center gap-2 p-0 cursor-grab active:cursor-grabbing active:scale-95 shrink-0 select-none ${
-                  position === "top" ? "origin-top" : "origin-bottom"
+                  position === "top"
+                    ? "origin-top"
+                    : position === "left"
+                    ? "origin-left"
+                    : position === "right"
+                    ? "origin-right"
+                    : "origin-bottom"
                 } ${
                   app.isActive
                     ? "bg-white/[0.09] text-white"
@@ -864,6 +1038,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
           </motion.div>
         );
       })}
+      </AnimatePresence>
     </div>
   );
 };

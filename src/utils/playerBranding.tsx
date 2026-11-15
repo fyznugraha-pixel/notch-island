@@ -26,7 +26,7 @@ export interface PlayerBranding {
 export function resolvePlayerBranding(
   rawApp: string,
   isBrowser?: boolean,
-  webSource?: string,
+  webSource?: string | null,
   title?: string,
   artist?: string
 ): PlayerBranding {

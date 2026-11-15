@@ -19,10 +19,10 @@ export const NavbarPositionCard: React.FC<NavbarPositionCardProps> = ({
 }) => {
   const isId = optLanguage === "id";
   const cardBg = isLightMode
-    ? "bg-white/70 border-black/[0.08]"
-    : "bg-white/[0.03] border-white/[0.07]";
+    ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
   const textTitle = isLightMode ? "text-neutral-900" : "text-white";
-  const textSub = isLightMode ? "text-neutral-500" : "text-zinc-400";
+  const textSub = isLightMode ? "text-neutral-600" : "text-zinc-400";
 
   const positions: { id: NavbarPosition; label: string; icon: React.ReactNode }[] = [
     { id: "bottom", label: isId ? "Bawah" : "Bottom", icon: <ArrowDown size={14} /> },
@@ -32,7 +32,7 @@ export const NavbarPositionCard: React.FC<NavbarPositionCardProps> = ({
   ];
 
   return (
-    <div className={`flex flex-col gap-4 p-4 rounded-[16px] border ${cardBg}`}>
+    <div className={`flex flex-col gap-4 p-5 rounded-[18px] border ${cardBg}`}>
       {/* Title */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-[10px] bg-indigo-500/10 text-indigo-500 flex items-center justify-center shrink-0">
@@ -85,7 +85,11 @@ export const NavbarPositionCard: React.FC<NavbarPositionCardProps> = ({
       </div>
 
       {/* Monitor Selector */}
-      <div className="pt-2 border-t border-white/[0.06]">
+      <div
+        className={`pt-2 border-t ${
+          isLightMode ? "border-black/[0.07]" : "border-white/[0.06]"
+        }`}
+      >
         <MonitorSelector
           value={config.monitorId || "primary"}
           onChange={(monitorId) => onChange({ monitorId })}

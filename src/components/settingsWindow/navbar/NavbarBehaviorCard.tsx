@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import { NavbarConfig } from "../../../types/navbar";
-import { Sliders, RotateCcw, AlertTriangle, Check } from "lucide-react";
+import { Sliders, RotateCcw, AlertTriangle, Check, Lock } from "lucide-react";
 import { Language } from "../../../services/i18n";
 
 interface NavbarBehaviorCardProps {
   config: NavbarConfig;
   onChange: (patch: Partial<NavbarConfig>) => void;
   onReset: () => void;
+  isProLocked?: boolean;
+  onRequirePro?: () => void;
   isLightMode?: boolean;
   optLanguage?: Language;
 }
@@ -15,6 +17,8 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
   config,
   onChange,
   onReset,
+  isProLocked = false,
+  onRequirePro,
   isLightMode = false,
   optLanguage = "id",
 }) => {
@@ -22,36 +26,61 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const cardBg = isLightMode
-    ? "bg-white/70 border-black/[0.08]"
-    : "bg-white/[0.03] border-white/[0.07]";
+    ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
   const textTitle = isLightMode ? "text-neutral-900" : "text-white";
-  const textSub = isLightMode ? "text-neutral-500" : "text-zinc-400";
+  const textSub = isLightMode ? "text-neutral-600" : "text-zinc-400";
 
   const renderToggleRow = (
     title: string,
     desc: string,
     value: boolean,
     onToggle: () => void,
-    warning?: string
+    warning?: string,
+    requiresPro?: boolean
   ) => (
-    <div className="flex items-center justify-between py-2 border-b border-white/[0.05] last:border-b-0">
+    <div
+      className={`flex items-center justify-between py-2 border-b last:border-b-0 ${
+        isLightMode ? "border-black/[0.06]" : "border-white/[0.05]"
+      }`}
+    >
       <div className="flex flex-col pr-4">
-        <span className={`text-[12.5px] font-medium ${textTitle}`}>{title}</span>
+        <div className="flex items-center gap-2">
+          <span className={`text-[12.5px] font-medium ${textTitle}`}>{title}</span>
+          {requiresPro && (
+            <span
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[6px] text-[9.5px] font-bold tracking-wide border ${
+                isLightMode
+                  ? "bg-[#eff6ff] text-[#1d4ed8] border-blue-600/25"
+                  : "bg-[#0a84ff]/15 text-[#93c5fd] border-[#60a5fa]/30"
+              }`}
+            >
+              <Lock size={9} strokeWidth={2.5} aria-hidden="true" />
+              <span>PRO</span>
+            </span>
+          )}
+        </div>
         <span className={`text-[11px] ${textSub}`}>{desc}</span>
         {warning && (
-          <span className="flex items-center gap-1 text-[10.5px] text-amber-500/90 mt-1">
-            <AlertTriangle size={12} />
+          <span
+            className={`flex items-center gap-1 text-[10.5px] mt-1 ${
+              isLightMode ? "text-amber-700" : "text-amber-500/90"
+            }`}
+          >
+            <AlertTriangle size={12} aria-hidden="true" />
             {warning}
           </span>
         )}
       </div>
       <button
         type="button"
+        aria-label={title}
+        aria-pressed={value}
         onClick={onToggle}
         style={{
           backgroundColor: value ? config.accent : undefined,
         }}
-        className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${
+        className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa] ${
           value ? "" : isLightMode ? "bg-black/20" : "bg-white/20"
         }`}
       >
@@ -65,7 +94,7 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
   );
 
   return (
-    <div className={`flex flex-col gap-4 p-4 rounded-[16px] border ${cardBg}`}>
+    <div className={`flex flex-col gap-4 p-5 rounded-[18px] border ${cardBg}`}>
       {/* Title */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-[10px] bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
@@ -95,7 +124,13 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
         )}
 
         {config.autoHide && (
-          <div className="flex flex-col gap-2.5 my-1.5 p-3 rounded-[12px] bg-white/[0.03] border border-white/[0.06]">
+          <div
+            className={`flex flex-col gap-2.5 my-1.5 p-3 rounded-[12px] border ${
+              isLightMode
+                ? "bg-black/[0.03] border-black/[0.07]"
+                : "bg-white/[0.03] border-white/[0.06]"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <span className={`text-[11.5px] font-medium ${textTitle}`}>
                 {isId ? "Pilihan Sembunyi Otomatis:" : "Auto-Hide Behavior:"}
@@ -118,7 +153,11 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
                 onClick={() => onChange({ autoHideMode: "normal" })}
                 className={`p-2.5 rounded-[10px] border text-left flex flex-col gap-1 transition-all cursor-pointer ${
                   (config.autoHideMode || "normal") === "normal"
-                    ? "bg-white/[0.08] border-white/30 ring-1 ring-white/20 shadow-sm"
+                    ? isLightMode
+                      ? "bg-white border-black/20 ring-1 ring-black/10 shadow-sm"
+                      : "bg-white/[0.08] border-white/30 ring-1 ring-white/20 shadow-sm"
+                    : isLightMode
+                    ? "bg-transparent border-black/[0.08] hover:bg-black/[0.04]"
                     : "bg-transparent border-white/[0.07] hover:bg-white/[0.04]"
                 }`}
               >
@@ -127,7 +166,11 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
                     {isId ? "Normal (Cerdas)" : "Normal"}
                   </span>
                   {(config.autoHideMode || "normal") === "normal" && (
-                    <Check size={13} className="text-emerald-400" strokeWidth={2.6} />
+                    <Check
+                      size={13}
+                      className={isLightMode ? "text-emerald-600" : "text-emerald-400"}
+                      strokeWidth={2.6}
+                    />
                   )}
                 </div>
                 <span className={`text-[10.5px] leading-relaxed ${textSub}`}>
@@ -143,7 +186,11 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
                 onClick={() => onChange({ autoHideMode: "maxsize" })}
                 className={`p-2.5 rounded-[10px] border text-left flex flex-col gap-1 transition-all cursor-pointer ${
                   config.autoHideMode === "maxsize"
-                    ? "bg-white/[0.08] border-white/30 ring-1 ring-white/20 shadow-sm"
+                    ? isLightMode
+                      ? "bg-white border-black/20 ring-1 ring-black/10 shadow-sm"
+                      : "bg-white/[0.08] border-white/30 ring-1 ring-white/20 shadow-sm"
+                    : isLightMode
+                    ? "bg-transparent border-black/[0.08] hover:bg-black/[0.04]"
                     : "bg-transparent border-white/[0.07] hover:bg-white/[0.04]"
                 }`}
               >
@@ -152,7 +199,11 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
                     {isId ? "Only Maxsize" : "Only Maxsize"}
                   </span>
                   {config.autoHideMode === "maxsize" && (
-                    <Check size={13} className="text-emerald-400" strokeWidth={2.6} />
+                    <Check
+                      size={13}
+                      className={isLightMode ? "text-emerald-600" : "text-emerald-400"}
+                      strokeWidth={2.6}
+                    />
                   )}
                 </div>
                 <span className={`text-[10.5px] leading-relaxed ${textSub}`}>
@@ -193,7 +244,11 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
         )}
 
         {/* 24-Hour Clock Toggle */}
-        <div className="flex items-center justify-between py-2 border-b border-white/[0.05]">
+        <div
+          className={`flex items-center justify-between py-2 border-b ${
+            isLightMode ? "border-black/[0.06]" : "border-white/[0.05]"
+          }`}
+        >
           <div className="flex flex-col">
             <span className={`text-[12.5px] font-medium ${textTitle}`}>
               {isId ? "Format Jam 24 Jam" : "24-Hour Time Format"}
@@ -246,15 +301,26 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
           isId
             ? "Auto-hide taskbar bawaan Windows biar gak dobel & makin clean"
             : "Auto-hide Windows taskbar to eliminate clutter & avoid duplicate bars",
-          config.hideWindowsTaskbar,
-          () => onChange({ hideWindowsTaskbar: !config.hideWindowsTaskbar }),
+          !isProLocked && config.hideWindowsTaskbar,
+          () => {
+            if (isProLocked) {
+              onRequirePro?.();
+              return;
+            }
+            onChange({ hideWindowsTaskbar: !config.hideWindowsTaskbar });
+          },
           isId
             ? "Tenang, taskbar bawaan Windows bakal balik normal otomatis kalau Gili ditutup."
-            : "Don't worry, the Windows taskbar restores automatically when Gili closes."
+            : "Don't worry, the Windows taskbar restores automatically when Gili closes.",
+          isProLocked
         )}
 
         {/* Jendela Sistem Taskbar (Per-Window Switch) */}
-        <div className="mt-4 pt-3 border-t border-white/[0.08] flex flex-col gap-2.5">
+        <div
+          className={`mt-4 pt-3 border-t flex flex-col gap-2.5 ${
+            isLightMode ? "border-black/[0.08]" : "border-white/[0.08]"
+          }`}
+        >
           <div className="flex flex-col">
             <span className={`text-[12.5px] font-semibold ${textTitle}`}>
               {isId ? "Jendela Sistem Taskbar (Flyout)" : "Taskbar System Flyouts"}
@@ -266,7 +332,13 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
             </span>
           </div>
 
-          <div className="flex flex-col gap-1.5 p-2.5 rounded-[12px] bg-white/[0.02] border border-white/[0.05]">
+          <div
+            className={`flex flex-col gap-1.5 p-2.5 rounded-[12px] border ${
+              isLightMode
+                ? "bg-black/[0.025] border-black/[0.06]"
+                : "bg-white/[0.02] border-white/[0.05]"
+            }`}
+          >
             {renderToggleRow(
               isId ? "1. Output Suara & Mixer" : "1. Sound Output & Mixer",
               isId
@@ -326,8 +398,18 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
           </div>
 
           {/* Kill-switch notice */}
-          <div className="flex items-center gap-2 p-2 rounded-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] leading-relaxed">
-            <AlertTriangle size={14} className="shrink-0 text-amber-400" />
+          <div
+            className={`flex items-center gap-2 p-2 rounded-[10px] border text-[11px] leading-relaxed ${
+              isLightMode
+                ? "bg-amber-500/12 border-amber-600/25 text-amber-900"
+                : "bg-amber-500/10 border-amber-500/20 text-amber-300"
+            }`}
+          >
+            <AlertTriangle
+              size={14}
+              className={`shrink-0 ${isLightMode ? "text-amber-600" : "text-amber-400"}`}
+              aria-hidden="true"
+            />
             <span>
               {isId
                 ? "Kill-switch darurat: Tekan Ctrl+Alt+Shift+Backspace kapan saja untuk langsung menonaktifkan jendela Gili dan mengembalikan taskbar bawaan Windows."
@@ -338,7 +420,11 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
       </div>
 
       {/* Reset to Default */}
-      <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
+      <div
+        className={`pt-2 border-t flex items-center justify-between ${
+          isLightMode ? "border-black/[0.07]" : "border-white/[0.06]"
+        }`}
+      >
         <span className={`text-[11.5px] ${textSub}`}>
           {isId
             ? "Balikin semua settingan taskbar ke default pabrik"

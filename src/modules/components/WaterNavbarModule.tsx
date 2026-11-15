@@ -1,84 +1,124 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Droplet, Plus, RotateCcw } from "lucide-react";
 import { NavbarModuleProps } from "../registry";
-import { NavbarPopoverShell, CircularRingSvg } from "./NavbarPopoverShell";
+import { NavbarPopoverShell, CircularRingSvg, useNavbarIsLightSurface } from "./NavbarPopoverShell";
+import { Tooltip } from "../../components/ui/Tooltip";
+import { getLocalDateKey, useMinuteTick } from "../../utils/dateTime";
+import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
+import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
 
-const WATER_KEY = "gili_water_log";
+const WATER_KEY = "gili_water_log_v2";
+
+function readTodayWater(dateKey: string): number {
+  try {
+    const raw = localStorage.getItem(WATER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.date === dateKey && typeof parsed.amount === "number") {
+        return Math.max(0, parsed.amount);
+      }
+    }
+  } catch {}
+  return 0;
+}
 
 export const WaterNavbarModule: React.FC<NavbarModuleProps> = ({
   view = "compact",
   config,
 }) => {
-  const isCompact = view === "compact";
+  const lang = useTaskbarLang();
+  const isLight = useNavbarIsLightSurface(config);
+  const tooltipSide = getNavbarTooltipSide(config?.position);
+  const isVertical = config?.position === "left" || config?.position === "right";
+  const isCompact = view === "compact" || isVertical;
   const [isOpen, setIsOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
-  const [ml, setMl] = useState(1200);
+  const now = useMinuteTick(60000);
+  const todayKey = getLocalDateKey(now);
+  const [ml, setMl] = useState<number>(() => readTodayWater(todayKey));
   const targetMl = 2000;
 
-  const loadWater = () => {
-    try {
-      const raw = localStorage.getItem(WATER_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const today = new Date().toISOString().slice(0, 10);
-        if (parsed.date === today && typeof parsed.amount === "number") {
-          setMl(parsed.amount);
-        }
-      }
-    } catch {}
-  };
-
   useEffect(() => {
-    loadWater();
-  }, []);
+    setMl(readTodayWater(todayKey));
+  }, [todayKey]);
 
   const updateWater = (nextAmount: number) => {
     const clamped = Math.max(0, nextAmount);
     setMl(clamped);
     try {
-      const today = new Date().toISOString().slice(0, 10);
       localStorage.setItem(
         WATER_KEY,
-        JSON.stringify({ date: today, amount: clamped })
+        JSON.stringify({ date: todayKey, amount: clamped })
       );
     } catch {}
   };
 
   const progress = Math.min(1, ml / targetMl);
-  const litersText = `${(ml / 1000).toFixed(1).replace(".", ",")} / 2 L`;
+  const litersDecimal = (ml / 1000).toFixed(1);
+  const litersText = `${
+    lang === "id" ? litersDecimal.replace(".", ",") : litersDecimal
+  } / 2 L`;
+  const handleToggle = () => setIsOpen((v) => !v);
 
   return (
     <>
-      <div
-        ref={anchorRef}
-        onClick={() => setIsOpen((v) => !v)}
-        className={`flex items-center cursor-pointer select-none transition-all ${
-          isCompact
-            ? "w-10 h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]"
-            : "h-10 px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
-        }`}
-        title={`Water Tracker: ${ml} / ${targetMl} ml`}
+      <Tooltip
+        content={`Water Tracker: ${ml} / ${targetMl} ml`}
+        side={tooltipSide}
+        disabled={isOpen}
+        isLightMode={isLight}
+        wrapperClassName={isVertical ? "w-full" : undefined}
       >
-        <CircularRingSvg
-          size={24}
-          strokeWidth={2.4}
-          progress={progress}
-          color="#38bdf8"
+        <div
+          ref={anchorRef}
+          onClick={handleToggle}
+          {...makeTriggerA11yProps(
+            handleToggle,
+            tx(
+              lang,
+              `Water Tracker: ${ml} of ${targetMl} ml`,
+              `Water Tracker: ${ml} dari ${targetMl} ml`
+            ),
+            isOpen
+          )}
+          className={`flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
+            isCompact
+              ? `${
+                  isVertical ? "w-full max-w-full" : "w-10"
+                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
+              : "h-10 px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
+          }`}
         >
-          <Droplet size={10} className="text-[#38bdf8]" />
-        </CircularRingSvg>
+          <CircularRingSvg
+            size={24}
+            strokeWidth={2.4}
+            progress={progress}
+            color="#38bdf8"
+          >
+            <Droplet
+              size={10}
+              className={isLight ? "text-sky-600" : "text-[#38bdf8]"}
+            />
+          </CircularRingSvg>
 
-        {!isCompact && (
-          <div className="flex flex-col leading-[1.15]">
-            <span className="text-[11.5px] font-bold text-white tabular-nums">
-              {litersText}
-            </span>
-            <span className="text-[10px] text-zinc-400">
-              {ml >= targetMl ? "Target tercapai!" : `${Math.round(progress * 100)}% harian`}
-            </span>
-          </div>
-        )}
-      </div>
+          {!isCompact && (
+            <div className="flex flex-col leading-[1.15] min-w-0 max-w-[100px]">
+              <span className="text-[11.5px] font-bold text-white tabular-nums truncate">
+                {litersText}
+              </span>
+              <span className="text-[10px] text-zinc-400 truncate">
+                {ml >= targetMl
+                  ? tx(lang, "Goal reached!", "Target tercapai!")
+                  : tx(
+                      lang,
+                      `${Math.round(progress * 100)}% daily`,
+                      `${Math.round(progress * 100)}% harian`
+                    )}
+              </span>
+            </div>
+          )}
+        </div>
+      </Tooltip>
 
       <NavbarPopoverShell
         isOpen={isOpen}
@@ -88,28 +128,44 @@ export const WaterNavbarModule: React.FC<NavbarModuleProps> = ({
         moduleId="water_tracker"
         currentView={view}
         config={config}
-        width={240}
+        width={256}
       >
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-[18px] font-bold text-white tabular-nums">
-                {ml} <span className="text-[11px] text-zinc-400 font-normal">/ {targetMl} ml</span>
+                {ml}{" "}
+                <span className="text-[11px] text-zinc-400 font-normal">
+                  / {targetMl} ml
+                </span>
               </div>
-              <div className="text-[10.5px] text-sky-400">
+              <div
+                className={`text-[10.5px] truncate ${
+                  isLight ? "text-sky-700" : "text-sky-400"
+                }`}
+              >
                 {ml >= targetMl
-                  ? "Hidrasi harian terpenuhi!"
-                  : `Kurang ${targetMl - ml} ml lagi hari ini`}
+                  ? tx(lang, "Daily hydration met!", "Hidrasi harian terpenuhi!")
+                  : tx(
+                      lang,
+                      `${targetMl - ml} ml remaining today`,
+                      `Kurang ${targetMl - ml} ml lagi hari ini`
+                    )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => updateWater(0)}
-              className="w-7 h-7 rounded-[8px] bg-white/[0.05] hover:bg-white/[0.1] text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer"
-              title="Reset hari ini"
+            <Tooltip
+              content={tx(lang, "Reset today", "Reset hari ini")}
+              side="top"
+              isLightMode={isLight}
             >
-              <RotateCcw size={12} />
-            </button>
+              <button
+                type="button"
+                onClick={() => updateWater(0)}
+                className={`w-7 h-7 shrink-0 rounded-[8px] bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white flex items-center justify-center cursor-pointer ${TRIGGER_FOCUS_RING}`}
+              >
+                <RotateCcw size={12} />
+              </button>
+            </Tooltip>
           </div>
 
           <div className="w-full h-2 rounded-full bg-white/[0.08] overflow-hidden">
@@ -125,10 +181,14 @@ export const WaterNavbarModule: React.FC<NavbarModuleProps> = ({
                 key={amt}
                 type="button"
                 onClick={() => updateWater(ml + amt)}
-                className="py-1.5 rounded-[8px] bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 text-[11px] font-semibold flex items-center justify-center gap-0.5 transition-colors cursor-pointer"
+                className={`min-w-0 px-1 py-1.5 rounded-[8px] border text-[11px] font-semibold flex items-center justify-center gap-0.5 transition-colors cursor-pointer ${TRIGGER_FOCUS_RING} ${
+                  isLight
+                    ? "bg-sky-600/15 hover:bg-sky-600/25 border-sky-600/35 text-sky-700"
+                    : "bg-sky-500/15 hover:bg-sky-500/25 border-sky-500/30 text-sky-300"
+                }`}
               >
-                <Plus size={11} />
-                <span>{amt}ml</span>
+                <Plus size={11} className="shrink-0" />
+                <span className="truncate">{amt}ml</span>
               </button>
             ))}
           </div>

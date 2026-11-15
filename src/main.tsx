@@ -1,17 +1,35 @@
-import { Component, ErrorInfo, ReactNode } from "react";
+import { Component, ErrorInfo, ReactNode, Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import "@fontsource/inter/400.css";
-import "@fontsource/inter/500.css";
-import "@fontsource/inter/600.css";
-import "@fontsource/inter/700.css";
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
 import "./App.css";
 import "./index.css";
-import App from "./App";
-import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
-import { NavbarApp } from "./components/navbar/NavbarApp";
-import { TaskbarFlyoutApp } from "./components/taskbarFlyout/TaskbarFlyoutApp";
-import { getLanguage } from "./services/i18n";
+import { getLanguage } from "./services/languageStore";
+
+const App = lazy(() => import("./App"));
+const SettingsWindowApp = lazy(() =>
+  import("./components/settingsWindow/SettingsWindowApp").then((m) => ({
+    default: m.SettingsWindowApp,
+  }))
+);
+const NavbarApp = lazy(() =>
+  import("./components/navbar/NavbarApp").then((m) => ({
+    default: m.NavbarApp,
+  }))
+);
+const TaskbarFlyoutApp = lazy(() =>
+  import("./components/taskbarFlyout/TaskbarFlyoutApp").then((m) => ({
+    default: m.TaskbarFlyoutApp,
+  }))
+);
+const MiniPlayerApp = lazy(() =>
+  import("./components/miniplayer/MiniPlayerApp").then((m) => ({
+    default: m.MiniPlayerApp,
+  }))
+);
 
 const isNavbarWindow = (() => {
   if (typeof window === "undefined") return false;
@@ -106,6 +124,21 @@ const isTaskbarFlyoutWindow = (() => {
   }
 
   if (result) {
+    const flyoutWin = window as unknown as {
+      __setTaskbarFlyoutState?: (target: string, theme?: "solid" | "liquid") => void;
+      __resetTaskbarFlyoutState?: () => void;
+      __PENDING_TASKBAR_FLYOUT__?: { target?: string; theme?: "solid" | "liquid" };
+    };
+    if (!flyoutWin.__setTaskbarFlyoutState) {
+      flyoutWin.__setTaskbarFlyoutState = (target, theme) => {
+        flyoutWin.__PENDING_TASKBAR_FLYOUT__ = { target, theme };
+      };
+    }
+    if (!flyoutWin.__resetTaskbarFlyoutState) {
+      flyoutWin.__resetTaskbarFlyoutState = () => {
+        delete flyoutWin.__PENDING_TASKBAR_FLYOUT__;
+      };
+    }
     document.documentElement.classList.add("flyout-window");
     if (document.body) {
       document.body.classList.add("flyout-window");
@@ -116,6 +149,42 @@ const isTaskbarFlyoutWindow = (() => {
     }
   }
   return result;
+})();
+
+const isSecondaryWindow = (() => {
+  if (typeof window === "undefined") return false;
+  if ((window as any).__IS_SECONDARY_NOTCH_WINDOW__ === true) {
+    return true;
+  }
+  try {
+    if (getCurrentWindow().label.startsWith("notch_secondary_")) {
+      return true;
+    }
+  } catch {}
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("window") === "secondary" ||
+    window.location.search.includes("window=secondary") ||
+    window.location.href.includes("window=secondary")
+  );
+})();
+
+const isMiniPlayerWindow = (() => {
+  if (typeof window === "undefined") return false;
+  if ((window as any).__IS_MINIPLAYER_WINDOW__ === true) {
+    return true;
+  }
+  try {
+    if (getCurrentWindow().label === "miniplayer") {
+      return true;
+    }
+  } catch {}
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("window") === "miniplayer" ||
+    window.location.search.includes("window=miniplayer") ||
+    window.location.href.includes("window=miniplayer")
+  );
 })();
 
 interface Props {
@@ -156,14 +225,18 @@ class RootErrorBoundary extends Component<Props, State> {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RootErrorBoundary>
-    {isNavbarWindow ? (
-      <NavbarApp />
-    ) : isSettingsWindow ? (
-      <SettingsWindowApp />
-    ) : isTaskbarFlyoutWindow ? (
-      <TaskbarFlyoutApp />
-    ) : (
-      <App />
-    )}
+    <Suspense fallback={null}>
+      {isNavbarWindow ? (
+        <NavbarApp />
+      ) : isSettingsWindow ? (
+        <SettingsWindowApp />
+      ) : isTaskbarFlyoutWindow ? (
+        <TaskbarFlyoutApp />
+      ) : isMiniPlayerWindow ? (
+        <MiniPlayerApp />
+      ) : (
+        <App isSecondaryWindow={isSecondaryWindow} />
+      )}
+    </Suspense>
   </RootErrorBoundary>
 );

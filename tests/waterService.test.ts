@@ -82,7 +82,7 @@ function runTests() {
   }
 
   // Case 4: Streak info calculation
-  const streak = getStreakInfo(mockData);
+  const streak = getStreakInfo(mockData, new Date("2026-10-27T12:00:00"));
   if (streak.currentStreak >= 1 && streak.sevenDayHistory.length === 7) {
     console.log("  ✓ Case 4: Streak info returns valid streak and 7-day history");
     passed++;

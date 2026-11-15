@@ -11,8 +11,11 @@ import {
   Moon,
   EyeOff,
   Monitor,
+  PictureInPicture2,
+  MessageCircle,
 } from "lucide-react";
 import { IosSwitch } from "../../ios/IosSwitch";
+import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
 import {
   SHORTCUT_ACTIONS,
@@ -31,6 +34,8 @@ interface KeyboardShortcutsCardProps {
   onUpdateShortcut: (actionId: ShortcutActionId, shortcut: string | null) => Promise<{ success: boolean; error?: string }>;
   onResetShortcut: (actionId: ShortcutActionId) => Promise<void>;
   onToggleShortcutsEnabled: (enabled: boolean) => void;
+  onSuspendShortcuts?: () => Promise<void>;
+  onResumeShortcuts?: () => Promise<void>;
   isLightMode?: boolean;
 }
 
@@ -43,6 +48,8 @@ const ACTION_ICONS: Record<ShortcutActionId, React.ReactNode> = {
   toggle_focus_mode: <Moon size={17} strokeWidth={2} />,
   toggle_hide: <EyeOff size={17} strokeWidth={2} />,
   switch_monitor: <Monitor size={17} strokeWidth={2} />,
+  toggle_miniplayer: <PictureInPicture2 size={17} strokeWidth={2} />,
+  open_ai_chat: <MessageCircle size={17} strokeWidth={2} />,
 };
 
 const ACTION_COLORS: Record<ShortcutActionId, { bg: string; text: string }> = {
@@ -54,6 +61,8 @@ const ACTION_COLORS: Record<ShortcutActionId, { bg: string; text: string }> = {
   toggle_focus_mode: { bg: "bg-[#1f1a3a]", text: "text-[#818cf8]" },
   toggle_hide: { bg: "bg-[#1e1e24]", text: "text-[#9ca3af]" },
   switch_monitor: { bg: "bg-[#142333]", text: "text-[#3882F6]" },
+  toggle_miniplayer: { bg: "bg-[#1a2333]", text: "text-[#38bdf8]" },
+  open_ai_chat: { bg: "bg-[#142333]", text: "text-[#3882F6]" },
 };
 
 const ACTION_COLORS_LIGHT: Record<ShortcutActionId, { bg: string; text: string }> = {
@@ -65,6 +74,8 @@ const ACTION_COLORS_LIGHT: Record<ShortcutActionId, { bg: string; text: string }
   toggle_focus_mode: { bg: "bg-[#818cf8]/15", text: "text-[#6366f1]" },
   toggle_hide: { bg: "bg-black/10", text: "text-neutral-600" },
   switch_monitor: { bg: "bg-[#007aff]/15", text: "text-[#007aff]" },
+  toggle_miniplayer: { bg: "bg-[#0284c7]/15", text: "text-[#0284c7]" },
+  open_ai_chat: { bg: "bg-[#007aff]/15", text: "text-[#007aff]" },
 };
 
 export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
@@ -74,6 +85,8 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
   onUpdateShortcut,
   onResetShortcut,
   onToggleShortcutsEnabled,
+  onSuspendShortcuts,
+  onResumeShortcuts,
   isLightMode,
 }) => {
   const isLight =
@@ -83,6 +96,57 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
   const [recordingChips, setRecordingChips] = useState<string[]>([]);
   const [rowErrors, setRowErrors] = useState<Partial<Record<ShortcutActionId, string>>>({});
   const recordingContainerRef = useRef<HTMLDivElement | null>(null);
+  const recordingActionRef = useRef<ShortcutActionId | null>(null);
+
+  const suspendShortcuts = useCallback(async () => {
+    if (onSuspendShortcuts) {
+      await onSuspendShortcuts();
+    } else {
+      await shortcutManager.suspendAll();
+    }
+  }, [onSuspendShortcuts]);
+
+  const resumeShortcuts = useCallback(async () => {
+    if (onResumeShortcuts) {
+      await onResumeShortcuts();
+    } else {
+      await shortcutManager.resumeAll(shortcutsEnabled);
+    }
+  }, [onResumeShortcuts, shortcutsEnabled]);
+
+  const resumeShortcutsRef = useRef(resumeShortcuts);
+  useEffect(() => {
+    resumeShortcutsRef.current = resumeShortcuts;
+  }, [resumeShortcuts]);
+
+  useEffect(() => {
+    recordingActionRef.current = recordingAction;
+  }, [recordingAction]);
+
+  useEffect(() => {
+    if (!shortcutsEnabled && recordingActionRef.current !== null) {
+      recordingActionRef.current = null;
+      setRecordingAction(null);
+      setRecordingChips([]);
+    }
+  }, [shortcutsEnabled]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (recordingActionRef.current !== null) {
+        recordingActionRef.current = null;
+        resumeShortcutsRef.current().catch(() => {});
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      if (recordingActionRef.current !== null) {
+        recordingActionRef.current = null;
+        resumeShortcutsRef.current().catch(() => {});
+      }
+    };
+  }, []);
 
   const getActionLabels = useCallback((): Record<ShortcutActionId, string> => {
     const map: Partial<Record<ShortcutActionId, string>> = {};
@@ -94,29 +158,36 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
   const startRecording = useCallback(
     async (actionId: ShortcutActionId) => {
+      recordingActionRef.current = actionId;
       setRecordingAction(actionId);
       setRecordingChips([]);
       setRowErrors((prev) => ({ ...prev, [actionId]: undefined }));
-      await shortcutManager.suspendAll();
+      await suspendShortcuts();
     },
-    []
+    [suspendShortcuts]
   );
 
   const cancelRecording = useCallback(async () => {
+    const prevAction = recordingActionRef.current;
+    recordingActionRef.current = null;
     setRecordingAction(null);
     setRecordingChips([]);
-    await shortcutManager.resumeAll(shortcutsEnabled);
-  }, [shortcutsEnabled]);
+    if (prevAction) {
+      setRowErrors((prev) => ({ ...prev, [prevAction]: undefined }));
+    }
+    await resumeShortcuts();
+  }, [resumeShortcuts]);
 
   const handleClearShortcut = useCallback(
     async (actionId: ShortcutActionId) => {
+      recordingActionRef.current = null;
       setRecordingAction(null);
       setRecordingChips([]);
       setRowErrors((prev) => ({ ...prev, [actionId]: undefined }));
       await onUpdateShortcut(actionId, null);
-      await shortcutManager.resumeAll(shortcutsEnabled);
+      await resumeShortcuts();
     },
-    [onUpdateShortcut, shortcutsEnabled]
+    [onUpdateShortcut, resumeShortcuts]
   );
 
   useEffect(() => {
@@ -175,9 +246,11 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
         const result = await onUpdateShortcut(recordingAction, parsed.accelerator);
         if (result.success) {
+          recordingActionRef.current = null;
           setRecordingAction(null);
           setRecordingChips([]);
           setRowErrors((prev) => ({ ...prev, [recordingAction]: undefined }));
+          await resumeShortcuts();
         } else {
           setRecordingChips(parsed.displayChips);
           setRowErrors((prev) => ({
@@ -185,23 +258,30 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
             [recordingAction]: result.error || t("shortcut_err_conflict"),
           }));
         }
-        await shortcutManager.resumeAll(shortcutsEnabled);
+      }
+    };
+
+    const handleWindowBlur = (e: FocusEvent) => {
+      if (e.target === window) {
+        void cancelRecording();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("blur", handleWindowBlur);
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [recordingAction, shortcuts, cancelRecording, handleClearShortcut, onUpdateShortcut, shortcutsEnabled, getActionLabels]);
+  }, [recordingAction, shortcuts, cancelRecording, handleClearShortcut, onUpdateShortcut, resumeShortcuts, getActionLabels]);
 
   return (
     <div
       ref={recordingContainerRef}
-      className={`w-full rounded-[22px] p-3 flex flex-col gap-2.5 mt-3 transition-colors ${
+      className={`w-full rounded-[18px] p-4 flex flex-col gap-3 transition-colors ${
         isLight
-          ? "bg-white/80 border border-black/10 shadow-[0_4px_20px_rgba(0,0,0,0.06)] text-[#1d1d1f]"
-          : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)] text-white"
+          ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)] text-[#1d1d1f]"
+          : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)] text-white"
       }`}
     >
       {/* Header with Master Switch */}
@@ -349,12 +429,11 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
                   {/* Conflict / Inactive indicator */}
                   {!isRecording && shortcut && status === "conflict" && (
-                    <div
-                      className="text-amber-400 p-1"
-                      title={t("shortcut_err_conflict")}
-                    >
-                      <AlertCircle size={14} />
-                    </div>
+                    <Tooltip content={t("shortcut_err_conflict")} side="top">
+                      <div className="text-amber-400 p-1">
+                        <AlertCircle size={14} />
+                      </div>
+                    </Tooltip>
                   )}
 
                   {/* Change button */}
@@ -382,19 +461,20 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
 
                   {/* Reset to default button */}
                   {!isDefault && (
-                    <button
-                      type="button"
-                      onClick={() => onResetShortcut(action.id)}
-                      className={`p-1.5 rounded-lg transition-colors ${
-                        isLight
-                          ? "text-neutral-500 hover:text-black hover:bg-black/[0.06]"
-                          : "text-white/40 hover:text-white hover:bg-white/[0.08]"
-                      }`}
-                      title={t("settings_shortcuts_reset_default")}
-                      aria-label={t("settings_shortcuts_reset_default")}
-                    >
-                      <RotateCcw size={12} strokeWidth={2} />
-                    </button>
+                    <Tooltip content={t("settings_shortcuts_reset_default")} side="top">
+                      <button
+                        type="button"
+                        onClick={() => onResetShortcut(action.id)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          isLight
+                            ? "text-neutral-500 hover:text-black hover:bg-black/[0.06]"
+                            : "text-white/40 hover:text-white hover:bg-white/[0.08]"
+                        }`}
+                        aria-label={t("settings_shortcuts_reset_default")}
+                      >
+                        <RotateCcw size={12} strokeWidth={2} />
+                      </button>
+                    </Tooltip>
                   )}
                 </div>
               </div>

@@ -3,13 +3,16 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
 export interface TooltipProps {
-  content: string | React.ReactNode;
+  content?: string | React.ReactNode;
   children: React.ReactNode;
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
   delay?: number;
   className?: string;
   wrapperClassName?: string;
+  disabled?: boolean;
+  allowFlip?: boolean;
+  isLightMode?: boolean;
 }
 
 export const Tooltip: React.FC<TooltipProps> = ({
@@ -20,12 +23,16 @@ export const Tooltip: React.FC<TooltipProps> = ({
   delay = 300,
   className = "",
   wrapperClassName = "",
+  disabled = false,
+  allowFlip = false,
+  isLightMode: isLightModeProp,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [coords, setCoords] = useState<{
     top: number;
     left: number;
     useTransformCenter?: boolean;
+    actualSide: "top" | "bottom" | "left" | "right";
   } | null>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -42,10 +49,9 @@ export const Tooltip: React.FC<TooltipProps> = ({
     let top = 0;
     let left = 0;
 
-    // Auto-flip vertical if not enough space
+    // Auto-flip vertical only when allowed or positioned at bottom without room
     if (currentSide === "top" && triggerRect.top - tipHeight - 8 < 6) {
-      // Keep strictly on top for docks/toolbars to avoid covering trigger icon
-      currentSide = "top";
+      currentSide = allowFlip ? "bottom" : "top";
     } else if (currentSide === "bottom" && triggerRect.bottom + tipHeight + 8 > window.innerHeight - 6) {
       currentSide = "top";
     }
@@ -67,7 +73,15 @@ export const Tooltip: React.FC<TooltipProps> = ({
         top: safeTop,
         left: safeLeft,
         useTransformCenter: true,
+        actualSide: currentSide,
       };
+    } else if (currentSide === "top") {
+      top = triggerRect.top - tipHeight - 8;
+      if (align === "start") {
+        left = triggerRect.left;
+      } else {
+        left = triggerRect.right - tipWidth;
+      }
     } else if (currentSide === "bottom") {
       top = triggerRect.bottom + 8;
       if (align === "start") {
@@ -87,7 +101,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
         top = triggerRect.top + (triggerRect.height - tipHeight) / 2;
       }
     } else {
-      // right
       left = triggerRect.right + 8;
       if (align === "start") {
         top = triggerRect.top;
@@ -98,7 +111,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
       }
     }
 
-    // Viewport boundary clamping (guarantees tooltip is never clipped by window edges and never overlaps icon)
     const padding = 6;
     const maxLeft = Math.max(padding, window.innerWidth - tipWidth - padding);
     const maxTop = Math.max(padding, window.innerHeight - tipHeight - padding);
@@ -109,10 +121,12 @@ export const Tooltip: React.FC<TooltipProps> = ({
     return {
       top: Math.max(padding, resolvedTop),
       left: Math.max(padding, Math.min(maxLeft, left)),
+      actualSide: currentSide,
     };
   };
 
   const handleMouseEnter = () => {
+    if (disabled || !content) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = window.setTimeout(() => {
       const initialCoords = calculateCoords();
@@ -133,7 +147,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   }, []);
 
   useLayoutEffect(() => {
-    if (!isVisible) return;
+    if (!isVisible || disabled || !content) return;
     const fresh = calculateCoords();
     if (fresh) setCoords(fresh);
 
@@ -149,17 +163,21 @@ export const Tooltip: React.FC<TooltipProps> = ({
       window.removeEventListener("scroll", handleUpdate, true);
       window.removeEventListener("resize", handleUpdate);
     };
-  }, [isVisible, content, side, align]);
+  }, [isVisible, content, side, align, allowFlip]);
 
+  const resolvedSide = coords?.actualSide ?? side;
   const offsetMotion = {
     top: { initial: { opacity: 0, y: 4, scale: 0.95 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: 2, scale: 0.95 } },
     bottom: { initial: { opacity: 0, y: -4, scale: 0.95 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: -2, scale: 0.95 } },
     left: { initial: { opacity: 0, x: 4, scale: 0.95 }, animate: { opacity: 1, x: 0, scale: 1 }, exit: { opacity: 0, x: 2, scale: 0.95 } },
     right: { initial: { opacity: 0, x: -4, scale: 0.95 }, animate: { opacity: 1, x: 0, scale: 1 }, exit: { opacity: 0, x: 2, scale: 0.95 } },
-  }[side];
+  }[resolvedSide];
 
   const isLightMode =
-    typeof document !== "undefined" && document.documentElement.classList.contains("light");
+    isLightModeProp ??
+    (typeof document !== "undefined" &&
+      (document.documentElement.classList.contains("light") ||
+        document.documentElement.getAttribute("data-taskbar-light") === "true"));
 
   return (
     <div
@@ -174,7 +192,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       {typeof document !== "undefined" &&
         createPortal(
           <AnimatePresence>
-            {isVisible && content && coords && (
+            {isVisible && !disabled && content && coords && (
               <div
                 ref={tooltipRef}
                 style={{

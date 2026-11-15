@@ -39,7 +39,9 @@ export function darkenHex(hex: string, keep: number): string {
 
 const STORE_FILENAME = "settings.json";
 const STORE_KEY = "opt_navbar_config";
+const STORE_DEFAULT_OFF_MIGRATION_KEY = "opt_navbar_default_off_v5";
 const LOCAL_STORAGE_KEY = "island_navbar_config_v1";
+const DEFAULT_OFF_MIGRATION_KEY = "island_navbar_default_off_v5";
 const BROADCAST_CHANNEL_NAME = "gili_navbar_sync_channel";
 
 let storeInstance: Store | null = null;
@@ -64,6 +66,7 @@ async function flushConfigToStore(normalized: NavbarConfig): Promise<void> {
     const store = await getSettingsStore();
     if (store) {
       await store.set(STORE_KEY, normalized);
+      await store.set(STORE_DEFAULT_OFF_MIGRATION_KEY, true);
       await store.save();
     }
   } catch (err) {
@@ -229,6 +232,7 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
     customColor: typeof r.customColor === "string" ? r.customColor : null,
     accent,
     opacity: clamp(r.opacity, 20, 100, DEFAULT_NAVBAR_CONFIG.opacity),
+    blur: clamp(r.blur, 0, 100, DEFAULT_NAVBAR_CONFIG.blur),
     autoHide: typeof r.autoHide === "boolean" ? r.autoHide : DEFAULT_NAVBAR_CONFIG.autoHide,
     autoHideMode: r.autoHideMode === "maxsize" ? "maxsize" : "normal",
     windowPreviews:
@@ -253,12 +257,51 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
   };
 }
 
+function syncTaskbarWindowSwitches(normalized: NavbarConfig): void {
+  const isEnabled = !!normalized.enabled;
+  const switchesHash = `${isEnabled}:${!!normalized.useGiliStart}:${!!normalized.useGiliSearch}:${!!normalized.useGiliQuickSettings}:${!!normalized.useGiliVolumeOutput}:${!!normalized.useGiliNotificationsCalendar}:${!!normalized.useGiliTray}`;
+  if (switchesHash !== lastSavedSwitchesHash) {
+    lastSavedSwitchesHash = switchesHash;
+    try {
+      invoke("set_taskbar_window_switches", {
+        switches: {
+          use_gili_start: isEnabled && !!normalized.useGiliStart,
+          use_gili_search: isEnabled && !!normalized.useGiliSearch,
+          use_gili_quick_settings: isEnabled && !!normalized.useGiliQuickSettings,
+          use_gili_volume_output: isEnabled && !!normalized.useGiliVolumeOutput,
+          use_gili_notif_cal: isEnabled && !!normalized.useGiliNotificationsCalendar,
+          use_gili_tray: isEnabled && !!normalized.useGiliTray,
+        },
+      }).catch(() => {});
+    } catch {}
+  }
+}
+
 export function getCachedNavbarConfigSync(): NavbarConfig {
   if (typeof window !== "undefined") {
     try {
+      const migratedLocal = localStorage.getItem(DEFAULT_OFF_MIGRATION_KEY) === "true";
       const rawLocal = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (rawLocal) {
-        return normalizeNavbarConfig(JSON.parse(rawLocal));
+        let normalized = normalizeNavbarConfig(JSON.parse(rawLocal));
+        if (!migratedLocal) {
+          normalized = {
+            ...normalized,
+            enabled: false,
+            hideWindowsTaskbar: false,
+          };
+          try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
+            localStorage.setItem(DEFAULT_OFF_MIGRATION_KEY, "true");
+          } catch {}
+        }
+        syncTaskbarWindowSwitches(normalized);
+        return normalized;
+      }
+      if (!migratedLocal) {
+        try {
+          localStorage.setItem(DEFAULT_OFF_MIGRATION_KEY, "true");
+        } catch {}
       }
     } catch { }
   }
@@ -270,15 +313,22 @@ export function getCachedNavbarConfigSync(): NavbarConfig {
 
 export async function loadNavbarConfig(): Promise<NavbarConfig> {
   let loadedData: unknown = null;
+  let store: Store | null = null;
+  let migratedInStore = false;
 
   try {
-    const store = await getSettingsStore();
+    store = await getSettingsStore();
     if (store) {
       loadedData = await store.get<unknown>(STORE_KEY);
+      migratedInStore = (await store.get<boolean>(STORE_DEFAULT_OFF_MIGRATION_KEY)) === true;
     }
   } catch (err) {
     console.error("Error loading navbar config from store:", err);
   }
+
+  const migratedLocal =
+    typeof window !== "undefined" &&
+    localStorage.getItem(DEFAULT_OFF_MIGRATION_KEY) === "true";
 
   if (!loadedData && typeof window !== "undefined") {
     try {
@@ -289,14 +339,35 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
     } catch { }
   }
 
-  const normalized = normalizeNavbarConfig(loadedData);
+  let normalized = normalizeNavbarConfig(loadedData);
+  const needsDefaultOffMigration = store ? !migratedInStore : !migratedLocal;
+
+  if (needsDefaultOffMigration) {
+    normalized = {
+      ...normalized,
+      enabled: false,
+      hideWindowsTaskbar: false,
+    };
+    if (store) {
+      try {
+        await store.set(STORE_KEY, normalized);
+        await store.set(STORE_DEFAULT_OFF_MIGRATION_KEY, true);
+        await store.save();
+      } catch (err) {
+        console.error("Error saving navbar default-off migration:", err);
+      }
+    }
+  }
 
   // Write through to localStorage for synchronous instant access on load
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
+      localStorage.setItem(DEFAULT_OFF_MIGRATION_KEY, "true");
     } catch { }
   }
+
+  syncTaskbarWindowSwitches(normalized);
 
   return normalized;
 }
@@ -308,6 +379,7 @@ export async function saveNavbarConfig(config: NavbarConfig): Promise<NavbarConf
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
+      localStorage.setItem(DEFAULT_OFF_MIGRATION_KEY, "true");
     } catch { }
   }
 
@@ -336,22 +408,7 @@ export async function saveNavbarConfig(config: NavbarConfig): Promise<NavbarConf
   } catch { }
 
   // 5. Only notify flyout switches if actual switch values changed (avoids spamming log during slider drag)
-  const switchesHash = `${!!normalized.useGiliStart}:${!!normalized.useGiliSearch}:${!!normalized.useGiliQuickSettings}:${!!normalized.useGiliVolumeOutput}:${!!normalized.useGiliNotificationsCalendar}:${!!normalized.useGiliTray}`;
-  if (switchesHash !== lastSavedSwitchesHash) {
-    lastSavedSwitchesHash = switchesHash;
-    try {
-      invoke("set_taskbar_window_switches", {
-        switches: {
-          use_gili_start: !!normalized.useGiliStart,
-          use_gili_search: !!normalized.useGiliSearch,
-          use_gili_quick_settings: !!normalized.useGiliQuickSettings,
-          use_gili_volume_output: !!normalized.useGiliVolumeOutput,
-          use_gili_notif_cal: !!normalized.useGiliNotificationsCalendar,
-          use_gili_tray: !!normalized.useGiliTray,
-        },
-      }).catch(() => {});
-    } catch {}
-  }
+  syncTaskbarWindowSwitches(normalized);
 
   // 6. Debounced disk persistence to store (never blocks UI or IPC thread)
   pendingConfigToSave = normalized;

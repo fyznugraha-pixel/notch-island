@@ -1,7 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Music, RotateCw, ChevronDown, Check } from "lucide-react";
 import { LyricsData, LyricsProviderId, LYRICS_PROVIDERS_META } from "../../services/lyricsService";
+import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
+import { getSongLyricsOffset, setSongLyricsOffset } from "../../services/mediaLyricsStore";
+import { WordFillLyricsLine, usePrefersReducedMotion } from "./WordFillLyricsLine";
 
 export interface LyricsViewProps {
   lyrics: LyricsData | null;
@@ -36,37 +39,51 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on click outside
+  // Close dropdown on click outside or Escape
   useEffect(() => {
     if (!isProviderDropdownOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent | PointerEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsProviderDropdownOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setIsProviderDropdownOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handleClickOutside);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointerdown", handleClickOutside);
+      window.removeEventListener("keydown", handleKey);
+    };
   }, [isProviderDropdownOpen]);
 
-  // Sync offset calibration (default 0.0s)
-  const [offset, setOffset] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem("notch_lyrics_offset");
-      return saved !== null ? parseFloat(saved) : 0.0;
-    } catch {
-      return 0.0;
+  // Sync offset calibration per song (default 0.0s)
+  const [offset, setOffset] = useState<number>(0.0);
+
+  useEffect(() => {
+    if (!songTitle) {
+      setOffset(0.0);
+      return;
     }
-  });
+    let isCancelled = false;
+    getSongLyricsOffset(artist || "", songTitle).then((val) => {
+      if (!isCancelled) setOffset(val);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [artist, songTitle]);
 
   const handleOffsetChange = (delta: number) => {
     setOffset((prev) => {
       const next = Math.round((prev + delta) * 10) / 10;
       const clamped = Math.max(-5, Math.min(5, next));
-      try {
-        localStorage.setItem("notch_lyrics_offset", clamped.toString());
-      } catch {}
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("notch_lyrics_offset_changed", { detail: clamped }));
+      if (songTitle) {
+        setSongLyricsOffset(artist || "", songTitle, clamped);
       }
       return clamped;
     });
@@ -75,20 +92,27 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   const handleResetOffset = () => {
     const defaultVal = 0.0;
     setOffset(defaultVal);
-    try {
-      localStorage.setItem("notch_lyrics_offset", defaultVal.toString());
-    } catch {}
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("notch_lyrics_offset_changed", { detail: defaultVal }));
+    if (songTitle) {
+      setSongLyricsOffset(artist || "", songTitle, defaultVal);
     }
   };
 
   // High-precision live time tracking
+  const prefersReducedMotion = usePrefersReducedMotion();
   const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const [seekRevision, setSeekRevision] = useState(0);
   const anchorRef = useRef<{ time: number; timestamp: number }>({
     time: currentTime,
     timestamp: performance.now(),
   });
+
+  const getEffectiveTime = useCallback(() => {
+    const now = performance.now();
+    const liveTime = isPlaying
+      ? anchorRef.current.time + (now - anchorRef.current.timestamp) / 1000
+      : anchorRef.current.time;
+    return liveTime + offset + 0.2;
+  }, [isPlaying, offset]);
 
   // Re-sync anchor when currentTime from SMTC updates or isPlaying toggles
   useEffect(() => {
@@ -114,7 +138,7 @@ export const LyricsView = React.memo<LyricsViewProps>(({
       const liveTime = isPlaying
         ? anchorRef.current.time + (now - anchorRef.current.timestamp) / 1000
         : anchorRef.current.time;
-      const effectiveTime = liveTime + offset;
+      const effectiveTime = liveTime + offset + 0.2;
 
       const lines = lyrics.lines;
       const idx = lines.findIndex(
@@ -194,41 +218,44 @@ export const LyricsView = React.memo<LyricsViewProps>(({
         <div className="flex items-center gap-1.5 shrink-0">
           {lyrics?.synced && (
             <div className="flex items-center gap-0.5 bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 rounded-full px-1.5 py-0.5 text-[9.5px] text-white/70 transition-colors shrink-0">
-              <button
-                type="button"
-                onClick={() => handleOffsetChange(-0.2)}
-                title={t("lyrics_advance")}
-                className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
-              >
-                -
-              </button>
-              <button
-                type="button"
-                onClick={handleResetOffset}
-                title={t("lyrics_reset_offset")}
-                className="px-0.5 font-mono text-[9px] font-medium text-white/80 hover:text-blue-300 transition-colors cursor-pointer"
-              >
-                {offset === 0 ? "0.0s" : `${offset > 0 ? "+" : ""}${offset.toFixed(1)}s`}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleOffsetChange(0.2)}
-                title={t("lyrics_delay")}
-                className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
-              >
-                +
-              </button>
+              <Tooltip content={t("lyrics_advance")} side="top">
+                <button
+                  type="button"
+                  onClick={() => handleOffsetChange(-0.2)}
+                  className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
+                >
+                  -
+                </button>
+              </Tooltip>
+              <Tooltip content={t("lyrics_reset_offset")} side="top">
+                <button
+                  type="button"
+                  onClick={handleResetOffset}
+                  className="px-0.5 font-mono text-[9px] font-medium text-white/80 hover:text-blue-300 transition-colors cursor-pointer"
+                >
+                  {offset === 0 ? "0.0s" : `${offset > 0 ? "+" : ""}${offset.toFixed(1)}s`}
+                </button>
+              </Tooltip>
+              <Tooltip content={t("lyrics_delay")} side="top">
+                <button
+                  type="button"
+                  onClick={() => handleOffsetChange(0.2)}
+                  className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
+                >
+                  +
+                </button>
+              </Tooltip>
             </div>
           )}
 
           {/* Lyrics Provider Selector Dropdown (to the left of refresh button) */}
           <div className="relative shrink-0" ref={dropdownRef}>
-            <button
-              type="button"
-              onClick={() => setIsProviderDropdownOpen((prev) => !prev)}
-              title={isEn ? "Change lyrics library" : "Ganti library lirik"}
-              className="h-6 flex items-center gap-1 bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/[0.16] border border-white/10 rounded-full px-2 text-[10px] text-white/75 hover:text-white transition-all cursor-pointer font-medium select-none shrink-0"
-            >
+            <Tooltip content={isEn ? "Change lyrics library" : "Ganti library lirik"} side="top">
+              <button
+                type="button"
+                onClick={() => setIsProviderDropdownOpen((prev) => !prev)}
+                className="h-6 flex items-center gap-1 bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/[0.16] border border-white/10 rounded-full px-2 text-[10px] text-white/75 hover:text-white transition-all cursor-pointer font-medium select-none shrink-0"
+              >
               <span className="truncate max-w-[70px]">{activeProviderBadge}</span>
               <ChevronDown
                 size={10}
@@ -237,6 +264,7 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                 }`}
               />
             </button>
+            </Tooltip>
 
             {isProviderDropdownOpen && (
               <div
@@ -263,7 +291,9 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                     >
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         {isDeliveredByThis ? (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title={isEn ? "Currently active" : "Aktif saat ini"} />
+                          <Tooltip content={isEn ? "Currently active" : "Aktif saat ini"} side="left">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          </Tooltip>
                         ) : (
                           <span className="w-1.5 h-1.5 rounded-full bg-transparent shrink-0" />
                         )}
@@ -281,17 +311,18 @@ export const LyricsView = React.memo<LyricsViewProps>(({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={handleRefreshClick}
-            title={t("lyrics_refresh") || "Refresh Lyrics"}
-            className="w-6 h-6 flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-full text-white/75 hover:text-white transition-colors cursor-pointer shrink-0"
-          >
+          <Tooltip content={t("lyrics_refresh") || "Refresh Lyrics"} side="top">
+            <button
+              type="button"
+              onClick={handleRefreshClick}
+              className="w-6 h-6 flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-full text-white/75 hover:text-white transition-colors cursor-pointer shrink-0"
+            >
             <RotateCw
               size={11}
               className={`transition-transform duration-500 ${isRefreshing || isLoading ? "animate-spin text-blue-300" : ""}`}
             />
           </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -341,6 +372,9 @@ export const LyricsView = React.memo<LyricsViewProps>(({
           <div className="flex flex-col space-y-3 py-6">
             {lyrics.lines.map((line, index) => {
               const isActive = index === activeIndex;
+              const nextLineTime =
+                index + 1 < lyrics.lines.length ? lyrics.lines[index + 1].time : undefined;
+              const hasRenderableText = Boolean(line.text?.trim());
               return (
                 <div
                   key={`${index}-${line.time}`}
@@ -349,15 +383,32 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                     onSeek?.(line.time);
                     anchorRef.current = { time: line.time, timestamp: performance.now() };
                     setActiveIndex(index);
+                    setSeekRevision((prev) => prev + 1);
                   }}
-                  className={`cursor-pointer transition-all duration-300 transform origin-left rounded px-1 py-0.5 select-none ${
+                  className={`cursor-pointer transform origin-left rounded px-1 py-0.5 select-none ${
+                    prefersReducedMotion ? "" : "transition-all duration-300"
+                  } ${
                     isActive
                       ? "text-white font-bold text-[14.5px] leading-snug scale-[1.02]"
                       : "text-white/30 font-medium text-[12.5px] leading-snug hover:text-white/70 hover:scale-[1.01]"
                   }`}
-                  style={isActive ? { textShadow: "0 0 16px rgba(255,255,255,0.4)" } : undefined}
                 >
-                  {line.text || "•••"}
+                  {isActive && hasRenderableText ? (
+                    <WordFillLyricsLine
+                      key={`wf-${index}-${seekRevision}`}
+                      line={line}
+                      nextLineTime={nextLineTime}
+                      effectiveTime={currentTime + offset + 0.2}
+                      getEffectiveTime={getEffectiveTime}
+                      isActive
+                      isPlaying={isPlaying}
+                      prefersReducedMotion={prefersReducedMotion}
+                      baseColor="var(--lyrics-base-color, rgba(255, 255, 255, 0.36))"
+                      fillColor="var(--lyrics-fill-color, #ffffff)"
+                    />
+                  ) : (
+                    line.text || "•••"
+                  )}
                 </div>
               );
             })}

@@ -12,6 +12,8 @@ export interface NavbarModuleContext {
   view: NavbarModuleView;
   config: NavbarConfig;
   onOpenPanel?: (tabId: string) => void;
+  isHidden?: boolean;
+  isPreview?: boolean;
 }
 
 export interface NavbarModuleDefinition {

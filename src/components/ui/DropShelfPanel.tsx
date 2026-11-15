@@ -18,13 +18,15 @@ import {
   ChevronRight,
   GripHorizontal,
   Smartphone,
+  Settings,
 } from "lucide-react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { Tooltip } from "./Tooltip";
 import { getWheelVerticalDirection, getNormalizedHorizontalDelta } from "../../utils/gesture";
 import { t, getLanguage } from "../../services/i18n";
-import { FilePreview, queueFilePreviews, getCachedPreview } from "../../services/shelfService";
+import { FilePreview, queueFilePreviews, getCachedPreview, loadShelfSettings } from "../../services/shelfService";
+import { DropShelfSettingsView } from "./shelf/DropShelfSettingsView";
 import { DropShelfTransferModal } from "./shelf/DropShelfTransferModal";
 import { DropShelfReceivedBanner } from "./shelf/DropShelfReceivedBanner";
 import {
@@ -68,6 +70,9 @@ export interface DropShelfPanelProps {
   ) => void;
   onDragStateChange?: (active: boolean, paths?: string[]) => void;
   isDragOver?: boolean;
+  isLightMode?: boolean;
+  showSettings?: boolean;
+  onToggleSettings?: () => void;
 }
 
 function getFileIcon(ext: string) {
@@ -151,7 +156,12 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     onAddFiles,
     onDragStateChange,
     isDragOver = false,
+    isLightMode = false,
+    showSettings,
+    onToggleSettings,
   }) => {
+    const [internalShowSettings, setInternalShowSettings] = useState(false);
+    const isShowingSettings = showSettings !== undefined ? showSettings : internalShowSettings;
     const isEn = getLanguage() === "en";
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [previews, setPreviews] = useState<Record<string, FilePreview>>(() => {
@@ -396,10 +406,13 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
           },
           (payload) => {
             if (payload.result === "Dropped") {
-              if (onFilesTransferred) {
-                onFilesTransferred(targetFiles.map((f) => f.id));
-              } else if (onFileTransferred) {
-                targetFiles.forEach((f) => onFileTransferred(f.id));
+              const currentSettings = loadShelfSettings();
+              if (currentSettings.autoRemoveOnDrop) {
+                if (onFilesTransferred) {
+                  onFilesTransferred(targetFiles.map((f) => f.id));
+                } else if (onFileTransferred) {
+                  targetFiles.forEach((f) => onFileTransferred(f.id));
+                }
               }
               if (isMountedRef.current) {
                 setSelectedIds(new Set());
@@ -436,6 +449,18 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     };
 
     const isDropActive = isDragOver;
+
+    if (isShowingSettings) {
+      return (
+        <DropShelfSettingsView
+          isLightMode={isLightMode}
+          onBack={() => {
+            if (onToggleSettings) onToggleSettings();
+            else setInternalShowSettings(false);
+          }}
+        />
+      );
+    }
 
     return (
       <div
@@ -480,11 +505,23 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                   type="button"
                   onClick={handleStartReceive}
                   className="h-7 px-3 rounded-full border border-[#3882F6]/30 hover:border-[#3882F6]/60 bg-[#3882F6]/10 hover:bg-[#3882F6]/20 text-[#8db8ff] hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
-                  title={t("shelf_receive_from_phone")}
                 >
                   <Smartphone size={12} />
                   <span>{t("shelf_receive_from_phone")}</span>
                 </button>
+                <Tooltip content={t("shelf_settings_title")} side="top">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onToggleSettings) onToggleSettings();
+                      else setInternalShowSettings(true);
+                    }}
+                    className="h-7 w-7 rounded-full border border-white/12 hover:border-white/25 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    aria-label={t("shelf_settings_title")}
+                  >
+                    <Settings size={12.5} />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </div>
@@ -495,6 +532,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               <DropShelfReceivedBanner
                 count={receivedBanner.count}
                 deviceName={receivedBanner.deviceName}
+                isLightMode={isLightMode}
                 onReceiveAgain={handleStartReceive}
                 onDismiss={() => setReceivedBanner(null)}
               />
@@ -529,7 +567,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 type="button"
                 onClick={handleStartSend}
                 className="h-[26px] px-2.5 rounded-lg bg-[#3882F6] hover:bg-[#2563eb] text-white text-[11px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm shadow-[#3882F6]/30"
-                title={selectedIds.size > 0 ? t("shelf_send_to_phone") : "Kirim file ke HP"}
               >
                 <Smartphone size={12.5} strokeWidth={2.2} />
                 <span>
@@ -543,7 +580,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 type="button"
                 onClick={handleStartReceive}
                 className="h-[26px] px-2.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/8 text-zinc-200 hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
-                title={t("shelf_receive_from_phone")}
               >
                 <Smartphone size={12.5} strokeWidth={2} />
                 <span>{t("shelf_receive_from_phone")}</span>
@@ -569,6 +605,20 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                     : t("shelf_clear_btn")}
                 </span>
               </button>
+
+              <Tooltip content={t("shelf_settings_title")} side="top">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onToggleSettings) onToggleSettings();
+                    else setInternalShowSettings(true);
+                  }}
+                  className="h-[26px] w-[26px] rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  aria-label={t("shelf_settings_title")}
+                >
+                  <Settings size={12.5} />
+                </button>
+              </Tooltip>
             </div>
 
             {/* File Row */}
@@ -576,7 +626,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               {canScrollLeft && (
                 <button
                   onClick={() => handleScrollStep("left")}
-                  className="absolute left-0 top-[34px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
+                  className={`absolute left-0 top-[34px] z-20 w-7 h-7 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md ${
+                    isLightMode
+                      ? "bg-white/95 hover:bg-white text-[#1d1d1f] border border-black/15"
+                      : "bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15"
+                  }`}
                   aria-label={isEn ? "Scroll left" : "Gulir ke kiri"}
                 >
                   <ChevronLeft size={15} />
@@ -711,7 +765,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                   e.stopPropagation();
                                   handleSendSingleFile(file);
                                 }}
-                                className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-[#3882F6] text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                                className={`w-4.5 h-4.5 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                  isLightMode
+                                    ? "bg-white/95 hover:bg-[#3882F6]/15 text-[#1d1d1f] hover:text-[#1d4ed8] border border-black/15 shadow-sm"
+                                    : "bg-black/70 hover:bg-[#3882F6] text-white border border-white/10"
+                                }`}
                               >
                                 <Smartphone size={9.5} />
                               </button>
@@ -723,7 +781,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                   e.stopPropagation();
                                   handleShowInFolder(file.path);
                                 }}
-                                className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                                className={`w-4.5 h-4.5 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                  isLightMode
+                                    ? "bg-white/95 hover:bg-black/[0.08] text-[#1d1d1f] border border-black/15 shadow-sm"
+                                    : "bg-black/70 hover:bg-white/20 text-white border border-white/10"
+                                }`}
                               >
                                 <ExternalLink size={9.5} />
                               </button>
@@ -735,7 +797,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                                 onRemoveFile(file.id);
                               }}
                               aria-label={isEn ? "Remove file" : "Hapus file"}
-                              className="w-4.5 h-4.5 rounded-full bg-black/70 hover:bg-rose-500/80 text-white flex items-center justify-center transition-colors cursor-pointer border border-white/10"
+                              className={`w-4.5 h-4.5 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                isLightMode
+                                  ? "bg-white/95 hover:bg-rose-500/15 text-[#1d1d1f] hover:text-rose-600 border border-black/15 shadow-sm"
+                                  : "bg-black/70 hover:bg-rose-500/80 text-white border border-white/10"
+                              }`}
                             >
                               <X size={9.5} strokeWidth={2.4} />
                             </button>
@@ -743,20 +809,27 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
 
                           {/* Copied Overlay */}
                           {isCopied && (
-                            <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 text-white z-30">
-                              <Check size={15} className="text-[#13FF00]" strokeWidth={2.8} />
+                            <div
+                              className={`absolute inset-0 flex flex-col items-center justify-center gap-1 z-30 ${
+                                isLightMode ? "bg-white/90 text-[#1d1d1f]" : "bg-black/85 text-white"
+                              }`}
+                            >
+                              <Check
+                                size={15}
+                                className={isLightMode ? "text-emerald-600" : "text-[#13FF00]"}
+                                strokeWidth={2.8}
+                              />
                               <span className="text-[10px] font-semibold">{t("shelf_copied")}</span>
                             </div>
                           )}
                         </div>
 
                         <div className="px-0.5 min-w-0">
-                          <div
-                            className="text-[11.5px] font-medium text-white/90 group-hover:text-white truncate transition-colors leading-tight"
-                            title={file.name}
-                          >
-                            {file.name}
-                          </div>
+                          <Tooltip content={file.name} side="bottom" delay={400} wrapperClassName="w-full max-w-full block">
+                            <div className="text-[11.5px] font-medium text-white/90 group-hover:text-white truncate transition-colors leading-tight">
+                              {file.name}
+                            </div>
+                          </Tooltip>
                           <div className="text-[10px] text-zinc-400 mt-0.5 truncate flex items-center gap-1.5">
                             <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[8.5px] bg-white/[0.08] px-1 py-0.5 rounded leading-none">
                               {extBadge}
@@ -797,7 +870,11 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
               {canScrollRight && (
                 <button
                   onClick={() => handleScrollStep("right")}
-                  className="absolute right-0 top-[34px] z-20 w-7 h-7 rounded-full bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
+                  className={`absolute right-0 top-[34px] z-20 w-7 h-7 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md ${
+                    isLightMode
+                      ? "bg-white/95 hover:bg-white text-[#1d1d1f] border border-black/15"
+                      : "bg-black/85 hover:bg-black text-white/90 hover:text-white border border-white/15"
+                  }`}
                   aria-label={isEn ? "Scroll right" : "Gulir ke kanan"}
                 >
                   <ChevronRight size={15} />
@@ -812,6 +889,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
             session={sessionInfo}
             incomingProgress={incomingProgress}
             activeDeviceName={activeDeviceName}
+            isLightMode={isLightMode}
             onClose={handleCloseTransfer}
             onCancel={handleCloseTransfer}
           />

@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useId } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { motion } from "framer-motion";
 import { NavbarConfig } from "../../types/navbar";
-import { hexToRgba, saveNavbarConfig } from "../../services/navbarConfigService";
+import { saveNavbarConfig } from "../../services/navbarConfigService";
 import { useNotchTheme } from "../../hooks/useNotchTheme";
 import {
   buildNotchPath,
@@ -12,13 +13,34 @@ import {
 import { StartSearchGroup } from "./groups/StartSearchGroup";
 import { PinnedAppsGroup } from "./groups/PinnedAppsGroup";
 import { SystemTrayGroup } from "./groups/SystemTrayGroup";
-import { getNavbarModuleById } from "../../modules/registry";
-import { NavbarModuleUnifiedPreview } from "../../modules/components/NavbarModuleUnifiedPreview";
+import { getNavbarModuleComponent } from "../../modules/moduleComponents";
+import {
+  registerNavbarPopup,
+  unregisterNavbarPopup,
+} from "../../services/navbarPopupService";
+
+const NavbarModuleUnifiedPreview = React.lazy(() =>
+  import("../../modules/components/NavbarModuleUnifiedPreview").then((m) => ({
+    default: m.NavbarModuleUnifiedPreview,
+  }))
+);
+import { FrostedGlassOverlay } from "../ui/FrostedGlassOverlay";
+import {
+  computeCalibratedGlassPalette,
+  PRESET_LIQUID_GLASS,
+} from "../../utils/frostedGlass";
+
+export interface NavbarSurfaceThemeInfo {
+  isLight: boolean;
+  isTranslucent: boolean;
+  opacityPct: number;
+}
 
 interface NavbarDockProps {
   config: NavbarConfig;
   extraModules?: React.ReactNode;
   isPreview?: boolean;
+  isHidden?: boolean;
   onStartClick?: () => void;
   onSearchClick?: () => void;
   onControlCenterClick?: () => void;
@@ -26,6 +48,8 @@ interface NavbarDockProps {
   onClockClick?: () => void;
   onVolumeClick?: (e: React.MouseEvent) => void;
   onPreviewStateChange?: (isShowing: boolean) => void;
+  onLightSurfaceChange?: (isLight: boolean) => void;
+  onSurfaceThemeChange?: (info: NavbarSurfaceThemeInfo) => void;
 }
 
 function getOffsetRelativeToDock(
@@ -49,6 +73,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       config,
       extraModules,
       isPreview,
+      isHidden = false,
       onStartClick,
       onSearchClick,
       onControlCenterClick,
@@ -56,10 +81,13 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       onClockClick,
       onVolumeClick,
       onPreviewStateChange,
+      onLightSurfaceChange,
+      onSurfaceThemeChange,
     },
     ref
   ) => {
     const isAnchored = config.shape === "anchored";
+    const effectiveHidden = Boolean(isHidden && !isPreview);
     const pos = config.position || "bottom";
     const isTop = pos === "top";
     const isLeft = pos === "left";
@@ -70,30 +98,12 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     const dockThickness = iconSize + 8; // 48px when iconSize = 40px
     const radius = config.cornerRadius ?? 15;
     const accentColor = config.accent || "#3882F6";
-    const { notchBgHex, notchMode } = useNotchTheme();
-
-    const [desktopLuminance, setDesktopLuminance] = useState<number>(0);
-
-    useEffect(() => {
-      if (isPreview) return;
-      let active = true;
-
-      const checkDesktopLuminance = async () => {
-        try {
-          const lum = await invoke<number>("get_desktop_luminance");
-          if (active && typeof lum === "number" && !isNaN(lum)) {
-            setDesktopLuminance(lum);
-          }
-        } catch {}
-      };
-
-      checkDesktopLuminance();
-      const interval = setInterval(checkDesktopLuminance, 1200);
-      return () => {
-        active = false;
-        clearInterval(interval);
-      };
-    }, [isPreview, config.position, config.distanceFromEdge, config.shape]);
+    const {
+      notchMode,
+      notchOpacity,
+      notchBlur,
+      notchIsTranslucent,
+    } = useNotchTheme();
 
     const localDockRef = useRef<HTMLDivElement | null>(null);
     const setCombinedRef = (node: HTMLDivElement | null) => {
@@ -171,7 +181,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         if (!drag.hasMoved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
           drag.hasMoved = true;
           setDraggingModuleId(drag.id);
-          invoke("set_navbar_popup_open", { open: true }).catch(() => {});
+          void registerNavbarPopup("drag:module", null);
         }
 
         if (drag.hasMoved) {
@@ -301,7 +311,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           window.setTimeout(() => {
             justFinishedModDragRef.current = false;
           }, 120);
-          invoke("set_navbar_popup_open", { open: false }).catch(() => {});
+          void unregisterNavbarPopup("drag:module");
         }
         setDraggingModuleId(null);
       };
@@ -313,24 +323,31 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         window.removeEventListener("pointermove", handleWinPointerMove);
         window.removeEventListener("pointerup", handleWinPointerUp);
         window.removeEventListener("pointercancel", handleWinPointerUp);
+        void unregisterNavbarPopup("drag:module");
       };
     }, [isPreview]);
 
-    // Background & Opacity Calculation
+    // Background, Blur & Opacity Calculation (Notch-calibrated)
     const isLiquid = config.style === "liquid";
     const isSolid = config.style === "solid";
-    const alpha = Math.max(0.1, Math.min(1, (config.opacity ?? 100) / 100));
     const isFollowNotch =
       config.style === "followNotch" || config.background === "followNotch";
-    let baseHex = "#000000";
-    if (isFollowNotch) {
-      baseHex = notchBgHex;
-    } else if (config.background === "custom" && config.customColor) {
-      baseHex = config.customColor;
-    } else {
-      baseHex = "#000000";
-    }
-    const bgColor = hexToRgba(baseHex, alpha);
+    const manualAlpha = Math.max(0.15, Math.min(1, (config.opacity ?? 100) / 100));
+    const effectiveAlpha = isFollowNotch ? notchOpacity : manualAlpha;
+    const manualBlur = isLiquid
+      ? (config.blur ?? PRESET_LIQUID_GLASS.blur)
+      : manualAlpha < 0.98
+      ? 36
+      : 0;
+    const effectiveBlur = isFollowNotch ? notchBlur : manualBlur;
+    const isTranslucent = isFollowNotch
+      ? notchIsTranslucent
+      : isLiquid || manualAlpha < 0.98;
+
+    const customColor =
+      !isFollowNotch && config.background === "custom"
+        ? config.customColor || "#0f172a"
+        : null;
     const edgeGap = isAnchored ? 0 : config.distanceFromEdge ?? 14;
 
     const isHexLight = (hex: string) => {
@@ -342,66 +359,56 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       return (r * 299 + g * 587 + b * 114) / 1000 > 165;
     };
 
-    const isTranslucent = isLiquid || alpha < 0.98;
-    const isLightSurface = isTranslucent
-      ? desktopLuminance >= 0.32 ||
-        (isLiquid && desktopLuminance >= 0.28) ||
-        (notchMode === "light" && isFollowNotch && desktopLuminance >= 0.25) ||
-        (isHexLight(baseHex) && alpha >= 0.4)
-      : isHexLight(baseHex);
+    const isLightSurface = isFollowNotch
+      ? notchMode === "light"
+      : customColor
+      ? isHexLight(customColor)
+      : false;
 
-    // Real desktop wallpaper capture behind dock for Liquid Glass mode
-    const [desktopBackdropUrl, setDesktopBackdropUrl] = useState<string | null>(null);
+    const useConcaveEars = isAnchored && !isTranslucent;
+
+    const glassPalette = computeCalibratedGlassPalette({
+      opacity: effectiveAlpha,
+      blur: effectiveBlur,
+      isLight: isLightSurface,
+      customColor,
+      isTranslucent,
+      isSolidOverride: !isTranslucent,
+    });
 
     useEffect(() => {
-      if (!isLiquid || isPreview) {
-        setDesktopBackdropUrl(null);
-        return;
-      }
+      onLightSurfaceChange?.(isLightSurface);
+      onSurfaceThemeChange?.({
+        isLight: isLightSurface,
+        isTranslucent: glassPalette.isTranslucent,
+        opacityPct: Math.round(glassPalette.effectiveOpacity * 100),
+      });
+    }, [
+      isLightSurface,
+      glassPalette.isTranslucent,
+      glassPalette.effectiveOpacity,
+      onLightSurfaceChange,
+      onSurfaceThemeChange,
+    ]);
 
-      let isMounted = true;
-      invoke<string | null>("get_cached_desktop_backdrop")
-        .then((cached) => {
-          if (isMounted && cached) setDesktopBackdropUrl(cached);
-        })
-        .catch(() => {});
-
-      const captureDockBackdrop = async () => {
-        try {
-          const el = localDockRef.current;
-          let clientRect: { x: number; y: number; width: number; height: number } | undefined;
-          if (el) {
-            const rect = el.getBoundingClientRect();
-            const pad = isAnchored ? 40 : 8;
-            clientRect = {
-              x: Math.max(0, rect.left - (isVertical ? 0 : pad)),
-              y: Math.max(0, rect.top - (isVertical ? pad : 0)),
-              width: rect.width + (isVertical ? 0 : pad * 2),
-              height: rect.height + (isVertical ? pad * 2 : 0),
-            };
-          }
-          const dataUrl = await invoke<string>("capture_desktop_backdrop", {
-            windowLabel: "navbar",
-            clientRect,
-            blurSigma: 13.0,
-          });
-          if (isMounted && dataUrl) {
-            setDesktopBackdropUrl(dataUrl);
-          }
-        } catch {
-          // Graceful fallback
-        }
-      };
-
-      captureDockBackdrop();
-      const interval = setInterval(captureDockBackdrop, 1500);
-      return () => {
-        isMounted = false;
-        clearInterval(interval);
-      };
-    }, [isLiquid, isAnchored, isVertical, isPreview, config.position]);
-
+    const effectiveRadiusPx = useConcaveEars
+      ? radius
+      : isAnchored
+      ? radius <= 1
+        ? 0
+        : Math.min(radius, 8)
+      : radius;
     const borderRadiusValue = `${radius}px`;
+    const anchoredGlassRadius = radius <= 1 ? "0px" : `${Math.min(radius, 8)}px`;
+    const surfaceRadius = useConcaveEars
+      ? undefined
+      : isAnchored
+      ? anchoredGlassRadius
+      : borderRadiusValue;
+    const useNativeAcrylic =
+      glassPalette.isTranslucent &&
+      Math.round(glassPalette.effectiveBlur) > 1 &&
+      !useConcaveEars;
 
     const rawClipId = useId();
     const clipId = `dock_unified_clip_${rawClipId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
@@ -425,7 +432,17 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       const ro = new ResizeObserver(measure);
       ro.observe(el);
       return () => ro.disconnect();
-    }, [config.modules, config.iconSize, config.shape, config.position]);
+    }, [
+      config.modules,
+      config.iconSize,
+      config.shape,
+      config.position,
+      config.style,
+      config.opacity,
+      config.blur,
+      effectiveAlpha,
+      effectiveBlur,
+    ]);
 
     const currentW =
       dockDim.w > 0
@@ -440,51 +457,156 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         ? 560
         : dockThickness;
 
-    // Prominent, generous concave ears for anchored mode (luxurious fluid scoop)
-    const earRadius = Math.max(
-      28,
-      Math.min(40, Math.round(dockThickness * 0.58 + (radius - 10) * 0.4))
-    );
+    const acrylicSyncedOnceRef = useRef(false);
+    useEffect(() => {
+      if (isPreview) return;
+      const el = localDockRef.current;
+      if (!el) return;
+
+      let active = true;
+      let rafId = 0;
+
+      const syncNow = () => {
+        if (!active || !localDockRef.current) return;
+        const shouldEnable = !isHidden && useNativeAcrylic;
+        if (!shouldEnable) {
+          if (acrylicSyncedOnceRef.current) {
+            acrylicSyncedOnceRef.current = false;
+            invoke("sync_notch_acrylic", {
+              enabled: false,
+              containerLeft: 0,
+              containerTop: 0,
+              width: 0,
+              height: 0,
+              earRadius: 0,
+              bottomRadius: 0,
+              topRadius: 0,
+              isIsland: true,
+              position: pos,
+              dpr: window.devicePixelRatio || 1,
+              blurStrength: 0,
+              opacity: 1,
+              isLight: false,
+            }).catch(() => {});
+          }
+          return;
+        }
+
+        const rect = localDockRef.current.getBoundingClientRect();
+        if (rect.width < 4 || rect.height < 4) return;
+        const scaleX = currentW > 0 ? rect.width / currentW : 1;
+        const scaledR = effectiveRadiusPx * scaleX;
+        acrylicSyncedOnceRef.current = true;
+        invoke("sync_notch_acrylic", {
+          enabled: true,
+          containerLeft: rect.left,
+          containerTop: rect.top,
+          width: rect.width,
+          height: rect.height,
+          earRadius: 0,
+          bottomRadius: scaledR,
+          topRadius: scaledR,
+          isIsland: true,
+          position: pos,
+          dpr: window.devicePixelRatio || 1,
+          blurStrength: Math.round(glassPalette.effectiveBlur),
+          opacity: glassPalette.effectiveOpacity,
+          isLight: isLightSurface,
+        }).catch(() => {});
+      };
+
+      syncNow();
+      if (!isHidden && useNativeAcrylic) {
+        const start = performance.now();
+        const glide = () => {
+          if (!active) return;
+          syncNow();
+          if (performance.now() - start < 560) {
+            rafId = requestAnimationFrame(glide);
+          }
+        };
+        rafId = requestAnimationFrame(glide);
+      }
+
+      const ro = new ResizeObserver(syncNow);
+      ro.observe(el);
+      window.addEventListener("resize", syncNow);
+      return () => {
+        active = false;
+        cancelAnimationFrame(rafId);
+        ro.disconnect();
+        window.removeEventListener("resize", syncNow);
+      };
+    }, [
+      isPreview,
+      isHidden,
+      useNativeAcrylic,
+      pos,
+      effectiveRadiusPx,
+      currentW,
+      glassPalette.effectiveBlur,
+      glassPalette.effectiveOpacity,
+      isLightSurface,
+      config.distanceFromEdge,
+      config.shape,
+      config.position,
+    ]);
+
+    useEffect(() => {
+      if (isPreview) return;
+      return () => {
+        if (acrylicSyncedOnceRef.current) {
+          acrylicSyncedOnceRef.current = false;
+          invoke("sync_notch_acrylic", {
+            enabled: false,
+            containerLeft: 0,
+            containerTop: 0,
+            width: 0,
+            height: 0,
+            earRadius: 0,
+            bottomRadius: 0,
+            topRadius: 0,
+            isIsland: true,
+            position: "bottom",
+            dpr: 1,
+            blurStrength: 0,
+            opacity: 1,
+            isLight: false,
+          }).catch(() => {});
+        }
+      };
+    }, [isPreview]);
+
+    // Concave ears only in Solid anchored mode; translucent anchored renders as a rounded frosted bar
+    const earRadius = useConcaveEars
+      ? Math.max(28, Math.min(40, Math.round(dockThickness * 0.58 + (radius - 10) * 0.4)))
+      : 0;
     const pathParams = {
       width: currentW,
       height: currentH,
-      earRadius: isAnchored ? earRadius : 0,
+      earRadius,
       bottomRadius: radius,
       isIsland: false,
       isBottom: pos === "bottom",
       position: pos as any,
     };
-    const surfaceMetrics = getNotchSurfaceMetrics(pathParams);
-    const fillPath = buildNotchPath(pathParams);
-    const outlinePath = buildNotchOutlinePath(pathParams);
+    const surfaceMetrics = useConcaveEars ? getNotchSurfaceMetrics(pathParams) : null;
+    const fillPath = useConcaveEars ? buildNotchPath(pathParams) : "";
+    const outlinePath = useConcaveEars ? buildNotchOutlinePath(pathParams) : "";
 
-    const liquidDarkBg = `linear-gradient(180deg, rgba(255,255,255,${(0.20 * alpha).toFixed(3)}) 0%, rgba(255,255,255,${(0.07 * alpha).toFixed(3)}) 50%, rgba(255,255,255,${(0.10 * alpha).toFixed(3)}) 100%), rgba(22,16,72,${(0.50 * alpha).toFixed(3)})`;
-    const liquidLightBg = `linear-gradient(180deg, rgba(255,255,255,${(0.65 * alpha).toFixed(3)}) 0%, rgba(255,255,255,${(0.25 * alpha).toFixed(3)}) 50%, rgba(255,255,255,${(0.40 * alpha).toFixed(3)}) 100%), rgba(240,244,255,${(0.50 * alpha).toFixed(3)})`;
-
-    const surfaceBackground = isLiquid
-      ? isLightSurface
-        ? liquidLightBg
-        : liquidDarkBg
-      : isSolid
-      ? isLightSurface
-        ? `rgba(255, 255, 255, ${alpha})`
-        : `rgba(0, 0, 0, ${alpha})`
-      : bgColor;
-
-    const surfaceBackdropFilter = isLiquid
-      ? "blur(26px) saturate(175%) brightness(1.05)"
-      : alpha < 0.99
-      ? "blur(20px) saturate(160%)"
-      : undefined;
-
-    // Neutral clean borders without accent color stroke (in anchored mode background & blur is on unified surface)
     const dockStyle: React.CSSProperties = {
       width: isVertical ? `${dockThickness}px` : undefined,
       height: isVertical ? undefined : `${dockThickness}px`,
-      background: isAnchored || isLiquid ? "transparent" : surfaceBackground,
-      backdropFilter: isAnchored ? undefined : surfaceBackdropFilter,
-      WebkitBackdropFilter: isAnchored ? undefined : surfaceBackdropFilter,
-      borderRadius: isAnchored ? undefined : borderRadiusValue,
+      background: useConcaveEars ? "transparent" : glassPalette.backgroundFill,
+      backdropFilter:
+        !useConcaveEars && isPreview
+          ? glassPalette.previewBackdropFilter
+          : undefined,
+      WebkitBackdropFilter:
+        !useConcaveEars && isPreview
+          ? glassPalette.previewBackdropFilter
+          : undefined,
+      borderRadius: surfaceRadius,
       marginBottom: !isVertical && !isTop ? `${edgeGap}px` : "0px",
       marginTop: !isVertical && isTop ? `${edgeGap}px` : "0px",
       marginLeft: isLeft ? `${edgeGap}px` : "0px",
@@ -493,15 +615,13 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       paddingRight: isVertical ? "0px" : isAnchored ? "10px" : "14px",
       paddingTop: isVertical ? (isAnchored ? "10px" : "14px") : "0px",
       paddingBottom: isVertical ? (isAnchored ? "10px" : "14px") : "0px",
-      boxShadow: isAnchored
+      boxShadow: useConcaveEars
         ? undefined
-        : isLiquid
-        ? isLightSurface
-          ? "inset 0 1px 0 rgba(255,255,255,.85), inset 0 -1px 0 rgba(0,0,0,.04), inset 0 0 0 1px rgba(255,255,255,.45), 0 20px 48px rgba(0,0,0,.14), 0 2px 8px rgba(0,0,0,.06)"
-          : "inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(255,255,255,.12), inset 0 0 0 1px rgba(255,255,255,.22), 0 28px 64px rgba(12,10,60,.45), 0 2px 8px rgba(0,0,0,.16)"
+        : isAnchored
+        ? undefined
         : isLightSurface
-        ? "inset 0 1px 0 rgba(255,255,255,0.7), 0 14px 34px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.08)"
-        : "inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 34px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06)",
+        ? "0 12px 30px rgba(0,0,0,0.18)"
+        : "0 14px 34px rgba(0,0,0,0.42)",
       transition:
         "margin 0.35s cubic-bezier(0.22, 1, 0.36, 1), padding 0.35s cubic-bezier(0.22, 1, 0.36, 1), background 0.25s ease, box-shadow 0.25s ease",
     };
@@ -518,8 +638,8 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         aria-hidden="true"
         className={
           isVertical
-            ? "w-[20px] h-[1px] bg-white/10 my-1.5 shrink-0 select-none pointer-events-none"
-            : "w-[1px] h-[20px] bg-white/10 mx-1.5 shrink-0 select-none pointer-events-none"
+            ? `w-[20px] h-[1px] ${isLightSurface ? "bg-black/15" : "bg-white/10"} my-1.5 shrink-0 select-none pointer-events-none`
+            : `w-[1px] h-[20px] ${isLightSurface ? "bg-black/15" : "bg-white/10"} mx-1.5 shrink-0 select-none pointer-events-none`
         }
       />
     );
@@ -528,13 +648,13 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       config.modules.some((m) => m.id === id && m.enabled);
 
     const handleAppClick = async (app: any, forceNewInstance = false) => {
+      emit("navbar-dismiss-popovers").catch(() => {});
       if (!forceNewInstance && app.hwnd) {
         try {
           await invoke("activate_or_toggle_window", { hwnd: app.hwnd });
-          window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
-          }, 60);
+          }, 180);
           return;
         } catch {}
       }
@@ -622,7 +742,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       const isDraggingThis = draggingModuleId === slotId;
       return (
         <motion.div
-          layout={!isDraggingThis ? "position" : false}
+          layout={Boolean(draggingModuleId) && !isDraggingThis ? "position" : false}
           transition={{ type: "spring", stiffness: 380, damping: 34, mass: 0.6 }}
           key={`mod-slot-${slotId}`}
           ref={(el) => {
@@ -638,6 +758,8 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             }
           }}
           className={`flex items-center shrink-0 select-none ${
+            isVertical ? "w-full min-w-0 max-w-full justify-center" : ""
+          } ${
             slotId !== "pinnedApps" && slotId !== "runningApps"
               ? "cursor-grab active:cursor-grabbing"
               : ""
@@ -648,7 +770,9 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               if (el) modInnerRefs.current.set(slotId, el);
               else modInnerRefs.current.delete(slotId);
             }}
-            className="flex items-center shrink-0"
+            className={`flex items-center shrink-0 ${
+              isVertical ? "w-full min-w-0 max-w-full justify-center" : ""
+            }`}
           >
             {node}
           </div>
@@ -669,6 +793,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             iconSize={iconSize}
             accentColor={accentColor}
             isVertical={isVertical}
+            position={pos}
             onStartClick={onStartClick}
             onSearchClick={onSearchClick}
           />
@@ -683,6 +808,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           <PinnedAppsGroup
             key="pinnedAppsGroup"
             isPreview={isPreview}
+            isHidden={effectiveHidden}
             iconSize={iconSize}
             iconTheme={config.iconTheme || "fluent"}
             position={pos}
@@ -690,6 +816,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             windowPreviews={config.windowPreviews}
             showAppLabels={config.appLabels}
             accentColor={config.accent}
+            showPinnedApps={hasModule("pinnedApps")}
             showRunningApps={hasModule("runningApps")}
             onPreviewStateChange={onPreviewStateChange}
             onAppClick={handleAppClick}
@@ -710,6 +837,9 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             use24HourClock={config.clock24h}
             singleItem={m.id}
             isVertical={isVertical}
+            position={pos}
+            isHidden={effectiveHidden}
+            isPreview={isPreview}
             onControlCenterClick={onControlCenterClick}
             onNotificationsClick={onNotificationsClick}
             onClockClick={onClockClick}
@@ -718,27 +848,30 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         );
       }
 
-      const def = getNavbarModuleById(m.id);
-      if (def?.component) {
-        const Component = def.component;
+      const Component = getNavbarModuleComponent(m.id);
+      if (Component) {
         return wrapDraggableModule(
           m.id,
-          <Component
-            key={m.id}
-            view={isVertical ? "compact" : m.view}
-            config={config}
-          />
+          <React.Suspense key={m.id} fallback={null}>
+            <Component
+              view={isVertical ? "compact" : m.view}
+              config={config}
+              isHidden={effectiveHidden}
+              isPreview={isPreview}
+            />
+          </React.Suspense>
         );
       }
 
       return wrapDraggableModule(
         m.id,
-        <NavbarModuleUnifiedPreview
-          key={m.id}
-          moduleId={m.id}
-          variant={!isVertical && m.view === "full" ? "pill" : "compact"}
-          className="cursor-pointer hover:opacity-90 transition-opacity"
-        />
+        <React.Suspense key={m.id} fallback={null}>
+          <NavbarModuleUnifiedPreview
+            moduleId={m.id}
+            variant={!isVertical && m.view === "full" ? "pill" : "compact"}
+            className="cursor-pointer hover:opacity-90 transition-opacity"
+          />
+        </React.Suspense>
       );
     };
 
@@ -777,8 +910,8 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           isLightSurface ? "navbar-surface-light text-zinc-900" : "text-white"
         } select-none whitespace-nowrap box-border overflow-visible ${spacingClass}`}
       >
-        {/* Unified Anchored Surface (continuous dock body + both ears into 1 SVG clip & surface) */}
-        {isAnchored && surfaceMetrics && (
+        {/* Unified Anchored Surface for opaque solid mode (ears + flat edge join) */}
+        {useConcaveEars && surfaceMetrics && (
           <div
             aria-hidden="true"
             className="absolute pointer-events-none select-none z-0 overflow-visible"
@@ -787,11 +920,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               top: `${surfaceMetrics.offsetTop}px`,
               width: `${surfaceMetrics.totalW}px`,
               height: `${surfaceMetrics.totalH}px`,
-              filter: isLiquid
-                ? isLightSurface
-                  ? "drop-shadow(0 10px 22px rgba(0,0,0,0.14))"
-                  : "drop-shadow(0 14px 30px rgba(0,0,0,0.32))"
-                : isLightSurface
+              filter: isLightSurface
                 ? "drop-shadow(0 6px 18px rgba(0,0,0,0.12))"
                 : "drop-shadow(0 12px 28px rgba(0,0,0,0.45))",
             }}
@@ -809,37 +938,15 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               </defs>
             </svg>
 
-            {/* Unified Clipped Surface (body + both ears) */}
             <div
               className="absolute inset-0 pointer-events-none overflow-hidden"
               style={{
                 clipPath: `url(#${clipId})`,
                 WebkitClipPath: `url(#${clipId})`,
-                background: isLiquid ? undefined : surfaceBackground,
+                background: glassPalette.backgroundFill,
               }}
-            >
-              {isLiquid && desktopBackdropUrl && (
-                <img
-                  src={desktopBackdropUrl}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-fill pointer-events-none"
-                  style={{
-                    filter: "blur(26px) saturate(175%) brightness(1.05)",
-                    transform: "scale(1.08)",
-                  }}
-                />
-              )}
-              {isLiquid && (
-                <div
-                  className="absolute inset-0 pointer-events-none"
-                  style={{
-                    background: surfaceBackground,
-                  }}
-                />
-              )}
-            </div>
+            />
 
-            {/* Seamless Perimeter Outline following dock and ears */}
             <svg
               className="absolute inset-0 w-full h-full block overflow-visible"
               viewBox={`0 0 ${surfaceMetrics.totalW} ${surfaceMetrics.totalH}`}
@@ -849,55 +956,31 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               <path
                 d={outlinePath}
                 fill="none"
-                stroke={
-                  isLiquid
-                    ? isLightSurface
-                      ? "rgba(255,255,255,0.65)"
-                      : "rgba(255,255,255,0.22)"
-                    : isLightSurface
-                    ? "rgba(0,0,0,0.08)"
-                    : "rgba(255,255,255,0.08)"
-                }
+                stroke={isLightSurface ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)"}
                 strokeWidth="1"
               />
             </svg>
           </div>
         )}
 
-        {/* Real captured desktop wallpaper behind dock in Floating mode */}
-        {!isAnchored && isLiquid && desktopBackdropUrl && (
-          <div className="absolute inset-0 rounded-[inherit] overflow-hidden pointer-events-none z-0">
-            <img
-              src={desktopBackdropUrl}
-              alt=""
-              className="w-full h-full object-cover pointer-events-none select-none"
-              style={{
-                filter: "blur(26px) saturate(175%) brightness(1.05)",
-                transform: "scale(1.08)",
-              }}
-            />
-          </div>
-        )}
-
-        {/* Liquid Glass Specular Reflection Highlight for Floating mode */}
-        {!isAnchored && isLiquid && (
-          <div
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: "inherit",
-              pointerEvents: "none",
-              zIndex: 0,
-              background: surfaceBackground,
-            }}
+        {/* Notch-calibrated frosted diffusion, "buram kasar" grain, specular & bevel border */}
+        {!useConcaveEars && (
+          <FrostedGlassOverlay
+            palette={glassPalette}
+            isLight={isLightSurface}
+            borderRadius={surfaceRadius ?? 0}
+            position={pos === "top" ? "top" : "bottom"}
+            showBevelBorder={!isSolid || !isAnchored}
+            solidBorderColor={
+              isLightSurface ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.08)"
+            }
           />
         )}
 
         {/* Dock modules & items */}
         <div
-          className={`relative z-[1] flex ${
-            isVertical ? "flex-col" : "flex-row"
+          className={`relative z-[2] flex ${
+            isVertical ? "flex-col w-full min-w-0 max-w-full" : "flex-row"
           } items-center ${spacingClass}`}
         >
           {nonEmptyGroups.map((groupNodes, gIdx) => (
@@ -905,7 +988,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               {gIdx > 0 && <Separator />}
               <div
                 className={`flex ${
-                  isVertical ? "flex-col" : "flex-row"
+                  isVertical ? "flex-col w-full min-w-0 max-w-full" : "flex-row"
                 } items-center gap-1 shrink-0`}
               >
                 {groupNodes}

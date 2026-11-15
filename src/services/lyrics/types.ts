@@ -1,10 +1,18 @@
+export interface LyricWord {
+  time: number;
+  endTime?: number;
+  text: string;
+}
+
 export interface LyricLine {
   time: number;
   text: string;
+  words?: LyricWord[];
 }
 
 export type LyricsProviderId =
   | "auto"
+  | "betterlyrics"
   | "qqmusic"
   | "lrclib"
   | "genius"
@@ -30,5 +38,10 @@ export interface LyricsProviderMeta {
 export interface LyricsProvider {
   id: LyricsProviderId;
   name: string;
-  fetchLyrics: (artist: string, title: string, duration?: number) => Promise<LyricsData | null>;
+  fetchLyrics: (
+    artist: string,
+    title: string,
+    duration?: number,
+    signal?: AbortSignal
+  ) => Promise<LyricsData | null>;
 }

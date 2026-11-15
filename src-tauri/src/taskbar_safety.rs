@@ -157,19 +157,82 @@ pub fn trigger_emergency_kill_switch(app_handle: Option<&AppHandle>) {
 
 #[tauri::command]
 pub fn set_taskbar_window_switches(switches: TaskbarWindowSwitches) {
-    USE_GILI_START.store(switches.use_gili_start, Ordering::SeqCst);
-    USE_GILI_SEARCH.store(switches.use_gili_search, Ordering::SeqCst);
-    USE_GILI_QUICK_SETTINGS.store(switches.use_gili_quick_settings, Ordering::SeqCst);
-    USE_GILI_VOLUME_OUTPUT.store(switches.use_gili_volume_output, Ordering::SeqCst);
-    USE_GILI_NOTIF_CAL.store(switches.use_gili_notif_cal, Ordering::SeqCst);
-    USE_GILI_TRAY.store(switches.use_gili_tray, Ordering::SeqCst);
+    let entitled = cfg!(test) || crate::store_license::can_use_taskbar();
+    let effective = if entitled {
+        switches
+    } else {
+        TaskbarWindowSwitches::default()
+    };
 
-    log_taskbar_event(
-        "system",
-        "update_switches",
-        "ok",
-        Some(serde_json::to_value(&switches).unwrap_or_default()),
-    );
+    USE_GILI_START.store(effective.use_gili_start, Ordering::SeqCst);
+    USE_GILI_SEARCH.store(effective.use_gili_search, Ordering::SeqCst);
+    USE_GILI_QUICK_SETTINGS.store(effective.use_gili_quick_settings, Ordering::SeqCst);
+    USE_GILI_VOLUME_OUTPUT.store(effective.use_gili_volume_output, Ordering::SeqCst);
+    USE_GILI_NOTIF_CAL.store(effective.use_gili_notif_cal, Ordering::SeqCst);
+    USE_GILI_TRAY.store(effective.use_gili_tray, Ordering::SeqCst);
+
+    if !cfg!(test) {
+        log_taskbar_event(
+            "system",
+            "update_switches",
+            "ok",
+            Some(serde_json::to_value(&effective).unwrap_or_default()),
+        );
+    }
+}
+
+pub fn sync_switches_from_navbar_config_value(cfg: &serde_json::Value) {
+    let entitled = cfg!(test) || crate::store_license::can_use_taskbar();
+    let enabled = entitled
+        && cfg
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+    let flag = |key: &str| -> bool {
+        enabled && cfg.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+    };
+
+    let switches = TaskbarWindowSwitches {
+        use_gili_start: flag("useGiliStart"),
+        use_gili_search: flag("useGiliSearch"),
+        use_gili_quick_settings: flag("useGiliQuickSettings"),
+        use_gili_volume_output: flag("useGiliVolumeOutput"),
+        use_gili_notif_cal: flag("useGiliNotificationsCalendar"),
+        use_gili_tray: flag("useGiliTray"),
+    };
+
+    set_taskbar_window_switches(switches);
+
+    if !cfg!(test) {
+        let hide_windows_taskbar = flag("hideWindowsTaskbar");
+        crate::taskbar_manager::set_taskbar_visible(!hide_windows_taskbar);
+    }
+}
+
+pub fn init_taskbar_switches_from_disk() {
+    let Some(appdata) = std::env::var_os("APPDATA") else {
+        return;
+    };
+    let settings_path = std::path::PathBuf::from(appdata)
+        .join("com.faiz.notch")
+        .join("settings.json");
+    let Ok(raw) = std::fs::read_to_string(&settings_path) else {
+        return;
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    let default_off_migrated = parsed
+        .get("opt_navbar_default_off_v5")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !default_off_migrated {
+        return;
+    }
+    if let Some(navbar_cfg) = parsed.get("opt_navbar_config") {
+        sync_switches_from_navbar_config_value(navbar_cfg);
+    }
 }
 
 #[tauri::command]
@@ -218,8 +281,30 @@ mod tests {
         assert!(updated.use_gili_start);
         assert!(updated.use_gili_volume_output);
 
-        // Reset
-        set_taskbar_window_switches(TaskbarWindowSwitches::default());
+        // Sync from JSON config: disabled navbar forces all switches false
+        sync_switches_from_navbar_config_value(&serde_json::json!({
+            "enabled": false,
+            "useGiliStart": true,
+            "useGiliSearch": true
+        }));
+        let when_disabled = get_taskbar_window_switches();
+        assert!(!when_disabled.use_gili_start);
+        assert!(!when_disabled.use_gili_search);
+
+        // Enabled navbar honors per-window flags
+        sync_switches_from_navbar_config_value(&serde_json::json!({
+            "enabled": true,
+            "useGiliStart": true,
+            "useGiliSearch": false,
+            "useGiliQuickSettings": true
+        }));
+        let when_enabled = get_taskbar_window_switches();
+        assert!(when_enabled.use_gili_start);
+        assert!(!when_enabled.use_gili_search);
+        assert!(when_enabled.use_gili_quick_settings);
+
+        // Reset to original state
+        set_taskbar_window_switches(initial);
         let reset = get_taskbar_window_switches();
         assert!(!reset.use_gili_start);
         assert!(!reset.use_gili_volume_output);

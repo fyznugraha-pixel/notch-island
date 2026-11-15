@@ -1,8 +1,8 @@
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, GetKeyState, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VK_BACK, VK_CONTROL, VK_LWIN,
-    VK_MENU, VK_RWIN, VK_SHIFT,
+    keybd_event, GetKeyState, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_BACK,
+    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
@@ -34,6 +34,38 @@ fn inject_neutral_key() {
     }
 }
 
+fn dispatch_win_start_hotkey(win_vk: u8) {
+    std::thread::spawn(move || {
+        // Wait briefly so low_level_keyboard_proc has returned LRESULT(1) for the physical Win key-up
+        std::thread::sleep(std::time::Duration::from_millis(4));
+        unsafe {
+            let ctrl_already_down = (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
+            if !ctrl_already_down {
+                keybd_event(VK_CONTROL.0 as u8, 0x1D, KEYBD_EVENT_FLAGS(0), 0);
+            }
+            keybd_event(VK_NEUTRAL_UNASSIGNED, 0, KEYBD_EVENT_FLAGS(0), 0);
+            keybd_event(VK_NEUTRAL_UNASSIGNED, 0, KEYEVENTF_KEYUP, 0);
+            // Release Win while Ctrl is held down so Windows 11 never triggers native Start Menu
+            keybd_event(win_vk, 0x5B, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+            keybd_event(win_vk, 0, KEYEVENTF_KEYUP, 0);
+            if !ctrl_already_down {
+                keybd_event(VK_CONTROL.0 as u8, 0x1D, KEYEVENTF_KEYUP, 0);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(8));
+        crate::taskbar_flyout::open_taskbar_flyout_by_target("start");
+        log_taskbar_event("mulai", "hotkey_trigger", "ok", None);
+    });
+}
+
+fn dispatch_hotkey_flyout(target: &'static str, log_window: &'static str) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        crate::taskbar_flyout::open_taskbar_flyout_by_target(target);
+        log_taskbar_event(log_window, "hotkey_trigger", "ok", None);
+    });
+}
+
 unsafe extern "system" fn low_level_keyboard_proc(
     n_code: i32,
     wparam: WPARAM,
@@ -44,6 +76,11 @@ unsafe extern "system" fn low_level_keyboard_proc(
     }
 
     let kbd = *(lparam.0 as *const KBDLLHOOKSTRUCT);
+    const LLKHF_INJECTED_FLAG: u32 = 0x10;
+    if (kbd.flags.0 & LLKHF_INJECTED_FLAG) != 0 {
+        return CallNextHookEx(None, n_code, wparam, lparam);
+    }
+
     let vk = kbd.vkCode;
     let msg = wparam.0 as u32;
     let is_down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
@@ -65,20 +102,23 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
     if is_win_key {
         if is_down {
-            WIN_KEY_DOWN.store(true, Ordering::SeqCst);
-            WIN_KEY_INTERRUPTED.store(false, Ordering::SeqCst);
+            if !WIN_KEY_DOWN.swap(true, Ordering::SeqCst) {
+                WIN_KEY_INTERRUPTED.store(false, Ordering::SeqCst);
+                if USE_GILI_START.load(Ordering::SeqCst) {
+                    std::thread::spawn(|| {
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                        inject_neutral_key();
+                    });
+                }
+            }
         } else if is_up {
             let was_down = WIN_KEY_DOWN.swap(false, Ordering::SeqCst);
             let interrupted = WIN_KEY_INTERRUPTED.swap(false, Ordering::SeqCst);
 
             // Solo Win key released without any other key pressed in between
-            if was_down && !interrupted {
-                if USE_GILI_START.load(Ordering::SeqCst) {
-                    inject_neutral_key();
-                    crate::taskbar_flyout::open_taskbar_flyout_by_target("start");
-                    log_taskbar_event("mulai", "hotkey_trigger", "ok", None);
-                    return LRESULT(1); // Suppress native Start menu
-                }
+            if was_down && !interrupted && USE_GILI_START.load(Ordering::SeqCst) {
+                dispatch_win_start_hotkey(vk as u8);
+                return LRESULT(1); // Suppress physical Win key-up
             }
         }
     } else if WIN_KEY_DOWN.load(Ordering::SeqCst) {
@@ -92,8 +132,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             if vk == VK_S_CODE && !ctrl_down {
                 if USE_GILI_SEARCH.load(Ordering::SeqCst) {
                     inject_neutral_key();
-                    crate::taskbar_flyout::open_taskbar_flyout_by_target("search");
-                    log_taskbar_event("cari", "hotkey_trigger", "ok", None);
+                    dispatch_hotkey_flyout("search", "cari");
                     return LRESULT(1);
                 }
             }
@@ -101,8 +140,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             else if vk == VK_A_CODE && !ctrl_down {
                 if USE_GILI_QUICK_SETTINGS.load(Ordering::SeqCst) {
                     inject_neutral_key();
-                    crate::taskbar_flyout::open_taskbar_flyout_by_target("quickSettings");
-                    log_taskbar_event("pengaturan_cepat", "hotkey_trigger", "ok", None);
+                    dispatch_hotkey_flyout("quickSettings", "pengaturan_cepat");
                     return LRESULT(1);
                 }
             }
@@ -110,8 +148,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             else if vk == VK_N_CODE && !ctrl_down {
                 if USE_GILI_NOTIF_CAL.load(Ordering::SeqCst) {
                     inject_neutral_key();
-                    crate::taskbar_flyout::open_taskbar_flyout_by_target("notificationsCalendar");
-                    log_taskbar_event("notifikasi_kalender", "hotkey_trigger", "ok", None);
+                    dispatch_hotkey_flyout("notificationsCalendar", "notifikasi_kalender");
                     return LRESULT(1);
                 }
             }
@@ -119,8 +156,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             else if vk == VK_V_CODE && ctrl_down {
                 if USE_GILI_VOLUME_OUTPUT.load(Ordering::SeqCst) {
                     inject_neutral_key();
-                    crate::taskbar_flyout::open_taskbar_flyout_by_target("volume");
-                    log_taskbar_event("output_suara", "hotkey_trigger", "ok", None);
+                    dispatch_hotkey_flyout("volume", "output_suara");
                     return LRESULT(1);
                 }
             }

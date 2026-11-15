@@ -1,14 +1,16 @@
 export interface MediaPayload {
   title: string;
   artist: string;
+  album?: string | null;
   is_playing: boolean;
   thumbnail?: string | null;
   playback_type?: number;
   position?: number;
   duration?: number;
   is_browser?: boolean;
-  app_id?: string;
-  web_source?: string;
+  app_id?: string | null;
+  web_source?: string | null;
+  can_seek?: boolean;
 }
 
 export interface NotifPayload {

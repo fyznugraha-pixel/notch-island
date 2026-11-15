@@ -2,10 +2,36 @@ import React, { useState } from "react";
 import { NavbarConfig } from "../../../types/navbar";
 import { GripVertical, Plus, X, Box } from "lucide-react";
 import { Language } from "../../../services/i18n";
+import { useTaskbarLang, tx } from "../../../services/taskbarI18n";
 import {
-  getCatalogModule,
-  NavbarModuleUnifiedPreview,
-} from "../../../modules/components/NavbarModuleUnifiedPreview";
+  getLocalizedModuleMeta,
+  localizePreviewHtml,
+} from "../../../modules/moduleI18n";
+import { getCatalogModule } from "../../../modules/components/NavbarModuleUnifiedPreview";
+import { Tooltip } from "../../ui/Tooltip";
+
+const LocalizedOrderPreview: React.FC<{
+  moduleId: string;
+  variant: "compact" | "pill";
+  lang: Language;
+}> = React.memo(({ moduleId, variant, lang }) => {
+  const item = getCatalogModule(moduleId);
+  if (!item) {
+    return (
+      <div className="w-8 h-8 rounded-[10px] bg-white/10 flex items-center justify-center text-zinc-400 text-[10px]">
+        {moduleId.slice(0, 2).toUpperCase()}
+      </div>
+    );
+  }
+  const rawHtml = variant === "compact" ? item.tileHtml : item.pillHtml;
+  const htmlSnippet = localizePreviewHtml(rawHtml, lang);
+  return (
+    <div
+      className="inline-flex shrink-0 select-none"
+      dangerouslySetInnerHTML={{ __html: htmlSnippet }}
+    />
+  );
+});
 
 interface NavbarModulesOrderCardProps {
   config: NavbarConfig;
@@ -103,15 +129,17 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
   onChange,
   onOpenAddModule,
   isLightMode = false,
-  optLanguage = "id",
+  optLanguage,
 }) => {
-  const isId = optLanguage === "id";
+  const taskbarLang = useTaskbarLang();
+  const lang: Language = optLanguage ?? taskbarLang;
+  const isId = lang === "id";
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const cardBg = isLightMode
-    ? "bg-white/70 border-black/[0.08]"
-    : "bg-[#0d1017] border-[#1a1e29]";
+    ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
   const textTitle = isLightMode ? "text-neutral-900" : "text-[#f2f3f7]";
   const textSub = isLightMode ? "text-neutral-500" : "text-[#8a8fa0]";
 
@@ -179,21 +207,29 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
   };
 
   return (
-    <div className={`flex flex-col gap-3.5 p-5 rounded-[22px] border ${cardBg}`}>
+    <div className={`flex flex-col gap-3.5 p-5 rounded-[18px] border ${cardBg}`}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-[10px] bg-[#131a2b] text-[#2f8bff] flex items-center justify-center shrink-0">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={`w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 ${
+              isLightMode
+                ? "bg-blue-500/12 text-blue-600"
+                : "bg-blue-500/12 text-[#3882f6]"
+            }`}
+          >
             <Box size={18} />
           </div>
-          <div className="flex flex-col">
-            <span className={`text-[15px] font-semibold ${textTitle}`}>
-              {isId ? "Susunan Modul" : "Modules & Order"}
+          <div className="flex flex-col min-w-0">
+            <span className={`text-[13.5px] font-semibold ${textTitle}`}>
+              {tx(lang, "Modules & Order", "Susunan Modul")}
             </span>
-            <span className={`text-[12px] ${textSub}`}>
-              {isId
-                ? "Tarik & geser buat atur urutan sesuka lo. Lebar bar otomatis ngikut."
-                : "Drag & drop to reorder modules. Dock width adjusts automatically."}
+            <span className={`text-[11.5px] ${textSub}`}>
+              {tx(
+                lang,
+                "Drag & drop to reorder modules. Dock width adjusts automatically.",
+                "Tarik & geser untuk atur urutan modul. Lebar dock otomatis menyesuaikan."
+              )}
             </span>
           </div>
         </div>
@@ -201,10 +237,10 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
         <button
           type="button"
           onClick={onOpenAddModule}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-[10px] bg-[#2f8bff] text-white text-[12px] font-semibold shadow-sm hover:bg-[#1d7ae8] transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-[10px] bg-[#0a84ff] text-white text-[12px] font-semibold shadow-sm hover:bg-[#0070e0] transition-colors cursor-pointer shrink-0"
         >
           <Plus size={14} strokeWidth={2.4} />
-          <span>{isId ? "Tambah modul" : "Add module"}</span>
+          <span>{tx(lang, "Add module", "Tambah modul")}</span>
         </button>
       </div>
 
@@ -214,17 +250,26 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
           const coreMeta = CORE_MODULE_META[m.id];
           const isCore = Boolean(coreMeta);
           const catalogItem = !isCore ? getCatalogModule(m.id) : undefined;
+          const localizedMeta = !isCore
+            ? getLocalizedModuleMeta(
+                m.id,
+                lang,
+                catalogItem?.name || m.id,
+                catalogItem?.description ||
+                  tx(lang, "Additional taskbar module", "Modul tambahan taskbar")
+              )
+            : null;
 
           const title = coreMeta
             ? isId
               ? coreMeta.titleId
               : coreMeta.titleEn
-            : catalogItem?.name || m.id;
+            : localizedMeta!.name;
           const desc = coreMeta
             ? isId
               ? coreMeta.descId
               : coreMeta.descEn
-            : catalogItem?.description || (isId ? "Modul tambahan taskbar" : "Additional taskbar module");
+            : localizedMeta!.description;
 
           const isDragging = dragIndex === idx;
           const isDragOver = dragOverIndex === idx && dragIndex !== idx;
@@ -238,62 +283,114 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
               onDrop={(e) => handleDrop(e, idx)}
               onDragEnd={handleDragEnd}
               className={`flex items-center gap-3 rounded-[14px] border transition-all select-none ${
-                isCore ? "min-h-[56px] px-3.5 py-2" : "p-2.5"
+                isCore ? "min-h-[56px] px-3.5 py-2" : "px-3 py-2.5"
               } ${
                 isDragging ? "opacity-45 scale-[0.99]" : "opacity-100"
               } ${
                 isDragOver
-                  ? "border-[#2f8bff] ring-1 ring-[#2f8bff]/40"
+                  ? "border-[#0a84ff] ring-1 ring-[#0a84ff]/40"
                   : isLightMode
-                  ? "bg-[#fafafa] border-black/[0.07] hover:bg-black/[0.02]"
-                  : "bg-[#0a0d13] border-[#171b26] hover:bg-[#0e121a]"
+                  ? "bg-neutral-50/90 border-black/[0.07] hover:bg-neutral-100/80"
+                  : "bg-[#181920] border-white/[0.06] hover:bg-[#1e2029]"
               }`}
             >
               {/* 1. Drag Handle */}
-              <span
-                className="text-[#4b5263] hover:text-zinc-300 flex cursor-grab active:cursor-grabbing shrink-0"
-                title={isId ? "Tarik untuk mengubah urutan" : "Drag to reorder"}
+              <Tooltip
+                content={tx(lang, "Drag to reorder", "Tarik untuk mengubah urutan")}
+                allowFlip
+                isLightMode={isLightMode}
+                wrapperClassName="shrink-0"
               >
-                <GripVertical size={16} />
-              </span>
+                <span
+                  className={`flex cursor-grab active:cursor-grabbing shrink-0 ${
+                    isLightMode
+                      ? "text-neutral-400 hover:text-neutral-700"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  <GripVertical size={16} />
+                </span>
+              </Tooltip>
 
-              {/* 2. Preview: 34x34 Blue Tile for Core Modules OR Interactive Dual Preview for Catalog Modules */}
+              {/* 2. Preview: 34x34 Tile for Core Modules OR Compact Dual Preview for Catalog Modules */}
               {isCore ? (
-                <span className="w-[34px] h-[34px] rounded-[10px] bg-[#131a2b] text-[#2f8bff] inline-flex items-center justify-center shrink-0">
+                <span
+                  className={`w-[34px] h-[34px] rounded-[10px] inline-flex items-center justify-center shrink-0 ${
+                    isLightMode
+                      ? "bg-blue-500/12 text-blue-600"
+                      : "bg-blue-500/15 text-[#3882f6]"
+                  }`}
+                >
                   {coreMeta.svg}
                 </span>
               ) : (
-                <div className="w-[224px] h-[56px] shrink-0 rounded-[10px] bg-black px-1.5 flex items-center justify-center gap-1.5 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => handleSetViewMode(m.id, "compact")}
-                    title={isId ? "Gunakan tampilan Hanya Ikon (Ringkas)" : "Use Icon Only (Compact) view"}
-                    className={`p-0.5 rounded-[10px] transition-all cursor-pointer shrink-0 flex items-center justify-center ${
-                      (m.view || "compact") === "compact"
-                        ? "ring-1.5 ring-[#2f8bff] bg-[#2f8bff]/15"
-                        : "opacity-60 hover:opacity-100"
-                    }`}
+                <div
+                  className={`w-[148px] h-[48px] shrink-0 rounded-[10px] bg-black px-1.5 flex items-center justify-center gap-1.5 overflow-hidden ${
+                    isLightMode ? "border border-black/15" : "border border-white/[0.06]"
+                  }`}
+                >
+                  <Tooltip
+                    content={tx(
+                      lang,
+                      "Use Icon Only (Compact) view",
+                      "Gunakan tampilan Hanya Ikon (Ringkas)"
+                    )}
+                    allowFlip
+                    isLightMode={isLightMode}
+                    wrapperClassName="shrink-0"
                   >
-                    <NavbarModuleUnifiedPreview
-                      moduleId={m.id}
-                      variant="compact"
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSetViewMode(m.id, "full")}
-                    title={isId ? "Gunakan tampilan Panjang (Lengkap)" : "Use Full (Expanded) view"}
-                    className={`p-0.5 rounded-[10px] transition-all cursor-pointer min-w-0 overflow-hidden flex items-center justify-center ${
-                      m.view === "full"
-                        ? "ring-1.5 ring-[#2f8bff] bg-[#2f8bff]/15"
-                        : "opacity-60 hover:opacity-100"
-                    }`}
+                    <button
+                      type="button"
+                      aria-label={tx(
+                        lang,
+                        "Use Icon Only (Compact) view",
+                        "Gunakan tampilan Hanya Ikon (Ringkas)"
+                      )}
+                      onClick={() => handleSetViewMode(m.id, "compact")}
+                      className={`p-0.5 rounded-[10px] transition-all cursor-pointer shrink-0 flex items-center justify-center ${
+                        (m.view || "compact") === "compact"
+                          ? "ring-1.5 ring-[#2f8bff] bg-[#2f8bff]/15"
+                          : "opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      <LocalizedOrderPreview
+                        moduleId={m.id}
+                        variant="compact"
+                        lang={lang}
+                      />
+                    </button>
+                  </Tooltip>
+                  <Tooltip
+                    content={tx(
+                      lang,
+                      "Use Full (Expanded) view",
+                      "Gunakan tampilan Panjang (Lengkap)"
+                    )}
+                    allowFlip
+                    isLightMode={isLightMode}
+                    wrapperClassName="min-w-0 max-w-full"
                   >
-                    <NavbarModuleUnifiedPreview
-                      moduleId={m.id}
-                      variant="pill"
-                    />
-                  </button>
+                    <button
+                      type="button"
+                      aria-label={tx(
+                        lang,
+                        "Use Full (Expanded) view",
+                        "Gunakan tampilan Panjang (Lengkap)"
+                      )}
+                      onClick={() => handleSetViewMode(m.id, "full")}
+                      className={`p-0.5 rounded-[10px] transition-all cursor-pointer min-w-0 max-w-full overflow-hidden flex items-center justify-center ${
+                        m.view === "full"
+                          ? "ring-1.5 ring-[#2f8bff] bg-[#2f8bff]/15"
+                          : "opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      <LocalizedOrderPreview
+                        moduleId={m.id}
+                        variant="pill"
+                        lang={lang}
+                      />
+                    </button>
+                  </Tooltip>
                 </div>
               )}
 
@@ -306,7 +403,11 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
                 >
                   {title}
                 </div>
-                <div className="text-[11.5px] text-[#8a8fa0] leading-snug mt-0.5 line-clamp-2">
+                <div
+                  className={`text-[11.5px] leading-snug mt-0.5 line-clamp-2 ${
+                    isLightMode ? "text-neutral-600" : "text-[#8a8fa0]"
+                  }`}
+                >
                   {desc}
                 </div>
               </div>
@@ -314,52 +415,110 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
               {/* 4. Right Controls */}
               <div className="flex items-center gap-2 shrink-0">
                 {isCore ? (
-                  <button
-                    type="button"
-                    onClick={() => handleCycleGroup(m.id)}
-                    className="font-semibold text-[11px] text-[#8db8ff] px-2.5 py-1.5 rounded-[9px] bg-[#111829] border border-[#1c2438] hover:border-[#2f8bff]/50 transition-colors cursor-pointer"
-                    title={isId ? "Klik untuk memindahkan grup (Group 1 / 2 / 3)" : "Click to switch group (Group 1 / 2 / 3)"}
+                  <Tooltip
+                    content={tx(
+                      lang,
+                      "Click to switch group (Group 1 / 2 / 3)",
+                      "Klik untuk memindahkan grup (Group 1 / 2 / 3)"
+                    )}
+                    allowFlip
+                    isLightMode={isLightMode}
+                    wrapperClassName="shrink-0"
                   >
-                    Group {m.group}
-                  </button>
-                ) : (
-                  <>
-                    <div className="inline-flex items-center rounded-[8px] bg-[#111520] p-[2px] border border-[#1e2436]">
-                      <button
-                        type="button"
-                        onClick={() => handleSetViewMode(m.id, "compact")}
-                        className={`h-[26px] px-2 rounded-[6px] text-[11px] font-semibold transition-all cursor-pointer ${
-                          (m.view || "compact") === "compact"
-                            ? "bg-[#2f8bff] text-white"
-                            : "text-[#9aa0b0] hover:text-white"
-                        }`}
-                        title={isId ? "Tampilkan hanya ikon di taskbar" : "Show icon only in taskbar"}
-                      >
-                        {isId ? "Ikon" : "Icon"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetViewMode(m.id, "full")}
-                        className={`h-[26px] px-2 rounded-[6px] text-[11px] font-semibold transition-all cursor-pointer ${
-                          m.view === "full"
-                            ? "bg-[#2f8bff] text-white"
-                            : "text-[#9aa0b0] hover:text-white"
-                        }`}
-                        title={isId ? "Tampilkan versi panjang (info lengkap) di taskbar" : "Show full info in taskbar"}
-                      >
-                        {isId ? "Panjang" : "Full"}
-                      </button>
-                    </div>
-
                     <button
                       type="button"
-                      onClick={() => handleRemoveModule(m.id)}
-                      aria-label={`${isId ? "Hapus" : "Remove"} ${title}`}
-                      className="w-[32px] h-[32px] rounded-[8px] bg-[#141926] text-[#9aa0b0] hover:text-rose-400 hover:bg-rose-500/15 flex items-center justify-center transition-colors cursor-pointer"
-                      title={isId ? "Hapus modul dari taskbar" : "Remove module from taskbar"}
+                      onClick={() => handleCycleGroup(m.id)}
+                      className={`font-semibold text-[11px] px-2.5 py-1.5 rounded-[9px] border transition-colors cursor-pointer ${
+                        isLightMode
+                          ? "text-blue-700 bg-blue-500/10 border-blue-500/25 hover:border-blue-500/50"
+                          : "text-[#8db8ff] bg-[#111829] border-[#1c2438] hover:border-[#2f8bff]/50"
+                      }`}
                     >
-                      <X size={14} />
+                      Group {m.group}
                     </button>
+                  </Tooltip>
+                ) : (
+                  <>
+                    <div
+                      className={`inline-flex items-center rounded-[8px] p-[2px] border ${
+                        isLightMode
+                          ? "bg-black/[0.05] border-black/[0.08]"
+                          : "bg-[#111520] border-[#1e2436]"
+                      }`}
+                    >
+                      <Tooltip
+                        content={tx(
+                          lang,
+                          "Show icon only in taskbar",
+                          "Tampilkan hanya ikon di taskbar"
+                        )}
+                        allowFlip
+                        isLightMode={isLightMode}
+                        wrapperClassName="shrink-0"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleSetViewMode(m.id, "compact")}
+                          className={`h-[26px] px-2 rounded-[6px] text-[11px] font-semibold transition-all cursor-pointer ${
+                            (m.view || "compact") === "compact"
+                              ? "bg-[#2f8bff] text-white"
+                              : isLightMode
+                              ? "text-neutral-600 hover:text-neutral-900"
+                              : "text-[#9aa0b0] hover:text-white"
+                          }`}
+                        >
+                          {tx(lang, "Icon", "Ikon")}
+                        </button>
+                      </Tooltip>
+                      <Tooltip
+                        content={tx(
+                          lang,
+                          "Show full info in taskbar",
+                          "Tampilkan versi panjang (info lengkap) di taskbar"
+                        )}
+                        allowFlip
+                        isLightMode={isLightMode}
+                        wrapperClassName="shrink-0"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleSetViewMode(m.id, "full")}
+                          className={`h-[26px] px-2 rounded-[6px] text-[11px] font-semibold transition-all cursor-pointer ${
+                            m.view === "full"
+                              ? "bg-[#2f8bff] text-white"
+                              : isLightMode
+                              ? "text-neutral-600 hover:text-neutral-900"
+                              : "text-[#9aa0b0] hover:text-white"
+                          }`}
+                        >
+                          {tx(lang, "Full", "Panjang")}
+                        </button>
+                      </Tooltip>
+                    </div>
+
+                    <Tooltip
+                      content={tx(
+                        lang,
+                        "Remove module from taskbar",
+                        "Hapus modul dari taskbar"
+                      )}
+                      allowFlip
+                      isLightMode={isLightMode}
+                      wrapperClassName="shrink-0"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveModule(m.id)}
+                        aria-label={`${tx(lang, "Remove", "Hapus")} ${title}`}
+                        className={`w-[32px] h-[32px] rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                          isLightMode
+                            ? "bg-black/[0.05] text-neutral-500 hover:text-rose-600 hover:bg-rose-500/15"
+                            : "bg-[#141926] text-[#9aa0b0] hover:text-rose-400 hover:bg-rose-500/15"
+                        }`}
+                      >
+                        <X size={14} />
+                      </button>
+                    </Tooltip>
                   </>
                 )}
 
@@ -367,13 +526,18 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
                 <button
                   type="button"
                   role="switch"
+                  aria-label={title}
                   aria-checked={m.enabled}
                   onClick={() => handleToggleModule(m.id)}
                   style={{
                     backgroundColor: m.enabled ? config.accent || "#2f8bff" : undefined,
                   }}
                   className={`relative w-[42px] h-[24px] rounded-[12px] transition-colors cursor-pointer shrink-0 border-0 p-0 ${
-                    m.enabled ? "" : "bg-[#2a2f3d]"
+                    m.enabled
+                      ? ""
+                      : isLightMode
+                      ? "bg-black/20"
+                      : "bg-[#2a2f3d]"
                   }`}
                 >
                   <span
@@ -391,10 +555,14 @@ export const NavbarModulesOrderCard: React.FC<NavbarModulesOrderCardProps> = ({
         <button
           type="button"
           onClick={onOpenAddModule}
-          className="mt-1 h-[44px] rounded-[12px] border border-dashed border-[#262c3b] hover:border-[#2f8bff]/60 bg-transparent hover:bg-[#131a2b]/40 text-[#9aa0b0] hover:text-white text-[13px] font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
+          className={`mt-1 h-[44px] rounded-[12px] border border-dashed text-[13px] font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            isLightMode
+              ? "border-black/20 hover:border-blue-500/60 bg-transparent hover:bg-blue-500/[0.05] text-neutral-600 hover:text-neutral-900"
+              : "border-[#262c3b] hover:border-[#2f8bff]/60 bg-transparent hover:bg-[#131a2b]/40 text-[#9aa0b0] hover:text-white"
+          }`}
         >
           <Plus size={15} strokeWidth={2.2} />
-          <span>{isId ? "+ Tambah modul" : "+ Add module"}</span>
+          <span>{tx(lang, "+ Add module", "+ Tambah modul")}</span>
         </button>
       </div>
     </div>

@@ -1,28 +1,22 @@
 import React from "react";
 import { NavbarIconTheme } from "../../../types/navbar";
+import { NavbarAppItem, normalizeIconUrl } from "./macosIconMap";
+import { renderMacOSAppIcon } from "./MacOSAppIcons";
 
-export interface NavbarAppItem {
-  id: string;
-  name: string;
-  icon?: string;
-  iconType?: string;
-  isRunning?: boolean;
-  isActive?: boolean;
-  hwnd?: number;
-  windows?: any[];
-}
-
-export const normalizeIconUrl = (icon?: string | null): string | undefined => {
-  if (!icon) return undefined;
-  const trimmed = icon.trim();
-  if (trimmed.startsWith("data:") || trimmed.startsWith("/") || trimmed.startsWith("http")) {
-    return trimmed;
-  }
-  if (trimmed.length > 40 && (trimmed.startsWith("iVBOR") || trimmed.startsWith("/9j/") || /^[A-Za-z0-9+/=]+$/.test(trimmed))) {
-    return `data:image/png;base64,${trimmed}`;
-  }
-  return undefined;
-};
+export type { NavbarAppItem } from "./macosIconMap";
+export { normalizeIconUrl } from "./macosIconMap";
+export {
+  IOSSquircleWrapper,
+  MacOSSquircleImage,
+  IOSExplorerIcon,
+  IOSChromeIcon,
+  IOSVSCodeIcon,
+  IOSTerminalIcon,
+  IOSSettingsIcon,
+  IOSSpotifyIcon,
+  IOSDiscordIcon,
+  IOSWhatsAppIcon,
+} from "./MacOSAppIcons";
 
 // ==========================================
 // 1. THEME: FLUENT (Modern Vector / Default)
@@ -168,189 +162,6 @@ export const WindowsTerminalIcon: React.FC<{ size?: number }> = ({ size = 22 }) 
 );
 
 // ==========================================
-// 3. THEME: iOS / macOS (Apple Squircle)
-// ==========================================
-export const IOSSquircleWrapper: React.FC<{
-  children: React.ReactNode;
-  gradient: string;
-  size?: number;
-}> = ({ children, gradient, size = 26 }) => (
-  <div
-    style={{
-      width: `${size}px`,
-      height: `${size}px`,
-      background: gradient,
-      borderRadius: `${Math.round(size * 0.225)}px`,
-      boxShadow: "0 2px 6px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.4)",
-    }}
-    className="relative flex items-center justify-center shrink-0 overflow-hidden select-none pointer-events-none"
-  >
-    {/* Subtle Apple Top Specular Sheen */}
-    <div
-      aria-hidden="true"
-      className="absolute inset-0 pointer-events-none"
-      style={{
-        background:
-          "linear-gradient(180deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0) 65%)",
-      }}
-    />
-    <div className="relative z-10 flex items-center justify-center text-white">
-      {children}
-    </div>
-  </div>
-);
-
-export const IOSExplorerIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <IOSSquircleWrapper gradient="linear-gradient(180deg, #38A0F8 0%, #007AFF 100%)" size={size}>
-    {/* Authentic macOS Finder Split Smiling Face */}
-    <svg width={size * 0.72} height={size * 0.72} viewBox="0 0 32 32" fill="none">
-      <defs>
-        <clipPath id="finderLeftClip">
-          <rect x="0" y="0" width="16" height="32" />
-        </clipPath>
-      </defs>
-      {/* Light sky-blue left half */}
-      <rect width="32" height="32" rx="7" fill="#157EFB" />
-      <rect width="32" height="32" rx="7" fill="#47A7FF" clipPath="url(#finderLeftClip)" />
-      {/* Eyes */}
-      <circle cx="10" cy="13" r="1.8" fill="#1C1C1E" />
-      <circle cx="22" cy="13" r="1.8" fill="#1C1C1E" />
-      {/* Curved Split Nose Line */}
-      <path
-        d="M16 6V17C16 18.5 14.8 19.5 13.5 19.5H12"
-        stroke="#1C1C1E"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-      {/* Smiling Mouth */}
-      <path
-        d="M9 21.5C11.5 24.5 20.5 24.5 23 21.5"
-        stroke="#FFFFFF"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  </IOSSquircleWrapper>
-);
-
-export const IOSChromeIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <IOSSquircleWrapper gradient="linear-gradient(180deg, #FFFFFF 0%, #F2F2F7 100%)" size={size}>
-    {/* Authentic Chrome 4-color aperture on frosted white Apple squircle */}
-    <svg width={size * 0.68} height={size * 0.68} viewBox="0 0 48 48" fill="none">
-      <circle cx="24" cy="24" r="20" fill="#EA4335" />
-      <path d="M24 24L34 41.32C39.5 38.14 43.2 32.5 43.9 26H24V24Z" fill="#34A853" />
-      <path d="M24 24L14 6.68C8.5 9.86 4.8 15.5 4.1 22H24V24Z" fill="#FBBC05" />
-      <path d="M24 4C30.6 4 36.4 7.2 40 12.2L24 24V4Z" fill="#EA4335" />
-      <path d="M4 24C4 32.8 9.8 40.2 18 43.1L24 24H4Z" fill="#34A853" />
-      <circle cx="24" cy="24" r="9" fill="#FFFFFF" />
-      <circle cx="24" cy="24" r="7.5" fill="#4285F4" />
-    </svg>
-  </IOSSquircleWrapper>
-);
-
-export const IOSVSCodeIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <IOSSquircleWrapper gradient="linear-gradient(180deg, #24292E 0%, #181A1F 100%)" size={size}>
-    <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 256 256" fill="none">
-      <path
-        d="M192.5 247.5L250.5 219.5V36.5L192.5 8.5L96.5 101.5L42.5 60.5L6.5 78.5L64.5 128L6.5 177.5L42.5 195.5L96.5 154.5L192.5 247.5Z"
-        fill="#0065A9"
-      />
-      <path
-        d="M192.5 247.5L250.5 219.5V36.5L192.5 8.5L160.5 128L192.5 247.5Z"
-        fill="#007ACC"
-      />
-      <path
-        d="M192.5 8.5L96.5 101.5L42.5 60.5L6.5 78.5L64.5 128L192.5 8.5Z"
-        fill="#1F9CF0"
-      />
-      <path
-        d="M192.5 247.5L96.5 154.5L42.5 195.5L6.5 177.5L64.5 128L192.5 247.5Z"
-        fill="#0065A9"
-      />
-    </svg>
-  </IOSSquircleWrapper>
-);
-
-export const IOSTerminalIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <IOSSquircleWrapper gradient="linear-gradient(180deg, #2C2C2E 0%, #141416 100%)" size={size}>
-    <div className="flex items-center gap-0.5 font-mono font-bold">
-      <span style={{ fontSize: `${size * 0.44}px` }} className="text-[#30D158] leading-none">
-        &gt;
-      </span>
-      <span style={{ width: `${size * 0.22}px`, height: "2px" }} className="bg-white/90 rounded-full animate-pulse" />
-    </div>
-  </IOSSquircleWrapper>
-);
-
-export const IOSSettingsIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <IOSSquircleWrapper gradient="linear-gradient(135deg, #E5E5EA 0%, #8E8E93 50%, #636366 100%)" size={size}>
-    {/* Authentic iOS Mechanical Multi-tooth Gear */}
-    <svg width={size * 0.65} height={size * 0.65} viewBox="0 0 48 48" fill="none">
-      <circle cx="24" cy="24" r="16" fill="#D1D1D6" stroke="#48484A" strokeWidth="2.5" />
-      <circle cx="24" cy="24" r="6" fill="#48484A" />
-      <circle cx="24" cy="24" r="3.5" fill="#E5E5EA" />
-      {/* 8 Gear Teeth */}
-      {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
-        <rect
-          key={angle}
-          x="21.5"
-          y="4.5"
-          width="5"
-          height="6"
-          rx="1.5"
-          fill="#48484A"
-          transform={`rotate(${angle} 24 24)`}
-        />
-      ))}
-    </svg>
-  </IOSSquircleWrapper>
-);
-
-export const IOSSpotifyIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <IOSSquircleWrapper gradient="linear-gradient(180deg, #1ED760 0%, #169C46 100%)" size={size}>
-    {/* Authentic Spotify Soundwaves */}
-    <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 24 24" fill="none">
-      <path
-        d="M4.5 8.5C10 6.8 16.5 7.5 20.5 10"
-        stroke="#121212"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-      <path
-        d="M5.5 12.2C10 10.8 15.5 11.4 19 13.5"
-        stroke="#121212"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-      />
-      <path
-        d="M6.5 16C10 15 14.5 15.4 17.5 17"
-        stroke="#121212"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  </IOSSquircleWrapper>
-);
-
-export const IOSDiscordIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <IOSSquircleWrapper gradient="linear-gradient(180deg, #5865F2 0%, #4752C4 100%)" size={size}>
-    {/* Authentic Discord Clyde Gaming Controller */}
-    <svg width={size * 0.64} height={size * 0.64} viewBox="0 0 24 24" fill="#FFFFFF">
-      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.893.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
-    </svg>
-  </IOSSquircleWrapper>
-);
-
-export const IOSWhatsAppIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
-  <IOSSquircleWrapper gradient="linear-gradient(180deg, #25D366 0%, #1EBE5D 100%)" size={size}>
-    {/* Authentic WhatsApp Bubble & Handset */}
-    <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 24 24" fill="#FFFFFF">
-      <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.03 14.69 2 12.04 2ZM12.05 20.15C10.57 20.15 9.12 19.76 7.85 19.01L7.55 18.83L4.43 19.65L5.26 16.61L5.06 16.29C4.24 14.99 3.81 13.47 3.81 11.91C3.81 7.37 7.5 3.68 12.05 3.68C14.25 3.68 16.32 4.54 17.87 6.09C19.42 7.64 20.28 9.72 20.27 11.92C20.28 16.46 16.59 20.15 12.05 20.15ZM16.56 14.33C16.31 14.21 15.09 13.61 14.86 13.52C14.64 13.44 14.47 13.4 14.31 13.65C14.14 13.89 13.67 14.45 13.52 14.62C13.38 14.78 13.23 14.8 12.98 14.68C12.73 14.55 11.93 14.29 10.98 13.44C10.24 12.78 9.74 11.97 9.6 11.72C9.45 11.47 9.58 11.34 9.71 11.22C9.82 11.11 9.96 10.93 10.08 10.79C10.21 10.64 10.25 10.54 10.33 10.38C10.41 10.21 10.37 10.07 10.31 9.95C10.25 9.82 9.76 8.62 9.55 8.12C9.35 7.63 9.15 7.7 9 7.69C8.86 7.68 8.69 7.68 8.52 7.68C8.36 7.68 8.09 7.74 7.86 7.99C7.64 8.24 7 8.84 7 10.05C7 11.27 7.88 12.44 8.01 12.61C8.13 12.77 9.75 15.28 12.24 16.35C12.83 16.61 13.29 16.76 13.65 16.88C14.24 17.07 14.78 17.04 15.21 16.98C15.69 16.91 16.68 16.38 16.89 15.8C17.09 15.21 17.09 14.71 17.03 14.61C16.97 14.5 16.81 14.45 16.56 14.33Z" />
-    </svg>
-  </IOSSquircleWrapper>
-);
-
-// ==========================================
 // MASTER DISPATCHER: AppIcon & renderAppIcon
 // ==========================================
 export const AppIcon: React.FC<{
@@ -359,56 +170,10 @@ export const AppIcon: React.FC<{
   iconSize?: number;
 }> = ({ app, theme = "fluent", iconSize = 40 }) => {
   const innerSize = Math.max(20, Math.round(iconSize * 0.55));
-  const squircleSize = Math.max(24, Math.round(iconSize * 0.65));
+  const squircleSize = Math.max(24, Math.round(iconSize * 0.7));
 
-  // 1. iOS Theme
   if (theme === "ios") {
-    switch (app.iconType) {
-      case "folder":
-        return <IOSExplorerIcon size={squircleSize} />;
-      case "browser":
-      case "chrome":
-      case "brave":
-        return <IOSChromeIcon size={squircleSize} />;
-      case "code":
-      case "vscode":
-        return <IOSVSCodeIcon size={squircleSize} />;
-      case "terminal":
-        return <IOSTerminalIcon size={squircleSize} />;
-      case "settings":
-        return <IOSSettingsIcon size={squircleSize} />;
-      case "gili":
-        return (
-          <IOSSquircleWrapper gradient="linear-gradient(180deg, #18202F 0%, #0B0F14 100%)" size={squircleSize}>
-            <img
-              src="/gili-icons/gili-icon.svg"
-              alt={app.name}
-              draggable={false}
-              className="w-[20px] h-[20px] object-contain drop-shadow pointer-events-none select-none"
-            />
-          </IOSSquircleWrapper>
-        );
-      case "spotify":
-        return <IOSSpotifyIcon size={squircleSize} />;
-      case "discord":
-        return <IOSDiscordIcon size={squircleSize} />;
-      case "whatsapp":
-        return <IOSWhatsAppIcon size={squircleSize} />;
-      default:
-        if (app.icon) {
-          return (
-            <IOSSquircleWrapper gradient="linear-gradient(180deg, #3A3A3C 0%, #1C1C1E 100%)" size={squircleSize}>
-              <img
-                src={normalizeIconUrl(app.icon)}
-                alt={app.name}
-                draggable={false}
-                className="w-[18px] h-[18px] object-contain drop-shadow pointer-events-none select-none"
-              />
-            </IOSSquircleWrapper>
-          );
-        }
-        return <IOSExplorerIcon size={squircleSize} />;
-    }
+    return <>{renderMacOSAppIcon(app, squircleSize)}</>;
   }
 
   // 2. Windows Native Theme (100% Authentic Laptop .exe / .lnk / UWP 256x256 Icons)

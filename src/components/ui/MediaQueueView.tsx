@@ -8,7 +8,9 @@ import {
   Radio,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { MediaPayload } from "../../types";
+import { Tooltip } from "./Tooltip";
 import { t } from "../../services/i18n";
 import {
   fetchHighResArtwork,
@@ -40,6 +42,14 @@ export interface MediaQueueViewProps {
 const resolveAppMeta = resolvePlayerBranding;
 
 const normalizeTitle = (title?: string | null) => (title || "").trim().toLowerCase();
+
+async function openExternalTarget(url: string): Promise<void> {
+  try {
+    await openUrl(url);
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
 
 const QueueTrackThumbnail: React.FC<{
   item: QueueTrackItem;
@@ -125,6 +135,18 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
   // Live refs so the async skip loop sees track changes without stale closures
   const mediaRef = useRef(media);
   const isPlayingRef = useRef(isPlaying);
+  const isMountedRef = useRef(true);
+  const openAppTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (openAppTimerRef.current !== null) {
+        window.clearTimeout(openAppTimerRef.current);
+        openAppTimerRef.current = null;
+      }
+    };
+  }, []);
   useEffect(() => {
     mediaRef.current = media;
   }, [media]);
@@ -152,6 +174,12 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
     )
     .slice(0, 10);
 
+  const resolveFallbackTarget = (): string | null => {
+    if (media?.is_browser && appMeta.url) return appMeta.url;
+    if (rawApp.includes("spotify") || appMeta.name === "Spotify") return "spotify://";
+    return appMeta.url || null;
+  };
+
   const handleOpenApp = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isOpeningApp) return;
@@ -163,51 +191,54 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
         aumid: media?.app_id || null,
       });
 
-      if (!activated) {
-        if (media?.is_browser && appMeta.url) {
-          window.open(appMeta.url, "_blank");
-        } else if (rawApp.includes("spotify") || appMeta.name === "Spotify") {
-          window.location.href = "spotify://";
-        } else if (appMeta.url) {
-          window.open(appMeta.url, "_blank");
-        }
+      if (!activated && isMountedRef.current) {
+        const target = resolveFallbackTarget();
+        if (target) await openExternalTarget(target);
       }
     } catch (err) {
       console.error("Failed to activate app:", err);
-      if (media?.is_browser && appMeta.url) {
-        window.open(appMeta.url, "_blank");
-      } else if (rawApp.includes("spotify") || appMeta.name === "Spotify") {
-        window.location.href = "spotify://";
-      } else if (appMeta.url) {
-        window.open(appMeta.url, "_blank");
+      if (isMountedRef.current) {
+        const target = resolveFallbackTarget();
+        if (target) await openExternalTarget(target);
       }
     } finally {
-      setTimeout(() => setIsOpeningApp(false), 800);
+      if (isMountedRef.current) {
+        if (openAppTimerRef.current !== null) {
+          window.clearTimeout(openAppTimerRef.current);
+        }
+        openAppTimerRef.current = window.setTimeout(() => {
+          openAppTimerRef.current = null;
+          if (isMountedRef.current) {
+            setIsOpeningApp(false);
+          }
+        }, 800);
+      }
     }
   };
 
   const handleOpenTrackInApp = (e: React.MouseEvent, item: QueueTrackItem) => {
     e.stopPropagation();
     const query = `${item.title} ${item.artist}`.trim();
-    if (appMeta.name === "Spotify" || rawApp.includes("spotify")) {
-      window.location.href = `spotify:search:${encodeURIComponent(query)}`;
-    } else if (appMeta.name === "YouTube Music" || appMeta.name === "YouTube") {
-      window.open(`https://music.youtube.com/search?q=${encodeURIComponent(query)}`, "_blank");
-    } else if (appMeta.name === "Apple Music") {
-      window.open(`https://music.apple.com/search?term=${encodeURIComponent(query)}`, "_blank");
-    } else {
-      window.open(`https://www.google.com/search?q=${encodeURIComponent(query + " music")}`, "_blank");
-    }
+    const target =
+      appMeta.name === "Spotify" || rawApp.includes("spotify")
+        ? `spotify:search:${encodeURIComponent(query)}`
+        : appMeta.name === "YouTube Music" || appMeta.name === "YouTube"
+          ? `https://music.youtube.com/search?q=${encodeURIComponent(query)}`
+          : appMeta.name === "Apple Music"
+            ? `https://music.apple.com/search?term=${encodeURIComponent(query)}`
+            : `https://www.google.com/search?q=${encodeURIComponent(query + " music")}`;
+    void openExternalTarget(target);
   };
 
   const waitForTitleChange = async (fromTitle: string, timeoutMs: number) => {
     const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
+    while (isMountedRef.current && Date.now() - startedAt < timeoutMs) {
       await new Promise((r) => setTimeout(r, 80));
+      if (!isMountedRef.current) return false;
       if (normalizeTitle(mediaRef.current?.title) !== fromTitle) {
         // SMTC can emit a couple of updates per track switch; let it settle before the next skip
         await new Promise((r) => setTimeout(r, 250));
-        return true;
+        return isMountedRef.current;
       }
     }
     return false;
@@ -216,9 +247,11 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
   // One confirmed step back. A new "prev" is never sent until the previous one has visibly
   // switched tracks, otherwise slow SMTC updates make us overshoot several songs.
   const skipBackOnce = async (compensateRestart: boolean) => {
+    if (!isMountedRef.current) return false;
     const titleBefore = normalizeTitle(mediaRef.current?.title);
     await invoke("smtc_action", { action: "prev" });
     if (await waitForTitleChange(titleBefore, 2000)) return true;
+    if (!isMountedRef.current) return false;
 
     // Spotify & co. restart the current song on "prev" past ~3s; the second press goes back.
     if (!compensateRestart) return false;
@@ -239,18 +272,21 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
       const targetTitle = normalizeTitle(item.title);
       const stepsNeeded = index + 1;
       for (let step = 0; step < stepsNeeded; step++) {
+        if (!isMountedRef.current) return;
         if (normalizeTitle(mediaRef.current?.title) === targetTitle) break;
         const switched = await skipBackOnce(step === 0);
         if (!switched) break;
       }
 
-      if (!isPlayingRef.current) {
+      if (isMountedRef.current && !isPlayingRef.current) {
         await invoke("smtc_action", { action: "play" });
       }
     } catch (err) {
       console.error("Failed to play track from history:", err);
     } finally {
-      setReplayingTrackId(null);
+      if (isMountedRef.current) {
+        setReplayingTrackId(null);
+      }
     }
   };
 
@@ -311,7 +347,6 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
             onClick={handleOpenApp}
             disabled={isOpeningApp}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/15 text-white text-[11px] font-semibold transition-all shrink-0 cursor-pointer border border-white/5 shadow-sm disabled:opacity-50"
-            title={t("media_open_app", { app: appMeta.name })}
           >
             <span>{t("media_open_action")}</span>
             <ExternalLink size={11.5} />
@@ -338,7 +373,6 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
                     whileTap={{ scale: 0.98 }}
                     onClick={() => handleTrackClick(item, idx)}
                     className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-white/[0.07] active:bg-white/[0.12] transition-colors cursor-pointer group select-none"
-                    title={t("media_queue_play_track", { title: item.title })}
                   >
                     <div className="w-8 h-8 rounded-lg bg-neutral-800/80 shrink-0 overflow-hidden relative flex items-center justify-center shadow-sm">
                       <QueueTrackThumbnail
@@ -347,7 +381,7 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
                         fallbackBg={appMeta.color}
                       />
                       {/* Play overlay on hover or replaying */}
-                      <div className={`absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity ${isItemReplaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+                      <div className={`media-thumb-play-overlay absolute inset-0 flex items-center justify-center transition-opacity ${isItemReplaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                         {isItemReplaying ? (
                           <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         ) : (
@@ -368,14 +402,15 @@ export const MediaQueueView: React.FC<MediaQueueViewProps> = ({
                         #{idx + 1}
                       </span>
                       <span className="text-[10px] text-white/70 hidden group-hover:inline-flex items-center gap-1.5 font-semibold">
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenTrackInApp(e, item)}
-                          title={t("media_open_app", { app: appMeta.name }) || "Buka di aplikasi"}
-                          className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors"
-                        >
-                          <ExternalLink size={11} />
-                        </button>
+                        <Tooltip content={t("media_open_app", { app: appMeta.name }) || "Buka di aplikasi"} side="top">
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenTrackInApp(e, item)}
+                            className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+                          >
+                            <ExternalLink size={11} />
+                          </button>
+                        </Tooltip>
                         <Play size={9} fill="currentColor" />
                       </span>
                     </div>

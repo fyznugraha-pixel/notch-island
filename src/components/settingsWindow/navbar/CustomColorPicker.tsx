@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Pipette, Copy, Check } from "lucide-react";
+import { Tooltip } from "../../ui/Tooltip";
 import {
   hexToHsl,
   hslToHex,
@@ -155,7 +156,9 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         {/* Dynamic Swatch Preview */}
         <div
           style={{ backgroundColor: currentHex }}
-          className="relative w-10 h-10 rounded-[12px] shadow-[0_4px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/20 flex items-center justify-center shrink-0 transition-colors"
+          className={`relative w-10 h-10 rounded-[12px] shadow-[0_4px_12px_rgba(0,0,0,0.35)] ring-1 flex items-center justify-center shrink-0 transition-colors ${
+            isLightMode ? "ring-black/15" : "ring-white/20"
+          }`}
         >
           <span
             className={`text-[9.5px] font-bold uppercase tracking-wider ${
@@ -174,13 +177,20 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
               : "bg-[#141418] border-white/10 focus-within:border-white/25"
           } transition-colors`}
         >
-          <span className="text-[12px] font-mono text-zinc-500 select-none mr-0.5">#</span>
+          <span
+            className={`text-[12px] font-mono select-none mr-0.5 ${
+              isLightMode ? "text-neutral-500" : "text-zinc-500"
+            }`}
+          >
+            #
+          </span>
           <input
             type="text"
             value={hexInput.replace(/^#/, "")}
             onChange={(e) => handleHexInputChange(`#${e.target.value}`)}
             placeholder="0f172a"
             maxLength={6}
+            aria-label={isId ? "Kode warna hex" : "Hex color code"}
             className={`w-full bg-transparent text-[12.5px] font-mono outline-none uppercase font-semibold ${
               isLightMode ? "text-black" : "text-white"
             }`}
@@ -188,36 +198,51 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         </div>
 
         {/* Copy Hex Button */}
-        <button
-          type="button"
-          onClick={handleCopyHex}
-          title={isId ? "Salin kode hex" : "Copy hex code"}
-          className={`h-[34px] px-2.5 rounded-[10px] border flex items-center gap-1.5 text-[11.5px] font-medium transition-colors cursor-pointer ${
-            copied
-              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
-              : isLightMode
-              ? "bg-white border-black/10 hover:bg-neutral-100 text-neutral-700"
-              : "bg-[#141418] border-white/10 hover:bg-white/[0.06] text-zinc-300 hover:text-white"
-          }`}
+        <Tooltip
+          content={isId ? "Salin kode hex" : "Copy hex code"}
+          allowFlip
+          isLightMode={isLightMode}
+          wrapperClassName="shrink-0"
         >
-          {copied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} />}
-          <span>{copied ? (isId ? "Tersalin" : "Copied") : "Hex"}</span>
-        </button>
-
-        {/* EyeDropper Button */}
-        {supportsEyeDropper && (
           <button
             type="button"
-            onClick={handleEyeDropper}
-            title={isId ? "Ambil warna dari layar" : "Sample color from screen"}
-            className={`w-[34px] h-[34px] rounded-[10px] border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
-              isLightMode
+            onClick={handleCopyHex}
+            className={`h-[34px] px-2.5 rounded-[10px] border flex items-center gap-1.5 text-[11.5px] font-medium transition-colors cursor-pointer ${
+              copied
+                ? isLightMode
+                  ? "bg-emerald-500/15 border-emerald-600/35 text-emerald-700"
+                  : "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                : isLightMode
                 ? "bg-white border-black/10 hover:bg-neutral-100 text-neutral-700"
                 : "bg-[#141418] border-white/10 hover:bg-white/[0.06] text-zinc-300 hover:text-white"
             }`}
           >
-            <Pipette size={14} />
+            {copied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} />}
+            <span>{copied ? (isId ? "Tersalin" : "Copied") : "Hex"}</span>
           </button>
+        </Tooltip>
+
+        {/* EyeDropper Button */}
+        {supportsEyeDropper && (
+          <Tooltip
+            content={isId ? "Ambil warna dari layar" : "Sample color from screen"}
+            allowFlip
+            isLightMode={isLightMode}
+            wrapperClassName="shrink-0"
+          >
+            <button
+              type="button"
+              aria-label={isId ? "Ambil warna dari layar" : "Sample color from screen"}
+              onClick={handleEyeDropper}
+              className={`w-[34px] h-[34px] rounded-[10px] border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                isLightMode
+                  ? "bg-white border-black/10 hover:bg-neutral-100 text-neutral-700"
+                  : "bg-[#141418] border-white/10 hover:bg-white/[0.06] text-zinc-300 hover:text-white"
+              }`}
+            >
+              <Pipette size={14} />
+            </button>
+          </Tooltip>
         )}
       </div>
 
@@ -227,7 +252,9 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         <div className="flex flex-col gap-1">
           <div className="flex justify-between items-center text-[10.5px]">
             <span className={textMuted}>{isId ? "Spektrum Warna" : "Hue Spectrum"}</span>
-            <span className="font-mono text-zinc-500">{hsl.h}°</span>
+            <span className={`font-mono ${isLightMode ? "text-neutral-600" : "text-zinc-500"}`}>
+              {hsl.h}°
+            </span>
           </div>
           <div className="relative h-[14px] rounded-full flex items-center">
             <input
@@ -235,12 +262,15 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
               min={0}
               max={360}
               value={hsl.h}
+              aria-label={isId ? "Spektrum Warna" : "Hue Spectrum"}
               onChange={(e) => handleHueChange(Number(e.target.value))}
               style={{
                 background:
                   "linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)",
               }}
-              className="w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ring-white/10"
+              className={`w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ${
+                isLightMode ? "ring-black/15" : "ring-white/10"
+              }`}
             />
           </div>
         </div>
@@ -249,7 +279,9 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         <div className="flex flex-col gap-1">
           <div className="flex justify-between items-center text-[10.5px]">
             <span className={textMuted}>{isId ? "Kecerahan / Kedalaman" : "Brightness / Depth"}</span>
-            <span className="font-mono text-zinc-500">{hsl.l}%</span>
+            <span className={`font-mono ${isLightMode ? "text-neutral-600" : "text-zinc-500"}`}>
+              {hsl.l}%
+            </span>
           </div>
           <div className="relative h-[14px] rounded-full flex items-center">
             <input
@@ -257,9 +289,12 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
               min={2}
               max={95}
               value={hsl.l}
+              aria-label={isId ? "Kecerahan / Kedalaman" : "Brightness / Depth"}
               onChange={(e) => handleLightnessChange(Number(e.target.value))}
               style={{ background: lightnessGradient }}
-              className="w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ring-white/10"
+              className={`w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ${
+                isLightMode ? "ring-black/15" : "ring-white/10"
+              }`}
             />
           </div>
         </div>
@@ -268,7 +303,9 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
         <div className="flex flex-col gap-1">
           <div className="flex justify-between items-center text-[10.5px]">
             <span className={textMuted}>{isId ? "Kepekatan Warna" : "Color Intensity"}</span>
-            <span className="font-mono text-zinc-500">{hsl.s}%</span>
+            <span className={`font-mono ${isLightMode ? "text-neutral-600" : "text-zinc-500"}`}>
+              {hsl.s}%
+            </span>
           </div>
           <div className="relative h-[14px] rounded-full flex items-center">
             <input
@@ -276,16 +313,23 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
               min={0}
               max={100}
               value={hsl.s}
+              aria-label={isId ? "Kepekatan Warna" : "Color Intensity"}
               onChange={(e) => handleSaturationChange(Number(e.target.value))}
               style={{ background: saturationGradient }}
-              className="w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ring-white/10"
+              className={`w-full h-[10px] rounded-full appearance-none cursor-pointer outline-none ring-1 ${
+                isLightMode ? "ring-black/15" : "ring-white/10"
+              }`}
             />
           </div>
         </div>
       </div>
 
       {/* 3. Curated Quick Swatch Rows */}
-      <div className="flex flex-col gap-1.5 pt-1.5 border-t border-white/[0.06]">
+      <div
+        className={`flex flex-col gap-1.5 pt-1.5 border-t ${
+          isLightMode ? "border-black/[0.07]" : "border-white/[0.06]"
+        }`}
+      >
         <span className={`text-[10.5px] font-medium ${textMuted}`}>
           {isId ? "Pilihan Palet Dock Elegan" : "Curated Dock Palettes"}
         </span>
@@ -294,37 +338,49 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
             <div key={rIdx} className="grid grid-cols-8 gap-1.5">
               {row.map((item) => {
                 const isSelected = currentHex.toLowerCase() === item.hex.toLowerCase();
-                const title = isId ? item.nameId : item.nameEn;
+                const label = isId ? item.nameId : item.nameEn;
+                const tooltipText = `${label} (${item.hex})`;
                 return (
-                  <button
+                  <Tooltip
                     key={item.hex}
-                    type="button"
-                    title={`${title} (${item.hex})`}
-                    onClick={() => {
-                      const next = normalizeHex(item.hex);
-                      setHexInput(next);
-                      setHsl(hexToHsl(next));
-                      onChange(next);
-                    }}
-                    style={{ backgroundColor: item.hex }}
-                    className={`h-[26px] rounded-[7px] border border-white/20 flex items-center justify-center transition-all cursor-pointer ${
-                      isSelected
-                        ? "scale-105 ring-2 ring-white ring-offset-2 ring-offset-[#121216] shadow-md z-10"
-                        : "hover:scale-105 opacity-85 hover:opacity-100"
-                    }`}
+                    content={tooltipText}
+                    allowFlip
+                    isLightMode={isLightMode}
+                    wrapperClassName="w-full"
                   >
-                    {isSelected && (
-                      <Check
-                        size={12}
-                        strokeWidth={2.8}
-                        className={
-                          getPerceivedLuminance(item.hex) < 0.5
-                            ? "text-white drop-shadow"
-                            : "text-black drop-shadow"
-                        }
-                      />
-                    )}
-                  </button>
+                    <button
+                      type="button"
+                      aria-label={tooltipText}
+                      onClick={() => {
+                        const next = normalizeHex(item.hex);
+                        setHexInput(next);
+                        setHsl(hexToHsl(next));
+                        onChange(next);
+                      }}
+                      style={{ backgroundColor: item.hex }}
+                      className={`w-full h-[26px] rounded-[7px] border flex items-center justify-center transition-all cursor-pointer ${
+                        isLightMode ? "border-black/15" : "border-white/20"
+                      } ${
+                        isSelected
+                          ? isLightMode
+                            ? "scale-105 ring-2 ring-neutral-900 ring-offset-2 ring-offset-[#f5f5f7] shadow-md z-10"
+                            : "scale-105 ring-2 ring-white ring-offset-2 ring-offset-[#121216] shadow-md z-10"
+                          : "hover:scale-105 opacity-85 hover:opacity-100"
+                      }`}
+                    >
+                      {isSelected && (
+                        <Check
+                          size={12}
+                          strokeWidth={2.8}
+                          className={
+                            getPerceivedLuminance(item.hex) < 0.5
+                              ? "text-white drop-shadow"
+                              : "text-black drop-shadow"
+                          }
+                        />
+                      )}
+                    </button>
+                  </Tooltip>
                 );
               })}
             </div>

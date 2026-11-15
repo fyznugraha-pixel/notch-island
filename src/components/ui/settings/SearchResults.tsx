@@ -12,7 +12,6 @@ import {
   Layout,
   Layers,
   ClipboardList,
-  Music,
   Timer,
   RefreshCw,
   Trash2,
@@ -26,6 +25,7 @@ import {
   Activity,
   User,
   ScanText,
+  MapPin,
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { NotchPosition } from "../../../utils/notchGeometry";
@@ -35,6 +35,11 @@ import { NotifSoundPicker } from "./NotifSoundPicker";
 import { t, Language } from "../../../services/i18n";
 import { SettingsSubtab } from "./SettingsSubnav";
 import { UpdateInfo, UpdateStatus } from "../../../services/updateService";
+import {
+  emitCrossWindowEvent,
+  listenCrossWindowEvent,
+} from "../../../utils/crossWindowSync";
+import { resetAllAppSettings } from "../../../services/settingsResetService";
 import {
   loadPomodoroSettings,
   savePomodoroSettings,
@@ -182,8 +187,6 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onToggleClipboard,
   optOcr,
   onToggleOcr,
-  optMedia,
-  onToggleMedia,
   optSoundFx = true,
   onToggleSoundFx,
   currentAppVersion,
@@ -202,39 +205,40 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
     return loadPomodoroSettings().showIdleTimer;
   });
 
+  React.useEffect(() => {
+    return listenCrossWindowEvent("gili_pomodoro_settings_updated", () => {
+      setPomodoroIdle(loadPomodoroSettings().showIdleTimer);
+    });
+  }, []);
+
   const handleTogglePomodoroIdle = () => {
     const next = !pomodoroIdle;
     setPomodoroIdle(next);
     const curr = loadPomodoroSettings();
     savePomodoroSettings({ ...curr, showIdleTimer: next });
-    window.dispatchEvent(new CustomEvent("gili_pomodoro_settings_updated"));
+    emitCrossWindowEvent("gili_pomodoro_settings_updated");
   };
 
   const [showResetConfirm, setShowResetConfirm] = React.useState(false);
 
   const handleRestartOnboarding = () => {
-    window.dispatchEvent(new CustomEvent("island_trigger_onboarding"));
+    try {
+      localStorage.removeItem("island_onboarding_completed");
+    } catch {}
+    emitCrossWindowEvent("island_trigger_onboarding");
     onClose();
   };
 
-  const handleResetAllSettings = () => {
+  const handleResetAllSettings = async () => {
     if (!showResetConfirm) {
       setShowResetConfirm(true);
       return;
     }
     try {
-      localStorage.removeItem("island_onboarding_completed");
-      localStorage.removeItem("island_theme");
-      localStorage.removeItem("island_idle_layout");
-      localStorage.removeItem("island_font_size");
-      localStorage.removeItem("island_tab_size");
-      localStorage.removeItem("island_ears");
-      localStorage.removeItem("island_transparency");
-      localStorage.removeItem("island_auto_compact");
-      localStorage.removeItem("island_show_greeting");
-      localStorage.removeItem("island_close_delay");
-    } catch {}
-    window.location.reload();
+      await resetAllAppSettings();
+    } finally {
+      window.location.reload();
+    }
   };
 
   const updateSubtitle =
@@ -436,6 +440,26 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           ]}
         />
       ) : null,
+    },
+    {
+      id: "weather_location",
+      tab: "general",
+      tabLabel: t("settings_subtab_general"),
+      title: t("settings_weather_location"),
+      subtitle: t("settings_weather_mode_auto"),
+      keywords: ["weather", "cuaca", "lokasi", "location", "kota", "city", "bmkg", "suhu", "temperature"],
+      icon: <MapPin size={18} />,
+      iconBgClass: "bg-[#0d2836]",
+      iconColorClass: "text-[#32ade6]",
+      control: (
+        <button
+          type="button"
+          onClick={() => onNavigateTab("general")}
+          className="px-2.5 py-1 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 text-[11px] font-medium transition-colors cursor-pointer"
+        >
+          {t("settings_subtab_general")}
+        </button>
+      ),
     },
     {
       id: "notif_sound",
@@ -782,24 +806,6 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
       ),
     },
     {
-      id: "media_player",
-      tab: "modules",
-      tabLabel: t("settings_subtab_modules"),
-      title: t("settings_media_player"),
-      subtitle: t("settings_media_player_desc"),
-      keywords: ["media", "music", "pemutar", "lagu", "spotify", "lyrics", "lirik", "player"],
-      icon: <Music size={18} />,
-      iconBgClass: "bg-[#2d1815]",
-      iconColorClass: "text-[#ff453a]",
-      control: (
-        <IosSwitch
-          checked={optMedia}
-          onChange={onToggleMedia}
-          activeColor="blue"
-        />
-      ),
-    },
-    {
       id: "sound_fx",
       tab: "modules",
       tabLabel: t("settings_subtab_modules"),
@@ -994,7 +1000,6 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
                     type="button"
                     onClick={() => onNavigateTab(item.tab)}
                     className="text-[10px] text-white/40 hover:text-white/80 bg-white/[0.04] hover:bg-white/[0.08] px-1.5 py-0.5 rounded-[5px] transition-colors cursor-pointer shrink-0"
-                    title={`Go to ${item.tabLabel}`}
                   >
                     {item.tabLabel}
                   </button>

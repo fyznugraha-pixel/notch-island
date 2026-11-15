@@ -17,7 +17,7 @@ const FIRED_REMINDERS_KEY = "gili_fired_todo_reminders";
 
 function loadFiredReminders(): Set<string> {
   try {
-    const raw = sessionStorage.getItem(FIRED_REMINDERS_KEY);
+    const raw = localStorage.getItem(FIRED_REMINDERS_KEY);
     if (raw) {
       return new Set(JSON.parse(raw));
     }
@@ -27,7 +27,7 @@ function loadFiredReminders(): Set<string> {
 
 function saveFiredReminders(set: Set<string>) {
   try {
-    sessionStorage.setItem(FIRED_REMINDERS_KEY, JSON.stringify(Array.from(set).slice(-200)));
+    localStorage.setItem(FIRED_REMINDERS_KEY, JSON.stringify(Array.from(set).slice(-200)));
   } catch {}
 }
 
@@ -35,17 +35,20 @@ export function useTodoReminders(
   todoItems: TodoItem[],
   muteNotifs: boolean,
   onCompleteTask: (id: string) => void,
-  onNotifyReminder?: (task: TodoItem, offset: number) => void
+  onNotifyReminder?: (task: TodoItem, offset: number) => void,
+  enabled: boolean = true,
+  isSecondary: boolean = false
 ) {
   const [deadlineAlert, setDeadlineAlert] = useState<TodoDeadlineAlert | null>(null);
   const [snoozedUntilMap, setSnoozedUntilMap] = useState<Record<string, number>>({});
   const firedSetRef = useRef<Set<string>>(loadFiredReminders());
 
   useEffect(() => {
+    if (!enabled) return;
     const checkReminders = () => {
       const now = Date.now();
 
-      if (muteNotifs) return;
+      if (!enabled || muteNotifs) return;
 
       for (const item of todoItems) {
         if (item.completed || !item.dueAt) continue;
@@ -59,11 +62,19 @@ export function useTodoReminders(
               return next;
             });
             const diffMin = Math.round((item.dueAt - now) / 60000);
-            playReminderSound();
-            if (onNotifyReminder) {
-              onNotifyReminder(item, Math.max(0, diffMin));
+            const triggeredOffset = Math.max(0, diffMin);
+            setDeadlineAlert({
+              task: item,
+              diffMinutes: diffMin,
+              triggeredOffset,
+            });
+            if (!isSecondary) {
+              playReminderSound();
             }
-            break;
+            if (onNotifyReminder) {
+              onNotifyReminder(item, triggeredOffset);
+            }
+            continue;
           }
           continue;
         }
@@ -79,12 +90,21 @@ export function useTodoReminders(
           // Trigger if within [offset - 1, offset] minutes window
           if (diffMinutes <= offset && diffMinutes >= offset - 2) {
             firedSetRef.current.add(key);
-            saveFiredReminders(firedSetRef.current);
-            playReminderSound();
+            if (!isSecondary) {
+              saveFiredReminders(firedSetRef.current);
+            }
+            setDeadlineAlert({
+              task: item,
+              diffMinutes,
+              triggeredOffset: offset,
+            });
+            if (!isSecondary) {
+              playReminderSound();
+            }
             if (onNotifyReminder) {
               onNotifyReminder(item, offset);
             }
-            return;
+            break;
           }
         }
       }
@@ -94,16 +114,20 @@ export function useTodoReminders(
     const interval = window.setInterval(checkReminders, 5000);
 
     return () => clearInterval(interval);
-  }, [todoItems, muteNotifs, snoozedUntilMap, onNotifyReminder]);
+  }, [todoItems, muteNotifs, snoozedUntilMap, onNotifyReminder, enabled, isSecondary]);
 
-  // Clear alert if the task was completed or deleted
+  // Clear alert if disabled, or task completed or deleted
   useEffect(() => {
+    if (!enabled && deadlineAlert) {
+      setDeadlineAlert(null);
+      return;
+    }
     if (!deadlineAlert) return;
     const found = todoItems.find((t) => t.id === deadlineAlert.task.id);
     if (!found || found.completed) {
       setDeadlineAlert(null);
     }
-  }, [todoItems, deadlineAlert]);
+  }, [todoItems, deadlineAlert, enabled]);
 
   const snoozeDeadlineAlert = useCallback((minutes: number = 10) => {
     if (!deadlineAlert) return;

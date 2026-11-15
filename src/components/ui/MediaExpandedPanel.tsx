@@ -9,6 +9,7 @@ import {
   MessageSquareQuote,
   ListMusic,
   Music2,
+  PictureInPicture2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload } from "../../types";
@@ -99,6 +100,25 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
     ? 0
     : Math.max(0, mediaProgress.duration - currentMediaPosition);
 
+  const [isMiniPlayerOpen, setIsMiniPlayerOpen] = React.useState(false);
+  const isMiniPlayerFeatureEnabled = true;
+
+  React.useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<boolean>("miniplayer:visibility-changed", (e) => {
+        setIsMiniPlayerOpen(e.payload);
+      }).then((unsub) => {
+        unlisten = unsub;
+      });
+    });
+    invoke<boolean>("is_miniplayer_open").then(setIsMiniPlayerOpen).catch(() => {});
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   const lastVolInvokeRef = React.useRef(0);
   const pendingVolRef = React.useRef<number | null>(null);
   const volTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,7 +158,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
       className="w-full h-full flex px-3 pb-2.5 pt-1.5 min-w-0 cursor-default gap-3 relative"
     >
       {/* Left Column: Player Controls */}
-      <div className={`h-full flex flex-col justify-between min-w-0 relative z-10 shrink-0 overflow-hidden ${isCompact ? "w-[298px]" : "w-[320px]"}`}>
+      <div className={`h-full flex flex-col justify-between min-w-0 max-w-full relative z-10 shrink-0 overflow-hidden ${isCompact ? "w-[298px]" : "w-[320px]"}`}>
         <div className="flex items-center gap-3.5 px-0.5">
           <div className="w-14 h-14 bg-neutral-800/50 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-lg border border-white/10 relative">
             {hasMedia && media ? (
@@ -273,14 +293,34 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
             </span>
           </div>
 
-          <div className={`flex items-center justify-center relative ${isCompact ? "gap-4" : "gap-6"}`}>
-            <div className={`${isCompact ? "w-8 h-8" : "w-9 h-9"} opacity-0 pointer-events-none shrink-0`} />
+          <div className={`flex items-center justify-between px-1 relative ${isCompact ? "gap-3" : "gap-4"}`}>
+            {/* Lyrics / App Info Toggle Button (Left Side) */}
+            <Tooltip content={showLyrics ? t("media_app_source") : t("lyrics_title")} side="top" allowFlip>
+              <motion.button
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.9 }}
+                aria-label={showLyrics ? t("media_app_source") : t("lyrics_title")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleLyrics();
+                }}
+                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
+                  showLyrics
+                    ? "is-active bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.35)]"
+                    : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
+                }`}
+              >
+                {showLyrics ? <MessageSquareQuote size={16} /> : <ListMusic size={16} />}
+              </motion.button>
+            </Tooltip>
 
-            <div className={`flex items-center ${isCompact ? "gap-5" : "gap-7"}`}>
-              <Tooltip content={t("media_prev")} side="top">
+            {/* Playback Controls (Center) */}
+            <div className={`flex items-center ${isCompact ? "gap-4" : "gap-6"}`}>
+              <Tooltip content={t("media_prev")} side="top" allowFlip>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
+                  aria-label={t("media_prev")}
                   onClick={(e) => {
                     e.stopPropagation();
                     onMediaControl("prev");
@@ -290,10 +330,11 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   <SkipBack size={isCompact ? 20 : 22} fill="currentColor" />
                 </motion.button>
               </Tooltip>
-              <Tooltip content={activePlaying ? t("media_pause") : t("media_play")} side="top">
+              <Tooltip content={activePlaying ? t("media_pause") : t("media_play")} side="top" allowFlip>
                 <motion.button
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.9 }}
+                  aria-label={activePlaying ? t("media_pause") : t("media_play")}
                   onClick={(e) => {
                     e.stopPropagation();
                     onMediaControl("toggle");
@@ -307,10 +348,11 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   )}
                 </motion.button>
               </Tooltip>
-              <Tooltip content={t("media_next")} side="top">
+              <Tooltip content={t("media_next")} side="top" allowFlip>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
+                  aria-label={t("media_next")}
                   onClick={(e) => {
                     e.stopPropagation();
                     onMediaControl("next");
@@ -322,24 +364,40 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
               </Tooltip>
             </div>
 
-            {/* Lyrics / App Info Toggle Button */}
-            <Tooltip content={showLyrics ? t("media_app_source") : t("lyrics_title")} side="top">
-              <motion.button
-                whileHover={{ scale: 1.08 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleLyrics();
-                }}
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
-                  showLyrics
-                    ? "bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.35)]"
-                    : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
-                }`}
+            {/* Mini Player Toggle Button (Right Side) */}
+            {isMiniPlayerFeatureEnabled && (
+              <Tooltip
+                content={
+                  <div className="flex items-center gap-1.5">
+                    <span>Mini player</span>
+                    <span className="px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono leading-none">Ctrl Alt M</span>
+                  </div>
+                }
+                side="top"
+                allowFlip
               >
-                {showLyrics ? <MessageSquareQuote size={16} /> : <ListMusic size={16} />}
-              </motion.button>
-            </Tooltip>
+                <motion.button
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await invoke("toggle_miniplayer");
+                    } catch (err) {
+                      console.error("Failed to toggle miniplayer:", err);
+                    }
+                  }}
+                  className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shrink-0 media-control-btn cursor-pointer ${
+                    isMiniPlayerOpen
+                      ? "bg-[#38bdf8]/20 text-[#38bdf8] ring-1 ring-[#38bdf8]/50 shadow-[0_0_12px_rgba(56,189,248,0.35)]"
+                      : "text-white/70 hover:text-white bg-white/[0.08] hover:bg-white/[0.16]"
+                  }`}
+                  aria-label="Mini player Ctrl Alt M"
+                >
+                  <PictureInPicture2 size={16} />
+                </motion.button>
+              </Tooltip>
+            )}
           </div>
 
           {/* Volume Slider (Sleek Slim Style) */}

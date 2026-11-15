@@ -1,12 +1,14 @@
 import React from "react";
 import { NavbarConfig, NavbarIconSpacing } from "../../../types/navbar";
-import { Layers, Maximize2, Shield } from "lucide-react";
+import { Layers, Maximize2, Shield, Lock } from "lucide-react";
 import { hexToRgba } from "../../../services/navbarConfigService";
 import { Language } from "../../../services/i18n";
 
 interface NavbarShapeCardProps {
   config: NavbarConfig;
   onChange: (patch: Partial<NavbarConfig>) => void;
+  isProLocked?: boolean;
+  onRequirePro?: () => void;
   isLightMode?: boolean;
   optLanguage?: Language;
 }
@@ -14,32 +16,60 @@ interface NavbarShapeCardProps {
 export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
   config,
   onChange,
+  isProLocked = false,
+  onRequirePro,
   isLightMode = false,
   optLanguage = "id",
 }) => {
   const isId = optLanguage === "id";
   const isAnchored = config.shape === "anchored";
+  const effectiveEnabled = !isProLocked && config.enabled;
 
   const cardBg = isLightMode
-    ? "bg-white/70 border-black/[0.08]"
-    : "bg-white/[0.03] border-white/[0.07]";
+    ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
+  const subCardBg = isLightMode
+    ? "bg-neutral-50/90 border-black/[0.06]"
+    : "bg-white/[0.03] border-white/[0.06]";
   const textTitle = isLightMode ? "text-neutral-900" : "text-white";
-  const textSub = isLightMode ? "text-neutral-500" : "text-zinc-400";
+  const textSub = isLightMode ? "text-neutral-600" : "text-zinc-400";
 
   return (
-    <div className={`flex flex-col gap-4 p-4 rounded-[16px] border ${cardBg}`}>
+    <div className={`flex flex-col gap-4 p-5 rounded-[18px] border ${cardBg}`}>
       {/* 1. Master Enable Toggle */}
-      <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+      <div
+        className={`flex items-center justify-between pb-3 border-b ${
+          isLightMode ? "border-black/[0.07]" : "border-white/[0.06]"
+        }`}
+      >
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-[10px] bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
             <Shield size={18} />
           </div>
           <div className="flex flex-col">
-            <span className={`text-[13px] font-semibold ${textTitle}`}>
-              {isId ? "Aktifkan Taskbar Gili" : "Enable Gili Taskbar"}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className={`text-[13px] font-semibold ${textTitle}`}>
+                {isId ? "Aktifkan Taskbar Gili" : "Enable Gili Taskbar"}
+              </span>
+              {isProLocked && (
+                <span
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[6px] text-[10px] font-bold tracking-wide border ${
+                    isLightMode
+                      ? "bg-[#eff6ff] text-[#1d4ed8] border-blue-600/25"
+                      : "bg-[#0a84ff]/15 text-[#93c5fd] border-[#60a5fa]/30"
+                  }`}
+                >
+                  <Lock size={9} strokeWidth={2.5} aria-hidden="true" />
+                  <span>PRO</span>
+                </span>
+              )}
+            </div>
             <span className={`text-[11px] ${textSub}`}>
-              {isId
+              {isProLocked
+                ? isId
+                  ? "Aktifkan lisensi Taskbar Pro di Microsoft Store untuk menjalankan dock"
+                  : "Activate Taskbar Pro license from Microsoft Store to run the live dock"
+                : isId
                 ? "Nyalain dock melayang biar navigasi app makin sat-set & estetik"
                 : "Turn on floating dock for smooth app navigation & status"}
             </span>
@@ -47,18 +77,33 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
         </div>
         <button
           type="button"
-          onClick={() => onChange({ enabled: !config.enabled })}
-          aria-label={isId ? "Aktifkan Taskbar" : "Toggle Taskbar"}
-          style={{
-            backgroundColor: config.enabled ? config.accent : undefined,
+          onClick={() => {
+            if (isProLocked) {
+              onRequirePro?.();
+              return;
+            }
+            onChange({ enabled: !config.enabled });
           }}
-          className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${
-            config.enabled ? "" : isLightMode ? "bg-black/20" : "bg-white/20"
+          aria-pressed={effectiveEnabled}
+          aria-label={
+            isProLocked
+              ? isId
+                ? "Beli Taskbar Pro untuk mengaktifkan Taskbar"
+                : "Buy Taskbar Pro to enable Taskbar"
+              : isId
+              ? "Aktifkan Taskbar"
+              : "Toggle Taskbar"
+          }
+          style={{
+            backgroundColor: effectiveEnabled ? config.accent : undefined,
+          }}
+          className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#60a5fa] ${
+            effectiveEnabled ? "" : isLightMode ? "bg-black/20" : "bg-white/20"
           }`}
         >
           <span
             className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform ${
-              config.enabled ? "translate-x-5" : "translate-x-0"
+              effectiveEnabled ? "translate-x-5" : "translate-x-0"
             }`}
           />
         </button>
@@ -133,7 +178,15 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
                 {isId ? "Nempel (Anchored)" : "Anchored"}
               </span>
             </div>
-            <span className={`text-[10.5px] leading-relaxed ${isAnchored ? "text-blue-400" : textSub}`}>
+            <span
+              className={`text-[10.5px] leading-relaxed ${
+                isAnchored
+                  ? isLightMode
+                    ? "text-blue-700"
+                    : "text-blue-400"
+                  : textSub
+              }`}
+            >
               {isId
                 ? "Nempel rapi di pinggir layar pake lekukan sayap yang smooth abis"
                 : "Seamlessly hugs the bottom screen edge with smooth wings"}
@@ -205,7 +258,15 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
                 {isId ? "Melayang (Floating)" : "Floating"}
               </span>
             </div>
-            <span className={`text-[10.5px] leading-relaxed ${!isAnchored ? "text-blue-400" : textSub}`}>
+            <span
+              className={`text-[10.5px] leading-relaxed ${
+                !isAnchored
+                  ? isLightMode
+                    ? "text-blue-700"
+                    : "text-blue-400"
+                  : textSub
+              }`}
+            >
               {isId
                 ? "Kapsul ngambang estetik dengan shadow halus & sudut rounded"
                 : "Aesthetic floating capsule with soft shadows & rounded corners"}
@@ -214,15 +275,19 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
         </div>
       </div>
 
-      {/* 3. Sliders: Radius, Distance, Icon Size */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+      {/* 3. Sliders: Radius, Distance, Icon Size & Spacing */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         {/* Corner Radius */}
-        <div className="flex flex-col gap-1.5">
+        <div className={`flex flex-col justify-between gap-2.5 p-3 rounded-[12px] border ${subCardBg}`}>
           <div className="flex justify-between items-center text-[11.5px]">
             <span className={`font-medium ${textTitle}`}>
               {isId ? "Radius Sudut" : "Corner Radius"}
             </span>
-            <span className={`font-semibold tabular-nums text-blue-500`}>
+            <span
+              className={`font-semibold tabular-nums ${
+                isLightMode ? "text-blue-600" : "text-blue-400"
+              }`}
+            >
               {config.cornerRadius}px
             </span>
           </div>
@@ -232,21 +297,28 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
             max={24}
             value={config.cornerRadius}
             onChange={(e) => onChange({ cornerRadius: Number(e.target.value) })}
-            className="w-full accent-[#0a84ff] cursor-pointer"
+            aria-label={isId ? "Radius Sudut" : "Corner Radius"}
+            className={`w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[#0a84ff] ${
+              isLightMode ? "bg-black/10" : "bg-white/10"
+            }`}
           />
         </div>
 
         {/* Distance from bottom (Disabled if anchored) */}
         <div
-          className={`flex flex-col gap-1.5 transition-opacity ${
-            isAnchored ? "opacity-40 pointer-events-none" : ""
+          className={`flex flex-col justify-between gap-2.5 p-3 rounded-[12px] border transition-opacity ${subCardBg} ${
+            isAnchored ? "opacity-45" : ""
           }`}
         >
           <div className="flex justify-between items-center text-[11.5px]">
             <span className={`font-medium ${textTitle}`}>
               {isId ? "Jarak dari Tepi Layar" : "Distance from Edge"}
             </span>
-            <span className={`font-semibold tabular-nums text-blue-500`}>
+            <span
+              className={`font-semibold tabular-nums ${
+                isLightMode ? "text-blue-600" : "text-blue-400"
+              }`}
+            >
               {isAnchored ? "0px" : `${config.distanceFromEdge}px`}
             </span>
           </div>
@@ -257,17 +329,24 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
             disabled={isAnchored}
             value={config.distanceFromEdge}
             onChange={(e) => onChange({ distanceFromEdge: Number(e.target.value) })}
-            className="w-full accent-[#0a84ff] cursor-pointer"
+            aria-label={isId ? "Jarak dari Tepi Layar" : "Distance from Edge"}
+            className={`w-full h-1.5 rounded-full appearance-none accent-[#0a84ff] cursor-pointer disabled:cursor-not-allowed ${
+              isLightMode ? "bg-black/10" : "bg-white/10"
+            }`}
           />
         </div>
 
         {/* Icon Size */}
-        <div className="flex flex-col gap-1.5">
+        <div className={`flex flex-col justify-between gap-2.5 p-3 rounded-[12px] border ${subCardBg}`}>
           <div className="flex justify-between items-center text-[11.5px]">
             <span className={`font-medium ${textTitle}`}>
               {isId ? "Ukuran Ikon" : "Icon Size"}
             </span>
-            <span className={`font-semibold tabular-nums text-blue-500`}>
+            <span
+              className={`font-semibold tabular-nums ${
+                isLightMode ? "text-blue-600" : "text-blue-400"
+              }`}
+            >
               {config.iconSize}px
             </span>
           </div>
@@ -277,12 +356,15 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
             max={56}
             value={config.iconSize}
             onChange={(e) => onChange({ iconSize: Number(e.target.value) })}
-            className="w-full accent-[#0a84ff] cursor-pointer"
+            aria-label={isId ? "Ukuran Ikon" : "Icon Size"}
+            className={`w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[#0a84ff] ${
+              isLightMode ? "bg-black/10" : "bg-white/10"
+            }`}
           />
         </div>
 
         {/* Icon Spacing Segmented Control */}
-        <div className="flex flex-col gap-1.5">
+        <div className={`flex flex-col justify-between gap-2 p-3 rounded-[12px] border ${subCardBg}`}>
           <span className={`text-[11.5px] font-medium ${textTitle}`}>
             {isId ? "Jarak Antar Ikon" : "Icon Spacing"}
           </span>

@@ -15,6 +15,9 @@ import {
   MemoryStick,
   ArrowDown,
   ArrowDownUp,
+  Bell,
+  FolderDown,
+  Moon,
 } from "lucide-react";
 import {
   IdleLayoutConfig,
@@ -25,7 +28,14 @@ import {
   getItemLabel,
   formatNetSpeed,
 } from "../IdleLayoutSetting";
+import { IdleMascot } from "../IdleMascot";
+import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
+import {
+  getImmediatePrayerSchedule,
+  getNextPrayerStatus,
+  getPrayerShortName,
+} from "../../../services/prayerService";
 
 export interface IdleTabProps {
   layout: IdleLayoutConfig;
@@ -44,6 +54,9 @@ const ALL_IDLE_ITEMS: IdleSlotItem[] = [
   "ping",
   "weather",
   "todo",
+  "prayer",
+  "notifications",
+  "shelf",
   "fps",
   "none",
 ];
@@ -77,8 +90,14 @@ const renderOptionIcon = (
           return <Sun size={14} className="!text-[#007aff]" />;
         case "todo":
           return <ListTodo size={14} className="!text-[#007aff]" />;
+        case "prayer":
+          return <Moon size={14} className="!text-[#007aff]" />;
         case "fps":
           return <Gauge size={14} className="!text-[#007aff]" />;
+        case "notifications":
+          return <Bell size={14} className="!text-[#007aff]" />;
+        case "shelf":
+          return <FolderDown size={14} className="!text-[#007aff]" />;
         case "none":
         default:
           return <EyeOff size={14} className="!text-[#007aff]" />;
@@ -107,8 +126,14 @@ const renderOptionIcon = (
         return <Sun size={14} className="text-white" />;
       case "todo":
         return <ListTodo size={14} className="text-white" />;
+      case "prayer":
+        return <Moon size={14} className="text-white" />;
       case "fps":
         return <Gauge size={14} className="text-white" />;
+      case "notifications":
+        return <Bell size={14} className="text-white" />;
+      case "shelf":
+        return <FolderDown size={14} className="text-white" />;
       case "none":
       default:
         return <EyeOff size={14} className="text-white" />;
@@ -137,8 +162,14 @@ const renderOptionIcon = (
         return <Sun size={14} className="text-amber-600" />;
       case "todo":
         return <ListTodo size={14} className="text-orange-600" />;
+      case "prayer":
+        return <Moon size={14} className="text-emerald-700" />;
       case "fps":
         return <Gauge size={14} className="text-teal-700" />;
+      case "notifications":
+        return <Bell size={14} className="text-indigo-700" />;
+      case "shelf":
+        return <FolderDown size={14} className="text-cyan-700" />;
       case "none":
       default:
         return <EyeOff size={14} className="text-neutral-500" />;
@@ -167,8 +198,14 @@ const renderOptionIcon = (
       return <Sun size={14} className="text-[#ff9f0a]" />;
     case "todo":
       return <ListTodo size={14} className="text-[#ff9f0a]" />;
+    case "prayer":
+      return <Moon size={14} className="text-[#34d399]" />;
     case "fps":
       return <Gauge size={14} className="text-[#40c8ae]" />;
+    case "notifications":
+      return <Bell size={14} className="text-[#818cf8]" />;
+    case "shelf":
+      return <FolderDown size={14} className="text-[#38bdf8]" />;
     case "none":
     default:
       return <EyeOff size={14} className="text-[#71717a]" />;
@@ -206,8 +243,14 @@ const getOptionBgClass = (
         return "bg-amber-100/90";
       case "todo":
         return "bg-orange-100/90";
+      case "prayer":
+        return "bg-emerald-100/90";
       case "fps":
         return "bg-teal-100/90";
+      case "notifications":
+        return "bg-indigo-100/90";
+      case "shelf":
+        return "bg-cyan-100/90";
       case "none":
       default:
         return "bg-neutral-200/90";
@@ -236,8 +279,14 @@ const getOptionBgClass = (
       return "bg-[#2c2410]";
     case "todo":
       return "bg-[#2c2010]";
+    case "prayer":
+      return "bg-[#10291f]";
     case "fps":
       return "bg-[#132c2c]";
+    case "notifications":
+      return "bg-[#1d1b38]";
+    case "shelf":
+      return "bg-[#102936]";
     case "none":
     default:
       return "bg-[#1c1c20]";
@@ -268,11 +317,6 @@ export const IdleTab: React.FC<IdleTabProps> = ({
     }
 
     next[activeSlot] = item;
-
-    if (next.left === "none" && next.center === "none" && next.right === "none") {
-      next.center = "clock";
-    }
-
     onChangeLayout(next);
   };
 
@@ -376,6 +420,22 @@ export const IdleTab: React.FC<IdleTabProps> = ({
             <span>{runtimeData.pendingTodosCount}</span>
           </div>
         );
+      case "prayer": {
+        const next = getNextPrayerStatus(getImmediatePrayerSchedule(), runtimeData.time);
+        const shortName = getPrayerShortName(next.nextPrayer, runtimeData.optLanguage);
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-emerald-700" : "text-emerald-400"
+            }`}
+          >
+            <Moon size={11} />
+            <span>
+              {shortName} {next.nextPrayerTime}
+            </span>
+          </div>
+        );
+      }
       case "fps":
         return (
           <span
@@ -419,29 +479,47 @@ export const IdleTab: React.FC<IdleTabProps> = ({
             <span>{formatNetSpeed(runtimeData.netDownMbps ?? 1.2 * 8)}</span>
           </div>
         );
+      case "notifications":
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-indigo-700" : "text-indigo-300"
+            }`}
+          >
+            <Bell size={11} />
+            <span>{runtimeData.unreadNotifCount ?? 3}</span>
+          </div>
+        );
+      case "shelf":
+        return (
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold tabular-nums ${
+              isLightMode ? "text-cyan-700" : "text-cyan-300"
+            }`}
+          >
+            <FolderDown size={11} />
+            <span>{runtimeData.stashedFilesCount ?? 2}</span>
+          </div>
+        );
       case "none":
       default:
-        return (
-          <span className={`text-[10px] ${isLightMode ? "text-black/30" : "text-white/20"}`}>
-            —
-          </span>
-        );
+        return null;
     }
   };
 
   return (
     <div
-      className={`w-full rounded-[20px] p-2 flex flex-col justify-between ${
+      className={`w-full rounded-[18px] p-5 flex flex-col gap-4 ${
         isLightMode
-          ? "bg-white/80 border border-black/10 shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-          : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
+          ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+          : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
       }`}
     >
       {/* Header Row */}
-      <div className="flex items-center justify-between px-1">
+      <div className="flex items-center justify-between">
         <span
-          className={`text-[9.5px] font-bold tracking-wider uppercase ${
-            isLightMode ? "text-neutral-500" : "text-[#71717a]"
+          className={`text-[11px] font-semibold tracking-wider uppercase ${
+            isLightMode ? "text-neutral-500" : "text-zinc-400"
           }`}
         >
           {t("settings_idle_preview_title")}
@@ -450,57 +528,64 @@ export const IdleTab: React.FC<IdleTabProps> = ({
           <button
             type="button"
             onClick={handleSwapLeftRight}
-            className={`px-2.5 py-0.5 rounded-full text-[10px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+            className={`px-3 py-1 rounded-full text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
               isLightMode
-                ? "bg-black/5 hover:bg-black/10 text-[#1d1d1f]"
-                : "bg-[#18181c] hover:bg-[#222228] text-white"
+                ? "bg-black/[0.05] hover:bg-black/[0.09] text-[#1d1d1f]"
+                : "bg-white/[0.06] hover:bg-white/[0.12] text-white"
             }`}
           >
-            <ArrowLeftRight size={11} />
+            <ArrowLeftRight size={12} />
             <span>{t("settings_idle_swap_lr")}</span>
           </button>
-          <button
-            type="button"
-            onClick={handleReset}
-            title={t("settings_idle_reset")}
-            className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-              isLightMode
-                ? "bg-black/5 hover:bg-black/10 text-neutral-600 hover:text-black"
-                : "bg-[#18181c] hover:bg-[#222228] text-[#a1a1aa] hover:text-white"
-            }`}
-          >
-            <RotateCcw size={11} />
-          </button>
+          <Tooltip content={t("settings_idle_reset")} side="top">
+            <button
+              type="button"
+              onClick={handleReset}
+              className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "bg-black/[0.05] hover:bg-black/[0.09] text-neutral-600 hover:text-black"
+                  : "bg-white/[0.06] hover:bg-white/[0.12] text-zinc-400 hover:text-white"
+              }`}
+            >
+              <RotateCcw size={12} />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
       {/* Simulated Notch Surface */}
       <div
-        className={`w-full h-[46px] rounded-[12px] flex items-center justify-center px-3 my-1 select-none ${
-          isLightMode ? "bg-neutral-100 border border-black/5" : "bg-[#0c0c0e] border border-white/[0.04]"
+        className={`w-full h-[64px] rounded-[14px] flex items-center justify-center px-4 select-none ${
+          isLightMode ? "bg-neutral-100 border border-black/[0.06]" : "bg-[#0c0c10] border border-white/[0.06]"
         }`}
       >
         <div
-          className={`h-[28px] rounded-full px-3.5 flex items-center justify-between w-full max-w-[280px] idle-preview-notch ${
+          className={`h-[32px] rounded-full px-4 flex items-center justify-between w-full max-w-[320px] idle-preview-notch relative overflow-hidden ${
             isLightMode
               ? "bg-white border border-black/10 shadow-sm"
-              : "bg-black border border-white/[0.08] shadow-sm"
+              : "bg-black border border-white/[0.1] shadow-sm"
           }`}
         >
-          <div className="flex items-center justify-start min-w-[50px]">
-            {renderPreviewItem(layout.left)}
-          </div>
-          <div className="flex items-center justify-center">
-            {renderPreviewItem(layout.center)}
-          </div>
-          <div className="flex items-center justify-end min-w-[50px]">
-            {renderPreviewItem(layout.right)}
-          </div>
+          {layout.left === "none" && layout.center === "none" && layout.right === "none" ? (
+            <IdleMascot idleHeight={30} loop={true} isLightMode={isLightMode} />
+          ) : (
+            <>
+              <div className="flex items-center justify-start min-w-[54px]">
+                {renderPreviewItem(layout.left)}
+              </div>
+              <div className="flex items-center justify-center">
+                {renderPreviewItem(layout.center)}
+              </div>
+              <div className="flex items-center justify-end min-w-[54px]">
+                {renderPreviewItem(layout.right)}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* 3 Slot Selector Tabs */}
-      <div className="grid grid-cols-3 gap-1.5 px-0.5 mb-1.5">
+      <div className="grid grid-cols-3 gap-2">
         {(["left", "center", "right"] as IdleSlotPosition[]).map((pos) => {
           const isSelected = activeSlot === pos;
           const posTitle =
@@ -517,24 +602,24 @@ export const IdleTab: React.FC<IdleTabProps> = ({
               key={pos}
               type="button"
               onClick={() => setActiveSlot(pos)}
-              className={`h-[28px] rounded-[7px] px-2 flex items-center justify-between text-[10.5px] transition-all cursor-pointer ${
+              className={`h-9 rounded-[10px] px-3 flex items-center justify-between text-[11.5px] transition-all cursor-pointer ${
                 isSelected
-                  ? "bg-[#007aff]/15 border border-[#007aff] text-[#007aff] shadow-sm font-semibold"
+                  ? "bg-[#0a84ff]/15 border border-[#0a84ff] text-[#0a84ff] shadow-sm font-semibold"
                   : isLightMode
-                  ? "bg-black/[0.04] hover:bg-black/[0.08] border border-black/10 text-neutral-600"
-                  : "bg-[#18181c] hover:bg-[#202026] border border-white/[0.04] text-[#a1a1aa]"
+                  ? "bg-neutral-50 hover:bg-neutral-100 border border-black/[0.08] text-neutral-600"
+                  : "bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] text-zinc-400"
               }`}
             >
               <span
-                className={`text-[9.5px] font-bold tracking-wider uppercase ${
-                  isSelected ? "text-[#007aff]" : isLightMode ? "text-neutral-500" : "text-[#71717a]"
+                className={`text-[10px] font-bold tracking-wider uppercase ${
+                  isSelected ? "text-[#0a84ff]" : isLightMode ? "text-neutral-500" : "text-zinc-500"
                 }`}
               >
                 {posTitle}
               </span>
               <span
-                className={`font-semibold truncate max-w-[65px] ${
-                  isSelected ? "text-[#007aff]" : isLightMode ? "text-[#1d1d1f]" : "text-white/80"
+                className={`font-semibold truncate max-w-[90px] ${
+                  isSelected ? "text-[#0a84ff]" : isLightMode ? "text-[#1d1d1f]" : "text-white/90"
                 }`}
               >
                 {itemText}
@@ -545,17 +630,17 @@ export const IdleTab: React.FC<IdleTabProps> = ({
       </div>
 
       {/* Options Section */}
-      <div className="flex flex-col px-0.5">
+      <div className="flex flex-col gap-2">
         <span
-          className={`text-[10px] font-medium mb-1 ${
-            isLightMode ? "text-neutral-500" : "text-[#71717a]"
+          className={`text-[11px] font-medium ${
+            isLightMode ? "text-neutral-500" : "text-zinc-400"
           }`}
         >
           {t("settings_idle_pick_for", { pos: activeSlotName })}
         </span>
 
-        {/* 3x3 Grid */}
-        <div className="grid grid-cols-3 gap-1">
+        {/* 3x5 Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {ALL_IDLE_ITEMS.map((itemId) => {
             const isSelected = layout[activeSlot] === itemId;
             const label = getItemLabel(itemId);
@@ -565,16 +650,16 @@ export const IdleTab: React.FC<IdleTabProps> = ({
                 key={itemId}
                 type="button"
                 onClick={() => handleSelectItem(itemId)}
-                className={`h-[27px] px-2 rounded-[7px] flex items-center gap-1.5 text-[11px] font-medium transition-all cursor-pointer ${
+                className={`h-9 px-2.5 rounded-[10px] flex items-center gap-2 text-[12px] font-medium transition-all cursor-pointer ${
                   isSelected
-                    ? "bg-[#007aff] text-white shadow-sm font-semibold"
+                    ? "bg-[#0a84ff] text-white shadow-sm font-semibold"
                     : isLightMode
-                    ? "bg-black/[0.04] hover:bg-black/[0.08] text-[#1d1d1f]"
-                    : "bg-[#161619] hover:bg-[#202026] text-[#a1a1aa] hover:text-white"
+                    ? "bg-neutral-50 hover:bg-neutral-100 border border-black/[0.06] text-[#1d1d1f]"
+                    : "bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.05] text-zinc-300 hover:text-white"
                 }`}
               >
                 <div
-                  className={`w-4 h-4 rounded-[4px] flex items-center justify-center shrink-0 idle-option-icon-box ${getOptionBgClass(
+                  className={`w-5 h-5 rounded-[6px] flex items-center justify-center shrink-0 idle-option-icon-box ${getOptionBgClass(
                     itemId,
                     isSelected,
                     isLightMode

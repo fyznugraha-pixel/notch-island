@@ -8,6 +8,7 @@ import {
 import { SettingRow } from "./SettingRow";
 import { t } from "../../../services/i18n";
 import { UpdateInfo, UpdateStatus } from "../../../services/updateService";
+import { resetAllAppSettings } from "../../../services/settingsResetService";
 
 export interface AdvancedTabProps {
   currentAppVersion: string;
@@ -25,6 +26,7 @@ export interface AdvancedTabProps {
   onClearTempFiles: () => void;
   onTestNotification?: () => void;
   onClose: () => void;
+  isLightMode?: boolean;
 }
 
 export const AdvancedTab: React.FC<AdvancedTabProps> = ({
@@ -38,30 +40,25 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
   clearedResult,
   onClearTempFiles,
   onTestNotification,
+  isLightMode,
 }) => {
+  const light =
+    isLightMode ??
+    (typeof document !== "undefined" &&
+      document.documentElement.classList.contains("light"));
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  const handleResetAllSettings = () => {
+  const handleResetAllSettings = async () => {
     if (!showResetConfirm) {
       setShowResetConfirm(true);
       return;
     }
 
     try {
-      localStorage.removeItem("island_onboarding_completed");
-      localStorage.removeItem("island_theme");
-      localStorage.removeItem("island_idle_layout");
-      localStorage.removeItem("island_font_size");
-      localStorage.removeItem("island_tab_size");
-      localStorage.removeItem("island_ears");
-      localStorage.removeItem("island_transparency");
-      localStorage.removeItem("island_auto_compact");
-      localStorage.removeItem("island_auto_compact_mode");
-      localStorage.removeItem("island_show_greeting");
-      localStorage.removeItem("island_close_delay");
-    } catch {}
-
-    window.location.reload();
+      await resetAllAppSettings();
+    } finally {
+      window.location.reload();
+    }
   };
 
   const updateSubtitle =
@@ -89,13 +86,24 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
       ? t("settings_clear_temp_error")
       : t("settings_adv_clear_temp_desc");
 
+  const neutralBtnClass = light
+    ? "px-3.5 py-1.5 rounded-full bg-black/[0.06] hover:bg-black/[0.1] text-neutral-800 text-[12px] font-medium transition-colors cursor-pointer disabled:opacity-50"
+    : "px-3.5 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white text-[12px] font-medium transition-colors cursor-pointer disabled:opacity-50";
+
   return (
-    <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col justify-between shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+    <div
+      className={`w-full rounded-[18px] p-3 flex flex-col gap-0.5 ${
+        light
+          ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+          : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
+      }`}
+    >
       {/* 1. Pembaruan perangkat lunak */}
       <SettingRow
+        isLightMode={light}
         icon={<RefreshCw size={18} className={updateStatus === "checking" ? "animate-spin" : ""} />}
-        iconBgClass="bg-[#13262d]"
-        iconColorClass="text-[#64d2ff]"
+        iconBgClass={light ? "bg-[#32ade6]/15" : "bg-[#13262d]"}
+        iconColorClass={light ? "text-sky-600" : "text-[#64d2ff]"}
         title={t("settings_adv_updates")}
         subtitle={updateSubtitle}
         control={
@@ -103,7 +111,7 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
             type="button"
             onClick={updateStatus === "available" ? onInstallUpdate : onCheckUpdate}
             disabled={updateStatus === "checking" || updateStatus === "downloading" || updateStatus === "installing"}
-            className="px-3.5 py-1.5 rounded-full bg-[#1e1e24] hover:bg-[#282830] text-white text-[12px] font-medium transition-colors cursor-pointer disabled:opacity-50"
+            className={neutralBtnClass}
           >
             {updateStatus === "available"
               ? t("settings_update_now")
@@ -114,9 +122,10 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
 
       {/* 2. Bersihkan file sementara */}
       <SettingRow
+        isLightMode={light}
         icon={<Trash2 size={18} />}
-        iconBgClass="bg-[#2b2413]"
-        iconColorClass="text-[#ffd60a]"
+        iconBgClass={light ? "bg-amber-500/15" : "bg-[#2b2413]"}
+        iconColorClass={light ? "text-amber-700" : "text-[#ffd60a]"}
         title={t("settings_adv_clear_temp")}
         subtitle={clearTempSubtitle}
         control={
@@ -124,7 +133,11 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
             type="button"
             onClick={onClearTempFiles}
             disabled={clearTempStatus === "cleaning"}
-            className="px-3.5 py-1.5 rounded-full bg-[#ffd60a]/10 hover:bg-[#ffd60a]/20 text-[#ffd60a] border border-[#ffd60a]/20 text-[12px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 border transition-colors cursor-pointer disabled:opacity-50 ${
+              light
+                ? "bg-amber-500/12 hover:bg-amber-500/20 text-amber-800 border-amber-500/25"
+                : "bg-[#ffd60a]/10 hover:bg-[#ffd60a]/20 text-[#ffd60a] border-[#ffd60a]/20"
+            }`}
           >
             <Trash2 size={13} />
             <span>
@@ -138,8 +151,9 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
 
       {/* 4. Uji notifikasi idle */}
       <SettingRow
+        isLightMode={light}
         icon={<Send size={18} />}
-        iconBgClass="bg-[#241c30]"
+        iconBgClass={light ? "bg-[#bf5af2]/12" : "bg-[#241c30]"}
         iconColorClass="text-[#bf5af2]"
         title={t("settings_adv_test_notif")}
         subtitle={t("settings_adv_test_notif_desc")}
@@ -147,7 +161,7 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
           <button
             type="button"
             onClick={() => onTestNotification?.()}
-            className="px-3.5 py-1.5 rounded-full bg-[#1e1e24] hover:bg-[#282830] text-white text-[12px] font-medium transition-colors cursor-pointer"
+            className={neutralBtnClass}
           >
             {t("settings_adv_test_notif_btn")}
           </button>
@@ -156,8 +170,9 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
 
       {/* 5. Atur ulang semua pengaturan */}
       <SettingRow
+        isLightMode={light}
         icon={<AlertTriangle size={18} />}
-        iconBgClass="bg-[#331616]"
+        iconBgClass={light ? "bg-[#ff453a]/12" : "bg-[#331616]"}
         iconColorClass="text-[#ff453a]"
         title={t("settings_adv_reset_all")}
         subtitle={t("settings_adv_reset_all_desc")}
@@ -166,7 +181,7 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
             type="button"
             onClick={handleResetAllSettings}
             onMouseLeave={() => setShowResetConfirm(false)}
-            className="px-3.5 py-1.5 rounded-full bg-[#ff453a]/15 hover:bg-[#ff453a]/25 text-[#ff453a] border border-[#ff453a]/20 text-[12px] font-medium transition-colors cursor-pointer"
+            className="px-3.5 py-1.5 rounded-full bg-[#ff453a]/15 hover:bg-[#ff453a]/25 text-[#ff453a] border border-[#ff453a]/25 text-[12px] font-medium transition-colors cursor-pointer"
           >
             {showResetConfirm ? t("settings_adv_reset_confirm") : t("settings_adv_reset_all_btn")}
           </button>

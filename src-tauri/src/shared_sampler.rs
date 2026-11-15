@@ -63,7 +63,7 @@ impl SharedSampler {
 
                 while sampler.running.load(Ordering::Relaxed) {
                     let (sleep_duration, should_sample) = {
-                        let mut state = sampler.state.lock().unwrap();
+                        let mut state = sampler.state.lock().unwrap_or_else(|e| e.into_inner());
 
                         // Count active subscribers
                         let total_subscribers: u32 = state.subscriptions.values().sum();
@@ -75,7 +75,7 @@ impl SharedSampler {
                                     s.subscriptions.values().sum::<u32>() == 0
                                         && sampler.running.load(Ordering::Relaxed)
                                 })
-                                .unwrap();
+                                .unwrap_or_else(|e| e.into_inner());
                         }
 
                         let interval = match state.power_state {
@@ -91,7 +91,7 @@ impl SharedSampler {
                         let start = Instant::now();
                         let fresh = get_system_metrics_internal();
 
-                        let mut state = sampler.state.lock().unwrap();
+                        let mut state = sampler.state.lock().unwrap_or_else(|e| e.into_inner());
                         state.latest_metrics = Some(fresh.clone());
 
                         let should_emit = match &state.last_emitted_metrics {
@@ -127,7 +127,7 @@ impl SharedSampler {
     }
 
     pub fn subscribe(&self, app_handle: &tauri::AppHandle, topic: &str) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let was_empty = state.subscriptions.values().sum::<u32>() == 0;
         let count = state.subscriptions.entry(topic.to_string()).or_insert(0);
         *count = count.saturating_add(1);
@@ -143,7 +143,7 @@ impl SharedSampler {
     }
 
     pub fn unsubscribe(&self, topic: &str) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(count) = state.subscriptions.get_mut(topic) {
             *count = count.saturating_sub(1);
             if *count == 0 {
@@ -153,7 +153,7 @@ impl SharedSampler {
     }
 
     pub fn set_power_state(&self, state_str: &str) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.power_state = match state_str.to_uppercase().as_str() {
             "IDLE" => PowerState::Idle,
             "SUSPENDED" => PowerState::Suspended,
@@ -163,13 +163,13 @@ impl SharedSampler {
 
     pub fn get_cached_or_sample(&self) -> SystemMetrics {
         {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(metrics) = &state.latest_metrics {
                 return metrics.clone();
             }
         }
         let fresh = get_system_metrics_internal();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.latest_metrics = Some(fresh.clone());
         fresh
     }

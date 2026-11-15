@@ -17,6 +17,7 @@ import {
   Bell,
   Droplet,
   Moon,
+  MessageCircle,
 } from "lucide-react";
 import { motion, AnimatePresence, type Transition } from "framer-motion";
 import { getWeatherIcon } from "./NotifIcon";
@@ -117,8 +118,8 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
       : "w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] flex items-center justify-center text-[#e4e4e7] hover:text-white transition-colors cursor-pointer shrink-0";
 
     const navDisabledClass = isMusicPage
-      ? "w-8 h-8 rounded-full bg-white/[0.04] backdrop-blur-md border border-white/[0.08] flex items-center justify-center text-white/20 shrink-0 pointer-events-none"
-      : "w-8 h-8 rounded-full bg-[#17171c]/50 flex items-center justify-center text-white/25 shrink-0 pointer-events-none";
+      ? "w-8 h-8 rounded-full bg-white/[0.04] backdrop-blur-md border border-white/[0.08] flex items-center justify-center text-white/20 shrink-0 cursor-not-allowed"
+      : "w-8 h-8 rounded-full bg-[#17171c]/50 flex items-center justify-center text-white/25 shrink-0 cursor-not-allowed";
 
     const settingsButton = onToggleSettings && (
       <Tooltip
@@ -262,21 +263,24 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
           {/* Right: Weather & Privacy Indicators */}
           <div className="flex items-center justify-end gap-1.5 min-w-[64px] shrink-0">
             {weather && (
-              <div
-                className="flex items-center gap-1 text-[11px] text-[#a1a1aa] tabular-nums cursor-default"
-                title={weather.locationName || undefined}
-              >
-                {getWeatherIcon(weather.code)}
-                <span>{weather.temp}</span>
-              </div>
+              <Tooltip content={weather.locationName || undefined} side="bottom" disabled={!weather.locationName}>
+                <div className="flex items-center gap-1 text-[11px] text-[#a1a1aa] tabular-nums cursor-default">
+                  {getWeatherIcon(weather.code)}
+                  <span>{weather.temp}</span>
+                </div>
+              </Tooltip>
             )}
             {(camActive || micActive) && (
               <div className="flex items-center gap-1 ml-0.5">
                 {camActive && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#34c759] shadow-[0_0_6px_#34c759]" />
+                  <Tooltip content={getLanguage() === "id" ? "Kamera sedang digunakan" : "Camera in use"} side="bottom">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#34c759] shadow-[0_0_6px_#34c759]" />
+                  </Tooltip>
                 )}
                 {micActive && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#ff9f0a] shadow-[0_0_6px_#ff9f0a]" />
+                  <Tooltip content={getLanguage() === "id" ? "Mikrofon sedang digunakan" : "Microphone in use"} side="bottom">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#ff9f0a] shadow-[0_0_6px_#ff9f0a]" />
+                  </Tooltip>
                 )}
               </div>
             )}
@@ -285,7 +289,10 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
 
         {/* Title Bar: [ < ] Centered Title [ Settings ] [ > ] */}
         {!hideTitleBar && (
-          <div className="relative flex items-center justify-between gap-3 mt-2 w-full">
+          <div
+            data-tab-title-swipe="true"
+            className="relative flex items-center justify-between gap-3 mt-2 w-full"
+          >
             {/* Left Action Cluster: [ Prev ] [ Notification Button ] */}
             <div className="flex items-center gap-2 shrink-0 z-10">
               {hasPrev ? (
@@ -304,9 +311,9 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                   </motion.button>
                 </Tooltip>
               ) : (
-                <div className={navDisabledClass} role="button" aria-disabled="true" aria-label={prevTooltip || t("nav_prev")}>
+                <button type="button" disabled className={navDisabledClass} aria-label={prevTooltip || t("nav_prev")}>
                   <ChevronLeft size={16} strokeWidth={2} />
-                </div>
+                </button>
               )}
 
               {/* Notification Button (on the right side of slide previous button) */}
@@ -340,20 +347,30 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
             </div>
 
             {/* Centered Section Title */}
-            <div className="absolute inset-x-20 flex items-center justify-center overflow-hidden min-w-0 pointer-events-none">
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.span
-                  key={title}
-                  title={title}
-                  initial={{ opacity: 0, y: 3 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -3 }}
-                  transition={{ duration: 0.16, ease: "easeOut" }}
-                  className={`text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${activeIsLightMode ? "text-[#101828]" : "text-white"}`}
-                >
-                  {title}
-                </motion.span>
-              </AnimatePresence>
+            <div
+              data-tab-title-swipe="true"
+              className="absolute inset-x-20 flex items-center justify-center overflow-hidden min-w-0"
+            >
+              <Tooltip
+                content={title}
+                side="bottom"
+                allowFlip
+                isLightMode={activeIsLightMode}
+                wrapperClassName="max-w-full min-w-0"
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={title}
+                    initial={{ opacity: 0, y: 3 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -3 }}
+                    transition={{ duration: 0.16, ease: "easeOut" }}
+                    className={`block text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${activeIsLightMode ? "text-[#101828]" : "text-white"}`}
+                  >
+                    {title}
+                  </motion.span>
+                </AnimatePresence>
+              </Tooltip>
             </div>
 
             {/* Right Action Buttons: Settings + Next */}
@@ -378,9 +395,9 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
               ) : settingsInNextSlot ? (
                 settingsButton
               ) : (
-                <div className={navDisabledClass} role="button" aria-disabled="true" aria-label={nextTooltip || t("nav_next")}>
+                <button type="button" disabled className={navDisabledClass} aria-label={nextTooltip || t("nav_next")}>
                   <ChevronRight size={16} strokeWidth={2} />
-                </div>
+                </button>
               )}
             </div>
           </div>
@@ -401,6 +418,11 @@ const getTabMetadata = (key: string): { label: string; icon: React.ReactNode } =
       return {
         label: t("tab_control_center"),
         icon: <Sliders size={13} strokeWidth={2.2} />,
+      };
+    case "ai_chat":
+      return {
+        label: t("tab_ai_chat") || "AI Chat",
+        icon: <MessageCircle size={13} strokeWidth={2.2} />,
       };
     case "todo":
       return {
@@ -688,9 +710,43 @@ export const PanelFrame = React.memo<PanelFrameProps>(
     contentClassName = "flex-1 min-h-0 min-w-0 w-full relative z-10 overflow-hidden flex flex-col",
   }) => {
     const lastSwipeTimeRef = React.useRef(0);
+    const lastWheelEventTimeRef = React.useRef(0);
     const accumulatedDeltaRef = React.useRef(0);
+    const swipeLockedDirRef = React.useRef<number>(0);
+    const minAbsSinceLockRef = React.useRef<number>(Infinity);
+    const lastAbsDeltaRef = React.useRef<number>(0);
     const swipeResetTimerRef = React.useRef<number | null>(null);
     const isPanIgnoredRef = React.useRef(false);
+
+    React.useEffect(() => {
+      return () => {
+        if (swipeResetTimerRef.current) clearTimeout(swipeResetTimerRef.current);
+      };
+    }, []);
+
+    const isSwipeBlockedTarget = (target: HTMLElement | null): boolean => {
+      if (!target) return false;
+      if (
+        target.closest(
+          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], .select-text, pre, code, [data-selectable="true"], input, textarea, select, [role="slider"]'
+        )
+      ) {
+        return true;
+      }
+      const tag = target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "PRE" || tag === "CODE") {
+        return true;
+      }
+      try {
+        if (typeof window !== "undefined" && window.getComputedStyle) {
+          const comp = window.getComputedStyle(target);
+          if (comp.userSelect === "text") {
+            return true;
+          }
+        }
+      } catch {}
+      return false;
+    };
 
     const handleWheel = (e: React.WheelEvent) => {
       if (disableSwipe) {
@@ -702,23 +758,19 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       }
 
       const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
-        ) ||
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT")
-      ) {
+      if (isSwipeBlockedTarget(target)) {
         return;
       }
 
       const absX = Math.abs(e.deltaX);
       const absY = Math.abs(e.deltaY);
+      const isOnTabTitle = Boolean(target?.closest('[data-tab-title-swipe="true"]'));
 
-      // Require horizontal motion to be dominant, allowing natural diagonal hand gestures (up to ~55 deg)
-      if (absX < 2 || absY > absX * 1.35) {
+      // Allow horizontal touchpad swipe anywhere on the panel, or vertical mouse wheel only when hovering the tab title bar
+      const isHorizontalSwipe = absX >= 2 && absY <= absX * 1.35;
+      const isTitleWheelSwipe = isOnTabTitle && absY >= 1 && !isHorizontalSwipe;
+
+      if (!isHorizontalSwipe && !isTitleWheelSwipe) {
         return;
       }
 
@@ -726,26 +778,60 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       e.stopPropagation();
 
       const now = Date.now();
-      // Cooldown between tab transitions to prevent skipping multiple tabs on one flick
-      if (now - lastSwipeTimeRef.current < 280) {
-        accumulatedDeltaRef.current = 0;
-        return;
-      }
-
-      // Windows Touchpad / Mouse Wheel:
-      // Swiping 2 fingers LEFT (deltaX > 0) -> reveal next tab on the right
-      // Swiping 2 fingers RIGHT (deltaX < 0) -> reveal previous tab on the left
-      accumulatedDeltaRef.current += getNormalizedHorizontalDelta(e);
+      const delta = isTitleWheelSwipe
+        ? e.deltaMode === 1
+          ? e.deltaY * 40
+          : e.deltaY
+        : getNormalizedHorizontalDelta(e);
+      const absDelta = Math.abs(delta);
+      const dir = Math.sign(delta);
+      const timeSinceLastWheel = now - lastWheelEventTimeRef.current;
+      lastWheelEventTimeRef.current = now;
 
       if (swipeResetTimerRef.current) clearTimeout(swipeResetTimerRef.current);
       swipeResetTimerRef.current = window.setTimeout(() => {
         accumulatedDeltaRef.current = 0;
-      }, 220);
+        swipeLockedDirRef.current = 0;
+        minAbsSinceLockRef.current = Infinity;
+        lastAbsDeltaRef.current = 0;
+      }, 150);
 
-      if (Math.abs(accumulatedDeltaRef.current) >= 20) {
+      // Unlock if the gesture paused briefly or the user reversed swipe direction
+      if (swipeLockedDirRef.current !== 0) {
+        const isOppositeDirection = dir !== 0 && dir !== swipeLockedDirRef.current;
+        const isNewFlickAfterDecay =
+          now - lastSwipeTimeRef.current > 240 &&
+          minAbsSinceLockRef.current <= 5 &&
+          absDelta >= 16 &&
+          absDelta > lastAbsDeltaRef.current * 2;
+
+        if (timeSinceLastWheel > 140 || isOppositeDirection || isNewFlickAfterDecay) {
+          swipeLockedDirRef.current = 0;
+          accumulatedDeltaRef.current = 0;
+          minAbsSinceLockRef.current = Infinity;
+        } else {
+          minAbsSinceLockRef.current = Math.min(minAbsSinceLockRef.current, absDelta);
+          lastAbsDeltaRef.current = absDelta;
+          return;
+        }
+      }
+
+      lastAbsDeltaRef.current = absDelta;
+
+      // Windows Touchpad / Mouse Wheel:
+      // Swiping 2 fingers LEFT (deltaX > 0) -> reveal next tab on the right
+      // Swiping 2 fingers RIGHT (deltaX < 0) -> reveal previous tab on the left
+      if (accumulatedDeltaRef.current !== 0 && Math.sign(accumulatedDeltaRef.current) !== dir) {
+        accumulatedDeltaRef.current = 0;
+      }
+      accumulatedDeltaRef.current += delta;
+
+      if (Math.abs(accumulatedDeltaRef.current) >= 24) {
         const isNext = accumulatedDeltaRef.current > 0;
         accumulatedDeltaRef.current = 0;
         lastSwipeTimeRef.current = now;
+        swipeLockedDirRef.current = isNext ? 1 : -1;
+        minAbsSinceLockRef.current = absDelta;
 
         if (isNext && hasNext) {
           onNext();
@@ -757,15 +843,7 @@ export const PanelFrame = React.memo<PanelFrameProps>(
 
     const handlePanStart = (e: any) => {
       const target = (e?.target || e?.srcElement) as HTMLElement | null;
-      if (
-        target &&
-        (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
-        ) ||
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT")
-      ) {
+      if (isSwipeBlockedTarget(target)) {
         isPanIgnoredRef.current = true;
       } else {
         isPanIgnoredRef.current = false;
@@ -779,16 +857,16 @@ export const PanelFrame = React.memo<PanelFrameProps>(
       }
       isPanIgnoredRef.current = false;
 
+      // If user selected text during drag, never trigger a tab swipe
+      if (typeof window !== "undefined") {
+        const selection = window.getSelection();
+        if (selection && selection.toString().trim().length > 0) {
+          return;
+        }
+      }
+
       const target = (e?.target || e?.srcElement) as HTMLElement | null;
-      if (
-        target &&
-        (target.closest(
-          '.notes-horizontal-scroll, [data-scrollable="true"], [data-no-swipe="true"], input, textarea, select, [role="slider"]'
-        ) ||
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT")
-      ) {
+      if (isSwipeBlockedTarget(target)) {
         return;
       }
 

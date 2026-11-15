@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Compass,
   MoreHorizontal,
+  MessageCircle,
 } from "lucide-react";
 import {
   ManageableTabId,
@@ -31,8 +32,8 @@ import {
 } from "../../services/tabConfigService";
 import { IosSwitch } from "../ios/IosSwitch";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
-import { Language } from "../../services/i18n";
 import { Tooltip } from "../ui/Tooltip";
+import { Language } from "../../services/i18n";
 
 interface TabsManagerViewProps {
   prefs: NotchTabsPreferences;
@@ -76,6 +77,16 @@ const TAB_VISUAL_META: Record<ManageableTabId, TabVisualMeta> = {
     colorClass: "text-white",
     badgeId: "Inti",
     badgeEn: "Core",
+  },
+  ai_chat: {
+    titleId: "AI Chat",
+    titleEn: "AI Chat",
+    descId: "Tanya AI langsung dari notch via API key Claude, OpenAI, Gemini, dll",
+    descEn: "Ask AI directly from the notch using your Claude, OpenAI, or Gemini API keys",
+    icon: <MessageCircle size={17} strokeWidth={2.2} />,
+    smallIcon: <MessageCircle size={13} strokeWidth={2.2} />,
+    bgClass: "bg-[#3882f6]",
+    colorClass: "text-white",
   },
   todo: {
     titleId: "Daftar Tugas (To-Do List)",
@@ -227,15 +238,22 @@ const SortableTabRow: React.FC<SortableTabRowProps> = ({
         }}
         className="flex items-center gap-3 min-w-0 flex-1 cursor-grab active:cursor-grabbing touch-none"
       >
-        <div
-          className={`p-1 -ml-1 rounded-md transition-colors ${
-            isLightMode
-              ? "text-neutral-400 group-hover:text-neutral-700 group-hover:bg-black/5"
-              : "text-zinc-500 group-hover:text-zinc-200 group-hover:bg-white/5"
-          }`}
+        <Tooltip
+          content={isId ? "Tarik untuk geser urutan" : "Drag to reorder"}
+          side="top"
+          allowFlip
+          isLightMode={isLightMode}
         >
-          <GripVertical size={16} />
-        </div>
+          <div
+            className={`p-1 -ml-1 rounded-md transition-colors ${
+              isLightMode
+                ? "text-neutral-400 group-hover:text-neutral-700 group-hover:bg-black/5"
+                : "text-zinc-500 group-hover:text-zinc-200 group-hover:bg-white/5"
+            }`}
+          >
+            <GripVertical size={16} />
+          </div>
+        </Tooltip>
 
         <div
           className={`w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0 shadow-sm ${meta.bgClass} ${meta.colorClass}`}
@@ -288,12 +306,19 @@ const SortableTabRow: React.FC<SortableTabRowProps> = ({
       {/* Right: Up/Down Buttons + Switch */}
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex items-center gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
-          <Tooltip side="top" delay={250} content={isId ? "Geser ke atas" : "Move up"}>
+          <Tooltip
+            content={isId ? "Geser ke atas" : "Move up"}
+            side="top"
+            allowFlip
+            isLightMode={isLightMode}
+            disabled={idx === 0}
+          >
             <button
               type="button"
+              aria-label={isId ? "Geser ke atas" : "Move up"}
               disabled={idx === 0}
               onClick={() => onMoveStep(idx, -1)}
-              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed ${
                 isLightMode
                   ? "hover:bg-black/5 text-neutral-600"
                   : "hover:bg-white/10 text-zinc-300"
@@ -302,12 +327,19 @@ const SortableTabRow: React.FC<SortableTabRowProps> = ({
               <ArrowUp size={13.5} />
             </button>
           </Tooltip>
-          <Tooltip side="top" delay={250} content={isId ? "Geser ke bawah" : "Move down"}>
+          <Tooltip
+            content={isId ? "Geser ke bawah" : "Move down"}
+            side="top"
+            allowFlip
+            isLightMode={isLightMode}
+            disabled={idx === totalItems - 1}
+          >
             <button
               type="button"
+              aria-label={isId ? "Geser ke bawah" : "Move down"}
               disabled={idx === totalItems - 1}
               onClick={() => onMoveStep(idx, 1)}
-              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:pointer-events-none ${
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed ${
                 isLightMode
                   ? "hover:bg-black/5 text-neutral-600"
                   : "hover:bg-white/10 text-zinc-300"
@@ -409,8 +441,8 @@ export const TabsManagerView: React.FC<TabsManagerViewProps> = ({
   };
 
   const cardClass = isLightMode
-    ? "bg-white/85 border border-black/[0.08] shadow-[0_2px_12px_rgba(0,0,0,0.04)]"
-    : "bg-[#16161b]/90 border border-white/[0.07] shadow-[0_8px_28px_rgba(0,0,0,0.35)]";
+    ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
 
   return (
     <div className="flex flex-col gap-5 w-full pb-6">
@@ -423,23 +455,23 @@ export const TabsManagerView: React.FC<TabsManagerViewProps> = ({
         }`}
       >
         <div
-          className={`w-full rounded-[20px] p-4 flex flex-col gap-3 overflow-hidden ${
+          className={`w-full rounded-[18px] p-4 flex flex-col gap-3 overflow-hidden ${
             isLightMode
-              ? "bg-white border border-black/[0.08] shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
-              : "bg-[#16161b] border border-white/[0.08] shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
+              ? "bg-white border border-black/[0.08] shadow-[0_6px_20px_rgba(0,0,0,0.05)]"
+              : "bg-[#121318] border border-white/[0.08] shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
           }`}
         >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <span className={`text-[12px] font-semibold tracking-wide uppercase truncate ${isLightMode ? "text-neutral-500" : "text-zinc-400"}`}>
+            <span className={`text-[12px] font-semibold tracking-wide uppercase truncate ${isLightMode ? "text-neutral-600" : "text-zinc-400"}`}>
               {isId ? "Pratinjau Navigasi Notch (Live)" : "Live Notch Dock Preview"}
             </span>
-            <span className={`text-[10.5px] hidden sm:inline ${isLightMode ? "text-neutral-400" : "text-zinc-500"}`}>
+            <span className={`text-[10.5px] hidden sm:inline ${isLightMode ? "text-neutral-600" : "text-zinc-500"}`}>
               {isId ? "• Klik atau swipe untuk uji" : "• Click or swipe to test"}
             </span>
           </div>
           <span className={`text-[11.5px] font-medium px-2.5 py-0.5 rounded-full shrink-0 ${
-            isLightMode ? "bg-blue-500/10 text-blue-600" : "bg-blue-500/15 text-blue-400"
+            isLightMode ? "bg-blue-500/12 text-blue-700" : "bg-blue-500/15 text-blue-400"
           }`}>
             {isId ? `${activeDockTabs.length} Tab Aktif` : `${activeDockTabs.length} Active Tabs`}
           </span>
@@ -472,9 +504,16 @@ export const TabsManagerView: React.FC<TabsManagerViewProps> = ({
                 : (isId ? meta?.titleId : meta?.titleEn)?.replace(/\s*\(.*?\)/, "") || tabKey;
 
               return (
-                <Tooltip key={tabKey} side="bottom" delay={200} content={rawTitle}>
+                <Tooltip
+                  key={tabKey}
+                  content={rawTitle}
+                  allowFlip
+                  isLightMode={isLightMode}
+                  wrapperClassName="shrink-0"
+                >
                   <motion.button
                     type="button"
+                    aria-label={rawTitle}
                     layout
                     onClick={() => setPreviewIdx(idx)}
                     transition={{ type: "spring", stiffness: 380, damping: 28 }}
@@ -504,6 +543,7 @@ export const TabsManagerView: React.FC<TabsManagerViewProps> = ({
                 <button
                   type="button"
                   key={`dot-${tabKey}`}
+                  aria-label={isId ? `Halaman ${idx + 1}` : `Page ${idx + 1}`}
                   onClick={() => setPreviewIdx(idx)}
                   className={`h-[5px] rounded-full transition-all cursor-pointer ${
                     idx === safePreviewIdx
@@ -547,7 +587,7 @@ export const TabsManagerView: React.FC<TabsManagerViewProps> = ({
           </button>
         </div>
 
-        <div className={`w-full rounded-[20px] p-2 overflow-hidden ${cardClass}`}>
+        <div className={`w-full rounded-[18px] p-2.5 overflow-hidden ${cardClass}`}>
           <Reorder.Group
             axis="y"
             values={prefs.items}
@@ -578,7 +618,7 @@ export const TabsManagerView: React.FC<TabsManagerViewProps> = ({
       </div>
 
       {/* 3. Navigation & Dock Preferences Card */}
-      <div className={`w-full rounded-[20px] p-3 flex flex-col gap-2 ${cardClass}`}>
+      <div className={`w-full rounded-[18px] p-3 flex flex-col gap-1.5 ${cardClass}`}>
         {/* Default Open Tab */}
         <div className="flex items-center justify-between px-2 py-2">
           <div className="flex items-center gap-3 min-w-0 pr-3">

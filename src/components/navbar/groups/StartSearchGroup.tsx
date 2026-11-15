@@ -2,11 +2,18 @@ import React, { useState } from "react";
 import { Search } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { Tooltip } from "../../ui/Tooltip";
+import {
+  useTaskbarLang,
+  tx,
+  getNavbarTooltipSide,
+  type DockPosition,
+} from "../../../services/taskbarI18n";
 
 interface StartSearchGroupProps {
   iconSize?: number;
   accentColor?: string;
   isVertical?: boolean;
+  position?: DockPosition;
   onStartClick?: () => void;
   onSearchClick?: () => void;
 }
@@ -14,11 +21,25 @@ interface StartSearchGroupProps {
 export const StartSearchGroup: React.FC<StartSearchGroupProps> = ({
   iconSize = 40,
   isVertical = false,
+  position = "bottom",
   onStartClick,
   onSearchClick,
 }) => {
+  const lang = useTaskbarLang();
+  const tooltipSide = getNavbarTooltipSide(position);
+  const startLabel = tx(lang, "Start", "Mulai");
+  const searchLabel = tx(lang, "Search", "Cari");
   const [isStartHovered, setIsStartHovered] = useState(false);
   const [isSearchHovered, setIsSearchHovered] = useState(false);
+
+  const hoverTransform =
+    position === "top"
+      ? "translate3d(0, 2px, 0) scale(1.07)"
+      : position === "left"
+      ? "translate3d(2px, 0, 0) scale(1.07)"
+      : position === "right"
+      ? "translate3d(-2px, 0, 0) scale(1.07)"
+      : "translate3d(0, -2px, 0) scale(1.07)";
 
   const handleStart = async () => {
     if (onStartClick) {
@@ -50,23 +71,21 @@ export const StartSearchGroup: React.FC<StartSearchGroupProps> = ({
   return (
     <div
       className={`flex ${
-        isVertical ? "flex-col" : "flex-row"
+        isVertical ? "flex-col w-full min-w-0 max-w-full" : "flex-row"
       } items-center gap-0.5 shrink-0`}
     >
       {/* Start Button */}
-      <Tooltip side="top" delay={150} content="Mulai">
+      <Tooltip side={tooltipSide} delay={150} content={startLabel}>
         <button
           type="button"
           data-flyout-trigger="start"
           onClick={handleStart}
           onMouseEnter={() => setIsStartHovered(true)}
           onMouseLeave={() => setIsStartHovered(false)}
-          aria-label="Mulai"
+          aria-label={startLabel}
           style={{
             ...btnStyle,
-            transform: isStartHovered
-              ? "translate3d(0, -2px, 0) scale(1.07)"
-              : undefined,
+            transform: isStartHovered ? hoverTransform : undefined,
           }}
           className="rounded-[12px] bg-transparent hover:bg-white/[0.09] flex items-center justify-center p-0 cursor-pointer shrink-0 active:scale-95"
         >
@@ -81,19 +100,17 @@ export const StartSearchGroup: React.FC<StartSearchGroupProps> = ({
       </Tooltip>
 
       {/* Search Button */}
-      <Tooltip side="top" delay={150} content="Cari">
+      <Tooltip side={tooltipSide} delay={150} content={searchLabel}>
         <button
           type="button"
           data-flyout-trigger="search"
           onClick={handleSearch}
           onMouseEnter={() => setIsSearchHovered(true)}
           onMouseLeave={() => setIsSearchHovered(false)}
-          aria-label="Cari"
+          aria-label={searchLabel}
           style={{
             ...btnStyle,
-            transform: isSearchHovered
-              ? "translate3d(0, -2px, 0) scale(1.07)"
-              : undefined,
+            transform: isSearchHovered ? hoverTransform : undefined,
           }}
           className="rounded-[12px] bg-transparent hover:bg-white/[0.09] text-white/65 hover:text-white flex items-center justify-center p-0 cursor-pointer shrink-0 active:scale-95"
         >

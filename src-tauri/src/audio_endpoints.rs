@@ -5,7 +5,7 @@ use windows::Win32::Media::Audio::{
     IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
+    CoCreateInstance, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
 };
 use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
 use windows::core::{PCWSTR, GUID};
@@ -49,9 +49,9 @@ pub struct AudioEndpointInfo {
 
 pub fn list_audio_endpoints() -> Vec<AudioEndpointInfo> {
     let mut result = Vec::new();
+    let _com = crate::ComGuard::init(COINIT_MULTITHREADED);
 
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else {
             return result;
         };
@@ -161,8 +161,9 @@ pub fn set_default_endpoint(id: &str) -> Result<(), String> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
 
+    let _com = crate::ComGuard::init(COINIT_MULTITHREADED);
+
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let policy_config_res: Result<IPolicyConfig, _> = CoCreateInstance(&CLSID_POLICY_CONFIG, None, CLSCTX_ALL);
         match policy_config_res {
             Ok(policy_config) => {
@@ -170,9 +171,18 @@ pub fn set_default_endpoint(id: &str) -> Result<(), String> {
                 let pcwstr = PCWSTR(id_wide.as_ptr());
 
                 // Set default for Multimedia, Console, and Communications
-                let _ = policy_config.SetDefaultEndpoint(pcwstr, eMultimedia);
-                let _ = policy_config.SetDefaultEndpoint(pcwstr, eConsole);
-                let _ = policy_config.SetDefaultEndpoint(pcwstr, eCommunications);
+                policy_config
+                    .SetDefaultEndpoint(pcwstr, eMultimedia)
+                    .ok()
+                    .map_err(|e| format!("Failed to set eMultimedia endpoint: {}", e))?;
+                policy_config
+                    .SetDefaultEndpoint(pcwstr, eConsole)
+                    .ok()
+                    .map_err(|e| format!("Failed to set eConsole endpoint: {}", e))?;
+                policy_config
+                    .SetDefaultEndpoint(pcwstr, eCommunications)
+                    .ok()
+                    .map_err(|e| format!("Failed to set eCommunications endpoint: {}", e))?;
                 Ok(())
             }
             Err(err) => {
@@ -191,10 +201,76 @@ pub struct SpatialAudioInfo {
     pub supported: bool,
 }
 
+fn resolve_spatial_format_name(clsid: &str) -> String {
+    let trimmed = clsid.trim();
+    if trimmed.eq_ignore_ascii_case("{B53D940C-B846-4831-9F76-D102B9B725A0}") {
+        return "Windows Sonic untuk Headphone".to_string();
+    }
+
+    use winreg::enums::HKEY_CLASSES_ROOT;
+    use winreg::RegKey;
+    let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
+    if let Ok(key) = hkcr.open_subkey(format!("CLSID\\{}", trimmed)) {
+        if let Ok(name) = key.get_value::<String, _>("") {
+            if !name.trim().is_empty() {
+                return name;
+            }
+        }
+    }
+    "Spatial Sound Aktif".to_string()
+}
+
 pub fn get_spatial_audio_info() -> SpatialAudioInfo {
-    // Spatial Audio status on Windows 11
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    const SPATIAL_ENCODER_KEY: &str = "{9c119480-ddc2-4954-a150-5bd240d454ad},1";
+    const ZERO_GUID: &str = "{00000000-0000-0000-0000-000000000000}";
+
+    let _com = crate::ComGuard::init(COINIT_MULTITHREADED);
+    let endpoint_guid = unsafe {
+        CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
+            .ok()
+            .and_then(|e| e.GetDefaultAudioEndpoint(eRender, eMultimedia).ok())
+            .and_then(|dev| {
+                let id_ptr = dev.GetId().ok()?;
+                let id = id_ptr.to_string().unwrap_or_default();
+                CoTaskMemFree(Some(id_ptr.0 as *const std::ffi::c_void));
+                id.rsplit('.').next().map(str::to_string)
+            })
+    };
+
+    if let Some(guid) = endpoint_guid {
+        let rel_path = format!(
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render\\{}\\FxProperties",
+            guid
+        );
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let val = hkcu
+            .open_subkey(&rel_path)
+            .ok()
+            .and_then(|k| k.get_value::<String, _>(SPATIAL_ENCODER_KEY).ok())
+            .or_else(|| {
+                hklm.open_subkey(&rel_path)
+                    .ok()
+                    .and_then(|k| k.get_value::<String, _>(SPATIAL_ENCODER_KEY).ok())
+            });
+
+        if let Some(clsid) = val {
+            let trimmed = clsid.trim();
+            if !trimmed.is_empty() && trimmed != ZERO_GUID {
+                return SpatialAudioInfo {
+                    format_name: resolve_spatial_format_name(trimmed),
+                    is_enabled: true,
+                    supported: true,
+                };
+            }
+        }
+    }
+
     SpatialAudioInfo {
-        format_name: "Windows Sonic untuk Headphone".to_string(),
+        format_name: "Mati".to_string(),
         is_enabled: false,
         supported: true,
     }

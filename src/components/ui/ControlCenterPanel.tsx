@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Scissors,
@@ -6,6 +7,7 @@ import {
   ListTodo,
   Folder,
   Wifi,
+  EthernetPort,
   Bluetooth,
   Radio,
   Lock,
@@ -54,6 +56,7 @@ export interface ControlCenterPanelProps {
   soundLevel: number;
   onSetSoundLevel: (level: number) => void;
   wifiName: string;
+  isEthernetConnected?: boolean;
   networkPing: number | null;
   btName: string;
   isHotspotOn: boolean;
@@ -87,6 +90,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   soundLevel,
   onSetSoundLevel,
   wifiName,
+  isEthernetConnected = false,
   networkPing,
   btName,
   isHotspotOn,
@@ -103,6 +107,32 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
   const isEn = getLanguage() === "en";
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const [isPowerMenuOpen, setIsPowerMenuOpen] = useState(false);
+  const modeTileRef = useRef<HTMLDivElement>(null);
+  const [dropdownCoords, setDropdownCoords] = useState<{ top: number; left: number } | null>(null);
+
+  const updateDropdownCoords = useCallback(() => {
+    if (modeTileRef.current) {
+      const rect = modeTileRef.current.getBoundingClientRect();
+      const dropdownHeight = 160;
+      const opensUp = rect.bottom + dropdownHeight + 8 > window.innerHeight;
+      setDropdownCoords({
+        top: Math.round(opensUp ? rect.top - dropdownHeight - 2 : rect.bottom + 2),
+        left: Math.round(rect.left),
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isModeDropdownOpen) {
+      setDropdownCoords(null);
+      return;
+    }
+    updateDropdownCoords();
+    window.addEventListener("resize", updateDropdownCoords);
+    return () => {
+      window.removeEventListener("resize", updateDropdownCoords);
+    };
+  }, [isModeDropdownOpen, updateDropdownCoords]);
   // Two-step confirmation for destructive power actions ("restart" | "shutdown")
   const [pendingPowerAction, setPendingPowerAction] = useState<null | "restart" | "shutdown">(null);
   const [activeSubmenu, setActiveSubmenu] = useState<null | "wifi" | "bluetooth">(null);
@@ -157,6 +187,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
     wifiName !== "Off" &&
     wifiName !== "Loading..." &&
     wifiName !== "";
+  const isEthernetActive = isEthernetConnected && !isWifiConnected;
   const isBtConnected =
     isBtOn && btName !== "Not Connected" && btName !== "Off" && btName !== "Loading...";
   const currentFocusOption =
@@ -169,6 +200,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
 
   const handleQuickToggleWifi = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isEthernetActive) {
+      handleOpenWifi();
+      return;
+    }
     const next = !isWifiOn;
     setLocalWifiOn(next);
     try {
@@ -336,7 +371,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 className={`h-[50px] rounded-[15px] pl-2.5 pr-1.5 flex items-center gap-2 transition-all cursor-pointer min-w-0 ${
                   isModeDropdownOpen || isPowerMenuOpen ? "opacity-30 pointer-events-none" : ""
                 } ${
-                  isWifiConnected
+                  isWifiConnected || isEthernetActive
                     ? "bg-[rgba(56,130,246,0.16)] border border-[rgba(56,130,246,0.4)]"
                     : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
                 }`}
@@ -346,21 +381,27 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   onClick={handleQuickToggleWifi}
                   aria-label={isEn ? "Toggle Wi-Fi" : "Alihkan Wi-Fi"}
                   className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
-                    isWifiConnected
+                    isWifiConnected || isEthernetActive
                       ? "bg-[#3882F6] text-white"
                       : isWifiOn
                       ? "bg-[#1d1d25] text-[#3882F6]"
                       : "bg-[#1d1d25] text-[#a1a1aa]"
                   }`}
                 >
-                  <Wifi size={16} />
+                  {isEthernetActive ? <EthernetPort size={16} /> : <Wifi size={16} />}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="text-[12.5px] font-semibold text-white leading-tight truncate">
-                    Wi-Fi
+                    {isEthernetActive ? "Ethernet" : "Wi-Fi"}
                   </div>
                   <div className="text-[10.5px] text-[#b4b4bd] truncate mt-0.5 tabular-nums">
-                    {isWifiOn
+                    {isEthernetActive
+                      ? networkPing !== null
+                        ? `${networkPing} ms`
+                        : isEn
+                        ? "Connected"
+                        : "Terhubung"
+                      : isWifiOn
                       ? isWifiConnected
                         ? networkPing !== null
                           ? `${wifiName} · ${networkPing} ms`
@@ -383,6 +424,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
 
               {/* Mode Tile + Floating Menu */}
               <div
+                ref={modeTileRef}
                 className={`relative min-w-0 transition-opacity ${
                   isModeDropdownOpen
                     ? "z-50"
@@ -395,6 +437,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsPowerMenuOpen(false);
+                    updateDropdownCoords();
                     setIsModeDropdownOpen((prev) => !prev);
                   }}
                   onContextMenu={(e) => {
@@ -416,11 +459,8 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                       : "bg-[#101015] border border-[#1e1e25] hover:border-[#2a2a33]"
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={handleQuickToggleDnd}
-                    aria-label={isEn ? "Toggle Do Not Disturb" : "Alihkan Jangan Ganggu"}
-                    title={
+                  <Tooltip
+                    content={
                       focusMode === "DND"
                         ? getLanguage() === "id"
                           ? "Nonaktifkan Mode Jangan Ganggu"
@@ -429,18 +469,25 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                         ? "Aktifkan Mode Jangan Ganggu"
                         : "Enable Do Not Disturb"
                     }
-                    className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
-                      focusMode === "DND"
-                        ? "bg-[#6366f1] text-white shadow-sm"
+                    side="top"
+                  >
+                    <button
+                      type="button"
+                      onClick={handleQuickToggleDnd}
+                      aria-label={isEn ? "Toggle Do Not Disturb" : "Alihkan Jangan Ganggu"}
+                      className={`w-[32px] h-[32px] rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                        focusMode === "DND"
+                          ? "bg-[#6366f1] text-white shadow-sm"
                         : focusMode === "Gaming"
                         ? "bg-rose-500 text-white shadow-sm"
                         : focusMode === "Sleep"
                         ? "bg-teal-500 text-white shadow-sm"
                         : "bg-[#1d1d25] text-[#fbbf24] hover:bg-[#252530]"
-                    }`}
-                  >
-                    {renderFocusGlyph(focusMode, 16)}
-                  </button>
+                      }`}
+                    >
+                      {renderFocusGlyph(focusMode, 16)}
+                    </button>
+                  </Tooltip>
                   <div className="flex-1 min-w-0">
                     <div className="text-[12.5px] font-semibold text-white leading-tight truncate">
                       {t("cc_mode_title")}
@@ -464,6 +511,7 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     onClick={(e) => {
                       e.stopPropagation();
                       setIsPowerMenuOpen(false);
+                      updateDropdownCoords();
                       setIsModeDropdownOpen((prev) => !prev);
                     }}
                     aria-label={getLanguage() === "id" ? "Pilih Mode" : "Select Mode"}
@@ -473,59 +521,81 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   </button>
                 </div>
 
-                <AnimatePresence>
-                  {isModeDropdownOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.96, y: -4 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.96, y: -4 }}
-                      transition={iosSpring.snappy}
-                      onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-[calc(100%+2px)] z-50 w-[246px] max-h-[148px] p-1 rounded-[14px] bg-[#17171d]/95 backdrop-blur-2xl border border-white/10 shadow-[0_12px_28px_rgba(0,0,0,0.7)] flex flex-col gap-0.5 overflow-y-auto scrollbar-none select-none"
-                    >
-                      {focusModeOptions.map((opt) => {
-                        const isSelected = focusMode === opt.id;
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
+                {typeof document !== "undefined" &&
+                  createPortal(
+                    <AnimatePresence>
+                      {isModeDropdownOpen && dropdownCoords && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-[99998] bg-transparent"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onSelectFocusMode(opt.id);
                               setIsModeDropdownOpen(false);
                             }}
-                            className={`min-h-[34px] py-1 px-2 rounded-[9px] flex items-center gap-2 text-left transition-colors cursor-pointer shrink-0 ${
-                              isSelected
-                                ? "bg-[#25252e] text-white"
-                                : "hover:bg-white/[0.05] text-[#d4d4d8] hover:text-white"
-                            }`}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                            }}
+                          />
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                            transition={iosSpring.snappy}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              position: "fixed",
+                              top: dropdownCoords.top,
+                              left: dropdownCoords.left,
+                              zIndex: 99999,
+                            }}
+                            className="w-[246px] p-1 rounded-[14px] bg-[#17171d]/95 backdrop-blur-2xl border border-white/10 shadow-[0_12px_28px_rgba(0,0,0,0.7)] flex flex-col gap-0.5 overflow-y-auto scrollbar-none select-none"
                           >
-                            <span
-                              className={`w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 ${
-                                isSelected ? "bg-[#32323d]" : "bg-[#1f1f27]"
-                              } ${getFocusIconColor(opt.id)}`}
-                            >
-                              {renderFocusGlyph(opt.id, 13)}
-                            </span>
-                            <div className="flex-1 min-w-0 flex flex-col justify-center">
-                              <span className="text-[11.5px] font-semibold text-white leading-tight truncate">
-                                {opt.label}
-                              </span>
-                              {opt.desc && (
-                                <span className="text-[9.5px] text-[#a1a1aa] leading-tight truncate mt-0.5">
-                                  {opt.desc}
-                                </span>
-                              )}
-                            </div>
-                            {isSelected && (
-                              <Check size={13} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </motion.div>
+                            {focusModeOptions.map((opt) => {
+                              const isSelected = focusMode === opt.id;
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectFocusMode(opt.id);
+                                    setIsModeDropdownOpen(false);
+                                  }}
+                                  className={`min-h-[34px] py-1 px-2 rounded-[9px] flex items-center gap-2 text-left transition-colors cursor-pointer shrink-0 ${
+                                    isSelected
+                                      ? "bg-[#25252e] text-white"
+                                      : "hover:bg-white/[0.05] text-[#d4d4d8] hover:text-white"
+                                  }`}
+                                >
+                                  <span
+                                    className={`w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 ${
+                                      isSelected ? "bg-[#32323d]" : "bg-[#1f1f27]"
+                                    } ${getFocusIconColor(opt.id)}`}
+                                  >
+                                    {renderFocusGlyph(opt.id, 13)}
+                                  </span>
+                                  <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                    <span className="text-[11.5px] font-semibold text-white leading-tight truncate">
+                                      {opt.label}
+                                    </span>
+                                    {opt.desc && (
+                                      <span className="text-[9.5px] text-[#a1a1aa] leading-tight truncate mt-0.5">
+                                        {opt.desc}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {isSelected && (
+                                    <Check size={13} strokeWidth={2.6} className="text-[#7fb0ff] shrink-0" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>,
+                    document.body
                   )}
-                </AnimatePresence>
               </div>
 
               {/* Bluetooth Tile */}
@@ -627,9 +697,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     : ""
                 }`}
               >
-                <Tooltip content={t("cc_lock_pc")} side="bottom">
+                <Tooltip content={t("cc_lock_pc")} side="bottom" allowFlip>
                   <button
                     type="button"
+                    aria-label={t("cc_lock_pc")}
                     onClick={(e) => {
                       e.stopPropagation();
                       invoke("system_power_action", { action: "lock" }).catch(console.error);
@@ -641,9 +712,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   </button>
                 </Tooltip>
 
-                <Tooltip content={t("cc_sleep_pc")} side="bottom">
+                <Tooltip content={t("cc_sleep_pc")} side="bottom" allowFlip>
                   <button
                     type="button"
+                    aria-label={t("cc_sleep_pc")}
                     onClick={(e) => {
                       e.stopPropagation();
                       invoke("system_power_action", { action: "sleep" }).catch(console.error);
@@ -901,9 +973,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 {Math.round(displayLevel)}%
               </span>
 
-              <Tooltip content={t("cc_brightness_mode")} side="left">
+              <Tooltip content={t("cc_brightness_mode")} side="left" allowFlip>
                 <button
                   type="button"
+                  aria-label={t("cc_brightness_mode")}
                   onClick={handleNextBrightnessMode}
                   className={`w-[30px] h-[30px] rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
                     brightnessMode === "auto"
@@ -969,9 +1042,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 {Math.round(soundLevel)}%
               </span>
 
-              <Tooltip content={t("tab_volume_mixer")} side="left">
+              <Tooltip content={t("tab_volume_mixer")} side="left" allowFlip>
                 <button
                   type="button"
+                  aria-label={t("tab_volume_mixer")}
                   onClick={() => onGoToTab("volume_mixer", 1)}
                   className="w-[30px] h-[30px] rounded-full bg-[#17171c] hover:bg-[#222229] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                 >

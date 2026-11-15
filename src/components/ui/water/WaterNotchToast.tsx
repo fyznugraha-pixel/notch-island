@@ -5,6 +5,7 @@ import {
   WaterToastType,
   getDailyIntake,
   getStreakInfo,
+  isHourInActiveWindow,
 } from "../../../services/waterService";
 import { t, getLanguage } from "../../../services/i18n";
 
@@ -77,9 +78,10 @@ export const WaterNotchToast: React.FC<WaterNotchToastProps> = ({
     }
   }, [data.lastDrinkTimestamp, data.settings.reminderIntervalHours, isEn]);
 
-  const endHour = data.settings.activeEndHour || 21;
+  const startHour = data.settings.activeStartHour ?? 8;
+  const endHour = data.settings.activeEndHour ?? 21;
   const currentHour = new Date().getHours();
-  const endFormatted = currentHour >= endHour
+  const endFormatted = !isHourInActiveWindow(currentHour, startHour, endHour)
     ? "23:59"
     : isEn
     ? `${String(endHour).padStart(2, "0")}:00`

@@ -1,28 +1,36 @@
 import React, { useRef, useState, useEffect } from "react";
 import { NavbarConfig } from "../../../types/navbar";
 import { NavbarDock } from "../../navbar/NavbarDock";
+import { useTaskbarLang, tx } from "../../../services/taskbarI18n";
 
 interface NavbarLivePreviewProps {
   config: NavbarConfig;
+  isProLocked?: boolean;
   isLightMode?: boolean;
 }
 
 export const NavbarLivePreview: React.FC<NavbarLivePreviewProps> = ({
   config,
+  isProLocked = false,
+  isLightMode = false,
 }) => {
+  const lang = useTaskbarLang();
   const containerRef = useRef<HTMLDivElement>(null);
   const dockWrapRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.82);
 
-  const shapeLabel = config.shape === "anchored" ? "Anchored" : "Floating";
+  const shapeLabel =
+    config.shape === "anchored"
+      ? tx(lang, "Anchored", "Tertambat")
+      : tx(lang, "Floating", "Melayang");
   const positionLabel =
     config.position === "bottom"
-      ? "Bottom"
+      ? tx(lang, "Bottom", "Bawah")
       : config.position === "top"
-      ? "Top"
+      ? tx(lang, "Top", "Atas")
       : config.position === "left"
-      ? "Left"
-      : "Right";
+      ? tx(lang, "Left", "Kiri")
+      : tx(lang, "Right", "Kanan");
 
   // Automatically scale the preview dock so it never clips horizontally or vertically
   useEffect(() => {
@@ -35,7 +43,7 @@ export const NavbarLivePreview: React.FC<NavbarLivePreviewProps> = ({
       const dockW = dockWrap.scrollWidth || dockWrap.offsetWidth || 400;
       if (dockW > 0 && availW > 0) {
         const fitScale = Math.min(0.85, availW / dockW);
-        setScale(Math.max(0.45, Number(fitScale.toFixed(2))));
+        setScale(Math.max(0.26, Number(fitScale.toFixed(2))));
       }
     };
 
@@ -53,14 +61,22 @@ export const NavbarLivePreview: React.FC<NavbarLivePreviewProps> = ({
   };
 
   return (
-    <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2 bg-[#090b10]/95 backdrop-blur-md">
+    <div
+      className={`sticky -top-6 z-20 -mx-2 px-2 pt-2.5 pb-2.5 backdrop-blur-md ${
+        isLightMode ? "bg-[#f5f5f7]/95" : "bg-[#0c0c10]/95"
+      }`}
+    >
       <div
         ref={containerRef}
         style={{
           background:
             "radial-gradient(ellipse at 50% 120%, #173a7a 0%, #0e1320 60%, #0b0e17 100%)",
         }}
-        className="relative w-full h-[132px] rounded-[14px] border border-[#1c2130] overflow-hidden flex items-end justify-center select-none shadow-lg"
+        className={`relative w-full h-[134px] rounded-[16px] border overflow-hidden flex items-end justify-center select-none ${
+          isLightMode
+            ? "border-black/15 shadow-md"
+            : "border-white/[0.08] shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
+        }`}
       >
         {/* Subtle Desktop Window Mockup (Artboard 83 & 86) */}
         <div
@@ -82,10 +98,10 @@ export const NavbarLivePreview: React.FC<NavbarLivePreviewProps> = ({
         <span className="absolute left-3 top-2.5 text-[10px] font-semibold tracking-[0.14em] text-[#8db8ff] inline-flex items-center gap-1.5 z-10">
           <span
             className={`w-1.5 h-1.5 rounded-full ${
-              config.enabled ? "bg-[#22c55e]" : "bg-zinc-500"
+              !isProLocked && config.enabled ? "bg-[#22c55e]" : "bg-zinc-500"
             }`}
           />
-          LIVE PREVIEW
+          {isProLocked ? "LIVE PREVIEW · PRO" : "LIVE PREVIEW"}
         </span>
 
         {/* Top-Right Status Summary */}

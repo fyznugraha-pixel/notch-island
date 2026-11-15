@@ -42,8 +42,8 @@ export const NavbarIconThemeCard: React.FC<NavbarIconThemeCardProps> = ({
     .slice(0, 3);
 
   const cardBg = isLightMode
-    ? "bg-white/70 border-black/[0.08]"
-    : "bg-white/[0.03] border-white/[0.07]";
+    ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
   const textTitle = isLightMode ? "text-neutral-900" : "text-white";
   const textSub = isLightMode ? "text-neutral-500" : "text-zinc-400";
 
@@ -93,23 +93,23 @@ export const NavbarIconThemeCard: React.FC<NavbarIconThemeCardProps> = ({
     },
     {
       id: "ios",
-      title: isId ? "Gaya iOS / macOS" : "iOS / macOS Style",
-      badge: "Apple Squircle",
+      title: isId ? "Gaya macOS Sequoia" : "macOS Sequoia Style",
+      badge: "macOS Sequoia",
       desc: isId
-        ? "Squircle seragam, gradasi halus & efek glossy"
-        : "Uniform squircles with subtle gradients & gloss",
+        ? "Squircle 3D glossy ala macOS Sequoia untuk 40+ app populer"
+        : "Glossy 3D macOS Sequoia squircles for 40+ popular apps",
       renderPreview: () => (
         <div className="flex items-center gap-2 p-1.5 rounded-[8px] bg-black/25">
-          <IOSExplorerIcon size={20} />
-          <IOSChromeIcon size={20} />
-          <IOSVSCodeIcon size={20} />
+          <IOSExplorerIcon size={22} />
+          <IOSChromeIcon size={22} />
+          <IOSVSCodeIcon size={22} />
         </div>
       ),
     },
   ];
 
   return (
-    <div className={`flex flex-col gap-3.5 p-4 rounded-[16px] border ${cardBg}`}>
+    <div className={`flex flex-col gap-3.5 p-5 rounded-[18px] border ${cardBg}`}>
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-[10px] bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0">
@@ -165,20 +165,38 @@ export const NavbarIconThemeCard: React.FC<NavbarIconThemeCardProps> = ({
 
               <div>
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[12.5px] font-bold text-white leading-tight">
+                  <span className={`text-[12.5px] font-bold leading-tight ${textTitle}`}>
                     {t.title}
                   </span>
                 </div>
-                <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-white/10 text-white/70 inline-block mb-2">
+                <span
+                  className={`text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full inline-block mb-2 ${
+                    isLightMode
+                      ? "bg-black/[0.06] text-neutral-700"
+                      : "bg-white/10 text-white/70"
+                  }`}
+                >
                   {t.badge}
                 </span>
-                <p className={`text-[10.5px] leading-relaxed mb-3 ${isSelected ? "text-blue-300" : textSub}`}>
+                <p
+                  className={`text-[10.5px] leading-relaxed mb-3 ${
+                    isSelected
+                      ? isLightMode
+                        ? "text-neutral-700"
+                        : "text-blue-300"
+                      : textSub
+                  }`}
+                >
                   {t.desc}
                 </p>
               </div>
 
               {/* Miniature Icon Preview */}
-              <div className="mt-auto pt-2 border-t border-white/[0.06] flex items-center justify-center">
+              <div
+                className={`mt-auto pt-2 border-t flex items-center justify-center ${
+                  isLightMode ? "border-black/[0.07]" : "border-white/[0.06]"
+                }`}
+              >
                 {t.renderPreview()}
               </div>
             </button>

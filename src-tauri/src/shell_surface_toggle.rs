@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{Once, OnceLock};
 use std::time::{Duration, Instant};
+use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
 };
@@ -9,6 +10,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindowVisible,
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -34,9 +36,8 @@ fn now_ms() -> u64 {
     EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
 }
 
-fn foreground_surface() -> Option<Surface> {
+fn foreground_surface_for(hwnd: HWND) -> Option<Surface> {
     unsafe {
-        let hwnd = GetForegroundWindow();
         if hwnd.0.is_null() {
             return None;
         }
@@ -131,6 +132,11 @@ fn foreground_surface() -> Option<Surface> {
     }
 }
 
+fn foreground_surface() -> Option<Surface> {
+    let hwnd = unsafe { GetForegroundWindow() };
+    foreground_surface_for(hwnd)
+}
+
 fn is_matching_surface(seen: u8, requested: Surface) -> bool {
     if seen == requested as u8 {
         return true;
@@ -155,12 +161,53 @@ fn is_matching_surface(seen: u8, requested: Surface) -> bool {
 
 pub fn ensure_watcher() {
     WATCHER.call_once(|| {
-        std::thread::spawn(|| loop {
-            if let Some(kind) = foreground_surface() {
-                LAST_SEEN_KIND.store(kind as u8, Ordering::SeqCst);
-                LAST_SEEN_MS.store(now_ms(), Ordering::SeqCst);
+        std::thread::spawn(|| {
+            let mut cached_fg_hwnd: isize = 0;
+            let mut cached_surface: Option<Surface> = None;
+
+            loop {
+                if !crate::navbar_window::is_navbar_enabled() {
+                    cached_fg_hwnd = 0;
+                    cached_surface = None;
+                    std::thread::sleep(Duration::from_millis(250));
+                    continue;
+                }
+
+                let fg = unsafe { GetForegroundWindow() };
+                let fg_raw = fg.0 as isize;
+
+                if fg_raw != cached_fg_hwnd {
+                    cached_fg_hwnd = fg_raw;
+                    cached_surface = foreground_surface_for(fg);
+                    if let Some(kind) = cached_surface {
+                        LAST_SEEN_KIND.store(kind as u8, Ordering::SeqCst);
+                        LAST_SEEN_MS.store(now_ms(), Ordering::SeqCst);
+                    }
+                } else if let Some(kind) = cached_surface {
+                    if unsafe { IsWindowVisible(fg).as_bool() } {
+                        let effective = if kind == Surface::ShellFlyout {
+                            let last_opened = LAST_OPENED_KIND.load(Ordering::SeqCst);
+                            if last_opened == Surface::QuickSettings as u8 {
+                                Surface::QuickSettings
+                            } else if last_opened == Surface::Notifications as u8 {
+                                Surface::Notifications
+                            } else {
+                                kind
+                            }
+                        } else {
+                            kind
+                        };
+                        LAST_SEEN_KIND.store(effective as u8, Ordering::SeqCst);
+                        LAST_SEEN_MS.store(now_ms(), Ordering::SeqCst);
+                    } else {
+                        cached_fg_hwnd = 0;
+                        cached_surface = None;
+                    }
+                }
+
+                let sleep_ms = if cached_surface.is_some() { 25 } else { 45 };
+                std::thread::sleep(Duration::from_millis(sleep_ms));
             }
-            std::thread::sleep(Duration::from_millis(15));
         });
     });
 }

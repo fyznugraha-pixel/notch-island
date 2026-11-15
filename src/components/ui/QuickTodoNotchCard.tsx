@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { TodoItem, TodoRepeatRule } from "../../services/todoUtils";
 import { parseDateNlp, formatNlpDateBadge, NlpDateResult } from "../../utils/dateNlpParser";
 import { formatShortcutForBadge } from "../../services/shortcuts";
+import { Tooltip } from "./Tooltip";
 import { t, Language, getLanguage } from "../../services/i18n";
 
 export { formatShortcutForBadge };
@@ -19,6 +20,7 @@ export interface QuickTodoNotchCardProps {
   onCancel: () => void;
   onOpenTodoList: () => void;
   onSavedStateChange?: (isSaved: boolean) => void;
+  onDueStateChange?: (hasDue: boolean) => void;
 }
 
 type PresetDateType = "today" | "tomorrow" | "weekend" | "custom" | null;
@@ -36,6 +38,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
   onCancel,
   onOpenTodoList,
   onSavedStateChange,
+  onDueStateChange,
 }) => {
   // Theme tokens — the card was dark-only (white text invisible on light island).
   const textMain = isLightMode ? "text-[#101828]" : "text-white";
@@ -116,6 +119,10 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
     return formatNlpDateBadge(effectiveDueAt, new Date(), effectiveLang, effectiveHasTime);
   }, [effectiveDueAt, effectiveLang, effectiveHasTime]);
 
+  useEffect(() => {
+    onDueStateChange?.(Boolean(effectiveDueAt));
+  }, [effectiveDueAt, onDueStateChange]);
+
   // Auto-close in saved state after 5 seconds of inactivity & Enter/Escape dismiss
   useEffect(() => {
     if (isSaved) {
@@ -146,7 +153,15 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
 
   // Upcoming items for State 3: list of up to 3 non-completed tasks
   const upcomingTodos = useMemo(() => {
-    return todoItems.filter((t) => !t.completed).slice(0, 3);
+    return todoItems
+      .filter((t) => !t.completed)
+      .sort((a, b) => {
+        if (a.dueAt && b.dueAt) return a.dueAt - b.dueAt;
+        if (a.dueAt) return -1;
+        if (b.dueAt) return 1;
+        return b.createdAt - a.createdAt;
+      })
+      .slice(0, 3);
   }, [todoItems]);
 
   const handleManualPresetClick = (preset: "today" | "tomorrow" | "weekend") => {
@@ -384,40 +399,41 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
             {effectiveDueAt && activeDateBadge ? (
               // State 2: Time detected or manually selected chip
               <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (nlpResult.hasDate && nlpResult.rawMatched) {
-                      setInputText(nlpResult.cleanText);
-                    }
-                    setManualPreset(null);
-                    setManualDueAt(null);
-                    setManualHasTime(false);
-                  }}
-                  className="h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
-                  style={{
-                    background: "rgba(56, 130, 246, 0.18)",
-                    color: "#8db8ff",
-                    boxShadow: "inset 0 0 0 1px rgba(56, 130, 246, 0.5)",
-                  }}
-                  title={t("quick_todo_remove_date_tip")}
-                >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
+                <Tooltip content={t("quick_todo_remove_date_tip")} side="top">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (nlpResult.hasDate && nlpResult.rawMatched) {
+                        setInputText(nlpResult.cleanText);
+                      }
+                      setManualPreset(null);
+                      setManualDueAt(null);
+                      setManualHasTime(false);
+                    }}
+                    className="h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                    style={{
+                      background: isLightMode ? "rgba(56, 130, 246, 0.14)" : "rgba(56, 130, 246, 0.18)",
+                      color: isLightMode ? "#1d4ed8" : "#8db8ff",
+                      boxShadow: "inset 0 0 0 1px rgba(56, 130, 246, 0.5)",
+                    }}
                   >
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 6v6l4 2" />
-                  </svg>
-                  {activeDateBadge.chipLabel}
-                </button>
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 6v6l4 2" />
+                    </svg>
+                    {activeDateBadge.chipLabel}
+                  </button>
+                </Tooltip>
 
                 <button
                   type="button"
@@ -448,8 +464,12 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                   onClick={() => setReminderEnabled((prev) => !prev)}
                   className="h-[30px] px-3 border-0 rounded-[15px] text-[12px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
                   style={{
-                    background: reminderEnabled ? "rgba(56, 130, 246, 0.14)" : "#17171c",
-                    color: reminderEnabled ? "#8db8ff" : "#8b8b95",
+                    background: reminderEnabled
+                      ? "rgba(56, 130, 246, 0.14)"
+                      : isLightMode ? "rgba(0, 0, 0, 0.05)" : "#17171c",
+                    color: reminderEnabled
+                      ? isLightMode ? "#1d4ed8" : "#8db8ff"
+                      : isLightMode ? "#475467" : "#8b8b95",
                   }}
                 >
                   <svg
@@ -538,11 +558,11 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               {(["none", "daily", "weekdays", "weekly", "monthly"] as const).map((rule) => {
                 const labels: Record<string, string> = {
-                  none: "\u21BB Tidak",
-                  daily: "Harian",
-                  weekdays: "Hari Kerja",
-                  weekly: "Mingguan",
-                  monthly: "Bulanan",
+                  none: `\u21BB ${t("todo_repeat_badge_none")}`,
+                  daily: t("todo_repeat_badge_daily"),
+                  weekdays: t("todo_repeat_badge_weekdays"),
+                  weekly: t("todo_repeat_badge_weekly"),
+                  monthly: t("todo_repeat_badge_monthly"),
                 };
                 const active = repeatRule === rule;
                 return (
@@ -553,7 +573,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                     className="h-[26px] px-2.5 border-0 rounded-full text-[11px] font-medium cursor-pointer transition-colors"
                     style={{
                       background: active ? "rgba(56,130,246,0.18)" : isLightMode ? "rgba(0,0,0,0.05)" : "#17171c",
-                      color: active ? "#8db8ff" : isLightMode ? "#475467" : "#c4c4cc",
+                      color: active ? (isLightMode ? "#1d4ed8" : "#8db8ff") : isLightMode ? "#475467" : "#c4c4cc",
                       boxShadow: active ? "inset 0 0 0 1px rgba(56,130,246,0.5)" : undefined,
                     }}
                   >
@@ -565,7 +585,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
           )}
 
           {/* Bottom Row / Actions */}
-          <div className="flex items-center gap-2 mt-auto pt-2.5 h-8">
+          <div className="flex items-center gap-2 mt-auto pt-2 min-h-[38px]">
             <span className={`text-[11.5px] ${textSub} truncate`}>
               {nlpResult.hasDate
                 ? t("quick_todo_hint_nlp")
@@ -592,7 +612,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                   : isLightMode ? `bg-black/[0.08] ${textSub} cursor-not-allowed opacity-75` : `bg-[#26262d] ${textSub} cursor-not-allowed opacity-75`
               }`}
               style={{
-                backgroundColor: inputText.trim() ? optAccent : "#26262d",
+                backgroundColor: inputText.trim() ? optAccent : isLightMode ? "rgba(0, 0, 0, 0.08)" : "#26262d",
               }}
             >
               {t("quick_todo_save")}
@@ -679,8 +699,8 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                       isNewlySaved
                         ? "bg-[#3882f6]/12"
                         : isSelected
-                        ? "bg-white/[0.06]"
-                        : "hover:bg-white/[0.03]"
+                        ? isLightMode ? "bg-black/[0.06]" : "bg-white/[0.06]"
+                        : isLightMode ? "hover:bg-black/[0.04]" : "hover:bg-white/[0.03]"
                     }`}
                   >
                     {/* Checkbox */}
@@ -688,7 +708,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                       className={`w-[18px] h-[18px] rounded-full border-[1.5px] flex items-center justify-center flex-shrink-0 transition-colors ${
                         todo.completed
                           ? "bg-[#30d158] border-[#30d158] text-black"
-                          : "border-[#6b6b75] hover:border-white"
+                          : isLightMode ? "border-neutral-400 hover:border-neutral-700" : "border-[#6b6b75] hover:border-white"
                       }`}
                     >
                       {todo.completed && (
@@ -725,10 +745,10 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
                       <span
                         className={`text-[11px] font-semibold rounded-[8px] px-2 py-0.5 whitespace-nowrap ${
                           badgeInfo.badgeType === "am"
-                            ? "bg-amber-400/15 text-amber-400"
+                            ? isLightMode ? "bg-amber-500/15 text-amber-700" : "bg-amber-400/15 text-amber-400"
                             : badgeInfo.badgeType === "bl"
-                            ? "bg-[#3882f6]/20 text-[#8db8ff]"
-                            : "bg-[#17171c] text-[#a1a1aa]"
+                            ? isLightMode ? "bg-[#3882f6]/15 text-[#1d4ed8]" : "bg-[#3882f6]/20 text-[#8db8ff]"
+                            : isLightMode ? "bg-black/[0.06] text-[#475467]" : "bg-[#17171c] text-[#a1a1aa]"
                         }`}
                       >
                         {badgeInfo.badgeLabel}
@@ -741,7 +761,7 @@ export const QuickTodoNotchCard: React.FC<QuickTodoNotchCardProps> = ({
           </div>
 
           {/* Bottom Actions */}
-          <div className="flex items-center gap-2 mt-auto pt-2.5 h-8">
+          <div className="flex items-center gap-2 mt-auto pt-2 min-h-[38px]">
             <span className={`text-[11.5px] ${textSub}`}>
               {t("quick_todo_keyboard_hint")}
             </span>

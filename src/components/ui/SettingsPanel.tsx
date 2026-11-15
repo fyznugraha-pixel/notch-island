@@ -11,6 +11,7 @@ import { Language, t } from "../../services/i18n";
 import { IdleLayoutConfig, IdleRuntimeData } from "./IdleLayoutSetting";
 import { AppearanceTab } from "./settings/AppearanceTab";
 import { SettingRow } from "./settings/SettingRow";
+import { WeatherLocationSetting } from "./WeatherLocationSetting";
 import { IosSwitch } from "../ios/IosSwitch";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { ShortcutActionId, ShortcutStatus } from "../../services/shortcuts";
@@ -71,6 +72,14 @@ export interface SettingsPanelProps {
   onChangeOpacity: (val: number) => void;
   optBlur?: number;
   onChangeBlur?: (val: number) => void;
+  optIdleColorEnabled?: boolean;
+  onChangeIdleColorEnabled?: (val: boolean) => void;
+  optIdleColor?: string;
+  onChangeIdleColor?: (color: string) => void;
+  optIdleTextColorEnabled?: boolean;
+  onChangeIdleTextColorEnabled?: (val: boolean) => void;
+  optIdleTextColor?: string;
+  onChangeIdleTextColor?: (color: string) => void;
   optAnimSpeed: "snappy" | "smooth" | "bouncy";
   onChangeAnimSpeed: (speed: "snappy" | "smooth" | "bouncy") => void;
   // Modules
@@ -115,6 +124,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChangeOpacity,
   optBlur,
   onChangeBlur,
+  optIdleColorEnabled,
+  onChangeIdleColorEnabled,
+  optIdleColor,
+  onChangeIdleColor,
+  optIdleTextColorEnabled,
+  onChangeIdleTextColorEnabled,
+  optIdleTextColor,
+  onChangeIdleTextColor,
   optAnimSpeed,
   onChangeAnimSpeed,
   optSoundFx = true,
@@ -212,6 +229,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             onChangeOpacity={onChangeOpacity}
             optBlur={optBlur}
             onChangeBlur={onChangeBlur}
+            optIdleColorEnabled={optIdleColorEnabled}
+            onChangeIdleColorEnabled={onChangeIdleColorEnabled}
+            optIdleColor={optIdleColor}
+            onChangeIdleColor={onChangeIdleColor}
+            optIdleTextColorEnabled={optIdleTextColorEnabled}
+            onChangeIdleTextColorEnabled={onChangeIdleTextColorEnabled}
+            optIdleTextColor={optIdleTextColor}
+            onChangeIdleTextColor={onChangeIdleTextColor}
+            optLanguage={optLanguage}
             optAnimSpeed={optAnimSpeed}
             onChangeAnimSpeed={onChangeAnimSpeed}
           />
@@ -268,8 +294,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             />
 
             {optAutoCompact && onChangeAutoCompactMode && (
-              <div className="flex items-center justify-between px-3 py-1.5 -mt-1 mb-1 rounded-xl bg-white/[0.03] border border-white/[0.05]">
-                <span className="text-[12px] text-white/70 font-medium">
+              <div
+                className={`flex items-center justify-between px-3 py-1.5 -mt-1 mb-1 rounded-xl border ${
+                  isLightMode ? "bg-black/[0.03] border-black/[0.06]" : "bg-white/[0.03] border-white/[0.05]"
+                }`}
+              >
+                <span className={`text-[12px] font-medium ${isLightMode ? "text-neutral-700" : "text-white/70"}`}>
                   {t("settings_auto_compact_target")}
                 </span>
                 <IosSegmentedControl
@@ -298,6 +328,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 />
               }
             />
+
+            {/* Weather Location Selector */}
+            <WeatherLocationSetting isLightMode={isLightMode} />
           </div>
         </div>
       </div>

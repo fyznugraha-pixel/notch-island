@@ -7,7 +7,7 @@ use windows::Win32::Foundation::FILETIME;
 use windows::Win32::Media::MediaFoundation::{
     IMFSensorActivitiesReport, IMFSensorActivitiesReportCallback,
     IMFSensorActivitiesReportCallback_Impl, IMFSensorActivityMonitor,
-    MFCreateSensorActivityMonitor, MFStartup, MF_VERSION,
+    MFCreateSensorActivityMonitor, MFShutdown, MFStartup, MF_VERSION,
 };
 
 static CAMERA_STREAMING_FLAG: AtomicBool = AtomicBool::new(false);
@@ -339,10 +339,10 @@ pub fn check_privacy_in_use_with_procs(
 pub fn check_mic_muted() -> bool {
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{eCapture, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
-    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+    use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL, COINIT_MULTITHREADED};
     let mut is_muted = false;
+    let _com = crate::ComGuard::init(COINIT_MULTITHREADED);
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         if let Ok(enumerator) =
             CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
         {
@@ -364,14 +364,14 @@ pub fn check_mic_active_wasapi() -> bool {
         eCapture, AudioSessionStateActive, DEVICE_STATE_ACTIVE, IAudioSessionControl2,
         IAudioSessionManager2, IMMDeviceEnumerator, MMDeviceEnumerator,
     };
-    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+    use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL, COINIT_MULTITHREADED};
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
+    let _com = crate::ComGuard::init(COINIT_MULTITHREADED);
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         if let Ok(enumerator) =
             CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
         {
@@ -553,13 +553,18 @@ pub fn get_debug_report() -> PrivacyDebugReport {
 
 pub fn start_privacy_monitor(app_handle: AppHandle) {
     std::thread::spawn(move || {
-        unsafe {
-            let _ = windows::Win32::System::Com::CoInitializeEx(
-                None,
-                windows::Win32::System::Com::COINIT_MULTITHREADED,
-            );
-            let _ = MFStartup(MF_VERSION, 0);
+        let _com = crate::ComGuard::init(windows::Win32::System::Com::COINIT_MULTITHREADED);
+        struct MfGuard(bool);
+        impl Drop for MfGuard {
+            fn drop(&mut self) {
+                if self.0 {
+                    unsafe {
+                        let _ = MFShutdown();
+                    }
+                }
+            }
         }
+        let _mf = MfGuard(unsafe { MFStartup(MF_VERSION, 0).is_ok() });
 
         // Start Media Foundation Sensor Activity Monitor
         let callback: IMFSensorActivitiesReportCallback = SensorActivityCallback.into();

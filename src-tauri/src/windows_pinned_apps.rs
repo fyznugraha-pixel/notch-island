@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter};
-use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::{HWND, MAX_PATH};
+use windows::core::{w, Interface, PCWSTR, PWSTR};
+use windows::Win32::Foundation::{ERROR_SUCCESS, FILETIME, HWND, MAX_PATH};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
     IPersistFile, STGM_READ,
@@ -20,6 +20,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, GetDIBits, GetObjectW,
     ReleaseDC, SelectObject, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    HBITMAP, HGDIOBJ,
 };
 
 #[link(name = "shell32")]
@@ -62,7 +63,7 @@ pub struct WindowsPinnedApp {
 }
 
 /// Identifies well-known icon type for vector theme support
-fn detect_icon_type(name: &str, target: &str) -> Option<String> {
+pub(crate) fn detect_icon_type(name: &str, target: &str) -> Option<String> {
     let lower_n = name.to_lowercase();
     let lower_t = target.to_lowercase();
     if lower_n.contains("chrome") || lower_t.contains("chrome") {
@@ -93,7 +94,7 @@ fn detect_icon_type(name: &str, target: &str) -> Option<String> {
 }
 
 /// Normalizes application ID for matching with running window processes
-fn detect_app_id(name: &str, target: &str) -> String {
+pub(crate) fn detect_app_id(name: &str, target: &str) -> String {
     let lower_n = name.to_lowercase();
     let lower_t = target.to_lowercase();
     if lower_n.contains("chrome") || lower_t.contains("chrome") {
@@ -399,20 +400,20 @@ fn extract_uwp_package_png(exe_path: &str) -> Option<String> {
                 }
 
                 let mut score = 10;
-                if fname.contains("targetsize-256") {
-                    score += 500;
-                } else if fname.contains("targetsize-96")
-                    || fname.contains("targetsize-80")
+                if fname.contains("targetsize-64")
                     || fname.contains("targetsize-72")
-                    || fname.contains("targetsize-64")
+                    || fname.contains("targetsize-80")
+                    || fname.contains("targetsize-96")
                 {
-                    score += 400;
-                } else if fname.contains("targetsize-60") || fname.contains("targetsize-48") {
-                    score += 300;
-                } else if fname.contains("scale-400") {
-                    score += 350;
+                    score += 550;
+                } else if fname.contains("targetsize-48") || fname.contains("targetsize-60") {
+                    score += 450;
                 } else if fname.contains("scale-200") {
-                    score += 250;
+                    score += 350;
+                } else if fname.contains("targetsize-256") {
+                    score += 200;
+                } else if fname.contains("scale-400") {
+                    score += 180;
                 }
 
                 if fname.contains("altform-unplated") {
@@ -430,9 +431,170 @@ fn extract_uwp_package_png(exe_path: &str) -> Option<String> {
 
     let (_, winning_path) = best_file?;
     let bytes = std::fs::read(winning_path).ok()?;
+    if let Ok(decoded) = image::load_from_memory(&bytes) {
+        if decoded.width() > 64 || decoded.height() > 64 {
+            if let Some(resized) = encode_rgba_icon_base64(&decoded.to_rgba8()) {
+                return Some(resized);
+            }
+        }
+    }
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     Some(format!("data:image/png;base64,{}", b64))
+}
+
+fn encode_rgba_icon_base64(img: &image::RgbaImage) -> Option<String> {
+    let resized_owned;
+    let target = if img.width() > 64 || img.height() > 64 {
+        resized_owned =
+            image::imageops::resize(img, 64, 64, image::imageops::FilterType::Triangle);
+        &resized_owned
+    } else {
+        img
+    };
+    let mut png_bytes = std::io::Cursor::new(Vec::new());
+    if target
+        .write_to(&mut png_bytes, image::ImageFormat::Png)
+        .is_err()
+    {
+        return None;
+    }
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes.into_inner());
+    Some(format!("data:image/png;base64,{}", b64))
+}
+
+unsafe fn read_32bit_hbitmap_rgba(
+    hbm: HBITMAP,
+    require_32bpp: bool,
+    unpremultiply_pargb: bool,
+) -> Option<(u32, u32, Vec<u8>)> {
+    if hbm.is_invalid() {
+        return None;
+    }
+
+    let mut bmp = BITMAP::default();
+    if GetObjectW(
+        HGDIOBJ(hbm.0),
+        std::mem::size_of::<BITMAP>() as i32,
+        Some(&mut bmp as *mut _ as *mut _),
+    ) <= 0
+    {
+        return None;
+    }
+
+    let native_w = bmp.bmWidth;
+    let native_h = bmp.bmHeight;
+    if native_w <= 0 || native_h <= 0 {
+        return None;
+    }
+    if require_32bpp && bmp.bmBitsPixel != 32 {
+        return None;
+    }
+
+    let hdc_screen = GetDC(HWND(std::ptr::null_mut()));
+    let mut bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: native_w,
+            biHeight: -native_h,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let mut raw_buf = vec![0u8; (native_w * native_h * 4) as usize];
+    let lines = GetDIBits(
+        hdc_screen,
+        hbm,
+        0,
+        native_h as u32,
+        Some(raw_buf.as_mut_ptr() as *mut _),
+        &mut bmi,
+        DIB_RGB_COLORS,
+    );
+    let _ = ReleaseDC(HWND(std::ptr::null_mut()), hdc_screen);
+
+    if lines <= 0 {
+        return None;
+    }
+
+    let mut max_alpha = 0u8;
+    let mut max_x = 0i32;
+    let mut max_y = 0i32;
+    let mut has_exceeding_rgb = false;
+    let mut has_partial_alpha = false;
+
+    for y in 0..native_h {
+        for x in 0..native_w {
+            let idx = ((y * native_w + x) * 4) as usize;
+            let b = raw_buf[idx];
+            let g = raw_buf[idx + 1];
+            let r = raw_buf[idx + 2];
+            let a = raw_buf[idx + 3];
+            raw_buf[idx] = r;
+            raw_buf[idx + 2] = b;
+            if a > max_alpha {
+                max_alpha = a;
+            }
+            if r > a || g > a || b > a {
+                has_exceeding_rgb = true;
+            } else if a > 0 && a < 255 {
+                has_partial_alpha = true;
+            }
+            if a > 8 {
+                if x > max_x {
+                    max_x = x;
+                }
+                if y > max_y {
+                    max_y = y;
+                }
+            }
+        }
+    }
+
+    if max_alpha == 0 {
+        return None;
+    }
+
+    if unpremultiply_pargb && !has_exceeding_rgb && has_partial_alpha {
+        for px in raw_buf.chunks_exact_mut(4) {
+            let a = px[3];
+            if a > 0 && a < 255 {
+                let a16 = a as u16;
+                px[0] = (((px[0] as u16) * 255 + (a16 / 2)) / a16).min(255) as u8;
+                px[1] = (((px[1] as u16) * 255 + (a16 / 2)) / a16).min(255) as u8;
+                px[2] = (((px[2] as u16) * 255 + (a16 / 2)) / a16).min(255) as u8;
+            }
+        }
+    }
+
+    // If SHIL_JUMBO (256x256) placed a legacy 48x48 icon in the top-left corner,
+    // crop to that active quadrant so the icon isn't tiny in a 256x256 canvas.
+    if native_w == 256 && native_h == 256 && max_x < 64 && max_y < 64 && max_x >= 15 {
+        let crop_size = if max_x <= 32 && max_y <= 32 { 32i32 } else { 48i32 };
+        let mut cropped = vec![0u8; (crop_size * crop_size * 4) as usize];
+        for cy in 0..crop_size {
+            let src_start = ((cy * native_w) * 4) as usize;
+            let dst_start = ((cy * crop_size) * 4) as usize;
+            let row_bytes = (crop_size * 4) as usize;
+            cropped[dst_start..dst_start + row_bytes]
+                .copy_from_slice(&raw_buf[src_start..src_start + row_bytes]);
+        }
+        return Some((crop_size as u32, crop_size as u32, cropped));
+    }
+
+    Some((native_w as u32, native_h as u32, raw_buf))
+}
+
+/// Converts a 32-bit HBITMAP (e.g. from IShellItemImageFactory) to a 64x64 PNG data URL.
+pub(crate) unsafe fn hbitmap_to_base64(hbm: HBITMAP) -> Option<String> {
+    let (w, h, rgba) = read_32bit_hbitmap_rgba(hbm, false, true)?;
+    let img = image::RgbaImage::from_raw(w, h, rgba)?;
+    encode_rgba_icon_base64(&img)
 }
 
 /// Converts an HICON to a crystal-clear native-resolution (up to 256x256) base64 PNG data URL.
@@ -449,92 +611,10 @@ pub unsafe fn hicon_to_base64(hicon: HICON) -> Option<String> {
 
     if GetIconInfo(hicon, &mut icon_info).is_ok() {
         if !icon_info.hbmColor.is_invalid() {
-            let mut bmp = BITMAP::default();
-            if GetObjectW(
-                icon_info.hbmColor,
-                std::mem::size_of::<BITMAP>() as i32,
-                Some(&mut bmp as *mut _ as *mut _),
-            ) > 0
-            {
-                if bmp.bmWidth > 0 && bmp.bmHeight > 0 {
-                    native_w = bmp.bmWidth;
-                    native_h = bmp.bmHeight;
-                }
-
-                if bmp.bmBitsPixel == 32 && native_w > 0 && native_h > 0 {
-                    let hdc_screen = GetDC(HWND(std::ptr::null_mut()));
-                    let mut bmi = BITMAPINFO {
-                        bmiHeader: BITMAPINFOHEADER {
-                            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                            biWidth: native_w,
-                            biHeight: -native_h, // top-down
-                            biPlanes: 1,
-                            biBitCount: 32,
-                            biCompression: BI_RGB.0,
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    };
-
-                    let mut raw_buf = vec![0u8; (native_w * native_h * 4) as usize];
-                    let lines = GetDIBits(
-                        hdc_screen,
-                        icon_info.hbmColor,
-                        0,
-                        native_h as u32,
-                        Some(raw_buf.as_mut_ptr() as *mut _),
-                        &mut bmi,
-                        DIB_RGB_COLORS,
-                    );
-                    let _ = ReleaseDC(HWND(std::ptr::null_mut()), hdc_screen);
-
-                    if lines > 0 {
-                        let mut max_alpha = 0u8;
-                        let mut max_x = 0i32;
-                        let mut max_y = 0i32;
-
-                        for y in 0..native_h {
-                            for x in 0..native_w {
-                                let idx = ((y * native_w + x) * 4) as usize;
-                                let b = raw_buf[idx];
-                                let r = raw_buf[idx + 2];
-                                let a = raw_buf[idx + 3];
-                                raw_buf[idx] = r;
-                                raw_buf[idx + 2] = b;
-                                if a > max_alpha {
-                                    max_alpha = a;
-                                }
-                                if a > 8 {
-                                    if x > max_x {
-                                        max_x = x;
-                                    }
-                                    if y > max_y {
-                                        max_y = y;
-                                    }
-                                }
-                            }
-                        }
-
-                        if max_alpha > 0 {
-                            // If SHIL_JUMBO (256x256) placed a legacy 48x48 icon in the top-left corner,
-                            // crop to that active quadrant so the icon isn't tiny in a 256x256 canvas.
-                            if native_w == 256 && native_h == 256 && max_x < 64 && max_y < 64 && max_x >= 15 {
-                                let crop_size = if max_x <= 32 && max_y <= 32 { 32i32 } else { 48i32 };
-                                let mut cropped = vec![0u8; (crop_size * crop_size * 4) as usize];
-                                for cy in 0..crop_size {
-                                    let src_start = ((cy * native_w) * 4) as usize;
-                                    let dst_start = ((cy * crop_size) * 4) as usize;
-                                    let row_bytes = (crop_size * 4) as usize;
-                                    cropped[dst_start..dst_start + row_bytes]
-                                        .copy_from_slice(&raw_buf[src_start..src_start + row_bytes]);
-                                }
-                                direct_rgba = Some((crop_size as u32, crop_size as u32, cropped));
-                            } else {
-                                direct_rgba = Some((native_w as u32, native_h as u32, raw_buf));
-                            }
-                        }
-                    }
-                }
+            if let Some((w, h, rgba)) = read_32bit_hbitmap_rgba(icon_info.hbmColor, true, false) {
+                native_w = w as i32;
+                native_h = h as i32;
+                direct_rgba = Some((w, h, rgba));
             }
             let _ = DeleteObject(icon_info.hbmColor);
         }
@@ -591,20 +671,10 @@ pub unsafe fn hicon_to_base64(hicon: HICON) -> Option<String> {
     };
 
     let img = image::RgbaImage::from_raw(final_w, final_h, buffer)?;
-    let mut png_bytes = std::io::Cursor::new(Vec::new());
-    if img
-        .write_to(&mut png_bytes, image::ImageFormat::Png)
-        .is_err()
-    {
-        return None;
-    }
-
-    use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes.into_inner());
-    Some(format!("data:image/png;base64,{}", b64))
+    encode_rgba_icon_base64(&img)
 }
 
-/// Extracts real native 256x256 icon directly from file / executable / shortcut on the laptop
+/// Extracts native 64x64 (or 48x48 fallback) icon from file / executable / shortcut on disk
 pub unsafe fn extract_native_icon_from_path(path: &str) -> Option<String> {
     if path.is_empty() {
         return None;
@@ -621,15 +691,15 @@ pub unsafe fn extract_native_icon_from_path(path: &str) -> Option<String> {
     let is_explorer = lower_path.ends_with("explorer.exe");
 
     // 2. For direct executables/icons (except explorer.exe whose index 0 is legacy),
-    // try PrivateExtractIconsW at 256x256 first for exact native frame without quadrant padding.
+    // try PrivateExtractIconsW at 64x64 to avoid retaining 256x256 textures.
     if !is_lnk && !is_explorer && Path::new(path).exists() {
         let mut hicon = HICON::default();
         let mut icon_id = 0u32;
         let extracted = PrivateExtractIconsW(
             wide.as_ptr(),
             0,
-            256,
-            256,
+            64,
+            64,
             &mut hicon,
             &mut icon_id,
             1,
@@ -644,7 +714,7 @@ pub unsafe fn extract_native_icon_from_path(path: &str) -> Option<String> {
         }
     }
 
-    // 3. Query system image list index via SHGetFileInfoW(SHGFI_SYSICONINDEX) -> SHGetImageList(SHIL_JUMBO = 4)
+    // 3. Query system image list index via SHGetFileInfoW(SHGFI_SYSICONINDEX)
     let mut shfi = SHFILEINFOW::default();
     let res = SHGetFileInfoW(
         PCWSTR(wide.as_ptr()),
@@ -657,8 +727,8 @@ pub unsafe fn extract_native_icon_from_path(path: &str) -> Option<String> {
     // Note: iIcon == 2 is the generic blank executable icon in Windows Shell
     if res != 0 && shfi.iIcon > 0 && shfi.iIcon != 2 {
         let iid_imagelist = windows::core::GUID::from_u128(0x46eb5926_582e_4017_9fdf_e8998daa0950);
-        // Try SHIL_JUMBO (4 = 256x256), then SHIL_EXTRALARGE (2 = 48x48)
-        for shil in [4i32, 2i32] {
+        // Prefer SHIL_EXTRALARGE (2 = 48x48), fall back to SHIL_JUMBO (4 = 256x256, downscaled to 64x64)
+        for shil in [2i32, 4i32] {
             let mut himl: *mut std::ffi::c_void = std::ptr::null_mut();
             if SHGetImageList(shil, &iid_imagelist, &mut himl) == 0 && !himl.is_null() {
                 let hicon = ImageList_GetIcon(himl, shfi.iIcon, 0x00000001 /* ILD_TRANSPARENT */);
@@ -692,14 +762,68 @@ pub unsafe fn extract_native_icon_from_path(path: &str) -> Option<String> {
     }
 }
 
-static ICON_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+const MAX_PINNED_ICON_CACHE_ENTRIES: usize = 512;
+
+struct BoundedPinnedIconCache {
+    map: HashMap<String, String>,
+    order: VecDeque<String>,
+}
+
+impl BoundedPinnedIconCache {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    fn get(&self, key: &str) -> Option<&String> {
+        self.map.get(key)
+    }
+
+    fn insert(&mut self, key: String, val: String) {
+        if !self.map.contains_key(&key) {
+            while self.order.len() >= MAX_PINNED_ICON_CACHE_ENTRIES {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.map.remove(&oldest);
+                } else {
+                    break;
+                }
+            }
+            self.order.push_back(key.clone());
+        }
+        self.map.insert(key, val);
+    }
+}
+
+static ICON_CACHE: OnceLock<Mutex<BoundedPinnedIconCache>> = OnceLock::new();
+
+/// Returns an already-cached icon without performing disk/GDI extraction.
+pub(crate) fn get_cached_icon_only(path: &str) -> Option<String> {
+    if path.is_empty() {
+        return None;
+    }
+    let cache = ICON_CACHE.get_or_init(|| Mutex::new(BoundedPinnedIconCache::new()));
+    cache.lock().ok()?.get(path).cloned()
+}
+
+/// Inserts a pre-extracted icon into the shared icon cache.
+pub(crate) fn insert_cached_icon(key: &str, b64: String) {
+    if key.is_empty() {
+        return;
+    }
+    let cache = ICON_CACHE.get_or_init(|| Mutex::new(BoundedPinnedIconCache::new()));
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(key.to_string(), b64);
+    }
+}
 
 /// Cached helper to avoid redundant icon extraction on fast polling cycles
 pub fn get_cached_or_extract_icon(path: &str) -> Option<String> {
     if path.is_empty() {
         return None;
     }
-    let cache = ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let cache = ICON_CACHE.get_or_init(|| Mutex::new(BoundedPinnedIconCache::new()));
     if let Ok(guard) = cache.lock() {
         if let Some(cached) = guard.get(path) {
             return Some(cached.clone());
@@ -753,7 +877,15 @@ pub unsafe fn extract_native_icon_from_hwnd(hwnd: HWND) -> Option<String> {
 }
 
 /// Resolves a single .lnk file to WindowsPinnedApp with native icon
-fn resolve_shortcut(lnk_path: &Path) -> Option<WindowsPinnedApp> {
+pub(crate) fn resolve_shortcut(lnk_path: &Path) -> Option<WindowsPinnedApp> {
+    resolve_shortcut_with_options(lnk_path, true)
+}
+
+/// Resolves a single .lnk file to WindowsPinnedApp, optionally skipping slow GDI/disk icon extraction.
+pub(crate) fn resolve_shortcut_with_options(
+    lnk_path: &Path,
+    extract_icon: bool,
+) -> Option<WindowsPinnedApp> {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
 
@@ -800,16 +932,22 @@ fn resolve_shortcut(lnk_path: &Path) -> Option<WindowsPinnedApp> {
             target_path = "C:\\Windows\\explorer.exe".to_string();
         }
 
-        // Extract genuine native Windows icon from laptop
+        let lnk_str = lnk_path.to_string_lossy().to_string();
+        let icon_lookup = |path: &str| {
+            if extract_icon {
+                get_cached_or_extract_icon(path)
+            } else {
+                get_cached_icon_only(path)
+            }
+        };
+
         // For File Explorer shortcut, extract from .lnk first so Windows 11 modern folder icon is used
         let icon_base64 = if id == "explorer" {
-            get_cached_or_extract_icon(&lnk_path.to_string_lossy())
-                .or_else(|| get_cached_or_extract_icon(&target_path))
+            icon_lookup(&lnk_str).or_else(|| icon_lookup(&target_path))
         } else if !target_path.is_empty() && Path::new(&target_path).exists() {
-            get_cached_or_extract_icon(&target_path)
-                .or_else(|| get_cached_or_extract_icon(&lnk_path.to_string_lossy()))
+            icon_lookup(&target_path).or_else(|| icon_lookup(&lnk_str))
         } else {
-            get_cached_or_extract_icon(&lnk_path.to_string_lossy())
+            icon_lookup(&lnk_str)
         };
 
         Some(WindowsPinnedApp {
@@ -819,25 +957,101 @@ fn resolve_shortcut(lnk_path: &Path) -> Option<WindowsPinnedApp> {
             arguments,
             icon_base64,
             icon_type,
-            lnk_path: lnk_path.to_string_lossy().to_string(),
+            lnk_path: lnk_str,
         })
     }
 }
 
-/// Retrieves list of pinned apps from Windows Taskbar in exact user order
-/// (combines HKCU\...\Explorer\Taskband Favorites order + UWP apps + User Pinned\TaskBar .lnk files)
-pub fn get_taskbar_pinned_apps() -> Vec<WindowsPinnedApp> {
-    let appdata = match std::env::var("APPDATA") {
-        Ok(v) => PathBuf::from(v),
-        Err(_) => return Vec::new(),
-    };
+struct PinnedAppsCache {
+    dir_mtime: Option<SystemTime>,
+    taskband_write_time: Option<u64>,
+    apps: Vec<WindowsPinnedApp>,
+}
 
-    let pinned_dir = appdata
+static PINNED_APPS_CACHE: OnceLock<Mutex<Option<PinnedAppsCache>>> = OnceLock::new();
+
+fn get_taskband_last_write_time() -> Option<u64> {
+    use windows::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryInfoKeyW, HKEY, HKEY_CURRENT_USER, KEY_READ,
+    };
+    unsafe {
+        let mut hkey = HKEY::default();
+        let open_err = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Taskband"),
+            0,
+            KEY_READ,
+            &mut hkey,
+        );
+        if open_err != ERROR_SUCCESS {
+            return None;
+        }
+        let mut ft = FILETIME::default();
+        let query_err = RegQueryInfoKeyW(
+            hkey,
+            PWSTR::null(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&mut ft),
+        );
+        let _ = RegCloseKey(hkey);
+        if query_err == ERROR_SUCCESS {
+            Some(((ft.dwHighDateTime as u64) << 32) | (ft.dwLowDateTime as u64))
+        } else {
+            None
+        }
+    }
+}
+
+fn pinned_apps_dir_and_fingerprint() -> Option<(PathBuf, Option<SystemTime>, Option<u64>)> {
+    let appdata = std::env::var("APPDATA").ok()?;
+    let pinned_dir = PathBuf::from(appdata)
         .join("Microsoft")
         .join("Internet Explorer")
         .join("Quick Launch")
         .join("User Pinned")
         .join("TaskBar");
+    let dir_mtime = std::fs::metadata(&pinned_dir).and_then(|m| m.modified()).ok();
+    let taskband_write_time = get_taskband_last_write_time();
+    Some((pinned_dir, dir_mtime, taskband_write_time))
+}
+
+fn has_pinned_apps_source_changed(
+    last_state: &mut Option<(Option<SystemTime>, Option<u64>)>,
+) -> bool {
+    let Some((_, dir_mtime, taskband_write_time)) = pinned_apps_dir_and_fingerprint() else {
+        return false;
+    };
+    let next = (dir_mtime, taskband_write_time);
+    if last_state.as_ref() == Some(&next) {
+        return false;
+    }
+    *last_state = Some(next);
+    true
+}
+
+/// Retrieves list of pinned apps from Windows Taskbar in exact user order
+/// (combines HKCU\...\Explorer\Taskband Favorites order + UWP apps + User Pinned\TaskBar .lnk files)
+pub fn get_taskbar_pinned_apps() -> Vec<WindowsPinnedApp> {
+    let Some((pinned_dir, dir_mtime, taskband_write_time)) = pinned_apps_dir_and_fingerprint() else {
+        return Vec::new();
+    };
+
+    let cache_mutex = PINNED_APPS_CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache_mutex.lock() {
+        if let Some(cached) = guard.as_ref() {
+            if cached.dir_mtime == dir_mtime && cached.taskband_write_time == taskband_write_time {
+                return cached.apps.clone();
+            }
+        }
+    }
 
     let mut lnk_map: HashMap<String, PathBuf> = HashMap::new();
     if pinned_dir.exists() {
@@ -890,6 +1104,14 @@ pub fn get_taskbar_pinned_apps() -> Vec<WindowsPinnedApp> {
         }
     }
 
+    if let Ok(mut guard) = cache_mutex.lock() {
+        *guard = Some(PinnedAppsCache {
+            dir_mtime,
+            taskband_write_time,
+            apps: apps.clone(),
+        });
+    }
+
     apps
 }
 
@@ -903,9 +1125,14 @@ pub fn start_pinned_apps_watcher(app_handle: AppHandle) {
 
     std::thread::spawn(move || {
         let mut last_apps: Vec<WindowsPinnedApp> = Vec::new();
+        let mut last_source_state: Option<(Option<SystemTime>, Option<u64>)> = None;
 
         loop {
             std::thread::sleep(Duration::from_millis(1500));
+
+            if !has_pinned_apps_source_changed(&mut last_source_state) {
+                continue;
+            }
 
             let current_apps = get_taskbar_pinned_apps();
             if current_apps != last_apps {
@@ -922,32 +1149,74 @@ pub fn get_windows_pinned_apps() -> Vec<WindowsPinnedApp> {
 }
 
 #[tauri::command]
-pub fn launch_pinned_app(lnk_path: String, target_path: String, arguments: String) -> Result<(), String> {
-    // Priority 1: Launch via .lnk file using ShellExecuteW for 100% native Windows fidelity
+pub async fn launch_pinned_app(
+    lnk_path: String,
+    target_path: String,
+    arguments: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        launch_pinned_app_sync(lnk_path, target_path, arguments)
+    })
+    .await
+    .map_err(|e| format!("Launch task failed: {e}"))?
+}
+
+fn launch_pinned_app_sync(
+    lnk_path: String,
+    target_path: String,
+    arguments: String,
+) -> Result<(), String> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    let lnk_wide: Vec<u16> = lnk_path.encode_utf16().chain(std::iter::once(0)).collect();
     let op_wide: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
 
-    unsafe {
-        let hinstance = ShellExecuteW(
-            HWND(std::ptr::null_mut()),
-            PCWSTR(op_wide.as_ptr()),
-            PCWSTR(lnk_wide.as_ptr()),
-            PCWSTR(std::ptr::null()),
-            PCWSTR(std::ptr::null()),
-            SW_SHOWNORMAL,
-        );
-
-        // ShellExecute returns > 32 on success
+    if !lnk_path.is_empty() {
+        let lnk_wide: Vec<u16> = lnk_path.encode_utf16().chain(std::iter::once(0)).collect();
+        let hinstance = unsafe {
+            ShellExecuteW(
+                HWND(std::ptr::null_mut()),
+                PCWSTR(op_wide.as_ptr()),
+                PCWSTR(lnk_wide.as_ptr()),
+                PCWSTR(std::ptr::null()),
+                PCWSTR(std::ptr::null()),
+                SW_SHOWNORMAL,
+            )
+        };
         if hinstance.0 as usize > 32 {
             return Ok(());
         }
+
+        // UWP shell:AppsFolder\... sometimes launches more reliably via explorer.exe
+        if lnk_path.starts_with("shell:") {
+            if std::process::Command::new("explorer.exe").arg(&lnk_path).spawn().is_ok() {
+                return Ok(());
+            }
+        }
     }
 
-    // Priority 2: Fallback to std::process::Command with target_path
     if !target_path.is_empty() {
+        let target_wide: Vec<u16> = target_path.encode_utf16().chain(std::iter::once(0)).collect();
+        let args_wide: Vec<u16> = arguments.encode_utf16().chain(std::iter::once(0)).collect();
+        let args_ptr = if arguments.is_empty() {
+            PCWSTR(std::ptr::null())
+        } else {
+            PCWSTR(args_wide.as_ptr())
+        };
+        let hinstance = unsafe {
+            ShellExecuteW(
+                HWND(std::ptr::null_mut()),
+                PCWSTR(op_wide.as_ptr()),
+                PCWSTR(target_wide.as_ptr()),
+                args_ptr,
+                PCWSTR(std::ptr::null()),
+                SW_SHOWNORMAL,
+            )
+        };
+        if hinstance.0 as usize > 32 {
+            return Ok(());
+        }
+
         let mut cmd = std::process::Command::new(&target_path);
         if !arguments.is_empty() {
             cmd.arg(&arguments);

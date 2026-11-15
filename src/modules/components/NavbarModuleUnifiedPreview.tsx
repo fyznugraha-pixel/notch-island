@@ -1,5 +1,7 @@
 import React from "react";
 import rawCatalog from "../modules.catalog.json";
+import { useTaskbarLang } from "../../services/taskbarI18n";
+import { localizePreviewHtml } from "../moduleI18n";
 
 export interface CatalogModuleItem {
   index: number;
@@ -15,40 +17,8 @@ export interface CatalogModuleItem {
 
 export const MODULE_CATALOG: CatalogModuleItem[] = rawCatalog as CatalogModuleItem[];
 
-// Alias map for legacy IDs to match canonical catalog IDs
-export const MODULE_ID_ALIASES: Record<string, string> = {
-  event: "acara_berikutnya",
-  todo: "to_do_fokus",
-  pomodoro: "pomodoro",
-  quicknote: "catat_cepat",
-  note: "catat_cepat",
-  system: "pantau_sistem",
-  net: "jaringan",
-  weather: "cuaca",
-  clock: "jam_dunia",
-  battery: "baterai_daya",
-  audiodevice: "output_audio",
-  audio_output: "output_audio",
-  virtual_desktop: "desktop_virtual",
-  water: "water_tracker",
-  prayer: "waktu_sholat",
-  shelf: "drop_zone_mini",
-  media: "sedang_diputar",
-  media_control: "kontrol_media",
-  focus: "mode_fokus",
-  mixer: "mixer_suara",
-  streak: "streak_kebiasaan",
-  quote: "kutipan_harian",
-  countdown: "hitung_mundur",
-  day_progress: "progres_hari",
-  eye_rest: "istirahat_mata",
-  startSearch: "start_search",
-  pinnedApps: "pinned_apps",
-  runningApps: "running_apps",
-  systemIcons: "output_audio",
-  notifications: "notifications",
-  clockDate: "jam_dunia",
-};
+import { MODULE_ID_ALIASES } from "../moduleComponents";
+export { MODULE_ID_ALIASES };
 
 export function getCatalogModule(id: string): CatalogModuleItem | undefined {
   const canonical = MODULE_ID_ALIASES[id] || id;
@@ -74,6 +44,7 @@ export const NavbarModuleUnifiedPreview: React.FC<NavbarModuleUnifiedPreviewProp
       style,
       onClick,
     }) => {
+      const lang = useTaskbarLang();
       const item = getCatalogModule(moduleId);
 
       if (!item) {
@@ -99,6 +70,7 @@ export const NavbarModuleUnifiedPreview: React.FC<NavbarModuleUnifiedPreviewProp
           "width:100%;height:60px;border-radius:10px;padding:0 6px;box-sizing:border-box;"
         );
       }
+      htmlSnippet = localizePreviewHtml(htmlSnippet, lang);
 
       return (
         <div

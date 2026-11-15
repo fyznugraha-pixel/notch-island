@@ -68,6 +68,7 @@ export interface PrayerScheduleData {
   latitude: number;
   longitude: number;
   hijriDate: string;
+  calculationMethod?: number;
   timings: {
     Imsak: string;
     Fajr: string;
@@ -84,6 +85,8 @@ export interface PrayerSettings {
   reminderEnabled: boolean;
   preReminderEnabled: boolean;
   preReminderMinutes: number; // 5 | 10 | 15
+  alsoAtAdzan: boolean;
+  adzanVolume: number; // 0..100
   enabledPrayers: Record<PrayerId, boolean>;
   calculationMethod: number; // 20 = Kemenag RI, 3 = MWL, 4 = Umm al-Qura, 11 = MUIS
   soundEnabled: boolean;
@@ -103,11 +106,139 @@ export interface PrayerToastPayload {
 const SETTINGS_KEY = "gili_prayer_settings_v1";
 const COMPLETED_KEY = "gili_prayer_completed_v1";
 const SCHEDULE_CACHE_KEY = "gili_prayer_schedule_cache_v1";
+const CONFIG_FLAG_KEY = "gili_prayer_reminder_configured_v1";
+
+let sharedPrayerAudioCtx: AudioContext | null = null;
+let currentAdzanSource: AudioBufferSourceNode | null = null;
+let currentAdzanGain: GainNode | null = null;
+let adzanBufferCache: AudioBuffer | null = null;
+let adzanBufferPromise: Promise<AudioBuffer | null> | null = null;
+
+function getPrayerAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  try {
+    if (!sharedPrayerAudioCtx) {
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (Ctx) {
+        sharedPrayerAudioCtx = new Ctx({ latencyHint: "playback" });
+      }
+    }
+    return sharedPrayerAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
+async function loadAdzanBuffer(): Promise<AudioBuffer | null> {
+  if (adzanBufferCache) return adzanBufferCache;
+  if (adzanBufferPromise) return adzanBufferPromise;
+
+  adzanBufferPromise = (async () => {
+    try {
+      const ctx = getPrayerAudioContext();
+      if (!ctx) return null;
+      const res = await fetch("/azan2.mp3");
+      if (!res.ok) return null;
+      const arrayBuffer = await res.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(arrayBuffer);
+      adzanBufferCache = decoded;
+      return decoded;
+    } catch (err) {
+      console.warn("Failed to decode adzan audio buffer:", err);
+      return null;
+    } finally {
+      adzanBufferPromise = null;
+    }
+  })();
+
+  return adzanBufferPromise;
+}
+
+// Preload adzan buffer on idle so prayer time playback is instant
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    try {
+      const settings = loadPrayerSettings();
+      if (settings.reminderEnabled && settings.soundEnabled) {
+        loadAdzanBuffer().catch(() => {});
+      }
+    } catch {}
+  }, 1000);
+}
+
+export function playAdzanAudio(onEnded?: () => void): void {
+  try {
+    if (typeof window === "undefined") return;
+    const settings = loadPrayerSettings();
+    const vol = settings.adzanVolume ?? 70;
+    if (!settings.soundEnabled || vol <= 0) return;
+
+    // Stop previous instance if any
+    stopAdzanAudio();
+
+    const ctx = getPrayerAudioContext();
+    if (!ctx) return;
+
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+
+    loadAdzanBuffer().then((buffer) => {
+      if (!buffer) return;
+      const currentCtx = getPrayerAudioContext();
+      if (!currentCtx) return;
+
+      const source = currentCtx.createBufferSource();
+      source.buffer = buffer;
+
+      const gain = currentCtx.createGain();
+      gain.gain.setValueAtTime(Math.max(0, Math.min(1, vol / 100)), currentCtx.currentTime);
+
+      source.connect(gain);
+      gain.connect(currentCtx.destination);
+
+      currentAdzanSource = source;
+      currentAdzanGain = gain;
+
+      source.onended = () => {
+        if (currentAdzanSource === source) {
+          currentAdzanSource = null;
+          currentAdzanGain = null;
+        }
+        onEnded?.();
+      };
+
+      source.start(0);
+    }).catch((err) => {
+      console.warn("Failed to play adzan via Web Audio:", err);
+    });
+  } catch {}
+}
+
+export function stopAdzanAudio(): void {
+  try {
+    if (currentAdzanSource) {
+      currentAdzanSource.onended = null;
+      try {
+        currentAdzanSource.stop();
+      } catch {}
+      try {
+        currentAdzanSource.disconnect();
+      } catch {}
+      currentAdzanSource = null;
+      currentAdzanGain = null;
+    }
+  } catch {}
+}
 
 export const DEFAULT_PRAYER_SETTINGS: PrayerSettings = {
   reminderEnabled: true,
-  preReminderEnabled: true,
-  preReminderMinutes: 10,
+  preReminderEnabled: false,
+  preReminderMinutes: 5,
+  alsoAtAdzan: true,
+  adzanVolume: 70,
   enabledPrayers: {
     Fajr: true,
     Dhuhr: true,
@@ -143,11 +274,23 @@ export function getTodayDateKey(now = new Date()): string {
 export function loadPrayerSettings(): PrayerSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
+    const isUserConfigured =
+      typeof window !== "undefined" &&
+      localStorage.getItem(CONFIG_FLAG_KEY) === "true";
+
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
         ...DEFAULT_PRAYER_SETTINGS,
         ...parsed,
+        reminderEnabled: isUserConfigured
+          ? parsed.reminderEnabled !== undefined
+            ? Boolean(parsed.reminderEnabled)
+            : true
+          : true,
+        preReminderEnabled: isUserConfigured
+          ? Boolean(parsed.preReminderEnabled)
+          : false,
         enabledPrayers: {
           ...DEFAULT_PRAYER_SETTINGS.enabledPrayers,
           ...(parsed.enabledPrayers || {}),
@@ -168,6 +311,9 @@ export function savePrayerSettings(next: PrayerSettings): void {
 }
 
 export function updatePrayerSettings(partial: Partial<PrayerSettings>): PrayerSettings {
+  try {
+    localStorage.setItem(CONFIG_FLAG_KEY, "true");
+  } catch {}
   const current = loadPrayerSettings();
   const updated: PrayerSettings = {
     ...current,
@@ -177,6 +323,17 @@ export function updatePrayerSettings(partial: Partial<PrayerSettings>): PrayerSe
       : current.enabledPrayers,
   };
   savePrayerSettings(updated);
+  if (currentAdzanSource && currentAdzanGain) {
+    const vol = updated.adzanVolume ?? 70;
+    if (!updated.soundEnabled || vol <= 0) {
+      stopAdzanAudio();
+    } else {
+      const ctx = getPrayerAudioContext();
+      if (ctx) {
+        currentAdzanGain.gain.setValueAtTime(Math.max(0, Math.min(1, vol / 100)), ctx.currentTime);
+      }
+    }
+  }
   return updated;
 }
 
@@ -232,7 +389,8 @@ function cleanTimeStr(raw: string | undefined, fallback: string): string {
  */
 export function calculateOfflinePrayerSchedule(
   date: Date,
-  loc: WeatherLocation
+  loc: WeatherLocation,
+  calculationMethod = 20
 ): PrayerScheduleData {
   const rad = Math.PI / 180;
   const deg = 180 / Math.PI;
@@ -277,11 +435,13 @@ export function calculateOfflinePrayerSchedule(
   const asrAltRad = Math.atan(1 / (1 + Math.tan(Math.abs(latRad - decl))));
   const asrHours = hourAngleForAltitude(asrAltRad * deg);
 
-  const fajrHours = hourAngleForAltitude(-20);
+  const fajrAngle = calculationMethod === 3 ? -18 : calculationMethod === 4 ? -18.5 : -20;
+  const ishaAngle = calculationMethod === 3 ? -17 : -18;
+  const fajrHours = hourAngleForAltitude(fajrAngle);
   const sunriseHours = hourAngleForAltitude(-0.833);
-  const ishaHours = hourAngleForAltitude(-18);
+  const ishaHours = hourAngleForAltitude(ishaAngle);
 
-  const ihtiyat = 2 / 60; // +2 minutes Kemenag RI safety margin
+  const ihtiyat = calculationMethod === 20 ? 2 / 60 : 0; // +2 minutes Kemenag RI safety margin
 
   const toHHMM = (h: number): string => {
     const wrapped = ((h % 24) + 24) % 24;
@@ -297,7 +457,10 @@ export function calculateOfflinePrayerSchedule(
   const dhuhrVal = solarNoonHours + ihtiyat;
   const asrVal = solarNoonHours + asrHours + ihtiyat;
   const maghribVal = solarNoonHours + sunriseHours + ihtiyat;
-  const ishaVal = solarNoonHours + ishaHours + ihtiyat;
+  const ishaVal =
+    calculationMethod === 4
+      ? maghribVal + 1.5
+      : solarNoonHours + ishaHours + ihtiyat;
 
   let hijriDate = "";
   try {
@@ -316,6 +479,7 @@ export function calculateOfflinePrayerSchedule(
     latitude: loc.latitude,
     longitude: loc.longitude,
     hijriDate,
+    calculationMethod,
     timings: {
       Imsak: toHHMM(imsakVal),
       Fajr: toHHMM(fajrVal),
@@ -344,26 +508,25 @@ export function getCachedPrayerSchedule(): PrayerScheduleData | null {
 export function getImmediatePrayerSchedule(): PrayerScheduleData {
   const cached = getCachedPrayerSchedule();
   const custom = getSavedCustomCity();
+  const settings = loadPrayerSettings();
   const lastLoc = custom || getSavedLastLocation() || INDONESIAN_PRESET_CITIES[0];
 
   if (
     cached &&
     Math.abs(cached.latitude - lastLoc.latitude) < 0.08 &&
-    Math.abs(cached.longitude - lastLoc.longitude) < 0.08
+    Math.abs(cached.longitude - lastLoc.longitude) < 0.08 &&
+    (!cached.calculationMethod || cached.calculationMethod === settings.calculationMethod)
   ) {
     return cached;
   }
 
-  return calculateOfflinePrayerSchedule(new Date(), lastLoc);
+  return calculateOfflinePrayerSchedule(new Date(), lastLoc, settings.calculationMethod);
 }
 
 export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerScheduleData> {
   if (forceRefresh) {
     try {
       localStorage.removeItem(SCHEDULE_CACHE_KEY);
-      if (!getSavedCustomCity()) {
-        localStorage.removeItem("island_cached_weather_location");
-      }
     } catch {}
   }
   const loc = await resolveWeatherLocation();
@@ -378,7 +541,8 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
       cached.dateKey === todayKey &&
       Math.abs(cached.latitude - loc.latitude) < 0.05 &&
       Math.abs(cached.longitude - loc.longitude) < 0.05 &&
-      cached.source === "aladhan"
+      cached.source === "aladhan" &&
+      (!cached.calculationMethod || cached.calculationMethod === settings.calculationMethod)
     ) {
       return { ...cached, locationName: loc.name };
     }
@@ -404,13 +568,14 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
         const hijriStr = hijri
           ? `${hijri.day} ${hijri.month?.en || ""} ${hijri.year} H`
           : "";
-        const fallback = calculateOfflinePrayerSchedule(now, loc);
+        const fallback = calculateOfflinePrayerSchedule(now, loc, settings.calculationMethod);
         const schedule: PrayerScheduleData = {
           dateKey: todayKey,
           locationName: loc.name,
           latitude: loc.latitude,
           longitude: loc.longitude,
           hijriDate: hijriStr || fallback.hijriDate,
+          calculationMethod: settings.calculationMethod,
           timings: {
             Imsak: cleanTimeStr(tData.Imsak, fallback.timings.Imsak),
             Fajr: cleanTimeStr(tData.Fajr, fallback.timings.Fajr),
@@ -432,7 +597,7 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
     clearTimeout(timer);
   }
 
-  const offline = calculateOfflinePrayerSchedule(now, loc);
+  const offline = calculateOfflinePrayerSchedule(now, loc, settings.calculationMethod);
   try {
     localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(offline));
   } catch {}

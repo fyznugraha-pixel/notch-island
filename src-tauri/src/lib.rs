@@ -5,24 +5,63 @@ mod connectivity;
 mod system_monitor;
 mod audio_endpoints;
 mod migration;
+mod install_repair;
 mod windows_dnd;
 mod toast_banners;
 pub mod shelf_server;
+pub mod media_lyrics_store;
+pub mod miniplayer_window;
+mod app_icon;
+pub mod ai_credentials;
+pub mod backdrop_blur;
 pub mod shared_sampler;
 pub mod taskbar_manager;
 pub mod navbar_window;
+pub mod window_preview;
 pub mod windows_pinned_apps;
 pub mod shell_surface_toggle;
 pub mod taskbar_logger;
 pub mod taskbar_safety;
 pub mod taskbar_hotkey;
 pub mod taskbar_flyout;
-pub mod backdrop_capture;
+pub mod composition_backdrop;
+pub mod window_backdrop;
+pub mod windows_app_indexer;
+pub mod windows_start_search;
+pub mod system_quick_state;
+pub mod accessibility_toggles;
+pub mod tray_apps;
+pub mod system_hardware;
+pub mod gpu_telemetry;
+pub mod memory_optimizer;
+pub mod store_license;
+
+pub(crate) struct ComGuard(bool);
+
+impl ComGuard {
+    pub(crate) fn init(coinit: windows::Win32::System::Com::COINIT) -> Self {
+        let initialized = unsafe {
+            windows::Win32::System::Com::CoInitializeEx(None, coinit).is_ok()
+        };
+        Self(initialized)
+    }
+}
+
+impl Drop for ComGuard {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe {
+                windows::Win32::System::Com::CoUninitialize();
+            }
+        }
+    }
+}
 
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
     pid: u32,
     name: String,
+    path: Option<String>,
     volume: f32,
     muted: bool,
     icon: Option<String>,
@@ -45,14 +84,14 @@ async fn set_default_audio_endpoint(id: String) -> Result<(), String> {
 #[tauri::command]
 async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
     tauri::async_runtime::spawn_blocking(move || {
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
+        use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume};
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
         use windows::core::Interface;
 
         let mut sessions = Vec::new();
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
                 if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
                     if let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
@@ -65,7 +104,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                             if pid == 0 { continue; } // System sound
                                             
                                             let mut process_name = String::new();
-                                            let mut full_path_resolved = String::new();
+                                            let mut process_path: Option<String> = None;
                                             if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
                                                 let mut buffer = [0u16; 1024];
                                                 let mut len = buffer.len() as u32;
@@ -74,7 +113,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                     if let Some(name) = std::path::Path::new(&full_path).file_name() {
                                                         process_name = name.to_string_lossy().into_owned();
                                                     }
-                                                    full_path_resolved = full_path;
+                                                    process_path = Some(full_path);
                                                 }
                                                 let _ = windows::Win32::Foundation::CloseHandle(handle);
                                             }
@@ -96,18 +135,17 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                 process_name = format!("App ({})", pid);
                                             }
 
-                                            let icon_b64 = if !full_path_resolved.is_empty() {
-                                                crate::windows_pinned_apps::get_cached_or_extract_icon(&full_path_resolved)
-                                            } else {
-                                                None
-                                            };
+                                            let icon_b64 = process_path
+                                                .as_deref()
+                                                .and_then(windows_pinned_apps::get_cached_or_extract_icon);
 
                                             if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
                                                 if let Ok(vol) = volume_ctrl.GetMasterVolume() {
                                                     if let Ok(muted) = volume_ctrl.GetMute() {
                                                         sessions.push(AudioSessionInfo {
                                                             pid,
-                                                            name: process_name.clone(),
+                                                            name: process_name,
+                                                            path: process_path,
                                                             volume: vol,
                                                             muted: muted.as_bool(),
                                                             icon: icon_b64,
@@ -128,65 +166,95 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
     }).await.unwrap_or_default()
 }
 
-#[tauri::command]
-fn set_app_volume(pid: u32, volume: f32, name: Option<String>) {
+fn apply_to_matching_audio_sessions<F>(pid: u32, name: Option<String>, mut action: F)
+where
+    F: FnMut(&windows::Win32::Media::Audio::ISimpleAudioVolume) + Send + 'static,
+{
     tauri::async_runtime::spawn_blocking(move || {
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
+        use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume};
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
         use windows::core::Interface;
-        
+
         let target_name_lower = name.as_ref().map(|n| n.trim().to_lowercase());
-        let clamped_vol = volume.clamp(0.0, 1.0);
 
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
-                if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
-                    if let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
-                        if let Ok(session_enum) = manager.GetSessionEnumerator() {
-                            let count = session_enum.GetCount().unwrap_or(0);
-                            for i in 0..count {
-                                if let Ok(session_ctrl) = session_enum.GetSession(i) {
-                                    if let Ok(session_ctrl2) = session_ctrl.cast::<IAudioSessionControl2>() {
-                                        if let Ok(spid) = session_ctrl2.GetProcessId() {
-                                            if spid == 0 { continue; }
-                                            let mut is_match = spid == pid;
-                                            
-                                            if !is_match && target_name_lower.is_some() {
-                                                if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, spid) {
-                                                    let mut buffer = [0u16; 1024];
-                                                    let mut len = buffer.len() as u32;
-                                                    if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buffer.as_mut_ptr()), &mut len).is_ok() && len > 0 {
-                                                        let full_path = String::from_utf16_lossy(&buffer[..len as usize]);
-                                                        if let Some(file_name) = std::path::Path::new(&full_path).file_name() {
-                                                            let s_name = file_name.to_string_lossy().to_lowercase();
-                                                            if let Some(target) = &target_name_lower {
-                                                                if s_name == *target || s_name.replace(".exe", "") == target.replace(".exe", "") {
-                                                                    is_match = true;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    let _ = windows::Win32::Foundation::CloseHandle(handle);
-                                                }
-                                            }
+            let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else {
+                return;
+            };
+            let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) else {
+                return;
+            };
+            let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) else {
+                return;
+            };
+            let Ok(session_enum) = manager.GetSessionEnumerator() else {
+                return;
+            };
 
-                                            if is_match {
-                                                if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
-                                                    let _ = volume_ctrl.SetMasterVolume(clamped_vol, std::ptr::null());
-                                                }
-                                            }
-                                        }
+            let count = session_enum.GetCount().unwrap_or(0);
+            for i in 0..count {
+                let Ok(session_ctrl) = session_enum.GetSession(i) else { continue; };
+                let Ok(session_ctrl2) = session_ctrl.cast::<IAudioSessionControl2>() else { continue; };
+                let Ok(spid) = session_ctrl2.GetProcessId() else { continue; };
+                if spid == 0 {
+                    continue;
+                }
+
+                let mut is_match = spid == pid;
+                if !is_match {
+                    if let Some(target) = &target_name_lower {
+                        if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, spid) {
+                            let mut buffer = [0u16; 1024];
+                            let mut len = buffer.len() as u32;
+                            if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buffer.as_mut_ptr()), &mut len).is_ok() && len > 0 {
+                                let full_path = String::from_utf16_lossy(&buffer[..len as usize]);
+                                if let Some(file_name) = std::path::Path::new(&full_path).file_name() {
+                                    let s_name = file_name.to_string_lossy().to_lowercase();
+                                    if s_name == *target || s_name.replace(".exe", "") == target.replace(".exe", "") {
+                                        is_match = true;
                                     }
                                 }
                             }
+                            let _ = windows::Win32::Foundation::CloseHandle(handle);
                         }
+                    }
+                }
+
+                if is_match {
+                    if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
+                        action(&volume_ctrl);
                     }
                 }
             }
         }
     });
+}
+
+#[tauri::command]
+fn set_app_volume(pid: u32, volume: f32, name: Option<String>) {
+    let clamped_vol = volume.clamp(0.0, 1.0);
+    apply_to_matching_audio_sessions(pid, name, move |ctrl| unsafe {
+        let _ = ctrl.SetMasterVolume(clamped_vol, std::ptr::null());
+    });
+}
+
+#[tauri::command]
+fn set_app_mute(pid: u32, mute: bool, name: Option<String>) {
+    apply_to_matching_audio_sessions(pid, name, move |ctrl| unsafe {
+        let _ = ctrl.SetMute(mute, std::ptr::null());
+    });
+}
+
+#[tauri::command]
+fn get_current_media_state() -> Option<media_lyrics_store::MediaPayload> {
+    let media = media_lyrics_store::get_current_media();
+    if media.title.trim().is_empty() {
+        None
+    } else {
+        Some(media)
+    }
 }
 
 #[tauri::command]
@@ -241,12 +309,109 @@ pub struct ClipboardImageItem {
     pub id: String,
     pub path: String,
     pub thumbnail: String,
+    pub vision_data_url: Option<String>,
     pub width: u32,
     pub height: u32,
 }
 
+pub(crate) fn decode_safe_image_from_path(path: &std::path::Path) -> Option<image::DynamicImage> {
+    const MAX_DIM: u32 = 12_000;
+    const MAX_PIXELS: u64 = 64_000_000;
+    const MAX_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
+
+    let (w, h) = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
+    if w == 0 || h == 0 || w > MAX_DIM || h > MAX_DIM || (w as u64).saturating_mul(h as u64) > MAX_PIXELS {
+        return None;
+    }
+
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DIM);
+    limits.max_image_height = Some(MAX_DIM);
+    limits.max_alloc = Some(MAX_ALLOC_BYTES);
+
+    let mut reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    reader.limits(limits);
+    reader.decode().ok()
+}
+
+fn encode_dynamic_image_data_url(
+    img: &image::DynamicImage,
+    max_dim: u32,
+    jpeg_quality: u8,
+) -> Option<String> {
+    use base64::Engine;
+    use image::codecs::jpeg::JpegEncoder;
+
+    let (w, h) = (img.width(), img.height());
+    let resized = if w.max(h) > max_dim {
+        img.resize(max_dim, max_dim, image::imageops::FilterType::CatmullRom)
+    } else {
+        img.clone()
+    };
+
+    let mut cursor = std::io::Cursor::new(Vec::with_capacity(32768));
+    let rgb = resized.to_rgb8();
+    let mut encoder = JpegEncoder::new_with_quality(&mut cursor, jpeg_quality);
+    if encoder.encode_image(&rgb).is_ok() {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+        return Some(format!("data:image/jpeg;base64,{}", b64));
+    }
+
+    cursor.set_position(0);
+    cursor.get_mut().clear();
+    if resized.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+        return Some(format!("data:image/png;base64,{}", b64));
+    }
+    None
+}
+
+fn prune_clipboard_image_cache(dir: &std::path::Path, max_files: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let max_age = std::time::Duration::from_secs(24 * 60 * 60);
+    let now = std::time::SystemTime::now();
+    let mut kept: Vec<(std::time::SystemTime, std::path::PathBuf)> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        if let Ok(age) = now.duration_since(modified) {
+            if age > max_age {
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
+        }
+        kept.push((modified, path));
+    }
+
+    if kept.len() > max_files {
+        kept.sort_by_key(|(ts, _)| *ts);
+        let overflow = kept.len() - max_files;
+        for (_, path) in kept.into_iter().take(overflow) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 #[tauri::command]
-async fn read_clipboard_image(app: tauri::AppHandle) -> Result<Option<ClipboardImageItem>, String> {
+async fn read_clipboard_image(
+    app: tauri::AppHandle,
+    persist_file: Option<bool>,
+    include_vision: Option<bool>,
+) -> Result<Option<ClipboardImageItem>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -288,45 +453,35 @@ async fn read_clipboard_image(app: tauri::AppHandle) -> Result<Option<ClipboardI
             .as_millis();
         let id = format!("clip_img_{}", now);
 
-        let cache_dir = std::env::temp_dir().join("gili_clipboard_images");
-        let _ = std::fs::create_dir_all(&cache_dir);
-        let img_path = cache_dir.join(format!("{}.png", id));
-
         let img_buffer = match image::RgbaImage::from_raw(width, height, rgba.to_vec()) {
             Some(buf) => buf,
             None => return Ok(None),
         };
 
-        img_buffer.save(&img_path).map_err(|e| e.to_string())?;
-
-        let max_thumb_dim = 320.0;
-        let scale = (max_thumb_dim / (width.max(height) as f32)).min(1.0);
-        let thumb_w = ((width as f32 * scale).round() as u32).max(1);
-        let thumb_h = ((height as f32 * scale).round() as u32).max(1);
-
-        let resized = image::imageops::resize(&img_buffer, thumb_w, thumb_h, image::imageops::FilterType::Triangle);
-        let mut cursor = std::io::Cursor::new(Vec::new());
-        use base64::Engine;
-        // JPEG requires RGB8 (no alpha channel). Convert to RGB8 for compact base64 data URI.
-        let rgb = image::DynamicImage::ImageRgba8(resized.clone()).into_rgb8();
-        let thumbnail = if rgb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-            format!("data:image/jpeg;base64,{}", b64)
+        let saved_path = if persist_file.unwrap_or(false) {
+            let cache_dir = std::env::temp_dir().join("gili_clipboard_images");
+            let _ = std::fs::create_dir_all(&cache_dir);
+            prune_clipboard_image_cache(&cache_dir, 30);
+            let img_path = cache_dir.join(format!("{}.png", id));
+            img_buffer.save(&img_path).map_err(|e| e.to_string())?;
+            img_path.to_string_lossy().to_string()
         } else {
-            cursor.set_position(0);
-            cursor.get_mut().clear();
-            if resized.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-                format!("data:image/png;base64,{}", b64)
-            } else {
-                String::new()
-            }
+            String::new()
+        };
+
+        let dyn_img = image::DynamicImage::ImageRgba8(img_buffer);
+        let thumbnail = encode_dynamic_image_data_url(&dyn_img, 320, 82).unwrap_or_default();
+        let vision_data_url = if include_vision.unwrap_or(false) {
+            encode_dynamic_image_data_url(&dyn_img, 1600, 88)
+        } else {
+            None
         };
 
         Ok(Some(ClipboardImageItem {
             id,
-            path: img_path.to_string_lossy().to_string(),
+            path: saved_path,
             thumbnail,
+            vision_data_url,
             width,
             height,
         }))
@@ -506,8 +661,12 @@ async fn extract_image_text(path: String) -> Result<String, String> {
 
 #[tauri::command]
 async fn extract_clipboard_text(app: tauri::AppHandle) -> Result<String, String> {
-    if let Some(clip_img) = read_clipboard_image(app).await? {
-        extract_image_text(clip_img.path).await
+    if let Some(clip_img) = read_clipboard_image(app, Some(true), Some(false)).await? {
+        let res = extract_image_text(clip_img.path.clone()).await;
+        if !clip_img.path.is_empty() {
+            let _ = std::fs::remove_file(&clip_img.path);
+        }
+        res
     } else {
         Err("No image in clipboard".to_string())
     }
@@ -515,6 +674,12 @@ async fn extract_clipboard_text(app: tauri::AppHandle) -> Result<String, String>
 
 static LAST_ACTIVE_SMTC: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
 static LAST_SMTC_SEEK: std::sync::Mutex<Option<(std::time::Instant, f64)>> = std::sync::Mutex::new(None);
+static MEDIA_RESYNC_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+fn request_media_resync() {
+    MEDIA_RESYNC_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
 
 fn is_smtc_session_playing(playback: &windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackInfo) -> bool {
     use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
@@ -546,11 +711,59 @@ fn is_smtc_session_playing(playback: &windows::Media::Control::GlobalSystemMedia
     }
 }
 
+fn should_ignore_smtc_track(app_id: &str, title: &str, artist: &str) -> bool {
+    let app_id_lower = app_id.to_lowercase();
+    if app_id_lower.contains("screensketch") || app_id_lower.contains("snipping") || app_id_lower.contains("gili") {
+        return true;
+    }
+    let is_browser = app_id_lower.contains("brave")
+        || app_id_lower.contains("chrome")
+        || app_id_lower.contains("msedge")
+        || app_id_lower.contains("edge")
+        || app_id_lower.contains("firefox")
+        || app_id_lower.contains("opera")
+        || app_id_lower.contains("vivaldi")
+        || app_id_lower.contains("zen")
+        || app_id_lower.contains("arc");
+
+    if (title.eq_ignore_ascii_case("gili") || title.eq_ignore_ascii_case("gili island"))
+        && (artist.is_empty()
+            || artist.eq_ignore_ascii_case("microsoft edge")
+            || artist.eq_ignore_ascii_case("gili")
+            || is_browser)
+    {
+        return true;
+    }
+    false
+}
+
+fn is_smtc_session_ignored(
+    session: &windows::Media::Control::GlobalSystemMediaTransportControlsSession,
+) -> bool {
+    let app_id = session
+        .SourceAppUserModelId()
+        .unwrap_or_default()
+        .to_string();
+    let app_id_lower = app_id.to_lowercase();
+    if app_id_lower.contains("screensketch") || app_id_lower.contains("snipping") || app_id_lower.contains("gili") {
+        return true;
+    }
+    if let Ok(info) = session.TryGetMediaPropertiesAsync().and_then(|r| r.get()) {
+        let t = info.Title().unwrap_or_default().to_string();
+        let a = info.Artist().unwrap_or_default().to_string();
+        return should_ignore_smtc_track(&app_id, &t, &a);
+    }
+    false
+}
+
 fn resolve_smtc_session(
     manager: &windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager,
 ) -> Option<windows::Media::Control::GlobalSystemMediaTransportControlsSession> {
     if let Ok(sessions) = manager.GetSessions() {
         for s in sessions.into_iter() {
+            if is_smtc_session_ignored(&s) {
+                continue;
+            }
             if let Ok(playback) = s.GetPlaybackInfo() {
                 if is_smtc_session_playing(&playback) {
                     return Some(s);
@@ -563,6 +776,9 @@ fn resolve_smtc_session(
         if !last.0.is_empty() {
             if let Ok(sessions) = manager.GetSessions() {
                 for s in sessions.into_iter() {
+                    if is_smtc_session_ignored(&s) {
+                        continue;
+                    }
                     if let Ok(playback) = s.GetPlaybackInfo() {
                         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
                         if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
@@ -582,10 +798,12 @@ fn resolve_smtc_session(
     }
 
     if let Ok(curr) = manager.GetCurrentSession() {
-        if let Ok(playback) = curr.GetPlaybackInfo() {
-            use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
-            if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
-                return Some(curr);
+        if !is_smtc_session_ignored(&curr) {
+            if let Ok(playback) = curr.GetPlaybackInfo() {
+                use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+                if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                    return Some(curr);
+                }
             }
         }
     }
@@ -596,9 +814,9 @@ fn resolve_smtc_session(
 async fn smtc_action(action: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        use windows::Win32::System::Com::COINIT_MULTITHREADED;
 
-        let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
 
         let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
             .map_err(|e| e.to_string())?
@@ -630,9 +848,11 @@ async fn fetch_external_lyrics_api(
     body: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        // --- SSRF guard: only lyrics providers, no private/loopback/link-local hosts ---
+        // --- SSRF guard: only lyrics & artwork providers, no private/loopback/link-local hosts ---
         const ALLOWED_LYRICS_HOSTS: &[&str] = &[
             "lrclib.net",
+            "lyrics-api.boidu.dev",
+            "api.betterlyrics.org",
             "genius.com",
             "krcs.kugou.com",
             "lyrics.kugou.com",
@@ -640,6 +860,8 @@ async fn fetch_external_lyrics_api(
             "c.y.qq.com",
             "y.qq.com",
             "music.163.com",
+            "itunes.apple.com",
+            "api.deezer.com",
         ];
 
         fn validate_lyrics_url(raw: &str) -> Result<(), String> {
@@ -678,9 +900,13 @@ async fn fetch_external_lyrics_api(
 
         validate_lyrics_url(&url)?;
 
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(6))
-            .build();
+        static LYRICS_HTTP_AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+        let agent = LYRICS_HTTP_AGENT.get_or_init(|| {
+            ureq::AgentBuilder::new()
+                .timeout_connect(std::time::Duration::from_secs(4))
+                .timeout(std::time::Duration::from_secs(6))
+                .build()
+        });
 
         let req_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
         let mut request = match req_method.as_str() {
@@ -708,11 +934,629 @@ async fn fetch_external_lyrics_api(
             Ok(resp) => resp
                 .into_string()
                 .map_err(|e| format!("Failed to read response body: {}", e)),
+            // 404 means the provider simply has no entry — not a failure worth retrying
+            Err(ureq::Error::Status(404, _)) => Ok(String::new()),
+            Err(ureq::Error::Status(code, _)) => Err(format!("HTTP status {}", code)),
             Err(e) => Err(format!("HTTP request error: {}", e)),
         }
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct AiHttpResponse {
+    pub status: u16,
+    pub ok: bool,
+    pub body: String,
+}
+
+#[tauri::command]
+async fn ai_http_request(
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<String>,
+) -> Result<AiHttpResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(30))
+            .build();
+
+        let req_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
+        let mut request = match req_method.as_str() {
+            "POST" => agent.post(&url),
+            "PUT" => agent.put(&url),
+            "DELETE" => agent.delete(&url),
+            _ => agent.get(&url),
+        };
+
+        if let Some(hdrs) = headers {
+            for (k, v) in hdrs {
+                request = request.set(&k, &v);
+            }
+        }
+
+        let resp_result = if req_method == "POST" || req_method == "PUT" {
+            if let Some(b) = body {
+                request.send_string(&b)
+            } else {
+                request.call()
+            }
+        } else {
+            request.call()
+        };
+
+        match resp_result {
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.into_string().unwrap_or_default();
+                Ok(AiHttpResponse {
+                    status,
+                    ok: status >= 200 && status < 300,
+                    body,
+                })
+            }
+            Err(ureq::Error::Status(status, resp)) => {
+                let body = resp.into_string().unwrap_or_default();
+                Ok(AiHttpResponse {
+                    status,
+                    ok: false,
+                    body,
+                })
+            }
+            Err(e) => Err(format!("Network error: {}", e)),
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+static ACTIVE_AI_STREAMS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+> = std::sync::OnceLock::new();
+
+fn active_ai_streams() -> &'static std::sync::Mutex<
+    std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>,
+> {
+    ACTIVE_AI_STREAMS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+struct AiStreamRegistryGuard(String);
+
+impl Drop for AiStreamRegistryGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = active_ai_streams().lock() {
+            map.remove(&self.0);
+        }
+    }
+}
+
+#[tauri::command]
+fn cancel_ai_http_stream(stream_id: String) -> Result<(), String> {
+    if let Ok(map) = active_ai_streams().lock() {
+        if let Some(flag) = map.get(&stream_id) {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn ai_http_stream(
+    app: tauri::AppHandle,
+    stream_id: String,
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<String>,
+) -> Result<(), String> {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    if let Ok(mut map) = active_ai_streams().lock() {
+        map.insert(stream_id.clone(), Arc::clone(&cancel_flag));
+    }
+
+    let flag_clone = Arc::clone(&cancel_flag);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Emitter;
+        use std::io::BufRead;
+
+        let _guard = AiStreamRegistryGuard(stream_id.clone());
+        if flag_clone.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(120))
+            .build();
+
+        let req_method = method.unwrap_or_else(|| "POST".to_string()).to_uppercase();
+        let mut request = match req_method.as_str() {
+            "POST" => agent.post(&url),
+            _ => agent.get(&url),
+        };
+
+        if let Some(hdrs) = headers {
+            for (k, v) in hdrs {
+                request = request.set(&k, &v);
+            }
+        }
+
+        if flag_clone.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let resp_result = if let Some(b) = body {
+            request.send_string(&b)
+        } else {
+            request.call()
+        };
+
+        if flag_clone.load(Ordering::SeqCst) {
+            return;
+        }
+
+        match resp_result {
+            Ok(resp) => {
+                let reader = std::io::BufReader::new(resp.into_reader());
+                for line in reader.lines() {
+                    if flag_clone.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    match line {
+                        Ok(l) => {
+                            let _ = app.emit(&format!("ai-stream-chunk:{}", stream_id), l);
+                        }
+                        Err(e) => {
+                            if !flag_clone.load(Ordering::SeqCst) {
+                                let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Read error: {}", e));
+                            }
+                            return;
+                        }
+                    }
+                }
+                if !flag_clone.load(Ordering::SeqCst) {
+                    let _ = app.emit(&format!("ai-stream-done:{}", stream_id), ());
+                }
+            }
+            Err(ureq::Error::Status(status, resp)) => {
+                if !flag_clone.load(Ordering::SeqCst) {
+                    let body = resp.into_string().unwrap_or_default();
+                    let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("HTTP {}: {}", status, body));
+                }
+            }
+            Err(e) => {
+                if !flag_clone.load(Ordering::SeqCst) {
+                    let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Network error: {}", e));
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveWindowItemPayload {
+    pub id: String,
+    pub app_name: String,
+    pub window_title: String,
+    pub icon_type: String,
+    pub is_active: bool,
+    pub is_blocked: bool,
+    pub pid: u32,
+    pub hwnd: isize,
+    pub app_icon_url: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CapturedWindowContextPayload {
+    pub title: String,
+    pub preview_text: String,
+    pub image_data_url: Option<String>,
+    pub character_count: usize,
+}
+
+unsafe fn capture_hwnd_to_rgba(hwnd: windows::Win32::Foundation::HWND) -> Result<image::RgbaImage, String> {
+    use windows::Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
+        GetDC, GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, IsIconic, ShowWindow, SW_RESTORE,
+    };
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn PrintWindow(
+            hwnd: windows::Win32::Foundation::HWND,
+            hdc_blt: windows::Win32::Graphics::Gdi::HDC,
+            n_flags: u32,
+        ) -> windows::Win32::Foundation::BOOL;
+    }
+
+    if IsIconic(hwnd).as_bool() {
+        let _ = ShowWindow(hwnd, SW_RESTORE);
+        std::thread::sleep(std::time::Duration::from_millis(60));
+    }
+
+    let mut rect = windows::Win32::Foundation::RECT::default();
+    let _ = GetWindowRect(hwnd, &mut rect);
+    let width = (rect.right - rect.left).max(1);
+    let height = (rect.bottom - rect.top).max(1);
+
+    let hdc_screen = GetDC(None);
+    if hdc_screen.0.is_null() {
+        return Err("Failed to get screen DC".to_string());
+    }
+    let hdc_mem = CreateCompatibleDC(hdc_screen);
+    let hbitmap = CreateCompatibleBitmap(hdc_screen, width, height);
+    let old_bmp = SelectObject(hdc_mem, hbitmap);
+
+    let mut bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let mut bgra_data = vec![0u8; (width * height * 4) as usize];
+
+    // Method 1: PrintWindow with PW_RENDERFULLCONTENT (flag 2)
+    let _ = PrintWindow(hwnd, hdc_mem, 2);
+    let mut scan_lines = GetDIBits(
+        hdc_mem,
+        hbitmap,
+        0,
+        height as u32,
+        Some(bgra_data.as_mut_ptr() as *mut _),
+        &mut bmi,
+        DIB_RGB_COLORS,
+    );
+
+    // Check if PrintWindow yielded non-black content (sample every 32 bytes)
+    let is_empty = scan_lines <= 0
+        || bgra_data
+            .chunks_exact(32)
+            .all(|c| c[0] == 0 && c[1] == 0 && c[2] == 0);
+
+    // Method 2: If PrintWindow failed or returned black (e.g. Discord, Chrome GPU acceleration),
+    // capture from Desktop DC at the window's exact screen bounds
+    if is_empty {
+        let _ = BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, rect.left, rect.top, SRCCOPY);
+        scan_lines = GetDIBits(
+            hdc_mem,
+            hbitmap,
+            0,
+            height as u32,
+            Some(bgra_data.as_mut_ptr() as *mut _),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+    }
+
+    // Method 3: Direct window DC blit fallback
+    let is_still_empty = scan_lines <= 0
+        || bgra_data
+            .chunks_exact(32)
+            .all(|c| c[0] == 0 && c[1] == 0 && c[2] == 0);
+    if is_still_empty {
+        let hdc_window = GetDC(hwnd);
+        if !hdc_window.0.is_null() {
+            let _ = BitBlt(hdc_mem, 0, 0, width, height, hdc_window, 0, 0, SRCCOPY);
+            let _ = ReleaseDC(hwnd, hdc_window);
+            scan_lines = GetDIBits(
+                hdc_mem,
+                hbitmap,
+                0,
+                height as u32,
+                Some(bgra_data.as_mut_ptr() as *mut _),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            );
+        }
+    }
+
+    SelectObject(hdc_mem, old_bmp);
+    let _ = DeleteObject(hbitmap);
+    let _ = DeleteDC(hdc_mem);
+    let _ = ReleaseDC(None, hdc_screen);
+
+    if scan_lines <= 0 {
+        return Err("Failed to read bitmap bits".to_string());
+    }
+
+    let mut rgba_data = vec![0u8; (width * height * 4) as usize];
+    for i in 0..(width * height) as usize {
+        let b = bgra_data[i * 4];
+        let g = bgra_data[i * 4 + 1];
+        let r = bgra_data[i * 4 + 2];
+        let a = bgra_data[i * 4 + 3];
+        rgba_data[i * 4] = r;
+        rgba_data[i * 4 + 1] = g;
+        rgba_data[i * 4 + 2] = b;
+        rgba_data[i * 4 + 3] = if a == 0 { 255 } else { a };
+    }
+
+    image::RgbaImage::from_raw(width as u32, height as u32, rgba_data)
+        .ok_or_else(|| "Failed to construct RgbaImage".to_string())
+}
+
+#[tauri::command]
+async fn get_open_windows() -> Result<Vec<ActiveWindowItemPayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use windows::Win32::Foundation::{BOOL, HWND, LPARAM, MAX_PATH, RECT};
+        use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+            GetWindowThreadProcessId, IsWindowVisible,
+        };
+        use windows::Win32::Foundation::CloseHandle;
+
+        let fg_hwnd = unsafe { GetForegroundWindow() };
+
+        struct WindowCollector {
+            fg_hwnd: HWND,
+            windows: Vec<ActiveWindowItemPayload>,
+        }
+
+        unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let collector = &mut *(lparam.0 as *mut WindowCollector);
+
+            if !IsWindowVisible(hwnd).as_bool() {
+                return BOOL(1);
+            }
+
+            let text_len = GetWindowTextLengthW(hwnd);
+            if text_len <= 0 {
+                return BOOL(1);
+            }
+
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_ok() {
+                let width = rect.right - rect.left;
+                let height = rect.bottom - rect.top;
+                if width <= 100 || height <= 80 {
+                    return BOOL(1);
+                }
+            }
+
+            let mut title_buf = vec![0u16; (text_len + 1) as usize];
+            let len = GetWindowTextW(hwnd, &mut title_buf);
+            if len <= 0 {
+                return BOOL(1);
+            }
+            let title = String::from_utf16_lossy(&title_buf[..len as usize]).trim().to_string();
+
+            let title_lower = title.to_lowercase();
+            if title_lower == "program manager"
+                || title_lower == "windows input experience"
+                || title_lower == "gili"
+                || title_lower == "notch"
+                || title_lower.starts_with("settings")
+                || title_lower == "task switching"
+            {
+                return BOOL(1);
+            }
+
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pid == 0 || pid == std::process::id() {
+                return BOOL(1);
+            }
+
+            let mut exe_stem = String::new();
+            let mut app_icon_url = None;
+            if let Ok(handle) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+                let mut path_buf = [0u16; MAX_PATH as usize];
+                let path_len = GetModuleFileNameExW(handle, None, &mut path_buf);
+                if path_len > 0 {
+                    let full_path = String::from_utf16_lossy(&path_buf[..path_len as usize]);
+                    app_icon_url = app_icon::extract_exe_icon(&full_path);
+                    if let Some(stem) = std::path::Path::new(&full_path).file_stem() {
+                        exe_stem = stem.to_string_lossy().to_string();
+                    }
+                }
+                let _ = CloseHandle(handle);
+            }
+
+            let exe_lower = exe_stem.to_lowercase();
+            if exe_lower == "explorer" && (title_lower == "explorer" || title.is_empty()) {
+                return BOOL(1);
+            }
+
+            let is_blocked = exe_lower.contains("1password")
+                || exe_lower.contains("bitwarden")
+                || exe_lower.contains("keepass")
+                || exe_lower.contains("lastpass")
+                || title_lower.contains("password manager")
+                || title_lower.contains("pengelola sandi");
+
+            let (app_name, icon_type) = match exe_lower.as_str() {
+                "antigravity" | "antigravity ide" | "antigravity-ide" => ("Antigravity IDE".to_string(), "antigravity".to_string()),
+                "code" => ("VS Code".to_string(), "vscode".to_string()),
+                "chrome" => ("Chrome".to_string(), "chrome".to_string()),
+                "msedge" => ("Microsoft Edge".to_string(), "edge".to_string()),
+                "brave" => ("Brave".to_string(), "browser".to_string()),
+                "firefox" => ("Firefox".to_string(), "browser".to_string()),
+                "zen" => ("Zen Browser".to_string(), "browser".to_string()),
+                "arc" => ("Arc".to_string(), "browser".to_string()),
+                "winword" | "word" => ("Word".to_string(), "word".to_string()),
+                "excel" => ("Excel".to_string(), "excel".to_string()),
+                "powerpnt" | "powerpoint" => ("PowerPoint".to_string(), "powerpoint".to_string()),
+                "notepad" => ("Notepad".to_string(), "notepad".to_string()),
+                "windowsterminal" | "wt" | "powershell" | "cmd" => ("Terminal".to_string(), "terminal".to_string()),
+                "slack" => ("Slack".to_string(), "slack".to_string()),
+                "discord" => ("Discord".to_string(), "discord".to_string()),
+                "spotify" => ("Spotify".to_string(), "spotify".to_string()),
+                "telegram" => ("Telegram".to_string(), "telegram".to_string()),
+                "cursor" => ("Cursor".to_string(), "vscode".to_string()),
+                _ => {
+                    let formatted = if !exe_stem.is_empty() {
+                        let mut chars = exe_stem.chars();
+                        match chars.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+                        }
+                    } else {
+                        "Aplikasi".to_string()
+                    };
+                    (formatted, "default".to_string())
+                }
+            };
+
+            let is_active = hwnd == collector.fg_hwnd;
+
+            collector.windows.push(ActiveWindowItemPayload {
+                id: format!("win-{}", hwnd.0 as usize),
+                app_name,
+                window_title: title,
+                icon_type,
+                is_active,
+                is_blocked,
+                pid,
+                hwnd: hwnd.0 as isize,
+                app_icon_url,
+            });
+
+            BOOL(1)
+        }
+
+        let mut collector = WindowCollector {
+            fg_hwnd,
+            windows: Vec::new(),
+        };
+
+        unsafe {
+            let _ = EnumWindows(Some(enum_windows_callback), LPARAM(&mut collector as *mut WindowCollector as isize));
+        }
+
+        collector.windows.sort_by(|a, b| b.is_active.cmp(&a.is_active));
+
+        Ok(collector.windows)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[tauri::command]
+async fn capture_window_context(
+    hwnd: isize,
+    read_mode: String,
+) -> Result<CapturedWindowContextPayload, String> {
+    let (title, rgba_img, temp_path) =
+        tauri::async_runtime::spawn_blocking(move || -> Result<(String, image::RgbaImage, std::path::PathBuf), String> {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW};
+
+            let target_hwnd = HWND(hwnd as _);
+            let mut title = String::new();
+            let text_len = unsafe { GetWindowTextLengthW(target_hwnd) };
+            if text_len > 0 {
+                let mut buf = vec![0u16; (text_len + 1) as usize];
+                let len = unsafe { GetWindowTextW(target_hwnd, &mut buf) };
+                if len > 0 {
+                    title = String::from_utf16_lossy(&buf[..len as usize]).trim().to_string();
+                }
+            }
+
+            let rgba_img = unsafe { capture_hwnd_to_rgba(target_hwnd) }?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let temp_path = std::env::temp_dir().join(format!(
+                "gili_win_ocr_{}_{}.png",
+                std::process::id(),
+                now
+            ));
+            let _ = rgba_img.save(&temp_path);
+            Ok((title, rgba_img, temp_path))
+        })
+        .await
+        .map_err(|e| format!("Window capture task panicked: {}", e))??;
+
+    // Run OCR on the captured image to get text context
+    let ocr_res = extract_image_text(temp_path.to_string_lossy().to_string()).await;
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<CapturedWindowContextPayload, String> {
+        use base64::Engine;
+
+        let _ = std::fs::remove_file(&temp_path);
+
+        let has_meaningful_text = match &ocr_res {
+            Ok(t) => t.trim().len() >= 15,
+            Err(_) => false,
+        };
+
+        let raw_text = match ocr_res {
+            Ok(t) if t.trim().len() >= 15 => t,
+            _ => {
+                if !title.is_empty() {
+                    format!(
+                        "Konteks jendela: {}\n(Teks tidak terdeteksi via OCR. Tangkapan layar visual jendela otomatis disertakan)",
+                        title
+                    )
+                } else {
+                    "Tangkapan layar visual jendela disertakan".to_string()
+                }
+            }
+        };
+
+        let needs_screenshot = read_mode == "screenshot" || !has_meaningful_text;
+
+        let image_data_url = if needs_screenshot {
+            let (w, h) = (rgba_img.width(), rgba_img.height());
+            let max_dim = 1400.0f32;
+            let dyn_img = if (w as f32) > max_dim || (h as f32) > max_dim {
+                let scale = max_dim / (w.max(h) as f32);
+                let tw = ((w as f32 * scale).round() as u32).max(1);
+                let th = ((h as f32 * scale).round() as u32).max(1);
+                image::DynamicImage::ImageRgba8(rgba_img)
+                    .resize(tw, th, image::imageops::FilterType::Triangle)
+            } else {
+                image::DynamicImage::ImageRgba8(rgba_img)
+            };
+
+            let mut jpeg_bytes = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
+            if dyn_img
+                .to_rgb8()
+                .write_to(&mut cursor, image::ImageFormat::Jpeg)
+                .is_ok()
+            {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+                Some(format!("data:image/jpeg;base64,{}", b64))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(CapturedWindowContextPayload {
+            title: if !title.is_empty() { title } else { "Jendela".to_string() },
+            preview_text: raw_text.clone(),
+            image_data_url,
+            character_count: raw_text.len(),
+        })
+    })
+    .await
+    .map_err(|e| format!("Window capture encode task panicked: {}", e))?
 }
 
 #[tauri::command]
@@ -722,9 +1566,9 @@ async fn smtc_seek(position_sec: f64) -> Result<(), String> {
     }
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        use windows::Win32::System::Com::COINIT_MULTITHREADED;
 
-        let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
 
         let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
             .map_err(|e| e.to_string())?
@@ -751,13 +1595,13 @@ async fn smtc_seek(position_sec: f64) -> Result<(), String> {
 static LAST_TEXT_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
 static LAST_TEXT_SCALE_CHECK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-fn get_system_text_scale() -> f64 {
+pub(crate) fn get_system_text_scale() -> f64 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let last = LAST_TEXT_SCALE_CHECK.load(std::sync::atomic::Ordering::Relaxed);
-    if now.saturating_sub(last) > 1000 {
+    if now.saturating_sub(last) > 400 {
         LAST_TEXT_SCALE_CHECK.store(now, std::sync::atomic::Ordering::Relaxed);
         let scale = windows::UI::ViewManagement::UISettings::new()
             .and_then(|u| u.TextScaleFactor())
@@ -768,6 +1612,11 @@ fn get_system_text_scale() -> f64 {
     } else {
         (LAST_TEXT_SCALE.load(std::sync::atomic::Ordering::Relaxed) as f64) / 100.0
     }
+}
+
+#[tauri::command]
+fn get_system_text_scale_factor() -> f64 {
+    get_system_text_scale()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -830,9 +1679,7 @@ pub struct PillState {
     pub is_island: bool,
     pub dpr: f32,
     pub target_monitor: Option<String>,
-    pub secondary_width: f32,
-    pub secondary_height: f32,
-    pub secondary_dpr: f32,
+    pub secondary_pills: std::collections::HashMap<String, (f32, f32, f32)>,
 }
 
 impl Default for PillState {
@@ -846,9 +1693,7 @@ impl Default for PillState {
             is_island: false,
             dpr: 1.0,
             target_monitor: None,
-            secondary_width: 120.0,
-            secondary_height: 35.0,
-            secondary_dpr: 1.0,
+            secondary_pills: std::collections::HashMap::new(),
         }
     }
 }
@@ -877,24 +1722,15 @@ fn resolve_target_monitor(
 
     if let Some(target) = target_id {
         let trimmed_target = target.trim();
+        if trimmed_target.eq_ignore_ascii_case("all") {
+            return window
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .or_else(|| window.current_monitor().ok().flatten())
+                .or_else(|| monitors.into_iter().next());
+        }
         if !trimmed_target.is_empty() && !trimmed_target.eq_ignore_ascii_case("primary") {
-            if trimmed_target.eq_ignore_ascii_case("secondary") {
-                let primary_name = window
-                    .primary_monitor()
-                    .ok()
-                    .flatten()
-                    .and_then(|m| m.name().map(|s| s.to_string()));
-                if let Some(sec) = monitors.iter().find(|m| {
-                    if let Some(ref p_name) = primary_name {
-                        m.name().map(|s| s.to_string()).as_ref() != Some(p_name)
-                    } else {
-                        m.position().x != 0 || m.position().y != 0
-                    }
-                }) {
-                    return Some(sec.clone());
-                }
-            }
-
             if let Some(found) = monitors.iter().find(|m| {
                 if let Some(name) = m.name() {
                     let clean_m = name.trim_start_matches(r"\\.\");
@@ -924,6 +1760,51 @@ fn resolve_target_monitor(
         .or_else(|| monitors.into_iter().next())
 }
 
+fn compute_notch_window_rect(
+    monitor: &tauri::Monitor,
+    pos: NotchPos,
+    top_offset_phys: i32,
+) -> (i32, i32, u32, u32) {
+    let work_area = monitor.work_area();
+    let physical_size = monitor.size();
+    let physical_pos = monitor.position();
+    let m_sf = monitor.scale_factor();
+    let expected_w = (820.0 * m_sf).round() as u32;
+    let expected_h = (460.0 * m_sf).round() as u32;
+
+    let x = if pos.is_left() {
+        physical_pos.x + top_offset_phys
+    } else if pos.is_right() {
+        physical_pos.x + (physical_size.width as i32 - expected_w as i32) - top_offset_phys
+    } else {
+        physical_pos.x + (physical_size.width as i32 - expected_w as i32) / 2
+    };
+
+    let y = if pos.is_bottom() {
+        let base = work_area.position.y + (work_area.size.height as i32 - expected_h as i32);
+        base - top_offset_phys
+    } else if pos.is_top() {
+        physical_pos.y + top_offset_phys
+    } else {
+        physical_pos.y + (physical_size.height as i32 - expected_h as i32) / 2
+    };
+
+    (x, y, expected_w, expected_h)
+}
+
+fn position_notch_window_on_monitor(
+    window: &tauri::WebviewWindow,
+    monitor: &tauri::Monitor,
+    pos: NotchPos,
+    top_offset_phys: i32,
+) {
+    let (x, y, expected_w, expected_h) = compute_notch_window_rect(monitor, pos, top_offset_phys);
+
+    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(expected_w, expected_h)));
+    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+}
+
 fn position_notch_window(
     window: &tauri::WebviewWindow,
     pos: NotchPos,
@@ -931,29 +1812,7 @@ fn position_notch_window(
     target_monitor_id: Option<&str>,
 ) {
     if let Some(monitor) = resolve_target_monitor(window, target_monitor_id) {
-        let work_area = monitor.work_area();
-        let physical_size = monitor.size();
-        let physical_pos = monitor.position();
-        let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(820, 460));
-
-        let x = if pos.is_left() {
-            physical_pos.x + top_offset_phys
-        } else if pos.is_right() {
-            physical_pos.x + (physical_size.width as i32 - window_size.width as i32) - top_offset_phys
-        } else {
-            physical_pos.x + (physical_size.width as i32 - window_size.width as i32) / 2
-        };
-
-        let y = if pos.is_bottom() {
-            let base = work_area.position.y + (work_area.size.height as i32 - window_size.height as i32);
-            base - top_offset_phys
-        } else if pos.is_top() {
-            physical_pos.y + top_offset_phys
-        } else {
-            physical_pos.y + (physical_size.height as i32 - window_size.height as i32) / 2
-        };
-
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        position_notch_window_on_monitor(window, &monitor, pos, top_offset_phys);
     }
 }
 
@@ -1010,89 +1869,233 @@ fn get_available_monitors(app: tauri::AppHandle, window: tauri::WebviewWindow) -
         .collect()
 }
 
-fn ensure_secondary_notch_window(app: &tauri::AppHandle, show: bool) -> Option<tauri::WebviewWindow> {
-    if let Some(sec_win) = app.get_webview_window("notch_secondary") {
-        if show {
-            let _ = sec_win.unminimize();
-            let _ = sec_win.show();
-            if let Ok(size) = app.state::<PillSize>().0.lock() {
-                let sf = sec_win.scale_factor().unwrap_or(1.0);
-                let effective_sf = if size.secondary_dpr > 0.0 { (size.secondary_dpr as f64).max(sf) } else { sf * get_system_text_scale() };
-                let phys_offset = if size.is_island { (size.top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-                position_notch_window(&sec_win, size.pos, phys_offset, Some("secondary"));
-            }
-        } else {
-            let _ = sec_win.hide();
-        }
-        return Some(sec_win);
-    }
+static SYNC_DISPLAYS_QUEUE: std::sync::Mutex<(bool, Option<bool>)> = std::sync::Mutex::new((false, None));
 
-    if !show {
-        return None;
+fn sync_all_displays_windows(
+    app: &tauri::AppHandle,
+    is_all: bool,
+) {
+    {
+        let mut state = match SYNC_DISPLAYS_QUEUE.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        state.1 = Some(is_all);
+        if state.0 {
+            return;
+        }
+        state.0 = true;
     }
 
     let app_handle = app.clone();
-    match tauri::WebviewWindowBuilder::new(
-        app,
-        "notch_secondary",
-        tauri::WebviewUrl::App("index.html".into()),
-    )
-    .title("Gili Notch 2")
-    .inner_size(820.0, 460.0)
-    .transparent(true)
-    .decorations(false)
-    .shadow(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .resizable(false)
-    .visible(true)
-    .focused(false)
-    .initialization_script("window.__IS_SECONDARY_NOTCH__ = true;")
-    .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
-    .build()
-    {
-        Ok(win) => {
-            let _ = win.set_ignore_cursor_events(true);
-            let _ = win.set_shadow(false);
-
-            let win_for_events = win.clone();
-            let app_for_events = app_handle.clone();
-            win.on_window_event(move |event| {
-                use tauri::Emitter;
-                match event {
-                    tauri::WindowEvent::CloseRequested { api, .. } => {
-                        api.prevent_close();
-                        let _ = win_for_events.emit("click-outside", ());
-                    }
-                    tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Resized(_) => {
-                        if win_for_events.is_minimized().unwrap_or(false) {
-                            let _ = win_for_events.unminimize();
-                        }
-                        if let Ok(size) = app_for_events.state::<PillSize>().0.lock() {
-                            let sf = win_for_events.scale_factor().unwrap_or(1.0);
-                            let effective_sf = if size.secondary_dpr > 0.0 { (size.secondary_dpr as f64).max(sf) } else { sf * get_system_text_scale() };
-                            let phys_offset = if size.is_island { (size.top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-                            position_notch_window(&win_for_events, size.pos, phys_offset, Some("secondary"));
-                        }
-                    }
-                    _ => {}
+    std::thread::spawn(move || {
+        struct SyncGuard;
+        impl Drop for SyncGuard {
+            fn drop(&mut self) {
+                if let Ok(mut state) = SYNC_DISPLAYS_QUEUE.lock() {
+                    state.0 = false;
                 }
-            });
-
-            if let Ok(size) = app.state::<PillSize>().0.lock() {
-                let sf = win.scale_factor().unwrap_or(1.0);
-                let effective_sf = if size.secondary_dpr > 0.0 { (size.secondary_dpr as f64).max(sf) } else { sf * get_system_text_scale() };
-                let phys_offset = if size.is_island { (size.top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-                position_notch_window(&win, size.pos, phys_offset, Some("secondary"));
             }
+        }
+        let _guard = SyncGuard;
 
-            Some(win)
+        loop {
+            let next_is_all = {
+                let mut state = match SYNC_DISPLAYS_QUEUE.lock() {
+                    Ok(g) => g,
+                    Err(p) => p.into_inner(),
+                };
+                match state.1.take() {
+                    Some(val) => val,
+                    None => {
+                        state.0 = false;
+                        return;
+                    }
+                }
+            };
+            sync_all_displays_windows_inner(&app_handle, next_is_all);
         }
-        Err(e) => {
-            eprintln!("Failed to create secondary notch window: {:?}", e);
-            None
+    });
+}
+
+fn sync_all_displays_windows_inner(
+    app_handle: &tauri::AppHandle,
+    is_all: bool,
+) {
+        let app_handle = app_handle.clone();
+
+        let state_guard = app_handle.state::<PillSize>();
+        if !is_all {
+            for (label, win) in app_handle.webview_windows() {
+                if label.starts_with("notch_secondary_") {
+                    let _ = win.destroy();
+                }
+            }
+            if let Ok(mut s) = state_guard.0.lock() {
+                s.secondary_pills.clear();
+            }
+            return;
         }
-    }
+
+        let main_win = match app_handle.get_webview_window("main") {
+            Some(w) => w,
+            None => return,
+        };
+
+        let monitors = match main_win.available_monitors() {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+
+        // If only 1 monitor or none, no secondary notch should ever be created
+        if monitors.len() <= 1 {
+            for (label, win) in app_handle.webview_windows() {
+                if label.starts_with("notch_secondary_") {
+                    let _ = win.destroy();
+                }
+            }
+            if let Ok(mut s) = state_guard.0.lock() {
+                s.secondary_pills.clear();
+            }
+            return;
+        }
+
+        let primary_mon = main_win
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| {
+                monitors.iter().find(|m| m.position().x == 0 && m.position().y == 0).cloned()
+            })
+            .or_else(|| monitors.first().cloned());
+
+        let (pos, top_offset, is_island, dpr) = if let Ok(s) = state_guard.0.lock() {
+            (s.pos, s.top_offset, s.is_island, s.dpr)
+        } else {
+            (NotchPos::Top, 0.0, false, 1.0)
+        };
+
+        let secondary_monitors: Vec<tauri::Monitor> = monitors
+            .into_iter()
+            .filter(|m| {
+                if let Some(ref p) = primary_mon {
+                    if m.position() == p.position() && m.size() == p.size() {
+                        return false;
+                    }
+                    if let (Some(m_name), Some(p_name)) = (m.name(), p.name()) {
+                        if m_name == p_name {
+                            return false;
+                        }
+                    }
+                }
+                true
+            })
+            .collect();
+
+        let sec_count = secondary_monitors.len();
+
+        for (label, win) in app_handle.webview_windows() {
+            if label.starts_with("notch_secondary_") {
+                if let Ok(idx) = label.trim_start_matches("notch_secondary_").parse::<usize>() {
+                    if idx > sec_count {
+                        let _ = win.destroy();
+                    }
+                }
+            }
+        }
+
+        for (i, mon) in secondary_monitors.into_iter().enumerate() {
+            let sec_idx = i + 1;
+            let label = format!("notch_secondary_{}", sec_idx);
+            let m_sf = mon.scale_factor();
+            let effective_sf = if dpr > 0.0 { (dpr as f64).max(m_sf) } else { m_sf * get_system_text_scale() };
+            let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+
+            if let Some(sec_win) = app_handle.get_webview_window(&label) {
+                let _ = sec_win.set_decorations(false);
+                let _ = sec_win.set_shadow(false);
+                position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
+                let _ = sec_win.show();
+                ensure_window_topmost(&sec_win);
+            } else {
+                let (init_x, init_y, _, _) = compute_notch_window_rect(&mon, pos, phys_offset);
+                let init_log_x = (init_x as f64) / m_sf;
+                let init_log_y = (init_y as f64) / m_sf;
+                let sec_url = format!("index.html?window=secondary&monitor={}", sec_idx);
+                let builder = tauri::WebviewWindowBuilder::new(
+                    &app_handle,
+                    &label,
+                    tauri::WebviewUrl::App(sec_url.into()),
+                )
+                .title(format!("Gili Secondary Notch {}", sec_idx))
+                .position(init_log_x, init_log_y)
+                .inner_size(820.0, 460.0)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .maximizable(false)
+                .minimizable(false)
+                .visible(true)
+                .focused(false)
+                .initialization_script("window.__IS_SECONDARY_NOTCH_WINDOW__ = true;")
+                .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64");
+
+                match builder.build() {
+                    Ok(sec_win) => {
+                        let _ = sec_win.set_decorations(false);
+                        let _ = sec_win.set_ignore_cursor_events(true);
+                        let _ = sec_win.set_shadow(false);
+                        position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
+                        ensure_window_topmost(&sec_win);
+
+                        let sec_for_events = sec_win.clone();
+                        let mon_for_events = mon.clone();
+                        let app_for_sec = app_handle.clone();
+                        sec_win.on_window_event(move |event| {
+                            match event {
+                                tauri::WindowEvent::CloseRequested { api, .. } => {
+                                    api.prevent_close();
+                                }
+                                tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Resized(_) => {
+                                    if sec_for_events.is_minimized().unwrap_or(false) {
+                                        let _ = sec_for_events.unminimize();
+                                    }
+                                    let (p, off, isl, d) = app_for_sec
+                                        .state::<PillSize>()
+                                        .0
+                                        .lock()
+                                        .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr))
+                                        .unwrap_or((NotchPos::Top, 0.0, false, 1.0));
+                                    let live_mon = sec_for_events
+                                        .current_monitor()
+                                        .ok()
+                                        .flatten()
+                                        .or_else(|| {
+                                            sec_for_events.available_monitors().ok().and_then(|mons| {
+                                                let target_name = mon_for_events.name();
+                                                mons.into_iter()
+                                                    .find(|m| target_name.is_some() && m.name() == target_name)
+                                            })
+                                        })
+                                        .unwrap_or_else(|| mon_for_events.clone());
+                                    let sf = sec_for_events.scale_factor().unwrap_or_else(|_| live_mon.scale_factor());
+                                    let eff_sf = if d > 0.0 { (d as f64).max(sf) } else { sf * get_system_text_scale() };
+                                    let p_off = if isl { (off as f64 * eff_sf).round() as i32 } else { 0 };
+                                    position_notch_window_on_monitor(&sec_for_events, &live_mon, p, p_off);
+                                }
+                                _ => {}
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create secondary notch window {}: {:?}", label, e);
+                    }
+                }
+            }
+        }
 }
 
 #[tauri::command]
@@ -1110,8 +2113,6 @@ fn set_target_monitor(
         return;
     };
 
-    let is_all = target_monitor.as_deref().map(|s| s.eq_ignore_ascii_case("all")).unwrap_or(false);
-
     let (pos, top_offset, is_island, dpr) = if let Ok(mut size) = state.0.lock() {
         size.target_monitor = target_monitor.clone();
         (size.pos, size.top_offset, size.is_island, size.dpr)
@@ -1122,14 +2123,10 @@ fn set_target_monitor(
     let sf = main_win.scale_factor().unwrap_or(1.0);
     let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
     let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+    position_notch_window(&main_win, pos, phys_offset, target_monitor.as_deref());
 
-    if is_all {
-        position_notch_window(&main_win, pos, phys_offset, Some("primary"));
-        let _ = ensure_secondary_notch_window(&app, true);
-    } else {
-        let _ = ensure_secondary_notch_window(&app, false);
-        position_notch_window(&main_win, pos, phys_offset, target_monitor.as_deref());
-    }
+    let is_all = target_monitor.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false);
+    sync_all_displays_windows(&app, is_all);
 }
 
 #[tauri::command]
@@ -1154,7 +2151,7 @@ fn set_window_position(
     let pos = NotchPos::from_str_or_bottom(position.as_deref(), is_bottom);
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
-    let (dpr, sec_dpr, chosen_monitor) = if let Ok(mut size) = state.0.lock() {
+    let (dpr, chosen_monitor) = if let Ok(mut size) = state.0.lock() {
         size.is_bottom = pos.is_bottom();
         size.pos = pos;
         size.top_offset = top_offset;
@@ -1162,104 +2159,17 @@ fn set_window_position(
         if target_monitor.is_some() {
             size.target_monitor = target_monitor.clone();
         }
-        (size.dpr, size.secondary_dpr, size.target_monitor.clone())
+        (size.dpr, size.target_monitor.clone())
     } else {
-        (1.0, 1.0, target_monitor)
+        (1.0, target_monitor)
     };
-
-    let is_all = chosen_monitor.as_deref().map(|s| s.eq_ignore_ascii_case("all")).unwrap_or(false);
-
     let sf = target_win.scale_factor().unwrap_or(1.0);
     let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
     let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+    position_notch_window(&target_win, pos, phys_offset, chosen_monitor.as_deref());
 
-    if is_all {
-        position_notch_window(&target_win, pos, phys_offset, Some("primary"));
-        if let Some(sec_win) = app.get_webview_window("notch_secondary") {
-            let sec_sf = sec_win.scale_factor().unwrap_or(1.0);
-            let sec_eff_sf = if sec_dpr > 0.0 { (sec_dpr as f64).max(sec_sf) } else { sec_sf * get_system_text_scale() };
-            let sec_offset = if is_island { (top_offset as f64 * sec_eff_sf).round() as i32 } else { 0 };
-            position_notch_window(&sec_win, pos, sec_offset, Some("secondary"));
-        }
-    } else {
-        position_notch_window(&target_win, pos, phys_offset, chosen_monitor.as_deref());
-    }
-}
-
-static IS_TRIM_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(windows)]
-fn trim_webview_working_set() {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::ProcessStatus::{EmptyWorkingSet, EnumProcesses};
-    use windows::Win32::System::Threading::{
-        GetCurrentProcess, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
-    };
-
-    unsafe {
-        let _ = EmptyWorkingSet(GetCurrentProcess());
-
-        let mut pids = [0u32; 1024];
-        let mut bytes_returned = 0u32;
-        if EnumProcesses(
-            pids.as_mut_ptr(),
-            std::mem::size_of_val(&pids) as u32,
-            &mut bytes_returned,
-        )
-        .is_ok()
-        {
-            let count = (bytes_returned as usize) / std::mem::size_of::<u32>();
-            for &pid in &pids[..count] {
-                if pid == 0 {
-                    continue;
-                }
-                if let Ok(handle) = OpenProcess(
-                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA,
-                    false,
-                    pid,
-                ) {
-                    let mut buf = [0u16; 260];
-                    let mut len = buf.len() as u32;
-                    if QueryFullProcessImageNameW(
-                        handle,
-                        PROCESS_NAME_FORMAT(0),
-                        windows::core::PWSTR(buf.as_mut_ptr()),
-                        &mut len,
-                    )
-                    .is_ok()
-                    {
-                        let path = String::from_utf16_lossy(&buf[..len as usize]);
-                        if path.to_ascii_lowercase().ends_with("msedgewebview2.exe") {
-                            let _ = EmptyWorkingSet(handle);
-                        }
-                    }
-                    let _ = CloseHandle(handle);
-                }
-            }
-        }
-    }
-}
-
-fn schedule_working_set_trim(delay_ms: u64) {
-    #[cfg(windows)]
-    {
-        if IS_TRIM_SCHEDULED
-            .compare_exchange(
-                false,
-                true,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            )
-            .is_ok()
-        {
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                trim_webview_working_set();
-                IS_TRIM_SCHEDULED.store(false, std::sync::atomic::Ordering::SeqCst);
-            });
-        }
-    }
+    let is_all = chosen_monitor.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false);
+    sync_all_displays_windows(&app, is_all);
 }
 
 #[tauri::command]
@@ -1274,63 +2184,41 @@ fn update_pill_size(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, PillSize>,
 ) {
-    let label = window.label().to_string();
-    if label != "main" && label != "notch_secondary" {
+    let win_label = window.label();
+    if win_label.starts_with("notch_secondary_") {
+        let sec_dpr = dpr.unwrap_or(0.0);
+        if let Ok(mut size) = state.0.lock() {
+            size.secondary_pills.insert(win_label.to_string(), (width, height, sec_dpr));
+        }
         return;
     }
-    let is_secondary = label == "notch_secondary";
+    if win_label != "main" {
+        return;
+    }
     let pos = NotchPos::from_str_or_bottom(position.as_deref(), is_bottom);
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
     let dpr = dpr.unwrap_or(0.0);
     if let Ok(mut size) = state.0.lock() {
-        let (was_expanded, now_expanded) = if is_secondary {
-            let was = size.secondary_width > 95.0 && size.secondary_height > 95.0;
-            let now = width > 95.0 && height > 95.0;
-            size.secondary_width = width;
-            size.secondary_height = height;
-            if dpr > 0.0 {
-                size.secondary_dpr = dpr;
-            }
-            (was, now)
-        } else {
-            let was = size.width > 95.0 && size.height > 95.0;
-            let now = width > 95.0 && height > 95.0;
-            size.width = width;
-            size.height = height;
-            if dpr > 0.0 {
-                size.dpr = dpr;
-            }
-            (was, now)
-        };
-
         let should_reposition = size.top_offset != top_offset
             || size.is_island != is_island
             || size.is_bottom != pos.is_bottom()
             || size.pos != pos;
-
+        size.width = width;
+        size.height = height;
         size.is_bottom = pos.is_bottom();
         size.pos = pos;
         size.top_offset = top_offset;
         size.is_island = is_island;
-
-        if should_reposition {
-            let cur_dpr = if is_secondary { size.secondary_dpr } else { size.dpr };
-            let sf = window.scale_factor().unwrap_or(1.0);
-            let effective_sf = if cur_dpr > 0.0 { (cur_dpr as f64).max(sf) } else { sf * get_system_text_scale() };
-            let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-            let target_mon = if is_secondary {
-                Some("secondary")
-            } else if size.target_monitor.as_deref().map(|s| s.eq_ignore_ascii_case("all")).unwrap_or(false) {
-                Some("primary")
-            } else {
-                size.target_monitor.as_deref()
-            };
-            position_notch_window(&window, pos, phys_offset, target_mon);
+        if dpr > 0.0 {
+            size.dpr = dpr;
         }
 
-        if was_expanded && !now_expanded {
-            schedule_working_set_trim(1200);
+        if should_reposition {
+            let sf = window.scale_factor().unwrap_or(1.0);
+            let effective_sf = if size.dpr > 0.0 { (size.dpr as f64).max(sf) } else { sf * get_system_text_scale() };
+            let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+            position_notch_window(&window, pos, phys_offset, size.target_monitor.as_deref());
         }
     }
 }
@@ -1342,6 +2230,10 @@ fn calculate_notch_hit(
     sf: f64,
     pill: &PillState,
 ) -> bool {
+    if pill.width <= 0.0 || pill.height <= 0.0 {
+        return false;
+    }
+
     let effective_sf = if pill.dpr > 0.0 {
         (pill.dpr as f64).max(sf)
     } else {
@@ -1451,7 +2343,6 @@ fn set_shelf_drag(active: bool, window: tauri::WebviewWindow) {
     if active {
         let _ = window.set_ignore_cursor_events(true);
     } else {
-        let _ = window.set_ignore_cursor_events(false);
         ensure_window_topmost(&window);
     }
 }
@@ -1695,6 +2586,7 @@ pub struct SystemPowerInfo {
     pub is_charging: bool,
     pub percent: u8,
     pub seconds_remaining: Option<u32>,
+    pub battery_saver: bool,
 }
 
 #[tauri::command]
@@ -1725,6 +2617,7 @@ fn get_system_power_info() -> Option<SystemPowerInfo> {
         }
         let is_charging = power_status.ACLineStatus == 1;
         let percent = power_status.BatteryLifePercent;
+        let battery_saver = power_status.SystemStatusFlag == 1;
         let seconds_remaining = if power_status.BatteryLifeTime != 0xFFFFFFFF {
             Some(power_status.BatteryLifeTime)
         } else {
@@ -1734,10 +2627,132 @@ fn get_system_power_info() -> Option<SystemPowerInfo> {
             is_charging,
             percent,
             seconds_remaining,
+            battery_saver,
         })
     } else {
         None
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WindowsScreenTimeInfo {
+    pub date_key: String,
+    pub active_seconds: u64,
+    pub uptime_awake_seconds: u64,
+}
+
+struct DailyScreenTimeBaseline {
+    date_key: String,
+    base_today_secs: u64,
+    base_unbiased_secs: u64,
+}
+
+static SCREEN_TIME_BASELINE: std::sync::OnceLock<std::sync::Mutex<DailyScreenTimeBaseline>> =
+    std::sync::OnceLock::new();
+
+#[repr(C)]
+#[derive(Default)]
+struct LocalSystemTime {
+    w_year: u16,
+    w_month: u16,
+    w_day_of_week: u16,
+    w_day: u16,
+    w_hour: u16,
+    w_minute: u16,
+    w_second: u16,
+    w_milliseconds: u16,
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetTickCount64() -> u64;
+    fn QueryUnbiasedInterruptTime(unbiased_time: *mut u64) -> i32;
+    fn GetLocalTime(lp_system_time: *mut LocalSystemTime);
+}
+
+fn compute_windows_screen_time() -> WindowsScreenTimeInfo {
+    use windows::Win32::System::Power::{CallNtPowerInformation, LastWakeTime};
+
+    let mut lt = LocalSystemTime::default();
+    unsafe { GetLocalTime(&mut lt) };
+    let date_key = format!("{:04}-{:02}-{:02}", lt.w_year, lt.w_month, lt.w_day);
+    let seconds_since_midnight =
+        (lt.w_hour as u64) * 3600 + (lt.w_minute as u64) * 60 + (lt.w_second as u64);
+
+    let uptime_wall_secs = unsafe { GetTickCount64() } / 1000;
+
+    let mut unbiased_ticks: u64 = 0;
+    let unbiased_ok = unsafe { QueryUnbiasedInterruptTime(&mut unbiased_ticks) != 0 };
+    let unbiased_awake_secs = if unbiased_ok {
+        unbiased_ticks / 10_000_000
+    } else {
+        uptime_wall_secs
+    };
+
+    let mut wake_ticks: u64 = 0;
+    let wake_status = unsafe {
+        CallNtPowerInformation(
+            LastWakeTime,
+            None,
+            0,
+            Some(&mut wake_ticks as *mut u64 as *mut core::ffi::c_void),
+            std::mem::size_of::<u64>() as u32,
+        )
+    };
+    let last_wake_secs = if wake_status.0 == 0 {
+        wake_ticks / 10_000_000
+    } else {
+        0
+    };
+
+    let estimate_base_today = || -> u64 {
+        if uptime_wall_secs <= seconds_since_midnight {
+            unbiased_awake_secs.min(seconds_since_midnight)
+        } else {
+            // LastWakeTime tracks biased interrupt time alongside GetTickCount64
+            let awake_since_last_wake = uptime_wall_secs.saturating_sub(last_wake_secs);
+            if last_wake_secs > 0 && awake_since_last_wake < seconds_since_midnight {
+                awake_since_last_wake
+            } else {
+                seconds_since_midnight
+            }
+        }
+    };
+
+    let lock = SCREEN_TIME_BASELINE.get_or_init(|| {
+        std::sync::Mutex::new(DailyScreenTimeBaseline {
+            date_key: date_key.clone(),
+            base_today_secs: estimate_base_today(),
+            base_unbiased_secs: unbiased_awake_secs,
+        })
+    });
+
+    let active_seconds = match lock.lock() {
+        Ok(mut guard) => {
+            if guard.date_key != date_key {
+                guard.date_key = date_key.clone();
+                guard.base_today_secs = estimate_base_today();
+                guard.base_unbiased_secs = unbiased_awake_secs;
+                guard.base_today_secs
+            } else {
+                (guard.base_today_secs
+                    + unbiased_awake_secs.saturating_sub(guard.base_unbiased_secs))
+                .min(seconds_since_midnight)
+            }
+        }
+        Err(_) => estimate_base_today(),
+    };
+
+    WindowsScreenTimeInfo {
+        date_key,
+        active_seconds,
+        uptime_awake_seconds: unbiased_awake_secs,
+    }
+}
+
+#[tauri::command]
+fn get_windows_screen_time() -> WindowsScreenTimeInfo {
+    compute_windows_screen_time()
 }
 
 #[tauri::command]
@@ -1762,9 +2777,9 @@ fn set_master_volume(level: f32) {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
         use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-        use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        use windows::Win32::System::Com::{CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
                 if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
                     if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
@@ -1839,10 +2854,10 @@ async fn get_master_volume() -> f32 {
     tauri::async_runtime::spawn_blocking(|| {
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
         use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
-        use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        use windows::Win32::System::Com::{CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
         let mut vol = 0.5;
+        let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
                 if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
                     if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
@@ -1978,7 +2993,7 @@ fn get_username() -> String {
     std::env::var("USERNAME").unwrap_or_else(|_| "User".to_string())
 }
 
-static LAST_SYS_INFO: std::sync::Mutex<Option<(std::time::Instant, (String, String))>> = std::sync::Mutex::new(None);
+static LAST_SYS_INFO: std::sync::Mutex<Option<(std::time::Instant, (String, String, bool))>> = std::sync::Mutex::new(None);
 static IS_FETCHING_SYS_INFO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn get_connected_bluetooth_devices() -> Vec<(String, Option<u8>)> {
@@ -2049,12 +3064,12 @@ fn get_connected_bluetooth_devices() -> Vec<(String, Option<u8>)> {
                 continue;
             }
 
-            let u16_slice = std::slice::from_raw_parts(
-                name_buf.as_ptr() as *const u16,
-                name_buf.len() / 2,
-            );
-            let len = u16_slice.iter().position(|&c| c == 0).unwrap_or(u16_slice.len());
-            let friendly_name = String::from_utf16_lossy(&u16_slice[..len]).trim().to_string();
+            let u16_words: Vec<u16> = name_buf
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .take_while(|&w| w != 0)
+                .collect();
+            let friendly_name = String::from_utf16_lossy(&u16_words).trim().to_string();
             if friendly_name.is_empty() {
                 continue;
             }
@@ -2121,7 +3136,7 @@ fn get_connected_bluetooth_devices() -> Vec<(String, Option<u8>)> {
 }
 
 #[tauri::command]
-fn get_system_info(app_handle: tauri::AppHandle) -> (String, String) {
+fn get_system_info(app_handle: tauri::AppHandle) -> (String, String, bool) {
     let mut cached = None;
     let mut needs_refresh = false;
 
@@ -2185,7 +3200,7 @@ fn get_system_info(app_handle: tauri::AppHandle) -> (String, String) {
                 "Not Connected".to_string()
             };
 
-            let result = (wifi_name, bt_name);
+            let result = (wifi_name, bt_name, connectivity::is_ethernet_connected());
             if let Ok(mut guard) = LAST_SYS_INFO.lock() {
                 *guard = Some((std::time::Instant::now(), result.clone()));
             }
@@ -2194,17 +3209,34 @@ fn get_system_info(app_handle: tauri::AppHandle) -> (String, String) {
         });
     }
 
-    cached.unwrap_or_else(|| ("Not Connected".to_string(), "Not Connected".to_string()))
+    cached.unwrap_or_else(|| ("Not Connected".to_string(), "Not Connected".to_string(), false))
 }
 
 #[derive(serde::Serialize)]
 struct FilePreviewResult {
     size_formatted: String,
+    size_bytes: u64,
     thumbnail: Option<String>,
+    vision_data_url: Option<String>,
+}
+
+fn is_supported_raster_image_ext(ext: &str) -> bool {
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
+    )
+}
+
+fn is_supported_raster_image_path(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(is_supported_raster_image_ext)
+        .unwrap_or(false)
 }
 
 #[tauri::command]
-async fn get_file_preview(path: String) -> Result<FilePreviewResult, String> {
+async fn get_file_preview(path: String, include_vision: Option<bool>) -> Result<FilePreviewResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use std::fs;
         use std::path::Path;
@@ -2233,25 +3265,32 @@ async fn get_file_preview(path: String) -> Result<FilePreviewResult, String> {
             .to_lowercase();
 
         let mut thumbnail: Option<String> = None;
-        let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "ico" | "svg");
+        let mut vision_data_url: Option<String> = None;
+        let want_vision = include_vision.unwrap_or(false);
+        let is_raster_img = is_supported_raster_image_ext(&ext);
+        let is_img = is_raster_img || matches!(ext.as_str(), "ico" | "svg");
 
-        // Only attempt image decoding if it's an image under 25MB to prevent memory exhaustion
         if is_img && len <= 25 * 1024 * 1024 {
-            if let Ok(bytes) = fs::read(p) {
-                use base64::{Engine as _, engine::general_purpose::STANDARD};
-                if ext == "svg" && bytes.len() <= 512 * 1024 {
-                    let b64 = STANDARD.encode(&bytes);
-                    thumbnail = Some(format!("data:image/svg+xml;base64,{}", b64));
-                } else if ext == "ico" && bytes.len() <= 512 * 1024 {
-                    let b64 = STANDARD.encode(&bytes);
-                    thumbnail = Some(format!("data:image/x-icon;base64,{}", b64));
-                } else if let Ok(img) = image::load_from_memory(&bytes) {
-                    let thumb = img.resize(320, 320, image::imageops::FilterType::CatmullRom);
-
-                    let mut buffer = std::io::Cursor::new(Vec::with_capacity(16384));
-                    if thumb.write_to(&mut buffer, image::ImageFormat::Png).is_ok() {
-                        let b64 = STANDARD.encode(buffer.into_inner());
-                        thumbnail = Some(format!("data:image/png;base64,{}", b64));
+            if is_raster_img {
+                if let Some(img) = decode_safe_image_from_path(p) {
+                    thumbnail = encode_dynamic_image_data_url(&img, 320, 82);
+                    if want_vision {
+                        vision_data_url = encode_dynamic_image_data_url(&img, 1600, 88);
+                    }
+                }
+            } else if len <= 512 * 1024 {
+                if let Ok(bytes) = fs::read(p) {
+                    use base64::{Engine as _, engine::general_purpose::STANDARD};
+                    if ext == "svg" {
+                        if !want_vision {
+                            let b64 = STANDARD.encode(&bytes);
+                            thumbnail = Some(format!("data:image/svg+xml;base64,{}", b64));
+                        }
+                    } else if ext == "ico" {
+                        if !want_vision {
+                            let b64 = STANDARD.encode(&bytes);
+                            thumbnail = Some(format!("data:image/x-icon;base64,{}", b64));
+                        }
                     }
                 }
             }
@@ -2259,7 +3298,9 @@ async fn get_file_preview(path: String) -> Result<FilePreviewResult, String> {
 
         Ok(FilePreviewResult {
             size_formatted,
+            size_bytes: len,
             thumbnail,
+            vision_data_url,
         })
     })
     .await
@@ -2315,6 +3356,58 @@ fn show_in_folder(path: String) {
     });
 }
 
+#[tauri::command]
+fn open_shelf_received_folder() {
+    let dir = shelf_server::get_shelf_received_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    show_in_folder(dir.to_string_lossy().to_string());
+}
+
+#[tauri::command]
+fn clear_shelf_received_folder() -> Result<(), String> {
+    let dir = shelf_server::get_shelf_received_dir();
+    if !dir.exists() {
+        return Ok(());
+    }
+    let entries = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_shelf_received_files(paths: Vec<String>) -> Result<(), String> {
+    let dir = shelf_server::get_shelf_received_dir();
+    if !dir.exists() {
+        return Ok(());
+    }
+    let canonical_dir = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+    let dir_norm = dir.to_string_lossy().replace('/', "\\").to_lowercase();
+
+    for raw_path in paths {
+        let p = std::path::Path::new(&raw_path);
+        if !p.exists() || !p.is_file() {
+            continue;
+        }
+        let is_inside_shelf_dir = if let Ok(canon_file) = std::fs::canonicalize(p) {
+            canon_file.starts_with(&canonical_dir)
+        } else {
+            let file_norm = raw_path.replace('/', "\\").to_lowercase();
+            file_norm.starts_with(&dir_norm)
+        };
+        if is_inside_shelf_dir {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+    Ok(())
+}
+
 static INTERNAL_CLIPBOARD_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[tauri::command]
@@ -2367,8 +3460,12 @@ fn copy_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
 
         if OpenClipboard(None).is_ok() {
             let _ = EmptyClipboard();
-            let _ = SetClipboardData(15, windows::Win32::Foundation::HANDLE(h_global.0));
+            let set_res = SetClipboardData(15, windows::Win32::Foundation::HANDLE(h_global.0));
             let _ = CloseClipboard();
+            if let Err(e) = set_res {
+                let _ = GlobalFree(h_global);
+                return Err(format!("Failed to set clipboard data: {}", e));
+            }
             INTERNAL_CLIPBOARD_SEQ.store(GetClipboardSequenceNumber(), std::sync::atomic::Ordering::Relaxed);
             Ok(())
         } else {
@@ -2379,25 +3476,46 @@ fn copy_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn pick_files_dialog() -> Result<Vec<String>, String> {
+async fn pick_files_dialog(
+    filter_mode: Option<String>,
+    multiselect: Option<bool>,
+) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
-            COINIT_APARTMENTTHREADED,
+            CoCreateInstance, CoTaskMemFree, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
         };
+        use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
         use windows::Win32::UI::Shell::{
             FileOpenDialog, IFileOpenDialog, FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST,
             SIGDN_FILESYSPATH,
         };
 
-        let com_init = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok() };
+        let images_only = filter_mode.as_deref() == Some("images");
+        let allow_multi = multiselect.unwrap_or(true);
+        let _com = ComGuard::init(COINIT_APARTMENTTHREADED);
+
         let result = (|| -> windows::core::Result<Vec<String>> {
             unsafe {
                 let dialog: IFileOpenDialog =
                     CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
                 let mut options = dialog.GetOptions()?;
-                options |= FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST;
+                options |= FOS_FILEMUSTEXIST;
+                if allow_multi {
+                    options |= FOS_ALLOWMULTISELECT;
+                } else {
+                    options &= !FOS_ALLOWMULTISELECT;
+                }
                 dialog.SetOptions(options)?;
+
+                if images_only {
+                    let specs = [COMDLG_FILTERSPEC {
+                        pszName: windows::core::w!("Gambar (PNG, JPG, WebP, GIF, BMP)"),
+                        pszSpec: windows::core::w!("*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp"),
+                    }];
+                    dialog.SetFileTypes(&specs)?;
+                    let _ = dialog.SetFileTypeIndex(1);
+                    let _ = dialog.SetDefaultExtension(windows::core::w!("png"));
+                }
 
                 dialog.Show(None)?;
 
@@ -2413,15 +3531,13 @@ async fn pick_files_dialog() -> Result<Vec<String>, String> {
                     paths.push(path_str);
                 }
 
+                if images_only {
+                    paths.retain(|p| is_supported_raster_image_path(p));
+                }
+
                 Ok(paths)
             }
         })();
-
-        if com_init {
-            unsafe {
-                CoUninitialize();
-            }
-        }
 
         match result {
             Ok(paths) => Ok(paths),
@@ -2534,35 +3650,260 @@ async fn pick_audio_file_dialog() -> Result<Option<PickedAudioFile>, String> {
     .map_err(|e| e.to_string())?
 }
 
-fn is_foreground_window_browser() -> Option<bool> {
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-    use windows::Win32::System::ProcessStatus::GetProcessImageFileNameW;
+#[cfg(windows)]
+fn get_process_exe_name_lower(pid: u32) -> Option<String> {
     use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::ProcessStatus::GetProcessImageFileNameW;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    if pid == 0 {
+        return None;
+    }
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 512];
+        let len = GetProcessImageFileNameW(handle, &mut buf);
+        let _ = CloseHandle(handle);
+        if len > 0 {
+            let full = String::from_utf16_lossy(&buf[..len as usize]).to_lowercase();
+            let file_name = full.rsplit('\\').next().unwrap_or(&full).to_string();
+            return Some(file_name);
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn is_valid_active_user_window(hwnd: windows::Win32::Foundation::HWND) -> Option<(u32, String)> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetDesktopWindow, GetShellWindow, GetWindowLongPtrW,
+        GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, GWL_EXSTYLE,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    };
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmGetWindowAttribute(
+            hwnd: *mut std::ffi::c_void,
+            dw_attribute: u32,
+            pv_attribute: *mut std::ffi::c_void,
+            cb_attribute: u32,
+        ) -> i32;
+    }
+    const DWMWA_CLOAKED_ATTR: u32 = 14;
 
     unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() { return None; }
+        if hwnd.0.is_null()
+            || !IsWindow(hwnd).as_bool()
+            || hwnd == GetDesktopWindow()
+            || hwnd == GetShellWindow()
+        {
+            return None;
+        }
+        if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return None;
+        }
+        let mut cloaked: u32 = 0;
+        if DwmGetWindowAttribute(
+            hwnd.0,
+            DWMWA_CLOAKED_ATTR,
+            &mut cloaked as *mut u32 as *mut std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        ) == 0
+            && cloaked != 0
+        {
+            return None;
+        }
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if (ex_style & (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0 | WS_EX_TRANSPARENT.0)) != 0 {
+            return None;
+        }
+        let mut class_buf = [0u16; 96];
+        let len = GetClassNameW(hwnd, &mut class_buf);
+        let class_name = if len > 0 {
+            String::from_utf16_lossy(&class_buf[..len as usize])
+        } else {
+            String::new()
+        };
+        if matches!(
+            class_name.as_str(),
+            "Progman"
+                | "WorkerW"
+                | "Shell_TrayWnd"
+                | "Shell_SecondaryTrayWnd"
+                | "NotifyIconOverflowWindow"
+                | "TopLevelWindowForOverflowXamlIsland"
+                | "Windows.UI.Core.CoreWindow"
+                | "XamlExplorerHostIslandWindow"
+                | "DV2ControlHost"
+                | "MultitaskingViewFrame"
+        ) {
+            return None;
+        }
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == 0 || pid == std::process::id() { return None; }
-        if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
-            let mut buf = [0u16; 512];
-            let len = GetProcessImageFileNameW(handle, &mut buf);
-            let _ = CloseHandle(handle);
-            if len > 0 {
-                let name = String::from_utf16_lossy(&buf[..len as usize]).to_lowercase();
-                let is_b = name.ends_with("chrome.exe") 
-                    || name.ends_with("msedge.exe") 
-                    || name.ends_with("brave.exe") 
-                    || name.ends_with("firefox.exe") 
-                    || name.ends_with("opera.exe") 
-                    || name.ends_with("vivaldi.exe") 
-                    || name.ends_with("zen.exe")
-                    || name.ends_with("arc.exe");
-                return Some(is_b);
+        if pid == 0 {
+            return None;
+        }
+        Some((pid, class_name))
+    }
+}
+
+#[cfg(windows)]
+fn resolve_active_user_window() -> Option<(windows::Win32::Foundation::HWND, u32, String)> {
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetForegroundWindow, GetWindowTextLengthW, GetWindowThreadProcessId,
+    };
+
+    unsafe {
+        let fg = GetForegroundWindow();
+        if !fg.0.is_null() {
+            let mut fg_pid = 0u32;
+            GetWindowThreadProcessId(fg, Some(&mut fg_pid));
+            if fg_pid == std::process::id() {
+                // Gili itself holds foreground focus: find the topmost visible user app window behind Gili
+                struct TopWindowSearch {
+                    found: Option<(HWND, u32, String)>,
+                }
+                unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+                    let ctx = &mut *(lparam.0 as *mut TopWindowSearch);
+                    let mut pid = 0u32;
+                    GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                    if pid == std::process::id() {
+                        return BOOL(1);
+                    }
+                    if let Some((valid_pid, class_name)) = is_valid_active_user_window(hwnd) {
+                        if GetWindowTextLengthW(hwnd) > 0 {
+                            ctx.found = Some((hwnd, valid_pid, class_name));
+                            return BOOL(0);
+                        }
+                    }
+                    BOOL(1)
+                }
+                let mut search = TopWindowSearch { found: None };
+                let _ = EnumWindows(Some(enum_proc), LPARAM(&mut search as *mut TopWindowSearch as isize));
+                return search.found;
             }
         }
+        let (pid, class_name) = is_valid_active_user_window(fg)?;
+        Some((fg, pid, class_name))
+    }
+}
+
+#[cfg(windows)]
+fn check_active_window_maximized_for(
+    fg: windows::Win32::Foundation::HWND,
+    exe_name: &str,
+) -> bool {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, GetWindowTextLengthW, IsZoomed,
+    };
+
+    unsafe {
+        if matches!(
+            exe_name,
+            "searchhost.exe"
+                | "startmenuexperiencehost.exe"
+                | "shellexperiencehost.exe"
+                | "textinputhost.exe"
+                | "lockapp.exe"
+                | "widgets.exe"
+                | "wallpaper32.exe"
+                | "wallpaper64.exe"
+                | "lively.exe"
+                | "rainmeter.exe"
+        ) {
+            return false;
+        }
+
+        if IsZoomed(fg).as_bool() {
+            return true;
+        }
+
+        // File Explorer desktop/background windows are never IsZoomed; real maximized Explorer folders always have IsZoomed == true
+        if exe_name == "explorer.exe" || GetWindowTextLengthW(fg) <= 0 {
+            return false;
+        }
+
+        let mut rect = RECT::default();
+        if GetWindowRect(fg, &mut rect).is_ok() {
+            let monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                let wr = mi.rcWork;
+                let mr = mi.rcMonitor;
+                let is_work_area_max = rect.left <= wr.left + 2
+                    && rect.top <= wr.top + 2
+                    && rect.right >= wr.right - 2
+                    && rect.bottom >= wr.bottom - 2;
+                let is_full_monitor = rect.left <= mr.left + 2
+                    && rect.top <= mr.top + 2
+                    && rect.right >= mr.right - 2
+                    && rect.bottom >= mr.bottom - 2;
+                if is_work_area_max || is_full_monitor {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+fn is_browser_exe_name(exe_name: &str) -> bool {
+    matches!(
+        exe_name,
+        "chrome.exe"
+            | "msedge.exe"
+            | "brave.exe"
+            | "firefox.exe"
+            | "opera.exe"
+            | "vivaldi.exe"
+            | "zen.exe"
+            | "arc.exe"
+    )
+}
+
+#[cfg(windows)]
+fn poll_foreground_browser_and_maximized(
+    check_browser: bool,
+    check_maximized: bool,
+) -> (Option<bool>, Option<bool>) {
+    if !check_browser && !check_maximized {
+        return (None, None);
+    }
+    let Some((fg, pid, _class_name)) = resolve_active_user_window() else {
+        return (
+            check_browser.then_some(false),
+            check_maximized.then_some(false),
+        );
+    };
+    let exe_name = get_process_exe_name_lower(pid).unwrap_or_default();
+    let browser = check_browser.then(|| is_browser_exe_name(&exe_name));
+    let maximized = check_maximized.then(|| check_active_window_maximized_for(fg, &exe_name));
+    (browser, maximized)
+}
+
+fn is_foreground_window_browser() -> Option<bool> {
+    #[cfg(windows)]
+    {
+        let Some((_hwnd, pid, _class_name)) = resolve_active_user_window() else {
+            return Some(false);
+        };
+        if let Some(exe_name) = get_process_exe_name_lower(pid) {
+            return Some(is_browser_exe_name(&exe_name));
+        }
+        Some(false)
+    }
+    #[cfg(not(windows))]
+    {
         Some(false)
     }
 }
@@ -2573,59 +3914,16 @@ fn check_foreground_browser() -> bool {
 }
 
 fn is_foreground_window_maximized() -> Option<bool> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId, IsZoomed, IsWindowVisible, GetWindowRect,
-    };
-    use windows::Win32::Graphics::Gdi::{
-        MonitorFromWindow, GetMonitorInfoW, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    };
-    use windows::Win32::Foundation::RECT;
-
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() { return None; }
-        if !IsWindowVisible(hwnd).as_bool() { return Some(false); }
-
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == 0 || pid == std::process::id() { return None; }
-
-        if IsZoomed(hwnd).as_bool() {
-            return Some(true);
-        }
-
-        let mut win_rect = RECT::default();
-        if GetWindowRect(hwnd, &mut win_rect).is_ok() {
-            let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            let mut mon_info = MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
-            if GetMonitorInfoW(hmon, &mut mon_info).as_bool() {
-                let mon_rect = mon_info.rcMonitor;
-                let work_rect = mon_info.rcWork;
-                let covers_monitor = win_rect.left <= mon_rect.left + 10
-                    && win_rect.top <= mon_rect.top + 10
-                    && win_rect.right >= mon_rect.right - 10
-                    && win_rect.bottom >= mon_rect.bottom - 10;
-                let covers_work = win_rect.left <= work_rect.left + 10
-                    && win_rect.top <= work_rect.top + 10
-                    && win_rect.right >= work_rect.right - 10
-                    && win_rect.bottom >= work_rect.bottom - 10;
-                if covers_monitor || covers_work {
-                    let mut class_buf = [0u16; 64];
-                    let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buf);
-                    if class_len > 0 {
-                        let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
-                        if class_name == "Progman" || class_name == "WorkerW" || class_name == "Shell_TrayWnd" {
-                            return Some(false);
-                        }
-                    }
-                    return Some(true);
-                }
-            }
-        }
-
+    #[cfg(windows)]
+    {
+        let Some((fg, pid, _class_name)) = resolve_active_user_window() else {
+            return Some(false);
+        };
+        let exe_name = get_process_exe_name_lower(pid).unwrap_or_default();
+        Some(check_active_window_maximized_for(fg, &exe_name))
+    }
+    #[cfg(not(windows))]
+    {
         Some(false)
     }
 }
@@ -2642,55 +3940,62 @@ fn is_cursor_in_notch(app_handle: tauri::AppHandle, state: tauri::State<'_, Pill
     use tauri::Manager;
 
     let mut pt = POINT { x: 0, y: 0 };
-    if unsafe { GetCursorPos(&mut pt) }.is_err() {
-        return false;
-    }
+    if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+        let pill = if let Ok(size) = state.0.lock() {
+            size.clone()
+        } else {
+            PillState::default()
+        };
 
-    let pill = if let Ok(size) = state.0.lock() {
-        size.clone()
-    } else {
-        PillState::default()
-    };
-
-    if let Some(window) = app_handle.get_webview_window("main") {
-        if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (window.outer_position(), window.outer_size(), window.scale_factor()) {
-            if calculate_notch_hit(pt, win_pos, win_size, sf, &pill) {
-                return true;
-            }
-        }
-    }
-
-    if let Some(sec_win) = app_handle.get_webview_window("notch_secondary") {
-        if sec_win.is_visible().unwrap_or(false) {
-            if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (sec_win.outer_position(), sec_win.outer_size(), sec_win.scale_factor()) {
-                let pill_sec = PillState {
-                    width: pill.secondary_width,
-                    height: pill.secondary_height,
-                    dpr: pill.secondary_dpr,
-                    is_bottom: pill.is_bottom,
-                    pos: pill.pos,
-                    top_offset: pill.top_offset,
-                    is_island: pill.is_island,
-                    target_monitor: Some("secondary".to_string()),
-                    secondary_width: 120.0,
-                    secondary_height: 35.0,
-                    secondary_dpr: 1.0,
-                };
-                if calculate_notch_hit(pt, win_pos, win_size, sf, &pill_sec) {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (window.outer_position(), window.outer_size(), window.scale_factor()) {
+                if calculate_notch_hit(pt, win_pos, win_size, sf, &pill) {
                     return true;
                 }
             }
         }
-    }
 
+        for (label, win) in app_handle.webview_windows() {
+            if label.starts_with("notch_secondary_") {
+                if let (Ok(win_pos), Ok(win_size), Ok(sf)) = (win.outer_position(), win.outer_size(), win.scale_factor()) {
+                    let (sec_w, sec_h, sec_dpr) = pill.secondary_pills.get(&label).copied().unwrap_or((pill.width, pill.height, 0.0));
+                    let mut sec_pill = pill.clone();
+                    sec_pill.width = sec_w;
+                    sec_pill.height = sec_h;
+                    if sec_dpr > 0.0 {
+                        sec_pill.dpr = sec_dpr;
+                    } else {
+                        sec_pill.dpr = sf as f32;
+                    }
+                    if calculate_notch_hit(pt, win_pos, win_size, sf, &sec_pill) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
     false
 }
 
 static PREVIOUS_FOREGROUND_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 static IS_INTERACTIVE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static INTERACTIVE_WINDOWS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+fn is_window_interactive(label: &str) -> bool {
+    INTERACTIVE_WINDOWS.lock().map(|set| set.contains(label)).unwrap_or(false)
+}
 
 #[tauri::command]
 fn set_interactive_mode(active: bool, window: tauri::WebviewWindow) {
+    let label = window.label().to_string();
+    if let Ok(mut set) = INTERACTIVE_WINDOWS.lock() {
+        if active {
+            set.insert(label);
+        } else {
+            set.remove(&label);
+        }
+    }
     IS_INTERACTIVE_MODE.store(active, std::sync::atomic::Ordering::SeqCst);
     if active {
         let _ = window.set_ignore_cursor_events(false);
@@ -2894,6 +4199,7 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
     std::thread::spawn(move || {
         use tauri::Emitter;
         if let Some(w) = app_handle.get_webview_window("settings") {
+            let _ = w.set_min_size(Some(tauri::LogicalSize::new(680.0, 480.0)));
             let _ = w.unminimize();
             let _ = w.show();
             let _ = w.set_focus();
@@ -2919,8 +4225,8 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
             tauri::WebviewUrl::App("index.html".into()),
         )
         .title("Gili Settings")
-        .inner_size(1060.0, 780.0)
-        .min_inner_size(912.0, 650.0)
+        .inner_size(860.0, 600.0)
+        .min_inner_size(680.0, 480.0)
         .maximizable(true)
         .resizable(true)
         .decorations(false)
@@ -2931,13 +4237,18 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         .focused(true)
         .skip_taskbar(false)
         .initialization_script("window.__IS_SETTINGS_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64")
         .build()
         {
             Ok(win) => {
                 if let Some(icon) = app_handle.default_window_icon() {
                     let _ = win.set_icon(icon.clone());
                 }
+                win.on_window_event(|event| {
+                    if matches!(event, tauri::WindowEvent::Destroyed) {
+                        crate::memory_optimizer::schedule_working_set_trim(900);
+                    }
+                });
 
                 #[cfg(windows)]
                 {
@@ -2966,14 +4277,6 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
                         }
                     }
                 }
-
-                let sw = win.clone();
-                win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = sw.hide();
-                    }
-                });
             }
             Err(e) => {
                 eprintln!("Failed to create settings window: {:?}", e);
@@ -2997,12 +4300,14 @@ fn broadcast_settings_sync(app: tauri::AppHandle, payload: serde_json::Value) {
 fn trigger_notch_action(app: tauri::AppHandle, action: String) {
     use tauri::Emitter;
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.emit("settings-trigger-action", action);
+        let _ = w.emit_to("main", "settings-trigger-action", action);
     }
 }
 
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
+    taskbar_manager::restore_taskbar_on_exit();
+    window_preview::cleanup_window_previews();
     app.restart();
 }
 
@@ -3051,6 +4356,7 @@ pub fn run() {
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         taskbar_manager::restore_taskbar_on_exit();
+    window_preview::cleanup_window_previews();
         default_panic_hook(panic_info);
     }));
 
@@ -3066,9 +4372,15 @@ pub fn run() {
         static SINGLE_INSTANCE_MUTEX: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
         unsafe {
-            let mutex = CreateMutexW(None, true, w!("Local\\com_faiz_gili_single_instance_mutex"));
+            let mutex = CreateMutexW(None, true, w!("com_faiz_gili_single_instance_mutex"));
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE};
+                let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
+                install_repair::append_startup_log(&format!(
+                    "second instance v{} from '{}' exited: another Gili is already running",
+                    env!("CARGO_PKG_VERSION"),
+                    exe
+                ));
                 if let Ok(hwnd) = FindWindowW(None, w!("Gili")) {
                     if !hwnd.0.is_null() {
                         let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -3081,14 +4393,12 @@ pub fn run() {
                 SINGLE_INSTANCE_MUTEX.store(m.0 as isize, std::sync::atomic::Ordering::SeqCst);
             }
         }
+        install_repair::spawn_install_repair();
     }
 
     tauri::Builder::default()
-        .on_permission_request(|_webview, kind| {
-            match kind {
-                tauri::webview::PermissionKind::Geolocation => tauri::webview::PermissionResponse::Allow,
-                _ => tauri::webview::PermissionResponse::Default,
-            }
+        .on_permission_request(|_webview, _kind| {
+            tauri::webview::PermissionResponse::Allow
         })
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -3101,8 +4411,20 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_pill_hover,
             smtc_action,
+            request_media_resync,
             smtc_seek,
             fetch_external_lyrics_api,
+            ai_http_request,
+            ai_http_stream,
+            cancel_ai_http_stream,
+            ai_credentials::save_secure_ai_key,
+            ai_credentials::get_secure_ai_key,
+            ai_credentials::delete_secure_ai_key,
+            ai_credentials::save_secure_ai_model_key,
+            ai_credentials::get_all_secure_ai_model_keys,
+            ai_credentials::delete_secure_ai_model_key,
+            get_open_windows,
+            capture_window_context,
             update_pill_size,
             set_window_position,
             get_available_monitors,
@@ -3128,6 +4450,9 @@ pub fn run() {
             get_audio_endpoints,
             set_default_audio_endpoint,
             show_in_folder,
+            open_shelf_received_folder,
+            clear_shelf_received_folder,
+            delete_shelf_received_files,
             copy_file_to_clipboard,
             copy_files_to_clipboard,
             pick_files_dialog,
@@ -3167,11 +4492,34 @@ pub fn run() {
             broadcast_settings_sync,
             trigger_notch_action,
             restart_app,
-            get_screen_refresh_rate,
             shelf_server::start_shelf_send,
             shelf_server::start_shelf_receive,
             shelf_server::stop_shelf_transfer,
             shelf_server::get_shelf_transfer_status,
+            media_lyrics_store::get_current_media,
+            media_lyrics_store::get_current_lyrics,
+            media_lyrics_store::get_lyrics_offset,
+            media_lyrics_store::set_lyrics_offset,
+            media_lyrics_store::store_lyrics_result,
+            media_lyrics_store::broadcast_lyrics_loading,
+            media_lyrics_store::clear_lyrics_disk_cache,
+            miniplayer_window::toggle_miniplayer,
+            miniplayer_window::close_miniplayer,
+            miniplayer_window::reset_miniplayer_position,
+            miniplayer_window::is_miniplayer_open,
+            miniplayer_window::snap_miniplayer_position,
+            miniplayer_window::set_miniplayer_mode,
+            miniplayer_window::set_miniplayer_always_on_top,
+            miniplayer_window::set_miniplayer_ignore_cursor,
+            miniplayer_window::is_ctrl_down,
+            miniplayer_window::is_lbutton_down,
+            miniplayer_window::check_notch_proximity,
+            miniplayer_window::resize_miniplayer,
+            miniplayer_window::set_follow_system_text_scale,
+            get_system_text_scale_factor,
+            app_icon::get_app_icon,
+            backdrop_blur::sync_notch_acrylic,
+            get_screen_refresh_rate,
             taskbar_manager::set_windows_taskbar_hidden,
             taskbar_manager::set_windows_taskbar_visible,
             taskbar_manager::get_windows_taskbar_hidden,
@@ -3181,6 +4529,9 @@ pub fn run() {
             navbar_window::broadcast_navbar_config_update,
             navbar_window::set_navbar_ignore_cursor_events,
             navbar_window::set_navbar_popup_open,
+            navbar_window::register_navbar_popup,
+            navbar_window::unregister_navbar_popup,
+            navbar_window::set_navbar_backdrop_hidden,
             navbar_window::set_navbar_auto_hide_state,
             navbar_window::set_navbar_focusable,
             navbar_window::sync_navbar_bounds,
@@ -3197,6 +4548,8 @@ pub fn run() {
             navbar_window::get_running_windows,
             navbar_window::activate_or_toggle_window,
             navbar_window::capture_window_thumbnail,
+            window_preview::sync_window_previews,
+            window_preview::clear_window_previews,
             navbar_window::close_window_by_hwnd,
             navbar_window::get_desktop_luminance,
             navbar_window::check_navbar_window_overlap,
@@ -3206,21 +4559,42 @@ pub fn run() {
             taskbar_safety::get_taskbar_window_switches,
             taskbar_safety::trigger_taskbar_kill_switch,
             taskbar_flyout::toggle_taskbar_flyout,
+            taskbar_flyout::switch_taskbar_flyout_target,
+            taskbar_flyout::resize_taskbar_flyout,
             taskbar_flyout::close_taskbar_flyout,
             taskbar_flyout::is_taskbar_flyout_open,
             taskbar_flyout::get_taskbar_flyout_state,
             taskbar_logger::get_taskbar_flyout_logs,
+            set_app_mute,
+            get_current_media_state,
+            windows_start_search::get_start_menu_apps,
+            windows_start_search::get_start_app_icons,
+            windows_start_search::get_recent_files,
+            tray_apps::get_tray_background_apps,
+            system_quick_state::get_quick_toggles_state,
+            system_quick_state::toggle_airplane_mode,
+            system_quick_state::toggle_battery_saver,
+            system_quick_state::toggle_night_light,
+            system_quick_state::open_accessibility_feature,
+            accessibility_toggles::get_accessibility_state,
+            accessibility_toggles::toggle_accessibility_feature,
             get_master_mute,
             set_master_mute,
             get_spatial_audio_status,
             open_sound_settings,
             get_system_power_info,
-            backdrop_capture::capture_desktop_backdrop,
-            backdrop_capture::get_cached_desktop_backdrop,
-            backdrop_capture::set_window_exclude_from_capture
+            get_windows_screen_time,
+            system_hardware::get_storage_drives,
+            system_hardware::get_virtual_desktop_state,
+            system_hardware::switch_to_virtual_desktop,
+            system_hardware::get_vpn_status,
+            gpu_telemetry::get_gpu_telemetry,
+            store_license::get_taskbar_pro_status,
+            store_license::refresh_taskbar_pro_license,
+            store_license::purchase_taskbar_pro
         ])
         .setup(|app| {
-            backdrop_capture::prewarm_desktop_backdrop();
+            let _ = compute_windows_screen_time();
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
             use tauri::tray::TrayIconBuilder;
@@ -3244,14 +4618,21 @@ pub fn run() {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.unminimize();
                                 let _ = w.show();
-                                let _ = w.emit("tray-toggle-visibility", ());
+                                let _ = w.emit_to("main", "tray-toggle-visibility", serde_json::json!({ "target": "main" }));
+                            }
+                            for (label, w) in app.webview_windows() {
+                                if label.starts_with("notch_secondary_") {
+                                    let _ = w.unminimize();
+                                    let _ = w.show();
+                                    let _ = w.emit_to(&label, "tray-toggle-visibility", serde_json::json!({ "target": label }));
+                                }
                             }
                         }
                         "open_control_center" => {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.unminimize();
                                 let _ = w.show();
-                                let _ = w.emit("tray-open-control-center", ());
+                                let _ = w.emit_to("main", "tray-open-control-center", serde_json::json!({ "target": "main" }));
                             }
                         }
                         "open_settings" => {
@@ -3262,6 +4643,7 @@ pub fn run() {
                         }
                         "quit" => {
                             taskbar_manager::restore_taskbar_on_exit();
+    window_preview::cleanup_window_previews();
                             app.exit(0);
                         }
                         _ => {}
@@ -3278,6 +4660,10 @@ pub fn run() {
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 windows_pinned_apps::start_pinned_apps_watcher(app_h.clone());
+                window_preview::start_preview_prewarmer();
+                memory_optimizer::start_memory_optimizer();
+                std::thread::sleep(std::time::Duration::from_millis(1200));
+                windows_start_search::warm_start_apps_index();
             });
 
             let window = match app.get_webview_window("main") {
@@ -3289,23 +4675,38 @@ pub fn run() {
             let _ = window.set_ignore_cursor_events(true);
             let _ = window.set_shadow(false);
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(820.0, 460.0)));
-            #[cfg(windows)]
-            if let Ok(raw_hwnd) = window.hwnd() {
-                backdrop_capture::set_exclude_from_capture(windows::Win32::Foundation::HWND(raw_hwnd.0));
-            }
 
             // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI berubah
             position_notch_window(&window, NotchPos::Top, 0, None);
-            schedule_working_set_trim(3500);
             let win_for_events = window.clone();
             let app_for_events = app.handle().clone();
             window.on_window_event(move |event| {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        let _ = win_for_events.emit("click-outside", ());
+                        use tauri::Emitter;
+                        let _ = win_for_events.emit_to("main", "click-outside", serde_json::json!({ "target": "main" }));
                     }
-                    tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Resized(_) => {
+                    tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                        if win_for_events.is_minimized().unwrap_or(false) {
+                            let _ = win_for_events.unminimize();
+                        }
+                        let (pos, top_offset, is_island, dpr, target_mon) = app_for_events
+                            .state::<PillSize>()
+                            .0
+                            .lock()
+                            .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr, s.target_monitor.clone()))
+                            .unwrap_or((NotchPos::Top, 0.0, false, 1.0, None));
+                        let sf = win_for_events.scale_factor().unwrap_or(1.0);
+                        let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
+                        let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
+                        position_notch_window(&win_for_events, pos, phys_offset, target_mon.as_deref());
+
+                        if target_mon.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false) {
+                            sync_all_displays_windows(&app_for_events, true);
+                        }
+                    }
+                    tauri::WindowEvent::Resized(_) => {
                         if win_for_events.is_minimized().unwrap_or(false) {
                             let _ = win_for_events.unminimize();
                         }
@@ -3328,65 +4729,97 @@ pub fn run() {
             let win_clone = window.clone();
             let app_handle_poll = app.handle().clone();
             std::thread::spawn(move || {
-                use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
                 use windows::Win32::Foundation::POINT;
-                let mut was_in_pill = false;
-                let mut time_since_left_pill = std::time::Instant::now();
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId,
+                };
+                struct SecHitState {
+                    was_in: bool,
+                    time_since_left: std::time::Instant,
+                    click_outside_emitted: bool,
+                    cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)>,
+                }
+                let mut sec_hit_map: std::collections::HashMap<String, SecHitState> = std::collections::HashMap::new();
+                let mut was_in_main = false;
+                let mut time_since_left_main = std::time::Instant::now();
+                let mut click_outside_main_emitted = false;
                 let mut loop_count: u32 = 0;
                 let mut last_is_browser = false;
                 let mut browser_false_count: u32 = 0;
                 let mut last_is_maximized = false;
                 let mut maximized_false_count: u32 = 0;
-                let mut click_outside_emitted = false;
+                let mut last_fg_hwnd_raw: isize = 0;
+                let mut last_fg_was_own = false;
+                let mut cursor_near_edge = true;
                 let mut pending_cursor_nudge = false;
                 let mut cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
                 let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
-
-                let mut was_in_pill_sec = false;
-                let mut time_since_left_pill_sec = std::time::Instant::now();
-                let mut click_outside_emitted_sec = false;
-                let mut pending_cursor_nudge_sec = false;
-                let mut cached_geom_sec: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
+                let own_pid = std::process::id();
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     
                     loop_count = loop_count.wrapping_add(1);
-                    if loop_count.is_multiple_of(25) {
-                        if let Some(is_browser) = is_foreground_window_browser() {
+                    if loop_count.is_multiple_of(15) {
+                        let fg = unsafe { GetForegroundWindow() };
+                        let fg_raw = fg.0 as isize;
+                        let fg_changed = fg_raw != last_fg_hwnd_raw;
+                        if fg_changed {
+                            last_fg_hwnd_raw = fg_raw;
+                            last_fg_was_own = if !fg.0.is_null() {
+                                let mut fg_pid = 0u32;
+                                unsafe { GetWindowThreadProcessId(fg, Some(&mut fg_pid)) };
+                                fg_pid == own_pid
+                            } else {
+                                false
+                            };
+                        }
+
+                        let check_browser = fg_changed
+                            || browser_false_count == 1
+                            || (last_fg_was_own && (cursor_near_edge || loop_count.is_multiple_of(75)));
+                        let check_maximized = fg_changed
+                            || maximized_false_count == 1
+                            || cursor_near_edge
+                            || loop_count.is_multiple_of(75);
+
+                        let (browser_opt, max_opt) =
+                            poll_foreground_browser_and_maximized(check_browser, check_maximized);
+
+                        if let Some(is_browser) = browser_opt {
                             if is_browser {
                                 browser_false_count = 0;
                                 if !last_is_browser {
                                     last_is_browser = true;
                                     use tauri::Emitter;
-                                    let _ = win_clone.emit("foreground-app-browser", true);
+                                    let _ = app_handle_poll.emit("foreground-app-browser", true);
                                 }
                             } else {
                                 browser_false_count += 1;
                                 if browser_false_count >= 2 && last_is_browser {
                                     last_is_browser = false;
                                     use tauri::Emitter;
-                                    let _ = win_clone.emit("foreground-app-browser", false);
+                                    let _ = app_handle_poll.emit("foreground-app-browser", false);
                                 }
                             }
                         }
-
-                        if let Some(is_max) = is_foreground_window_maximized() {
+                        if let Some(is_max) = max_opt {
                             if is_max {
                                 maximized_false_count = 0;
                                 if !last_is_maximized {
                                     last_is_maximized = true;
                                     use tauri::Emitter;
-                                    let _ = win_clone.emit("foreground-app-maximized", true);
+                                    let _ = app_handle_poll.emit("foreground-app-maximized", true);
                                 }
                             } else {
                                 maximized_false_count += 1;
                                 if maximized_false_count >= 2 && last_is_maximized {
                                     last_is_maximized = false;
                                     use tauri::Emitter;
-                                    let _ = win_clone.emit("foreground-app-maximized", false);
+                                    let _ = app_handle_poll.emit("foreground-app-maximized", false);
                                 }
                             }
                         }
+                        miniplayer_window::check_fullscreen_and_autohide(&app_handle_poll);
                     }
 
                     let mut pt = POINT { x: 0, y: 0 };
@@ -3411,179 +4844,216 @@ pub fn run() {
                             }
                         }
 
-                        if let Some((win_pos, win_size, sf)) = cached_geom {
-                            let in_pill = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
+                        cursor_near_edge = was_in_main
+                            || is_window_interactive("main")
+                            || pill.height >= 120.0
+                            || cached_geom.is_some_and(|(wp, ws, sf)| {
+                                let pad = (56.0 * sf).round() as i32;
+                                pt.x >= wp.x - pad
+                                    && pt.x <= wp.x + ws.width as i32 + pad
+                                    && pt.y >= wp.y - pad
+                                    && pt.y <= wp.y + ws.height as i32 + pad
+                            });
 
-                            if IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed) {
-                                let _ = win_clone.set_ignore_cursor_events(true);
-                                was_in_pill = false;
-                                click_outside_emitted = false;
-                                time_since_left_pill = std::time::Instant::now();
-                                continue;
-                            }
-
-                            if IS_INTERACTIVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
-                                let _ = win_clone.set_ignore_cursor_events(false);
-                                was_in_pill = true;
-                                if !in_pill {
-                                    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
-                                    use tauri::Emitter;
-                                    let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                    let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                    if l_down || r_down {
-                                        if !click_outside_emitted {
-                                            click_outside_emitted = true;
-                                            let _ = win_clone.emit("click-outside", ());
-                                        }
-                                    } else {
-                                        click_outside_emitted = false;
-                                    }
-                                } else {
-                                    click_outside_emitted = false;
+                        // Polling hit test untuk notch di layar sekunder
+                        let sec_poll_interval = if !sec_hit_map.is_empty()
+                            || pill
+                                .target_monitor
+                                .as_deref()
+                                .is_some_and(|t| t.trim().eq_ignore_ascii_case("all"))
+                        {
+                            10
+                        } else {
+                            50
+                        };
+                        if loop_count.is_multiple_of(sec_poll_interval) {
+                            let cur_windows = app_handle_poll.webview_windows();
+                            sec_hit_map.retain(|label, _| cur_windows.contains_key(label));
+                            for (label, _) in &cur_windows {
+                                if label.starts_with("notch_secondary_") && !sec_hit_map.contains_key(label) {
+                                    sec_hit_map.insert(
+                                        label.clone(),
+                                        SecHitState {
+                                            was_in: false,
+                                            time_since_left: std::time::Instant::now(),
+                                            click_outside_emitted: false,
+                                            cached_geom: None,
+                                        },
+                                    );
                                 }
-                                continue;
-                            }
-                            
-                            if in_pill != was_in_pill {
-                                was_in_pill = in_pill;
-                                pending_cursor_nudge = in_pill;
-                                let _ = win_clone.set_ignore_cursor_events(!in_pill);
-                                use tauri::Emitter;
-                                if !in_pill {
-                                    time_since_left_pill = std::time::Instant::now();
-                                    let _ = win_clone.emit("notch-mouse-leave", ());
-                                } else {
-                                    let _ = win_clone.emit("notch-mouse-enter", ());
-                                }
-                            } else if is_window_click_through(&win_clone) == Some(in_pill) {
-                                // Other commands (focus, interactive mode) flip click-through without
-                                // updating was_in_pill; re-sync so the notch never stays unclickable
-                                let _ = win_clone.set_ignore_cursor_events(!in_pill);
-                            }
-
-                            // set_ignore_cursor_events is applied async on the main thread, so wait
-                            // until the style is actually lifted before nudging
-                            if pending_cursor_nudge && is_window_click_through(&win_clone) == Some(false) {
-                                pending_cursor_nudge = false;
-                                nudge_cursor();
-                            }
-
-                            if in_pill {
-                                time_since_left_pill = std::time::Instant::now();
-                                click_outside_emitted = false;
-                            } else if pill.height > 50.0 && time_since_left_pill.elapsed().as_millis() >= 400 {
-                                use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
-                                use tauri::Emitter;
-                                let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                if l_down || r_down {
-                                    if !click_outside_emitted {
-                                        click_outside_emitted = true;
-                                        let _ = win_clone.emit("click-outside", ());
-                                    }
-                                } else {
-                                    click_outside_emitted = false;
-                                }
-                            } else {
-                                click_outside_emitted = false;
                             }
                         }
 
-                        if let Some(sec_win) = app_handle_poll.get_webview_window("notch_secondary") {
-                            if sec_win.is_visible().unwrap_or(false) {
-                                let need_geom_sec = cached_geom_sec.is_none()
-                                    || loop_count.is_multiple_of(15)
-                                    || last_pos_state != Some(cur_pos_state);
-                                if need_geom_sec {
+                        let is_dragging = IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed);
+                        let need_mouse_buttons = !sec_hit_map.is_empty()
+                            || is_window_interactive("main")
+                            || pill.height >= 120.0;
+                        let (l_down, r_down) = if need_mouse_buttons {
+                            use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+                            (
+                                (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0,
+                                (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0,
+                            )
+                        } else {
+                            (false, false)
+                        };
+
+                        for (sec_label, sec_state) in sec_hit_map.iter_mut() {
+                            if let Some(sec_win) = app_handle_poll.get_webview_window(sec_label) {
+                                if is_dragging {
+                                    let _ = sec_win.set_ignore_cursor_events(true);
+                                    sec_state.was_in = false;
+                                    sec_state.click_outside_emitted = false;
+                                    sec_state.time_since_left = std::time::Instant::now();
+                                    continue;
+                                }
+                                if need_geom_refresh || sec_state.cached_geom.is_none() {
                                     if let (Ok(wp), Ok(ws), Ok(s)) = (
                                         sec_win.outer_position(),
                                         sec_win.outer_size(),
                                         sec_win.scale_factor(),
                                     ) {
-                                        cached_geom_sec = Some((wp, ws, s));
+                                        sec_state.cached_geom = Some((wp, ws, s));
                                     }
                                 }
 
-                                if let Some((sec_pos, sec_size, sec_sf)) = cached_geom_sec {
-                                    let pill_sec = PillState {
-                                        width: pill.secondary_width,
-                                        height: pill.secondary_height,
-                                        dpr: pill.secondary_dpr,
-                                        is_bottom: pill.is_bottom,
-                                        pos: pill.pos,
-                                        top_offset: pill.top_offset,
-                                        is_island: pill.is_island,
-                                        target_monitor: Some("secondary".to_string()),
-                                        secondary_width: 120.0,
-                                        secondary_height: 35.0,
-                                        secondary_dpr: 1.0,
-                                    };
-                                    let in_pill_sec = calculate_notch_hit(pt, sec_pos, sec_size, sec_sf, &pill_sec);
+                                if let Some((sec_pos, sec_size, sec_sf)) = sec_state.cached_geom {
+                                    let (sec_w, sec_h, sec_dpr) = pill.secondary_pills.get(sec_label).copied().unwrap_or((140.0, 34.0, 0.0));
+                                    let mut sec_pill = pill.clone();
+                                    sec_pill.width = sec_w;
+                                    sec_pill.height = sec_h;
+                                    if sec_dpr > 0.0 {
+                                        sec_pill.dpr = sec_dpr;
+                                    } else {
+                                        sec_pill.dpr = sec_sf as f32;
+                                    }
 
-                                    if IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed) {
-                                        let _ = sec_win.set_ignore_cursor_events(true);
-                                        was_in_pill_sec = false;
-                                        click_outside_emitted_sec = false;
-                                        time_since_left_pill_sec = std::time::Instant::now();
-                                    } else if IS_INTERACTIVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+                                    let in_sec = calculate_notch_hit(pt, sec_pos, sec_size, sec_sf, &sec_pill);
+
+                                    let is_sec_interactive = is_window_interactive(sec_label);
+                                    if is_sec_interactive {
                                         let _ = sec_win.set_ignore_cursor_events(false);
-                                        was_in_pill_sec = true;
-                                        if !in_pill_sec {
-                                            use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
-                                            use tauri::Emitter;
-                                            let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                            let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                            if l_down || r_down {
-                                                if !click_outside_emitted_sec {
-                                                    click_outside_emitted_sec = true;
-                                                    let _ = sec_win.emit("click-outside", ());
-                                                }
-                                            } else {
-                                                click_outside_emitted_sec = false;
+                                        sec_state.was_in = in_sec;
+                                        if !in_sec && (l_down || r_down) {
+                                            if !sec_state.click_outside_emitted {
+                                                sec_state.click_outside_emitted = true;
+                                                use tauri::Emitter;
+                                                let _ = app_handle_poll.emit_to(sec_label, "click-outside", serde_json::json!({ "target": sec_label }));
                                             }
                                         } else {
-                                            click_outside_emitted_sec = false;
-                                        }
-                                    } else if in_pill_sec != was_in_pill_sec {
-                                        was_in_pill_sec = in_pill_sec;
-                                        pending_cursor_nudge_sec = in_pill_sec;
-                                        let _ = sec_win.set_ignore_cursor_events(!in_pill_sec);
-                                        use tauri::Emitter;
-                                        if !in_pill_sec {
-                                            time_since_left_pill_sec = std::time::Instant::now();
-                                            let _ = sec_win.emit("notch-mouse-leave", ());
-                                        } else {
-                                            let _ = sec_win.emit("notch-mouse-enter", ());
-                                        }
-                                    } else if is_window_click_through(&sec_win) == Some(in_pill_sec) {
-                                        let _ = sec_win.set_ignore_cursor_events(!in_pill_sec);
-                                    }
-
-                                    if pending_cursor_nudge_sec && is_window_click_through(&sec_win) == Some(false) {
-                                        pending_cursor_nudge_sec = false;
-                                        nudge_cursor();
-                                    }
-
-                                    if in_pill_sec {
-                                        time_since_left_pill_sec = std::time::Instant::now();
-                                        click_outside_emitted_sec = false;
-                                    } else if pill_sec.height > 50.0 && time_since_left_pill_sec.elapsed().as_millis() >= 400 {
-                                        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
-                                        use tauri::Emitter;
-                                        let l_down = (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                        let r_down = (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0;
-                                        if l_down || r_down {
-                                            if !click_outside_emitted_sec {
-                                                click_outside_emitted_sec = true;
-                                                let _ = sec_win.emit("click-outside", ());
-                                            }
-                                        } else {
-                                            click_outside_emitted_sec = false;
+                                            sec_state.click_outside_emitted = false;
                                         }
                                     } else {
-                                        click_outside_emitted_sec = false;
+                                        if is_window_click_through(&sec_win) == Some(in_sec) {
+                                            let _ = sec_win.set_ignore_cursor_events(!in_sec);
+                                        }
+                                        if in_sec != sec_state.was_in {
+                                            sec_state.was_in = in_sec;
+                                            let _ = sec_win.set_ignore_cursor_events(!in_sec);
+                                            use tauri::Emitter;
+                                            if in_sec {
+                                                nudge_cursor();
+                                                let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-enter", serde_json::json!({ "target": sec_label }));
+                                            } else {
+                                                sec_state.time_since_left = std::time::Instant::now();
+                                                let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-leave", serde_json::json!({ "target": sec_label }));
+                                            }
+                                        }
+
+                                        if in_sec {
+                                            sec_state.time_since_left = std::time::Instant::now();
+                                            sec_state.click_outside_emitted = false;
+                                        } else if sec_h >= 120.0 && sec_state.time_since_left.elapsed().as_millis() >= 400 {
+                                            if l_down || r_down {
+                                                if !sec_state.click_outside_emitted {
+                                                    sec_state.click_outside_emitted = true;
+                                                    use tauri::Emitter;
+                                                    let _ = app_handle_poll.emit_to(sec_label, "click-outside", serde_json::json!({ "target": sec_label }));
+                                                }
+                                            } else {
+                                                sec_state.click_outside_emitted = false;
+                                            }
+                                        } else {
+                                            sec_state.click_outside_emitted = false;
+                                        }
                                     }
                                 }
+                            }
+                        }
+
+                        if let Some((win_pos, win_size, sf)) = cached_geom {
+                            let in_main = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
+
+                            if is_dragging {
+                                let _ = win_clone.set_ignore_cursor_events(true);
+                                was_in_main = false;
+                                click_outside_main_emitted = false;
+                                time_since_left_main = std::time::Instant::now();
+                                continue;
+                            }
+
+                            let is_main_interactive = is_window_interactive("main");
+                            if is_main_interactive {
+                                let _ = win_clone.set_ignore_cursor_events(false);
+                                was_in_main = true;
+                                if !in_main {
+                                    if l_down || r_down {
+                                        if !click_outside_main_emitted {
+                                            click_outside_main_emitted = true;
+                                            use tauri::Emitter;
+                                            let _ = app_handle_poll.emit_to("main", "click-outside", serde_json::json!({ "target": "main" }));
+                                        }
+                                    } else {
+                                        click_outside_main_emitted = false;
+                                    }
+                                } else {
+                                    click_outside_main_emitted = false;
+                                }
+                                continue;
+                            }
+
+                            if is_window_click_through(&win_clone) == Some(in_main) {
+                                let _ = win_clone.set_ignore_cursor_events(!in_main);
+                                if in_main {
+                                    pending_cursor_nudge = true;
+                                }
+                            }
+
+                            if in_main != was_in_main {
+                                was_in_main = in_main;
+                                if in_main {
+                                    pending_cursor_nudge = true;
+                                }
+                                let _ = win_clone.set_ignore_cursor_events(!in_main);
+                                use tauri::Emitter;
+                                if !in_main {
+                                    time_since_left_main = std::time::Instant::now();
+                                    let _ = app_handle_poll.emit_to("main", "notch-mouse-leave", serde_json::json!({ "target": "main" }));
+                                } else {
+                                    let _ = app_handle_poll.emit_to("main", "notch-mouse-enter", serde_json::json!({ "target": "main" }));
+                                }
+                            }
+
+                            if pending_cursor_nudge && is_window_click_through(&win_clone) == Some(false) {
+                                pending_cursor_nudge = false;
+                                nudge_cursor();
+                            }
+
+                            if in_main {
+                                time_since_left_main = std::time::Instant::now();
+                                click_outside_main_emitted = false;
+                            } else if pill.height >= 120.0 && time_since_left_main.elapsed().as_millis() >= 400 {
+                                if l_down || r_down {
+                                    if !click_outside_main_emitted {
+                                        click_outside_main_emitted = true;
+                                        use tauri::Emitter;
+                                        let _ = app_handle_poll.emit_to("main", "click-outside", serde_json::json!({ "target": "main" }));
+                                    }
+                                } else {
+                                    click_outside_main_emitted = false;
+                                }
+                            } else {
+                                click_outside_main_emitted = false;
                             }
                         }
                     }
@@ -3652,11 +5122,11 @@ pub fn run() {
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
                 use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-                use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+                use windows::Win32::System::Com::COINIT_MULTITHREADED;
                 use tauri::Emitter;
                 
                 // Wajib inisialisasi COM untuk memanggil Windows API dari thread baru
-                let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+                let _com = ComGuard::init(COINIT_MULTITHREADED);
                 
                 let mut last_title = String::new();
                 let mut last_artist = String::new();
@@ -3710,7 +5180,8 @@ pub fn run() {
                 let mut last_clipboard_seq = unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() };
                 let mut last_caps_state = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState(windows::Win32::UI::Input::KeyboardAndMouse::VK_CAPITAL.0 as i32) } & 1;
                 
-                let smtc_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|r| r.get()).ok();
+                let mut smtc_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|r| r.get()).ok();
+                let mut last_smtc_manager_retry = std::time::Instant::now();
                 let notif_listener = windows::UI::Notifications::Management::UserNotificationListener::Current().ok();
                 let mut notif_access_allowed = false;
                 if let Some(listener) = &notif_listener {
@@ -3745,31 +5216,33 @@ pub fn run() {
                         let _ = app_handle.emit("caps-update", CapsPayload { is_on: current_caps == 1 });
                     }
                     
-                    // Volume Check using cached COM interface (zero per-100ms COM activation overhead)
+                    // Volume & Mute Check using cached COM interface (zero per-100ms COM activation overhead)
                     if let Some(volume_ctrl) = &cached_volume_ctrl {
                         if let Ok(level) = unsafe { volume_ctrl.GetMasterVolumeLevelScalar() } {
+                            let cur_mute = unsafe { volume_ctrl.GetMute().map(|m| m.as_bool()).unwrap_or(false) };
                             if (level - last_volume).abs() > 0.01 && last_volume != -1.0 {
                                 #[derive(serde::Serialize, Clone)]
                                 struct VolumePayload { level: f32 }
                                 let _ = app_handle.emit("volume-update", VolumePayload { level });
                             }
+                            if (level - last_volume).abs() > 0.005 || cur_mute != last_muted || last_volume == -1.0 {
+                                #[derive(serde::Serialize, Clone)]
+                                struct VolumeUpdatePayload {
+                                    volume: f32,
+                                    muted: bool,
+                                }
+                                let _ = app_handle.emit("master-volume-changed", VolumeUpdatePayload {
+                                    volume: level,
+                                    muted: cur_mute,
+                                });
+                            }
                             last_volume = level;
+                            last_muted = cur_mute;
                         }
                     }
                     
                     if counter % 5 != 0 {
                         continue;
-                    }
-
-                    // Periodic idle working-set cleanup every 3 minutes when notch is collapsed
-                    if counter % 1800 == 0 {
-                        let is_collapsed = app_handle
-                            .try_state::<PillSize>()
-                            .and_then(|s| s.0.lock().ok().map(|g| g.height <= 95.0 || g.width <= 95.0))
-                            .unwrap_or(true);
-                        if is_collapsed {
-                            schedule_working_set_trim(100);
-                        }
                     }
                     
                     // Real Notifications Check (every 1s with cached access status)
@@ -3973,27 +5446,6 @@ pub fn run() {
                             }
                         }
                     }
-
-                    // Master volume & mute two-way synchronization
-                    if let Some(vol_ctrl) = &cached_volume_ctrl {
-                        if let Ok(cur_vol) = unsafe { vol_ctrl.GetMasterVolumeLevelScalar() } {
-                            let cur_mute = unsafe { vol_ctrl.GetMute().map(|m| m.as_bool()).unwrap_or(false) };
-                            if (cur_vol - last_volume).abs() > 0.005 || cur_mute != last_muted {
-                                last_volume = cur_vol;
-                                last_muted = cur_mute;
-
-                                #[derive(serde::Serialize, Clone)]
-                                struct VolumeUpdatePayload {
-                                    volume: f32,
-                                    muted: bool,
-                                }
-                                let _ = app_handle.emit("master-volume-changed", VolumeUpdatePayload {
-                                    volume: cur_vol,
-                                    muted: cur_mute,
-                                });
-                            }
-                        }
-                    }
                     let mut title = String::new();
                     let mut artist = String::new();
                     let mut is_playing = false;
@@ -4004,10 +5456,18 @@ pub fn run() {
                     let mut current_app_id: Option<String> = None;
                     let mut current_web_source: Option<String> = None;
                     
+                    if smtc_manager.is_none() && last_smtc_manager_retry.elapsed().as_secs() >= 3 {
+                        last_smtc_manager_retry = std::time::Instant::now();
+                        smtc_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|r| r.get()).ok();
+                    }
+
                     if let Some(manager) = &smtc_manager {
                         let mut active_session = None;
                         if let Ok(sessions) = manager.GetSessions() {
                             for session in sessions.into_iter() {
+                                if is_smtc_session_ignored(&session) {
+                                    continue;
+                                }
                                 if let Ok(playback) = session.GetPlaybackInfo() {
                                     if is_smtc_session_playing(&playback) {
                                         active_session = Some(session);
@@ -4019,6 +5479,9 @@ pub fn run() {
                         if active_session.is_none() && !last_raw_title.is_empty() {
                             if let Ok(sessions) = manager.GetSessions() {
                                 for session in sessions.into_iter() {
+                                    if is_smtc_session_ignored(&session) {
+                                        continue;
+                                    }
                                     if let Ok(playback) = session.GetPlaybackInfo() {
                                         use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
                                         if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
@@ -4038,10 +5501,12 @@ pub fn run() {
                         }
                         if active_session.is_none() {
                             if let Ok(curr) = manager.GetCurrentSession() {
-                                if let Ok(playback) = curr.GetPlaybackInfo() {
-                                    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
-                                    if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
-                                        active_session = Some(curr);
+                                if !is_smtc_session_ignored(&curr) {
+                                    if let Ok(playback) = curr.GetPlaybackInfo() {
+                                        use windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+                                        if playback.PlaybackStatus().unwrap_or(GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed) != GlobalSystemMediaTransportControlsSessionPlaybackStatus::Closed {
+                                            active_session = Some(curr);
+                                        }
                                     }
                                 }
                             }
@@ -4049,7 +5514,7 @@ pub fn run() {
 
                         if let Some(session) = &active_session {
                             let app_id = session.SourceAppUserModelId().unwrap_or_default().to_string().to_lowercase();
-                            if app_id.contains("screensketch") || app_id.contains("snipping") {
+                            if app_id.contains("screensketch") || app_id.contains("snipping") || app_id.contains("gili") {
                                 active_session = None;
                             } else {
                                 is_browser_session = app_id.contains("brave") 
@@ -4084,10 +5549,26 @@ pub fn run() {
 
                                 title = info.Title().unwrap_or_default().to_string();
                                 artist = info.Artist().unwrap_or_default().to_string();
-                                last_raw_title = title.clone();
-                                last_raw_artist = artist.clone();
-                                if let Ok(mut last_active) = LAST_ACTIVE_SMTC.lock() {
-                                    *last_active = (last_raw_title.clone(), last_raw_artist.clone());
+
+                                if (title.eq_ignore_ascii_case("gili") || title.eq_ignore_ascii_case("gili island"))
+                                    && (artist.is_empty()
+                                        || artist.eq_ignore_ascii_case("microsoft edge")
+                                        || artist.eq_ignore_ascii_case("gili")
+                                        || is_browser_session)
+                                {
+                                    title.clear();
+                                    artist.clear();
+                                    last_raw_title.clear();
+                                    last_raw_artist.clear();
+                                    if let Ok(mut last_active) = LAST_ACTIVE_SMTC.lock() {
+                                        *last_active = (String::new(), String::new());
+                                    }
+                                } else {
+                                    last_raw_title = title.clone();
+                                    last_raw_artist = artist.clone();
+                                    if let Ok(mut last_active) = LAST_ACTIVE_SMTC.lock() {
+                                        *last_active = (last_raw_title.clone(), last_raw_artist.clone());
+                                    }
                                 }
 
                                 // 1. Strip known browser window title suffixes
@@ -4483,7 +5964,8 @@ pub fn run() {
                     }
 
                     // Check for changes (whether we have a session or not)
-                    if title != last_title || artist != last_artist || is_playing != last_is_playing || playback_type != last_playback_type || is_browser_session != last_is_browser || current_app_id != last_app_id || current_web_source != last_web_source || last_thumbnail != last_emitted_thumbnail {
+                    let force_media_emit = MEDIA_RESYNC_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed);
+                    if force_media_emit || title != last_title || artist != last_artist || is_playing != last_is_playing || playback_type != last_playback_type || is_browser_session != last_is_browser || current_app_id != last_app_id || current_web_source != last_web_source || last_thumbnail != last_emitted_thumbnail {
                         last_emitted_thumbnail = last_thumbnail.clone();
                         last_title = title.clone();
                         last_artist = artist.clone();
@@ -4493,32 +5975,19 @@ pub fn run() {
                         last_app_id = current_app_id.clone();
                         last_web_source = current_web_source.clone();
                         
-                        #[derive(serde::Serialize, Clone)]
-                        struct MediaPayload {
-                            title: String,
-                            artist: String,
-                            is_playing: bool,
-                            thumbnail: Option<String>,
-                            playback_type: i32,
-                            position: f64,
-                            duration: f64,
-                            is_browser: bool,
-                            app_id: Option<String>,
-                            web_source: Option<String>,
-                        }
-                        
-                        let _ = app_handle.emit("media-update", MediaPayload { 
-                            title, 
-                            artist, 
+                        media_lyrics_store::on_media_state_changed(
+                            &app_handle,
+                            &title,
+                            &artist,
                             is_playing,
-                            thumbnail: last_thumbnail.clone(),
-                            playback_type: last_playback_type,
-                            position: position_sec,
-                            duration: duration_sec,
-                            is_browser: last_is_browser,
-                            app_id: current_app_id.clone(),
-                            web_source: last_web_source.clone(),
-                        });
+                            last_thumbnail.clone(),
+                            last_playback_type,
+                            position_sec,
+                            duration_sec,
+                            last_is_browser,
+                            current_app_id.clone(),
+                            last_web_source.clone(),
+                        );
                     }
 
                     if last_title.is_empty() {
@@ -4531,16 +6000,7 @@ pub fn run() {
                         last_position = position_sec;
                         last_duration = duration_sec;
                         
-                        #[derive(serde::Serialize, Clone)]
-                        struct ProgressPayload {
-                            position: f64,
-                            duration: f64,
-                        }
-                        
-                        let _ = app_handle.emit("media-progress", ProgressPayload { 
-                            position: position_sec, 
-                            duration: duration_sec 
-                        });
+                        media_lyrics_store::on_media_progress(&app_handle, position_sec, duration_sec);
                     }
                 }
             });
@@ -4573,7 +6033,9 @@ pub fn run() {
                 }
             });
 
+            store_license::start_startup_license_sync(app.handle().clone());
             taskbar_flyout::init_flyout_manager(app.handle());
+            taskbar_safety::init_taskbar_switches_from_disk();
             taskbar_hotkey::init_taskbar_hotkey_layer();
             taskbar_safety::ensure_taskbar_watchdog_spawned();
 
@@ -4834,5 +6296,94 @@ mod hit_test {
         // Cursor on Monitor 1 at same relative location (e.g. x = 768) should NOT hit
         let cursor_on_monitor_1 = POINT { x: 768, y: 15 };
         assert!(!calculate_notch_hit(cursor_on_monitor_1, win_pos, win_size, 1.0, &pill));
+    }
+
+    #[test]
+    fn test_smtc_session_ignore_filters() {
+        use super::should_ignore_smtc_track;
+
+        // 1. Gili own WebView2 sound sessions MUST be ignored
+        assert!(should_ignore_smtc_track(
+            "Microsoft.Edge_8wekyb3d8bbwe!App",
+            "Gili",
+            "Microsoft Edge"
+        ));
+        assert!(should_ignore_smtc_track(
+            "msedgewebview2.exe",
+            "Gili",
+            ""
+        ));
+        assert!(should_ignore_smtc_track(
+            "com.gili.desktop",
+            "Any sound",
+            "Any artist"
+        ));
+
+        // 2. Real music playback in Chrome / Edge / Spotify MUST NOT be ignored
+        assert!(!should_ignore_smtc_track(
+            "Microsoft.Edge_8wekyb3d8bbwe!App",
+            "Tate McRae - Housewife (Official Video)",
+            "TateMcRaeVEVO"
+        ));
+        assert!(!should_ignore_smtc_track(
+            "Google.Chrome",
+            "Bohemian Rhapsody",
+            "Queen"
+        ));
+        assert!(!should_ignore_smtc_track(
+            "Spotify.exe",
+            "Gili",
+            "Sunidhi Chauhan"
+        ));
+        assert!(!should_ignore_smtc_track(
+            "Brave",
+            "Lofi Hip Hop Radio",
+            "Lofi Girl"
+        ));
+    }
+
+    #[test]
+    fn test_calculate_notch_hit_hidden_zero_size() {
+        let win_pos = tauri::PhysicalPosition { x: 400, y: 0 };
+        let win_size = tauri::PhysicalSize { width: 820, height: 600 };
+        let hidden_pill = PillState {
+            width: 0.0,
+            height: 0.0,
+            is_bottom: false,
+            pos: NotchPos::Top,
+            top_offset: 12.0,
+            is_island: true,
+            dpr: 1.25,
+            target_monitor: None,
+            ..Default::default()
+        };
+
+        let center_top = POINT { x: 810, y: 0 };
+        let near_edge = POINT { x: 810, y: 12 };
+        assert!(!calculate_notch_hit(center_top, win_pos, win_size, 1.0, &hidden_pill));
+        assert!(!calculate_notch_hit(near_edge, win_pos, win_size, 1.0, &hidden_pill));
+    }
+
+    #[test]
+    fn test_supported_raster_image_filter_excludes_svg_and_ico() {
+        assert!(is_supported_raster_image_path("photo.PNG"));
+        assert!(is_supported_raster_image_path(r"C:\tmp\img.jpeg"));
+        assert!(is_supported_raster_image_path("/tmp/anim.webp"));
+        assert!(!is_supported_raster_image_path("vector.svg"));
+        assert!(!is_supported_raster_image_path("favicon.ico"));
+        assert!(!is_supported_raster_image_path("notes.txt"));
+        assert!(!is_supported_raster_image_path("no_extension"));
+    }
+
+    #[test]
+    fn test_com_guard_balanced_init_and_drop() {
+        use windows::Win32::System::Com::COINIT_MULTITHREADED;
+        {
+            let guard = ComGuard::init(COINIT_MULTITHREADED);
+            assert!(guard.0);
+        }
+        // Re-initializing after Drop must succeed without mismatched apartment/refcount
+        let guard2 = ComGuard::init(COINIT_MULTITHREADED);
+        assert!(guard2.0);
     }
 }

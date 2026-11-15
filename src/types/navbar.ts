@@ -30,6 +30,7 @@ export interface NavbarConfig {
   customColor: string | null;
   accent: string;
   opacity: number;
+  blur: number;
   autoHide: boolean;
   autoHideMode: NavbarAutoHideMode;
   windowPreviews: boolean;
@@ -81,6 +82,7 @@ export const DEFAULT_NAVBAR_CONFIG: NavbarConfig = {
   customColor: null,
   accent: "#3882F6",
   opacity: 100,
+  blur: 68,
   autoHide: false,
   autoHideMode: "normal",
   windowPreviews: true,

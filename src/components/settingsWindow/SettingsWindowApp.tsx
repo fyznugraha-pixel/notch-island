@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { Minus, X, Clock, Volume2, Send, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2 } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 
 import { Language, getLanguage, setLanguage, t } from "../../services/i18n";
 import {
@@ -39,6 +40,11 @@ import {
   UpdateInfo,
   UpdateStatus,
 } from "../../services/updateService";
+import {
+  getTaskbarProStatus,
+  subscribeTaskbarProStatus,
+} from "../../services/taskbarProService";
+import { isValidHex, normalizeHex } from "../../utils/colorUtils";
 import { clearAllLyricsCache } from "../../services/lyricsService";
 import { clearArtworkCache } from "../../services/artworkService";
 import { clearShelfPreviewCache } from "../../services/shelfService";
@@ -50,22 +56,43 @@ import {
   SettingsWindowSection,
   SIDEBAR_SECTIONS,
 } from "./SettingsSidebar";
-import { TabsManagerView } from "./TabsManagerView";
-import { SupportView } from "./SupportView";
-import { AboutView } from "./AboutView";
-import { NavbarSettingsTab } from "./navbar/NavbarSettingsTab";
-import { AppearanceTab } from "../ui/settings/AppearanceTab";
-import { IdleTab } from "../ui/settings/IdleTab";
-import { GeneralTab } from "../ui/settings/GeneralTab";
-import { ModulesTab } from "../ui/settings/ModulesTab";
-import { KeyboardShortcutsCard } from "../ui/settings/KeyboardShortcutsCard";
-import { AdvancedTab } from "../ui/settings/AdvancedTab";
-import { SearchResults } from "../ui/settings/SearchResults";
+const TabsManagerView = React.lazy(() =>
+  import("./TabsManagerView").then((m) => ({ default: m.TabsManagerView }))
+);
+const SupportView = React.lazy(() =>
+  import("./SupportView").then((m) => ({ default: m.SupportView }))
+);
+const AboutView = React.lazy(() =>
+  import("./AboutView").then((m) => ({ default: m.AboutView }))
+);
+const NavbarSettingsTab = React.lazy(() =>
+  import("./navbar/NavbarSettingsTab").then((m) => ({ default: m.NavbarSettingsTab }))
+);
+const AppearanceTab = React.lazy(() =>
+  import("../ui/settings/AppearanceTab").then((m) => ({ default: m.AppearanceTab }))
+);
+const IdleTab = React.lazy(() =>
+  import("../ui/settings/IdleTab").then((m) => ({ default: m.IdleTab }))
+);
+const GeneralTab = React.lazy(() =>
+  import("../ui/settings/GeneralTab").then((m) => ({ default: m.GeneralTab }))
+);
+const ModulesTab = React.lazy(() =>
+  import("../ui/settings/ModulesTab").then((m) => ({ default: m.ModulesTab }))
+);
+const KeyboardShortcutsCard = React.lazy(() =>
+  import("../ui/settings/KeyboardShortcutsCard").then((m) => ({ default: m.KeyboardShortcutsCard }))
+);
+const AdvancedTab = React.lazy(() =>
+  import("../ui/settings/AdvancedTab").then((m) => ({ default: m.AdvancedTab }))
+);
+const SearchResults = React.lazy(() =>
+  import("../ui/settings/SearchResults").then((m) => ({ default: m.SearchResults }))
+);
 import { SettingRow } from "../ui/settings/SettingRow";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { NotifSoundPicker } from "../ui/settings/NotifSoundPicker";
 import { WindowsBannerRow } from "../ui/settings/WindowsBannerRow";
-import { Tooltip } from "../ui/Tooltip";
 
 const sectionVariants = {
   initial: { opacity: 0 },
@@ -109,7 +136,7 @@ export const SettingsWindowApp: React.FC = () => {
   }, []);
 
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("4.4.0");
+  const [currentAppVersion, setCurrentAppVersion] = useState("5.0.0");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
@@ -140,8 +167,8 @@ export const SettingsWindowApp: React.FC = () => {
   const [optAutoCompact, setOptAutoCompact] = useState(true);
   const [optAutoCompactMode, setOptAutoCompactMode] = useState<"browser" | "maximized">(() => {
     try {
-      const v = localStorage.getItem("island_auto_compact_mode");
-      if (v === "browser" || v === "maximized") return v;
+      const saved = localStorage.getItem("island_auto_compact_mode");
+      if (saved === "browser" || saved === "maximized") return saved;
     } catch {}
     return "browser";
   });
@@ -225,6 +252,34 @@ export const SettingsWindowApp: React.FC = () => {
     return 0;
   });
   const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy" | "smooth" | "bouncy">("smooth");
+  const [optIdleColorEnabled, setOptIdleColorEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("island_idle_color_enabled") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [optIdleColor, setOptIdleColor] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("island_idle_color");
+      if (saved && isValidHex(saved)) return normalizeHex(saved);
+    } catch {}
+    return "#0f172a";
+  });
+  const [optIdleTextColorEnabled, setOptIdleTextColorEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("island_idle_text_color_enabled") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [optIdleTextColor, setOptIdleTextColor] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("island_idle_text_color");
+      if (saved && isValidHex(saved)) return normalizeHex(saved);
+    } catch {}
+    return "#ffffff";
+  });
 
   // Idle Layout State
   const [idleLayout, setIdleLayout] = useState<IdleLayoutConfig>(() => getSavedIdleLayout());
@@ -244,7 +299,12 @@ export const SettingsWindowApp: React.FC = () => {
   const [shortcuts, setShortcuts] = useState<Record<ShortcutActionId, string | null>>(() => {
     try {
       const raw = localStorage.getItem("island_shortcuts");
-      if (raw) return { ...DEFAULT_SHORTCUTS, ...JSON.parse(raw) };
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return { ...DEFAULT_SHORTCUTS, ...parsed };
+        }
+      }
     } catch {}
     return { ...DEFAULT_SHORTCUTS };
   });
@@ -258,14 +318,19 @@ export const SettingsWindowApp: React.FC = () => {
   const [shortcutStatuses, setShortcutStatuses] = useState<Record<ShortcutActionId, ShortcutStatus>>(() => {
     const init = {} as Record<ShortcutActionId, ShortcutStatus>;
     for (const action of SHORTCUT_ACTIONS) {
-      init[action.id] = "ok";
+      init[action.id] = "inactive";
     }
     return init;
   });
+  const pendingShortcutRequestsRef = useRef<
+    Map<string, { resolve: (result: any) => void; timer: number }>
+  >(new Map());
+  const isShortcutSuspendedRef = useRef(false);
 
   // System / Update State
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [taskbarProLocked, setTaskbarProLocked] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [clearTempStatus, setClearTempStatus] = useState<"idle" | "cleaning" | "done" | "error">("idle");
   const [clearedResult, setClearedResult] = useState<{
@@ -306,6 +371,12 @@ export const SettingsWindowApp: React.FC = () => {
       })
       .catch(() => {});
     getVersion().then(setCurrentAppVersion).catch(() => {});
+    getTaskbarProStatus()
+      .then((status) => setTaskbarProLocked(status.isLocked))
+      .catch(() => {});
+    const unsubscribePro = subscribeTaskbarProStatus((status) => {
+      setTaskbarProLocked(status.isLocked);
+    });
     checkForAppUpdate()
       .then((info) => {
         setUpdateInfo(info);
@@ -374,7 +445,10 @@ export const SettingsWindowApp: React.FC = () => {
         if (typeof nt === "number") setOptNotifTime(nt);
 
         const ns = await s.get("opt_notif_sound");
-        if (typeof ns === "string") setOptNotifSound(ns);
+        if (typeof ns === "string") {
+          setOptNotifSound(ns);
+          setSavedNotifSound(ns);
+        }
 
         const cd = await s.get("opt_close_delay");
         if (cd === 0 || cd === 1 || cd === 3 || cd === -1) setOptCloseDelay(cd);
@@ -392,7 +466,22 @@ export const SettingsWindowApp: React.FC = () => {
         if (typeof ac === "boolean") setOptAutoCompact(ac);
 
         const acm = await s.get("opt_auto_compact_mode");
-        if (acm === "browser" || acm === "maximized") setOptAutoCompactMode(acm);
+        if (acm === "browser" || acm === "maximized") {
+          setOptAutoCompactMode(acm);
+          try { localStorage.setItem("island_auto_compact_mode", acm); } catch {}
+        }
+
+        const idleColEnabled = await s.get("opt_idle_color_enabled");
+        if (typeof idleColEnabled === "boolean") setOptIdleColorEnabled(idleColEnabled);
+
+        const idleCol = await s.get("opt_idle_color");
+        if (typeof idleCol === "string" && isValidHex(idleCol)) setOptIdleColor(normalizeHex(idleCol));
+
+        const idleTextColEnabled = await s.get("opt_idle_text_color_enabled");
+        if (typeof idleTextColEnabled === "boolean") setOptIdleTextColorEnabled(idleTextColEnabled);
+
+        const idleTextCol = await s.get("opt_idle_text_color");
+        if (typeof idleTextCol === "string" && isValidHex(idleTextCol)) setOptIdleTextColor(normalizeHex(idleTextCol));
 
         const lang = await s.get("opt_language");
         if (lang === "en" || lang === "id") {
@@ -416,7 +505,7 @@ export const SettingsWindowApp: React.FC = () => {
         if (fsz === "small" || fsz === "default" || fsz === "large") setOptFontSize(fsz);
 
         const savedShortcuts = await s.get("shortcuts");
-        if (savedShortcuts && typeof savedShortcuts === "object") {
+        if (savedShortcuts && typeof savedShortcuts === "object" && !Array.isArray(savedShortcuts)) {
           setShortcuts({ ...DEFAULT_SHORTCUTS, ...(savedShortcuts as Record<ShortcutActionId, string | null>) });
         }
 
@@ -443,6 +532,21 @@ export const SettingsWindowApp: React.FC = () => {
       const payload = event.payload;
       if (!payload || typeof payload !== "object") return;
 
+      if (payload.type === "shortcuts_ipc_reply" && typeof payload.requestId === "string") {
+        const pending = pendingShortcutRequestsRef.current.get(payload.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timer);
+          pendingShortcutRequestsRef.current.delete(payload.requestId);
+          pending.resolve(payload.result ?? { success: true });
+        }
+        return;
+      }
+
+      if (payload.type === "settings_reset") {
+        window.location.reload();
+        return;
+      }
+
       if (payload.type === "tabs_preferences" && payload.data) {
         setTabsPrefs(normalizeTabsPreferences(payload.data));
         return;
@@ -453,12 +557,38 @@ export const SettingsWindowApp: React.FC = () => {
         return;
       }
 
-      if (payload.type === "setting_key") {
-        const { key, value } = payload;
-        switch (key) {
+      if (payload.type === "shortcuts_update" && payload.shortcuts) {
+        setShortcuts(payload.shortcuts);
+        return;
+      }
+
+      if (payload.type === "shortcuts_enabled" && typeof payload.enabled === "boolean") {
+        setShortcutsEnabled(payload.enabled);
+        return;
+      }
+
+      const syncKey =
+        payload.type === "setting_key"
+          ? payload.key
+          : payload.type === "opt_target_monitor"
+          ? "opt_target_monitor"
+          : null;
+
+      if (syncKey) {
+        const value = payload.value;
+        switch (syncKey) {
           case "opt_language":
             setLanguage(value as Language, false);
             setOptLanguage(value as Language);
+            break;
+          case "show_greeting":
+            setShowGreeting(Boolean(value));
+            break;
+          case "greeting_name_mode":
+            setGreetingNameMode(value === "custom" ? "custom" : "auto");
+            break;
+          case "custom_greeting_name":
+            setCustomGreetingName(typeof value === "string" ? value : "");
             break;
           case "opt_theme":
             setOptTheme(value);
@@ -470,7 +600,7 @@ export const SettingsWindowApp: React.FC = () => {
             setIslandTopOffset(Number(value));
             break;
           case "opt_position":
-            setOptPosition(value);
+            if (isValidNotchPosition(value)) setOptPosition(value);
             break;
           case "opt_target_monitor":
             if (typeof value === "string") setOptTargetMonitor(value);
@@ -480,6 +610,21 @@ export const SettingsWindowApp: React.FC = () => {
             break;
           case "opt_opacity":
             setOptOpacity(Number(value));
+            break;
+          case "opt_blur":
+            setOptBlur(Number(value));
+            break;
+          case "opt_idle_color_enabled":
+            setOptIdleColorEnabled(Boolean(value));
+            break;
+          case "opt_idle_color":
+            if (typeof value === "string" && isValidHex(value)) setOptIdleColor(normalizeHex(value));
+            break;
+          case "opt_idle_text_color_enabled":
+            setOptIdleTextColorEnabled(Boolean(value));
+            break;
+          case "opt_idle_text_color":
+            if (typeof value === "string" && isValidHex(value)) setOptIdleTextColor(normalizeHex(value));
             break;
           case "opt_anim_speed":
             setOptAnimSpeed(value);
@@ -493,6 +638,15 @@ export const SettingsWindowApp: React.FC = () => {
           case "opt_font_size":
             setOptFontSize(value);
             break;
+          case "opt_notif_time":
+            setOptNotifTime(Number(value));
+            break;
+          case "opt_notif_sound":
+            if (typeof value === "string") {
+              setOptNotifSound(value);
+              setSavedNotifSound(value);
+            }
+            break;
           case "opt_close_delay":
             setOptCloseDelay(Number(value));
             break;
@@ -502,10 +656,24 @@ export const SettingsWindowApp: React.FC = () => {
           case "opt_auto_compact_mode":
             if (value === "browser" || value === "maximized") {
               setOptAutoCompactMode(value);
+              try { localStorage.setItem("island_auto_compact_mode", value); } catch {}
             }
+            break;
+          case "opt_volume":
+            setOptVolume(Boolean(value));
+            break;
+          case "opt_clipboard":
+            setOptClipboard(Boolean(value));
+            break;
+          case "opt_ocr":
+            setOptOcr(Boolean(value));
+            break;
+          case "opt_media":
+            setOptMedia(Boolean(value));
             break;
           case "opt_sound_fx":
             setOptSoundFx(Boolean(value));
+            setSoundEffectsEnabled(Boolean(value));
             break;
           case "opt_idle_layout":
             setIdleLayout(parseIdleLayout(value));
@@ -516,7 +684,24 @@ export const SettingsWindowApp: React.FC = () => {
       }
     });
 
+    unlistenSync.then(() => {
+      invoke("broadcast_settings_sync", {
+        payload: { type: "request_shortcut_statuses" },
+      }).catch(() => {});
+    });
+
     return () => {
+      for (const pending of pendingShortcutRequestsRef.current.values()) {
+        window.clearTimeout(pending.timer);
+      }
+      pendingShortcutRequestsRef.current.clear();
+      if (isShortcutSuspendedRef.current) {
+        isShortcutSuspendedRef.current = false;
+        invoke("broadcast_settings_sync", {
+          payload: { type: "shortcuts_resume_request" },
+        }).catch(() => {});
+      }
+      unsubscribePro();
       unlistenNav.then((f) => f());
       unlistenSync.then((f) => f());
     };
@@ -622,7 +807,10 @@ export const SettingsWindowApp: React.FC = () => {
   const handleChangeNotifSound = async (soundId: string) => {
     setOptNotifSound(soundId);
     setSavedNotifSound(soundId);
-    if (store) await store.set("opt_notif_sound", soundId);
+    if (store) {
+      await store.set("opt_notif_sound", soundId);
+      await store.save();
+    }
     broadcastSetting("opt_notif_sound", soundId);
   };
 
@@ -711,6 +899,56 @@ export const SettingsWindowApp: React.FC = () => {
     broadcastSetting("opt_blur", val);
   };
 
+  const handleChangeIdleColorEnabled = async (val: boolean) => {
+    setOptIdleColorEnabled(val);
+    try { localStorage.setItem("island_idle_color_enabled", String(val)); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_idle_color_enabled", val);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_idle_color_enabled", val);
+  };
+
+  const handleChangeIdleColor = async (color: string) => {
+    const normalized = normalizeHex(color);
+    setOptIdleColor(normalized);
+    try { localStorage.setItem("island_idle_color", normalized); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_idle_color", normalized);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_idle_color", normalized);
+  };
+
+  const handleChangeIdleTextColorEnabled = async (val: boolean) => {
+    setOptIdleTextColorEnabled(val);
+    try { localStorage.setItem("island_idle_text_color_enabled", String(val)); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_idle_text_color_enabled", val);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_idle_text_color_enabled", val);
+  };
+
+  const handleChangeIdleTextColor = async (color: string) => {
+    const normalized = normalizeHex(color);
+    setOptIdleTextColor(normalized);
+    try { localStorage.setItem("island_idle_text_color", normalized); } catch {}
+    if (store) {
+      try {
+        await store.set("opt_idle_text_color", normalized);
+        await store.save();
+      } catch {}
+    }
+    broadcastSetting("opt_idle_text_color", normalized);
+  };
+
   const handleChangeAnimSpeed = async (speed: "snappy" | "smooth" | "bouncy") => {
     setOptAnimSpeed(speed);
     if (store) await store.set("opt_anim_speed", speed);
@@ -779,20 +1017,57 @@ export const SettingsWindowApp: React.FC = () => {
     broadcastSetting("opt_sound_fx", next);
   };
 
+  const requestMainShortcutAction = useCallback(
+    <T,>(payload: Record<string, unknown>, fallback: T, timeoutMs = 4000): Promise<T> => {
+      const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise<T>((resolve) => {
+        const timer = window.setTimeout(() => {
+          pendingShortcutRequestsRef.current.delete(requestId);
+          resolve(fallback);
+        }, timeoutMs);
+        pendingShortcutRequestsRef.current.set(requestId, {
+          resolve: (res) => resolve(res as T),
+          timer,
+        });
+        invoke("broadcast_settings_sync", {
+          payload: { ...payload, requestId },
+        }).catch(() => {
+          window.clearTimeout(timer);
+          pendingShortcutRequestsRef.current.delete(requestId);
+          resolve(fallback);
+        });
+      });
+    },
+    []
+  );
+
+  const handleSuspendShortcuts = useCallback(async () => {
+    isShortcutSuspendedRef.current = true;
+    await requestMainShortcutAction({ type: "shortcuts_suspend_request" }, { success: true }, 1500);
+  }, [requestMainShortcutAction]);
+
+  const handleResumeShortcuts = useCallback(async () => {
+    if (!isShortcutSuspendedRef.current) return;
+    isShortcutSuspendedRef.current = false;
+    await requestMainShortcutAction({ type: "shortcuts_resume_request" }, { success: true }, 1500);
+  }, [requestMainShortcutAction]);
+
   const handleUpdateShortcut = async (
     actionId: ShortcutActionId,
     newShortcut: string | null
   ): Promise<{ success: boolean; error?: string }> => {
-    const updated = { ...shortcuts, [actionId]: newShortcut };
-    setShortcuts(updated);
-    try {
-      localStorage.setItem("island_shortcuts", JSON.stringify(updated));
-    } catch {}
-    if (store) await store.set("shortcuts", updated);
-    invoke("broadcast_settings_sync", {
-      payload: { type: "shortcuts_update", actionId, newShortcut, shortcuts: updated, shortcutsEnabled },
-    }).catch(() => {});
-    return { success: true };
+    const fallbackError =
+      optLanguage === "id" ? "Jendela utama tidak merespons" : "Main window did not respond";
+    const result = await requestMainShortcutAction<{ success: boolean; error?: string }>(
+      { type: "shortcuts_update_request", actionId, newShortcut },
+      { success: false, error: fallbackError },
+      4000
+    );
+    if (result.success) {
+      isShortcutSuspendedRef.current = false;
+      setShortcuts((prev) => ({ ...prev, [actionId]: newShortcut }));
+    }
+    return result;
   };
 
   const handleResetShortcut = async (actionId: ShortcutActionId) => {
@@ -802,13 +1077,14 @@ export const SettingsWindowApp: React.FC = () => {
 
   const handleToggleShortcutsEnabled = async (enabled: boolean) => {
     setShortcutsEnabled(enabled);
-    try {
-      localStorage.setItem("island_shortcuts_enabled", String(enabled));
-    } catch {}
-    if (store) await store.set("shortcuts_enabled", enabled);
-    invoke("broadcast_settings_sync", {
-      payload: { type: "shortcuts_enabled", enabled, shortcuts },
-    }).catch(() => {});
+    if (!enabled) {
+      isShortcutSuspendedRef.current = false;
+    }
+    await requestMainShortcutAction(
+      { type: "shortcuts_enabled_request", enabled },
+      { success: true },
+      2000
+    );
   };
 
   const handleClearTempFiles = async () => {
@@ -874,6 +1150,7 @@ export const SettingsWindowApp: React.FC = () => {
       networkPing: 18,
       pendingTodosCount: 2,
       stashedFilesCount: 1,
+      unreadNotifCount: 3,
       fps: 60,
       cpuUsage: 14,
       ramUsage: 48,
@@ -906,17 +1183,14 @@ export const SettingsWindowApp: React.FC = () => {
 
   const handleToggleMaximize = async () => {
     const win = getCurrentWindow();
-    const max = await win.isMaximized();
-    if (max) {
-      await win.unmaximize();
-      setIsMaximized(false);
-    } else {
-      await win.maximize();
-      setIsMaximized(true);
-    }
+    await win.toggleMaximize();
+    setIsMaximized(await win.isMaximized());
   };
 
-  const handleCloseWindow = () => {
+  const handleCloseWindow = async () => {
+    if (isShortcutSuspendedRef.current) {
+      await handleResumeShortcuts().catch(() => {});
+    }
     const win = getCurrentWindow();
     win.close().catch(() => win.destroy().catch(() => {}));
   };
@@ -932,7 +1206,6 @@ export const SettingsWindowApp: React.FC = () => {
       {/* Top Frameless Window Titlebar */}
       <header
         data-tauri-drag-region
-        onDoubleClick={handleToggleMaximize}
         className={`h-[44px] shrink-0 w-full flex items-center justify-between pl-4 pr-2.5 border-b ${
           isLightMode
             ? "bg-[#ebebef]/95 border-black/[0.08]"
@@ -940,10 +1213,12 @@ export const SettingsWindowApp: React.FC = () => {
         }`}
       >
         {/* Left: Sidebar Toggle + Gili Logo + Window Title */}
-        <div className="flex items-center gap-2 pointer-events-auto">
+        <div data-tauri-drag-region className="flex items-center gap-2 pointer-events-auto">
           <Tooltip
             side="bottom"
             delay={200}
+            allowFlip
+            isLightMode={isLightMode}
             content={
               isSidebarCollapsed
                 ? isId
@@ -956,6 +1231,15 @@ export const SettingsWindowApp: React.FC = () => {
           >
             <button
               type="button"
+              aria-label={
+                isSidebarCollapsed
+                  ? isId
+                    ? "Tampilkan menu navigasi"
+                    : "Show navigation menu"
+                  : isId
+                  ? "Sembunyikan menu navigasi"
+                  : "Hide navigation menu"
+              }
               onClick={handleToggleSidebarCollapse}
               className={`w-7 h-7 rounded-[7px] flex items-center justify-center transition-colors cursor-pointer ${
                 isLightMode
@@ -970,14 +1254,17 @@ export const SettingsWindowApp: React.FC = () => {
               )}
             </button>
           </Tooltip>
-          <div className="flex items-center gap-2 pointer-events-none">
+          <div data-tauri-drag-region className="flex items-center gap-2">
             <img
               src="/logo/LOGO-GILI.png"
               alt="Gili"
               draggable={false}
-              className="w-5 h-5 rounded-[5px] object-contain shrink-0"
+              className="w-5 h-5 rounded-[5px] object-contain shrink-0 pointer-events-none"
             />
-            <span className={`text-[13px] font-semibold tracking-tight ${isLightMode ? "text-neutral-800" : "text-zinc-100"}`}>
+            <span
+              data-tauri-drag-region
+              className={`text-[13px] font-semibold tracking-tight ${isLightMode ? "text-neutral-800" : "text-zinc-100"}`}
+            >
               {isId ? "Pengaturan Gili" : "Gili Settings"}
             </span>
           </div>
@@ -985,9 +1272,10 @@ export const SettingsWindowApp: React.FC = () => {
 
         {/* Right: Minimize, Maximize & Close Buttons */}
         <div className="flex items-center gap-1 pointer-events-auto">
-          <Tooltip side="bottom" delay={300} content={isId ? "Minimalkan" : "Minimize"}>
+          <Tooltip content={isId ? "Minimalkan" : "Minimize"} side="bottom" allowFlip isLightMode={isLightMode}>
             <button
               type="button"
+              aria-label={isId ? "Minimalkan" : "Minimize"}
               onClick={() => getCurrentWindow().minimize()}
               className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
                 isLightMode
@@ -998,9 +1286,16 @@ export const SettingsWindowApp: React.FC = () => {
               <Minus size={15} strokeWidth={2} />
             </button>
           </Tooltip>
-          <Tooltip side="bottom" delay={300} content={isMaximized ? (isId ? "Pulihkan" : "Restore") : (isId ? "Maksimalkan" : "Maximize")}>
+          <Tooltip
+            side="bottom"
+            delay={300}
+            allowFlip
+            isLightMode={isLightMode}
+            content={isMaximized ? (isId ? "Pulihkan" : "Restore") : (isId ? "Maksimalkan" : "Maximize")}
+          >
             <button
               type="button"
+              aria-label={isMaximized ? (isId ? "Pulihkan" : "Restore") : (isId ? "Maksimalkan" : "Maximize")}
               onClick={handleToggleMaximize}
               className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
                 isLightMode
@@ -1011,9 +1306,10 @@ export const SettingsWindowApp: React.FC = () => {
               {isMaximized ? <Minimize2 size={13} strokeWidth={2} /> : <Maximize2 size={13} strokeWidth={2} />}
             </button>
           </Tooltip>
-          <Tooltip side="bottom" delay={300} content={isId ? "Tutup" : "Close"}>
+          <Tooltip content={isId ? "Tutup" : "Close"} side="bottom" allowFlip isLightMode={isLightMode}>
             <button
               type="button"
+              aria-label={isId ? "Tutup" : "Close"}
               onClick={handleCloseWindow}
               className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
                 isLightMode
@@ -1039,32 +1335,33 @@ export const SettingsWindowApp: React.FC = () => {
           appVersion={currentAppVersion}
           hasUpdate={Boolean(updateInfo?.available) || updateStatus === "available"}
           updateVersion={updateInfo?.version}
+          isTaskbarProLocked={taskbarProLocked}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebarCollapse}
         />
 
         <main
-          className={`flex-1 h-full overflow-y-auto overflow-x-hidden settings-scroll px-7 py-6 ${
+          className={`flex-1 h-full overflow-y-auto overflow-x-hidden settings-scroll px-6 py-5 ${
             isLightMode ? "bg-[#f5f5f7]" : "bg-[#0c0c10]"
           }`}
         >
-          <div
-            className={`w-full flex flex-col gap-5 transition-all duration-200 ease-in-out ${
-              isSidebarCollapsed ? "max-w-none" : "max-w-[640px] mx-auto"
-            }`}
-          >
+          <div className="w-full flex flex-col gap-4 transition-all duration-200 ease-in-out">
             {/* Section Title Header */}
             {!searchQuery.trim() && (
-              <div className="flex items-center justify-between pb-1 border-b border-white/[0.06] [html.light_&]:border-black/[0.07]">
-                <div className="flex items-center gap-3">
+              <div
+                className={`flex items-center justify-between pb-3.5 mb-0.5 border-b ${
+                  isLightMode ? "border-black/[0.08]" : "border-white/[0.07]"
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
                   <div
-                    className={`w-10 h-10 rounded-[12px] flex items-center justify-center text-white shadow-md ${currentSectionMeta.bgClass}`}
+                    className={`w-10 h-10 rounded-[12px] flex items-center justify-center text-white shadow-md shrink-0 ${currentSectionMeta.bgClass}`}
                   >
                     {currentSectionMeta.icon}
                   </div>
                   <div className="flex flex-col">
                     <h1
-                      className={`text-[18px] font-bold tracking-tight leading-tight ${
+                      className={`text-[19px] font-bold tracking-tight leading-tight ${
                         isLightMode ? "text-neutral-900" : "text-white"
                       }`}
                     >
@@ -1083,7 +1380,8 @@ export const SettingsWindowApp: React.FC = () => {
             )}
 
             {/* Dynamic Section Content */}
-            <AnimatePresence mode="wait">
+            <React.Suspense fallback={null}>
+              <AnimatePresence mode="wait">
               {searchQuery.trim().length > 0 ? (
                 <motion.div
                   key="search-results"
@@ -1215,6 +1513,15 @@ export const SettingsWindowApp: React.FC = () => {
                       onChangeOpacity={handleChangeOpacity}
                       optBlur={optBlur}
                       onChangeBlur={handleChangeBlur}
+                      optIdleColorEnabled={optIdleColorEnabled}
+                      onChangeIdleColorEnabled={handleChangeIdleColorEnabled}
+                      optIdleColor={optIdleColor}
+                      onChangeIdleColor={handleChangeIdleColor}
+                      optIdleTextColorEnabled={optIdleTextColorEnabled}
+                      onChangeIdleTextColorEnabled={handleChangeIdleTextColorEnabled}
+                      optIdleTextColor={optIdleTextColor}
+                      onChangeIdleTextColor={handleChangeIdleTextColor}
+                      optLanguage={optLanguage}
                       optAnimSpeed={optAnimSpeed}
                       onChangeAnimSpeed={handleChangeAnimSpeed}
                     />
@@ -1271,81 +1578,107 @@ export const SettingsWindowApp: React.FC = () => {
                   )}
 
                   {activeSection === "notifications" && (
-                    <div className="flex flex-col gap-4 w-full">
-                      <div
-                        className={`w-full rounded-[22px] p-2 flex flex-col gap-1 ${
-                          isLightMode
-                            ? "bg-white/85 border border-black/10 shadow-sm"
-                            : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
-                        }`}
-                      >
-                        <SettingRow
-                          icon={<Clock size={18} />}
-                          iconBgClass="bg-[#2e161c]"
-                          iconColorClass="text-[#ff375f]"
-                          title={t("settings_notif_duration")}
-                          subtitle={t("settings_notif_duration_desc")}
-                          control={
-                            <IosSegmentedControl
-                              value={optNotifTime}
-                              onChange={handleChangeNotifTime}
-                              options={[
-                                { value: 3, label: isId ? "3 dtk" : "3s" },
-                                { value: 5, label: isId ? "5 dtk" : "5s" },
-                                { value: 7, label: isId ? "7 dtk" : "7s" },
-                              ]}
-                            />
-                          }
-                        />
+                    <div className="flex flex-col gap-5 w-full">
+                      <div className="flex flex-col gap-2">
+                        <span
+                          className={`px-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${
+                            isLightMode ? "text-neutral-500" : "text-zinc-500"
+                          }`}
+                        >
+                          {isId ? "Notifikasi & Suara" : "Notification Banner & Sound"}
+                        </span>
+                        <div
+                          className={`w-full rounded-[18px] p-3 flex flex-col gap-0.5 ${
+                            isLightMode
+                              ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+                              : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
+                          }`}
+                        >
+                          <SettingRow
+                            isLightMode={isLightMode}
+                            icon={<Clock size={18} />}
+                            iconBgClass={isLightMode ? "bg-[#ff375f]/12" : "bg-[#2e161c]"}
+                            iconColorClass="text-[#ff375f]"
+                            title={t("settings_notif_duration")}
+                            subtitle={t("settings_notif_duration_desc")}
+                            control={
+                              <IosSegmentedControl
+                                value={optNotifTime}
+                                onChange={handleChangeNotifTime}
+                                options={[
+                                  { value: 3, label: isId ? "3 dtk" : "3s" },
+                                  { value: 5, label: isId ? "5 dtk" : "5s" },
+                                  { value: 7, label: isId ? "7 dtk" : "7s" },
+                                ]}
+                              />
+                            }
+                          />
 
-                        <SettingRow
-                          icon={<Volume2 size={18} />}
-                          iconBgClass="bg-[#26182e]"
-                          iconColorClass="text-[#af52de]"
-                          title={t("settings_notif_sound")}
-                          subtitle={t("settings_notif_sound_desc")}
-                          control={
-                            <NotifSoundPicker
-                              value={optNotifSound}
-                              onChange={handleChangeNotifSound}
-                            />
-                          }
-                        />
+                          <SettingRow
+                            isLightMode={isLightMode}
+                            icon={<Volume2 size={18} />}
+                            iconBgClass={isLightMode ? "bg-[#af52de]/12" : "bg-[#26182e]"}
+                            iconColorClass="text-[#af52de]"
+                            title={t("settings_notif_sound")}
+                            subtitle={t("settings_notif_sound_desc")}
+                            control={
+                              <NotifSoundPicker
+                                value={optNotifSound}
+                                onChange={handleChangeNotifSound}
+                              />
+                            }
+                          />
 
-                        <WindowsBannerRow />
+                          <WindowsBannerRow isLightMode={isLightMode} />
 
-                        <SettingRow
-                          icon={<Send size={18} />}
-                          iconBgClass="bg-[#241c30]"
-                          iconColorClass="text-[#bf5af2]"
-                          title={t("settings_adv_test_notif")}
-                          subtitle={t("settings_adv_test_notif_desc")}
-                          control={
-                            <button
-                              type="button"
-                              onClick={() => {
-                                invoke("trigger_notch_action", { action: "test_notification" }).catch(() => {});
-                              }}
-                              className="px-3.5 py-1.5 rounded-full bg-[#1e1e24] hover:bg-[#282830] text-white text-[12px] font-medium transition-colors cursor-pointer"
-                            >
-                              {t("settings_adv_test_notif_btn")}
-                            </button>
-                          }
-                        />
+                          <SettingRow
+                            isLightMode={isLightMode}
+                            icon={<Send size={18} />}
+                            iconBgClass={isLightMode ? "bg-[#bf5af2]/12" : "bg-[#241c30]"}
+                            iconColorClass="text-[#bf5af2]"
+                            title={t("settings_adv_test_notif")}
+                            subtitle={t("settings_adv_test_notif_desc")}
+                            control={
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  invoke("trigger_notch_action", { action: "test_notification" }).catch(() => {});
+                                }}
+                                className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-colors cursor-pointer ${
+                                  isLightMode
+                                    ? "bg-black/[0.06] hover:bg-black/[0.1] text-neutral-800"
+                                    : "bg-white/[0.08] hover:bg-white/[0.14] text-white"
+                                }`}
+                              >
+                                {t("settings_adv_test_notif_btn")}
+                              </button>
+                            }
+                          />
+                        </div>
                       </div>
 
-                      <ModulesTab
-                        optVolume={optVolume}
-                        onToggleVolume={handleToggleVolume}
-                        optClipboard={optClipboard}
-                        onToggleClipboard={handleToggleClipboard}
-                        optOcr={optOcr}
-                        onToggleOcr={handleToggleOcr}
-                        optMedia={optMedia}
-                        onToggleMedia={handleToggleMedia}
-                        optSoundFx={optSoundFx}
-                        onToggleSoundFx={handleToggleSoundFx}
-                      />
+                      <div className="flex flex-col gap-2">
+                        <span
+                          className={`px-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${
+                            isLightMode ? "text-neutral-500" : "text-zinc-500"
+                          }`}
+                        >
+                          {isId ? "Modul & Sensor Pintar" : "Smart Modules & Monitors"}
+                        </span>
+                        <ModulesTab
+                          optVolume={optVolume}
+                          onToggleVolume={handleToggleVolume}
+                          optClipboard={optClipboard}
+                          onToggleClipboard={handleToggleClipboard}
+                          optOcr={optOcr}
+                          onToggleOcr={handleToggleOcr}
+                          optMedia={optMedia}
+                          onToggleMedia={handleToggleMedia}
+                          optSoundFx={optSoundFx}
+                          onToggleSoundFx={handleToggleSoundFx}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -1357,6 +1690,8 @@ export const SettingsWindowApp: React.FC = () => {
                       onUpdateShortcut={handleUpdateShortcut}
                       onResetShortcut={handleResetShortcut}
                       onToggleShortcutsEnabled={handleToggleShortcutsEnabled}
+                      onSuspendShortcuts={handleSuspendShortcuts}
+                      onResumeShortcuts={handleResumeShortcuts}
                       isLightMode={isLightMode}
                     />
                   )}
@@ -1378,6 +1713,7 @@ export const SettingsWindowApp: React.FC = () => {
                       onClose={() => {
                         invoke("trigger_notch_action", { action: "restart_onboarding" }).catch(() => {});
                       }}
+                      isLightMode={isLightMode}
                     />
                   )}
 
@@ -1397,7 +1733,8 @@ export const SettingsWindowApp: React.FC = () => {
                   )}
                 </motion.div>
               )}
-            </AnimatePresence>
+              </AnimatePresence>
+            </React.Suspense>
           </div>
         </main>
       </div>

@@ -14,27 +14,21 @@ import { listen } from "@tauri-apps/api/event";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
 import { t, getLanguage } from "../../../services/i18n";
 
-export const PRESET_SOLID = { opacity: 1.0, blur: 0 };
-export const PRESET_LIQUID_GLASS = { opacity: 0.78, blur: 68 };
-export const PRESET_GLASS = { opacity: 0.54, blur: 45 };
+import {
+  PRESET_SOLID,
+  PRESET_LIQUID_GLASS,
+  PRESET_GLASS,
+  getDefaultBlurForOpacity,
+  resolveNotchThemeMode,
+} from "../../../utils/frostedGlass";
 
-export function getDefaultBlurForOpacity(opacity: number): number {
-  const num = Number(opacity);
-  if (!Number.isFinite(num) || num >= 0.95) return PRESET_SOLID.blur;
-  if (num >= 0.68) return PRESET_LIQUID_GLASS.blur;
-  return PRESET_GLASS.blur;
-}
-
-export function resolveNotchThemeMode(
-  opacity: number,
-  blur: number
-): "solid" | "glass" | "clear" {
-  const op = Number.isFinite(opacity) ? opacity : 1.0;
-  const bl = Number.isFinite(blur) ? blur : 0;
-  if (op >= 0.96 && bl <= 2) return "solid";
-  if (op >= 0.66) return "glass";
-  return "clear";
-}
+export {
+  PRESET_SOLID,
+  PRESET_LIQUID_GLASS,
+  PRESET_GLASS,
+  getDefaultBlurForOpacity,
+  resolveNotchThemeMode,
+};
 
 export function computeNotchGlassCssVars(
   opacity: number,
@@ -74,12 +68,18 @@ export function computeNotchGlassCssVars(
     };
   }
 
+  // Dark mode: pure transparency opacity, not polluted by blur:
+  const darkBase = Math.min(0.86, Math.max(0.22, clampedOpacity * 0.60 + expandBoost));
+  const darkEnd = Math.min(0.82, Math.max(0.16, clampedOpacity * 0.46 + expandBoost));
+  const elevatedBase = Math.min(0.90, darkBase + 0.08);
+  const elevatedEnd = Math.min(0.86, darkEnd + 0.06);
+
   return {
     "--notch-blur": blurPx <= 1 ? "none" : `blur(${blurPx}px) saturate(${satPct}%)`,
     "--glass-inner-blur": innerBlurCss,
-    "--glass-card-bg": "rgba(255, 255, 255, 0.13)",
-    "--glass-card-hover-bg": "rgba(255, 255, 255, 0.24)",
-    "--glass-elevated-bg": "rgba(255, 255, 255, 0.16)",
+    "--glass-card-bg": `linear-gradient(145deg, rgba(26, 26, 35, ${darkBase.toFixed(2)}) 0%, rgba(16, 16, 22, ${darkEnd.toFixed(2)}) 100%)`,
+    "--glass-card-hover-bg": `linear-gradient(145deg, rgba(38, 38, 50, ${Math.min(0.92, darkBase + 0.08).toFixed(2)}) 0%, rgba(24, 24, 34, ${Math.min(0.88, darkEnd + 0.08).toFixed(2)}) 100%)`,
+    "--glass-elevated-bg": `linear-gradient(145deg, rgba(36, 36, 48, ${elevatedBase.toFixed(2)}) 0%, rgba(24, 24, 32, ${elevatedEnd.toFixed(2)}) 100%)`,
   };
 }
 
@@ -186,11 +186,19 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
   };
 
   return (
-    <div className="flex flex-col gap-2 px-3 py-2.5 rounded-[12px] hover:bg-white/[0.02] transition-colors">
+    <div
+      className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-[12px] transition-colors ${
+        isLightMode ? "hover:bg-black/[0.02]" : "hover:bg-white/[0.02]"
+      }`}
+    >
       {/* Top Row: 3 Default Presets (Solid, Liquid Glass, Glass) */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-[30px] h-[30px] rounded-[8px] flex items-center justify-center shrink-0 bg-[#142d1f] text-[#30d158]">
+          <div
+            className={`w-8 h-8 rounded-[9px] flex items-center justify-center shrink-0 ${
+              isLightMode ? "bg-[#30d158]/12" : "bg-[#142d1f]"
+            } text-[#30d158]`}
+          >
             <Layers size={18} />
           </div>
           <div className="flex flex-col min-w-0">
@@ -295,7 +303,11 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
         </div>
 
         {/* Slider 2: Tingkat Keburaman (Blur) */}
-        <div className="flex flex-col gap-1 pt-1 border-t border-white/[0.05]">
+        <div
+          className={`flex flex-col gap-1 pt-2 border-t ${
+            isLightMode ? "border-black/[0.06]" : "border-white/[0.05]"
+          }`}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <Blend size={12.5} className="text-[#3882F6]" />
@@ -338,7 +350,11 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
         </div>
 
         {/* Row 3: Live Preview Tab Action Button */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
+        <div
+          className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2 border-t ${
+            isLightMode ? "border-black/[0.06]" : "border-white/[0.06]"
+          }`}
+        >
           <div className="flex items-center gap-1.5 min-w-0">
             <Eye size={12.5} className="text-[#3882F6] shrink-0" />
             <span
@@ -361,7 +377,6 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
                   ? "bg-black/[0.05] hover:bg-black/[0.09] active:bg-black/[0.14] text-neutral-800 border-black/10"
                   : "bg-white/[0.07] hover:bg-white/[0.12] active:bg-white/[0.18] text-white border-white/10"
               }`}
-              title={isId ? "Buka Control Center di Notch" : "Open Control Center on Notch"}
             >
               <SlidersHorizontal size={11} className={activePreviewTab === "quick_control" ? "text-white" : "text-[#3882F6]"} />
               <span>
@@ -381,7 +396,6 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
                   ? "bg-black/[0.05] hover:bg-black/[0.09] active:bg-black/[0.14] text-neutral-800 border-black/10"
                   : "bg-white/[0.07] hover:bg-white/[0.12] active:bg-white/[0.18] text-zinc-200 border-white/10"
               }`}
-              title={isId ? "Buka Monitor Sistem di Notch" : "Open System Monitor on Notch"}
             >
               <Activity size={11} className={activePreviewTab === "sys_monitor" ? "text-white" : "text-[#ff9f0a]"} />
               <span>{t("settings_preview_monitor")}</span>
@@ -397,7 +411,6 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
                   ? "bg-black/[0.05] hover:bg-black/[0.09] active:bg-black/[0.14] text-neutral-800 border-black/10"
                   : "bg-white/[0.07] hover:bg-white/[0.12] active:bg-white/[0.18] text-zinc-200 border-white/10"
               }`}
-              title={isId ? "Buka Tab Musik di Notch" : "Open Music Tab on Notch"}
             >
               <Music size={11} className={activePreviewTab === "media_expanded" ? "text-white" : "text-[#fc3c44]"} />
               <span>{t("settings_preview_music")}</span>
@@ -412,7 +425,6 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
                     ? "bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100"
                     : "bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25"
                 }`}
-                title={isId ? "Tutup Tab Notch" : "Close Notch Tab"}
               >
                 <X size={11} />
                 <span>{t("settings_preview_close")}</span>

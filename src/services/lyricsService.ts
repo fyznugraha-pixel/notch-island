@@ -22,14 +22,6 @@ export const clearAllLyricsCache = clearAll;
 
 export function clearLyricsCacheForTrack(artist: string, title: string): void {
   clearTrack(artist, title);
-  try {
-    localStorage.setItem("notch_lyrics_offset", "0.0");
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("notch_lyrics_offset_changed", { detail: 0.0 }));
-    }
-  } catch {
-    // ignore storage errors
-  }
 }
 
 export async function fetchLyrics(
@@ -37,11 +29,12 @@ export async function fetchLyrics(
   title: string,
   duration?: number,
   providerId?: LyricsProviderId,
-  bypassCache = false
+  bypassCache = false,
+  signal?: AbortSignal
 ): Promise<LyricsData | null> {
   const chosenProvider = providerId || (typeof window !== "undefined"
     ? ((localStorage.getItem("notch_lyrics_provider") as LyricsProviderId) || "auto")
     : "auto");
 
-  return fetchLyricsMulti(artist, title, duration, chosenProvider, bypassCache);
+  return fetchLyricsMulti(artist, title, duration, chosenProvider, bypassCache, signal);
 }

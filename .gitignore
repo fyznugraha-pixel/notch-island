@@ -19,6 +19,7 @@ wmi_test/target/
 
 # Design drafts
 UI Redesign/
+ui-references/
 public/audio output UI/
 public/volume mixer/
 public/Quick-todo UI/
@@ -41,3 +42,11 @@ Design.html
 navbar DOCK desain.html
 prompt navbar.md
 40 fungsinal modul.md
+animasi maskot.html
+AI-Chat.html
+AICHAT-UI.html
+router-token.md
+
+# Cloudflare Worker local state
+gili-free-proxy/.wrangler/
+gili-free-proxy/.dev.vars

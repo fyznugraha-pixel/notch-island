@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { ChevronLeft, ChevronRight, ChevronDown, Clock, Bell, Check, Repeat } from "lucide-react";
 import { TodoRepeatRule, getRepeatBadgeText } from "../../../services/todoUtils";
+import { Tooltip } from "../Tooltip";
 import { t, getLanguage, Language } from "../../../services/i18n";
 
 export interface TodoCalendarViewProps {
@@ -362,33 +363,35 @@ export const TodoCalendarView: React.FC<TodoCalendarViewProps> = ({
                 <div className="flex items-center gap-2">
                   <Clock size={13} className="text-[#3882F6] shrink-0" />
                   <div className="flex items-center gap-0.5 text-[13.5px] font-bold tabular-nums text-white">
-                    <span
-                      title={isEn ? "Scroll to adjust hour" : "Gulir untuk mengatur jam"}
-                      onWheel={(e) => {
-                        if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
-                          e.stopPropagation();
-                          if (Math.abs(e.deltaY) < 1) return;
-                          setSelectedHour((h) => (h + (e.deltaY < 0 ? 1 : -1) + 24) % 24);
-                        }
-                      }}
-                      className="px-1 py-0.5 rounded hover:bg-white/10 transition-colors"
-                    >
-                      {String(selectedHour).padStart(2, "0")}
-                    </span>
+                    <Tooltip content={isEn ? "Scroll to adjust hour" : "Gulir untuk mengatur jam"} side="top">
+                      <span
+                        onWheel={(e) => {
+                          if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                            e.stopPropagation();
+                            if (Math.abs(e.deltaY) < 1) return;
+                            setSelectedHour((h) => (h + (e.deltaY < 0 ? 1 : -1) + 24) % 24);
+                          }
+                        }}
+                        className="px-1 py-0.5 rounded hover:bg-white/10 transition-colors block cursor-ns-resize"
+                      >
+                        {String(selectedHour).padStart(2, "0")}
+                      </span>
+                    </Tooltip>
                     <span className="text-zinc-500">:</span>
-                    <span
-                      title={isEn ? "Scroll to adjust minute" : "Gulir untuk mengatur menit"}
-                      onWheel={(e) => {
-                        if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
-                          e.stopPropagation();
-                          if (Math.abs(e.deltaY) < 1) return;
-                          setSelectedMinute((m) => (m + (e.deltaY < 0 ? 1 : -1) + 60) % 60);
-                        }
-                      }}
-                      className="px-1 py-0.5 rounded hover:bg-white/10 transition-colors"
-                    >
-                      {String(selectedMinute).padStart(2, "0")}
-                    </span>
+                    <Tooltip content={isEn ? "Scroll to adjust minute" : "Gulir untuk mengatur menit"} side="top">
+                      <span
+                        onWheel={(e) => {
+                          if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                            e.stopPropagation();
+                            if (Math.abs(e.deltaY) < 1) return;
+                            setSelectedMinute((m) => (m + (e.deltaY < 0 ? 1 : -1) + 60) % 60);
+                          }
+                        }}
+                        className="px-1 py-0.5 rounded hover:bg-white/10 transition-colors block cursor-ns-resize"
+                      >
+                        {String(selectedMinute).padStart(2, "0")}
+                      </span>
+                    </Tooltip>
                   </div>
                 </div>
                 <ChevronDown

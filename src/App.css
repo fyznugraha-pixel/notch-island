@@ -78,6 +78,7 @@ html.flyout-window #root {
 .navbar-surface-light .text-zinc-100:not(.navbar-preview-dark *),
 .navbar-surface-light .text-zinc-200:not(.navbar-preview-dark *),
 .navbar-surface-light .text-zinc-300:not(.navbar-preview-dark *),
+.navbar-surface-light .text-white\/95:not(.navbar-preview-dark *),
 .navbar-surface-light .text-white\/90:not(.navbar-preview-dark *),
 .navbar-surface-light .text-white\/85:not(.navbar-preview-dark *),
 .navbar-surface-light .text-white\/80:not(.navbar-preview-dark *),
@@ -123,4 +124,43 @@ html.flyout-window #root {
 .navbar-surface-light .border-white\/\[0\.07\]:not(.navbar-preview-dark *),
 .navbar-surface-light .border-white\/\[0\.06\]:not(.navbar-preview-dark *) {
   border-color: rgba(0, 0, 0, 0.12) !important;
+}
+.navbar-surface-light .text-\[\#e9d5ff\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#c084fc\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#a855f7\]:not(.navbar-preview-dark *) {
+  color: #7e22ce !important;
+}
+.navbar-surface-light .text-\[\#93c5fd\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#60a5fa\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-blue-300:not(.navbar-preview-dark *),
+.navbar-surface-light .text-blue-400:not(.navbar-preview-dark *) {
+  color: #1d4ed8 !important;
+}
+.navbar-surface-light .text-\[\#38bdf8\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#4cc2ff\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-sky-300:not(.navbar-preview-dark *),
+.navbar-surface-light .text-sky-400:not(.navbar-preview-dark *) {
+  color: #0369a1 !important;
+}
+.navbar-surface-light .text-\[\#6ee7b7\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#34d399\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#10b981\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-emerald-200:not(.navbar-preview-dark *),
+.navbar-surface-light .text-emerald-300:not(.navbar-preview-dark *),
+.navbar-surface-light .text-emerald-400:not(.navbar-preview-dark *) {
+  color: #047857 !important;
+}
+.navbar-surface-light .text-\[\#fbbf24\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#facc15\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#fb923c\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-amber-300:not(.navbar-preview-dark *),
+.navbar-surface-light .text-amber-400:not(.navbar-preview-dark *),
+.navbar-surface-light .text-yellow-400:not(.navbar-preview-dark *) {
+  color: #b45309 !important;
+}
+.navbar-surface-light .text-\[\#f87171\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-\[\#f472b6\]:not(.navbar-preview-dark *),
+.navbar-surface-light .text-rose-300:not(.navbar-preview-dark *),
+.navbar-surface-light .text-rose-400:not(.navbar-preview-dark *) {
+  color: #be123c !important;
 }

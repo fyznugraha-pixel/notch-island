@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Volume2,
-  Globe,
-  AppWindow,
   ChevronRight,
   Speaker,
   Headphones,
@@ -11,11 +9,14 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { AudioOutputPanel, AudioEndpoint } from "./AudioOutputPanel";
+import { Tooltip } from "./Tooltip";
+import { MixerAppIcon } from "./MixerAppIcon";
 import { t, getLanguage } from "../../services/i18n";
 
 export interface AudioSession {
   pid: number;
   name: string;
+  path?: string | null;
   volume: number;
   muted: boolean;
   pids?: number[];
@@ -27,49 +28,8 @@ export interface VolumeMixerPanelProps {
   onSetSoundLevel: (level: number) => void;
   audioSessions: AudioSession[];
   onUpdateAudioSessions: React.Dispatch<React.SetStateAction<AudioSession[]>>;
+  isLightMode?: boolean;
 }
-
-const getAppIcon = (name: string) => {
-  const lower = name.toLowerCase();
-  if (lower.includes("discord")) {
-    return <img src="/logo/discord.webp" alt="Discord" className="w-4 h-4 object-contain" />;
-  }
-  if (lower.includes("spotify")) {
-    return <img src="/logo/spotify.png" alt="Spotify" className="w-4 h-4 object-contain" />;
-  }
-  if (lower.includes("apple") || lower.includes("itunes")) {
-    return <img src="/logo/apple-music.png" alt="Apple Music" className="w-4 h-4 object-contain" />;
-  }
-  if (lower.includes("netflix")) {
-    return <img src="/logo/Netflix_icon.svg.webp" alt="Netflix" className="w-4 h-4 object-contain" />;
-  }
-  if (lower.includes("tiktok")) {
-    return <img src="/logo/tiktok.webp" alt="TikTok" className="w-4 h-4 object-contain" />;
-  }
-  if (lower.includes("instagram")) {
-    return <img src="/logo/Instagram_icon.png" alt="Instagram" className="w-4 h-4 object-contain" />;
-  }
-  if (lower.includes("threads")) {
-    return <img src="/logo/threads.png" alt="Threads" className="w-4 h-4 object-contain" />;
-  }
-  if (lower.includes("vlc")) {
-    return <img src="/logo/vlc.png" alt="VLC" className="w-4 h-4 object-contain" />;
-  }
-  if (lower.includes("wmplayer") || lower.includes("zune")) {
-    return <img src="/logo/windows-media-player.png" alt="WMP" className="w-4 h-4 object-contain" />;
-  }
-  if (
-    lower.includes("edge") ||
-    lower.includes("chrome") ||
-    lower.includes("firefox") ||
-    lower.includes("brave") ||
-    lower.includes("opera") ||
-    lower.includes("arc")
-  ) {
-    return <Globe size={16} className="text-[#0a84ff]" />;
-  }
-  return <AppWindow size={16} className="text-neutral-300" />;
-};
 
 export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
   slideDirection: _slideDirection,
@@ -77,6 +37,7 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
   onSetSoundLevel,
   audioSessions,
   onUpdateAudioSessions,
+  isLightMode = false,
 }) => {
   const isEn = getLanguage() === "en";
   const [activeView, setActiveView] = useState<"mixer" | "output">("mixer");
@@ -288,19 +249,33 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
               (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
             }
           }}
-          className="w-[46px] h-full flex-shrink-0 rounded-[16px] bg-[#2c2c2e] overflow-hidden flex flex-col justify-end relative cursor-pointer touch-none shadow-sm"
+          className={`w-[46px] h-full flex-shrink-0 rounded-[16px] overflow-hidden flex flex-col justify-end relative cursor-pointer touch-none shadow-sm ${
+            isLightMode ? "bg-black/[0.08] border border-black/[0.08]" : "bg-[#2c2c2e]"
+          }`}
         >
           {/* Top percentage text */}
-          <div className="absolute top-2.5 left-0 right-0 text-center text-[12px] font-bold font-mono text-white tabular-nums z-10 pointer-events-none drop-shadow-sm">
+          <div
+            className="absolute top-2.5 left-0 right-0 text-center text-[12px] font-bold font-mono tabular-nums z-10 pointer-events-none"
+            style={{
+              color: soundLevel >= 82
+                ? isLightMode ? "#ffffff" : "#1c1c1e"
+                : isLightMode ? "#1d1d1f" : "#ffffff",
+            }}
+          >
             {soundLevel}%
           </div>
 
-          {/* Bottom white filled portion with speaker icon */}
+          {/* Bottom filled portion with speaker icon */}
           <div
-            className={`w-full bg-white flex items-end justify-center pb-3 text-[#1c1c1e] pointer-events-none ${
-              isDraggingMaster ? "" : "transition-[height] duration-150 ease-out"
-            }`}
-            style={{ height: `${soundLevel}%` }}
+            className={`w-full flex items-end justify-center pb-3 pointer-events-none ${
+              isLightMode ? "bg-[#1d1d1f]" : "bg-white"
+            } ${isDraggingMaster ? "" : "transition-[height] duration-150 ease-out"}`}
+            style={{
+              height: `${soundLevel}%`,
+              color: soundLevel >= 20
+                ? isLightMode ? "#ffffff" : "#1c1c1e"
+                : isLightMode ? "#1d1d1f" : "#ffffff",
+            }}
           >
             <span className="relative">
               <Volume2 size={20} strokeWidth={2.4} />
@@ -316,12 +291,12 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
               <span>{t("mixer_output") || "Output"}</span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setActiveView("output")}
-              title={t("audio_select_device") || (getLanguage() === "id" ? "Pilih perangkat audio output" : "Select audio output device")}
-              className="bg-[#1c1c1e]/90 hover:bg-white/[0.08] active:scale-[0.99] border border-white/10 rounded-[12px] w-full h-[38px] flex items-center gap-2.5 px-2.5 text-white cursor-pointer transition-all shadow-sm text-left"
-            >
+            <Tooltip content={t("audio_select_device") || (getLanguage() === "id" ? "Pilih perangkat audio output" : "Select audio output device")} side="top" wrapperClassName="w-full">
+              <button
+                type="button"
+                onClick={() => setActiveView("output")}
+                className="bg-[#1c1c1e]/90 hover:bg-white/[0.08] active:scale-[0.99] border border-white/10 rounded-[12px] w-full h-[38px] flex items-center gap-2.5 px-2.5 text-white cursor-pointer transition-all shadow-sm text-left"
+              >
               <span className="w-[26px] h-[26px] rounded-[7px] bg-[#0a84ff] text-white flex items-center justify-center shrink-0 shadow-sm">
                 {getOutputIcon(activeOutputDevice?.device_type)}
               </span>
@@ -334,6 +309,7 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                 <ChevronRight size={15} strokeWidth={2.2} />
               </span>
             </button>
+            </Tooltip>
           </div>
 
           {/* 2. Apps Section Header & Scrollable List */}
@@ -358,11 +334,17 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                   return (
                     <div
                       key={`${session.name}-${idx}`}
-                      className="relative flex items-center gap-2.5 h-[42px] px-3 border-b border-[#38383a]/40 last:border-b-0"
+                      className={`relative flex items-center gap-2.5 h-[42px] px-3 border-b last:border-b-0 ${
+                        isLightMode ? "border-black/[0.07]" : "border-[#38383a]/40"
+                      }`}
                     >
                       {/* App Icon Badge */}
-                      <span className="w-[28px] h-[28px] rounded-[8px] bg-white/10 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
-                        {getAppIcon(session.name)}
+                      <span
+                        className={`w-[28px] h-[28px] rounded-[8px] border flex items-center justify-center shrink-0 overflow-hidden shadow-sm ${
+                          isLightMode ? "bg-black/[0.04] border-black/[0.08]" : "bg-white/10 border-white/10"
+                        }`}
+                      >
+                        <MixerAppIcon name={session.name} exePath={session.path} />
                       </span>
 
                       {/* Info & Slider */}
@@ -425,7 +407,9 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                               (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
                             }
                           }}
-                          className="relative h-[3.5px] rounded-[2px] bg-[#3a3a3c] cursor-pointer touch-none"
+                          className={`relative h-[3.5px] rounded-[2px] cursor-pointer touch-none ${
+                            isLightMode ? "bg-black/15" : "bg-[#3a3a3c]"
+                          }`}
                         >
                           {/* Active Blue Fill */}
                           <div
@@ -437,7 +421,11 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
 
                           {/* Circular White Thumb Knob */}
                           <span
-                            className={`absolute top-[-7px] w-[18px] h-[18px] -ml-[9px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.4)] pointer-events-none ${
+                            className={`absolute top-[-7px] w-[18px] h-[18px] -ml-[9px] rounded-full bg-white pointer-events-none ${
+                              isLightMode
+                                ? "border border-black/15 shadow-[0_2px_6px_rgba(0,0,0,0.22)]"
+                                : "shadow-[0_2px_6px_rgba(0,0,0,0.4)]"
+                            } ${
                               draggingSessionName === session.name ? "" : "transition-[left] duration-150 ease-out"
                             }`}
                             style={{ left: `${volPercent}%` }}

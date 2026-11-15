@@ -1,149 +1,197 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Sun, CloudRain, RefreshCw } from "lucide-react";
 import { NavbarModuleProps } from "../registry";
-import { NavbarPopoverShell } from "./NavbarPopoverShell";
+import { NavbarPopoverShell, useNavbarIsLightSurface } from "./NavbarPopoverShell";
+import {
+  WeatherInfo,
+  fetchLiveWeather,
+} from "../../services/ambientEnvironmentService";
+import { Tooltip } from "../../components/ui/Tooltip";
+import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
+import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
+import type { Language } from "../../services/i18n";
 
-const WEATHER_KEY = "gili_weather_cache_v2";
+const WEATHER_KEY = "gili_weather_cache_v3";
 
-interface WeatherData {
-  city: string;
-  temp: number;
-  condition: string;
-  humidity: number;
+function localizeWeatherCondition(
+  raw: string | undefined,
+  lang: Language
+): string {
+  if (!raw) return tx(lang, "Loading weather...", "Memuat cuaca...");
+  if (lang === "id") return raw;
+  const map: Record<string, string> = {
+    "Hujan petir": "Thunderstorm",
+    "Hujan lebat": "Heavy rain",
+    Hujan: "Rain",
+    Gerimis: "Drizzle",
+    Berkabut: "Foggy",
+    Berawan: "Cloudy",
+    Cerah: "Clear",
+  };
+  return map[raw] ?? raw;
 }
 
 export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
   view = "compact",
   config,
 }) => {
-  const isCompact = view === "compact";
+  const lang = useTaskbarLang();
+  const isLight = useNavbarIsLightSurface(config);
+  const tooltipSide = getNavbarTooltipSide(config?.position);
+  const isVertical = config?.position === "left" || config?.position === "right";
+  const isCompact = view === "compact" || isVertical;
   const [isOpen, setIsOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
-  const [weather, setWeather] = useState<WeatherData>(() => {
+  const [weather, setWeather] = useState<WeatherInfo | null>(() => {
     try {
       const raw = localStorage.getItem(WEATHER_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch {}
-    return {
-      city: "Bandung",
-      temp: 28,
-      condition: "Cerah berawan",
-      humidity: 72,
-    };
-  });
-  const [cityInput, setCityInput] = useState(weather.city);
-  const [loading, setLoading] = useState(false);
-
-  const fetchWeather = async (targetCity = weather.city) => {
-    setLoading(true);
-    try {
-      const geoRes = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-          targetCity
-        )}&count=1&language=id`
-      );
-      const geo = await geoRes.json();
-      const loc = geo?.results?.[0];
-      if (loc) {
-        const wRes = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,relative_humidity_2m,weather_code`
-        );
-        const wData = await wRes.json();
-        const t = Math.round(wData?.current?.temperature_2m ?? 28);
-        const h = Math.round(wData?.current?.relative_humidity_2m ?? 70);
-        const code = wData?.current?.weather_code ?? 1;
-        const cond =
-          code >= 51
-            ? "Hujan ringan"
-            : code >= 2
-            ? "Cerah berawan"
-            : "Cerah";
-        const next: WeatherData = {
-          city: loc.name || targetCity,
-          temp: t,
-          condition: cond,
-          humidity: h,
-        };
-        setWeather(next);
-        localStorage.setItem(WEATHER_KEY, JSON.stringify(next));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.city && typeof parsed.temp === "number") return parsed;
       }
     } catch {}
-    setLoading(false);
+    return null;
+  });
+  const [cityInput, setCityInput] = useState(weather?.city || "Bandung");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const loadWeather = async (targetCity: string) => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const next = await fetchLiveWeather(targetCity);
+      if (next) {
+        setWeather(next);
+        setCityInput(next.city);
+        localStorage.setItem(WEATHER_KEY, JSON.stringify(next));
+      } else {
+        setErrorMsg(tx(lang, "City not found.", "Kota tidak ditemukan."));
+      }
+    } catch {
+      setErrorMsg(
+        tx(lang, "Failed to load weather data.", "Gagal mengambil data cuaca.")
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    fetchWeather();
+    loadWeather(weather?.city || "Bandung");
+    const id = setInterval(
+      () => loadWeather(weather?.city || "Bandung"),
+      30 * 60000
+    );
+    return () => clearInterval(id);
   }, []);
+
+  const displayCity = weather?.city || cityInput || "Bandung";
+  const tempLabel = weather ? `${weather.temp}°` : "--°";
+  const condLabel = localizeWeatherCondition(weather?.condition, lang);
+  const isRain = Boolean(weather?.isRain);
+  const handleToggle = () => setIsOpen((v) => !v);
+  const sunClass = isLight ? "text-amber-600" : "text-[#facc15]";
+  const rainClass = isLight ? "text-sky-600" : "text-sky-400";
 
   return (
     <>
-      <div
-        ref={anchorRef}
-        onClick={() => setIsOpen((v) => !v)}
-        className={`flex items-center cursor-pointer select-none transition-all ${
-          isCompact
-            ? "w-10 h-10 flex-col justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]"
-            : "h-10 px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
-        }`}
-        title={`Cuaca ${weather.city}: ${weather.temp}°C (${weather.condition})`}
-      >
-        {isCompact ? (
-          <>
-            <Sun size={13} className="text-[#facc15]" />
-            <span className="text-[9.5px] font-bold text-white leading-none mt-0.5">
-              {weather.temp}°
-            </span>
-          </>
-        ) : (
-          <>
-            {weather.condition.toLowerCase().includes("hujan") ? (
-              <CloudRain size={16} className="text-sky-400 shrink-0" />
-            ) : (
-              <Sun size={16} className="text-[#facc15] shrink-0" />
-            )}
-            <div className="flex flex-col leading-[1.15]">
-              <span className="text-[11.5px] font-bold text-white">
-                {weather.temp}°C · {weather.city}
-              </span>
-              <span className="text-[10px] text-zinc-400">
-                {weather.condition}
-              </span>
-            </div>
-          </>
+      <Tooltip
+        content={tx(
+          lang,
+          `Weather ${displayCity}: ${tempLabel}C (${condLabel})`,
+          `Cuaca ${displayCity}: ${tempLabel}C (${condLabel})`
         )}
-      </div>
+        side={tooltipSide}
+        disabled={isOpen}
+        isLightMode={isLight}
+        wrapperClassName={isVertical ? "w-full" : undefined}
+      >
+        <div
+          ref={anchorRef}
+          onClick={handleToggle}
+          {...makeTriggerA11yProps(
+            handleToggle,
+            tx(
+              lang,
+              `Weather ${displayCity}: ${tempLabel} ${condLabel}`,
+              `Cuaca ${displayCity}: ${tempLabel} ${condLabel}`
+            ),
+            isOpen
+          )}
+          className={`flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
+            isCompact
+              ? `${
+                  isVertical ? "w-full max-w-full" : "w-10"
+                } h-10 flex-col justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
+              : "h-10 px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
+          }`}
+        >
+          {isCompact ? (
+            <>
+              {isRain ? (
+                <CloudRain size={13} className={rainClass} />
+              ) : (
+                <Sun size={13} className={sunClass} />
+              )}
+              <span className="text-[9.5px] font-bold text-white leading-none mt-0.5 tabular-nums">
+                {tempLabel}
+              </span>
+            </>
+          ) : (
+            <>
+              {isRain ? (
+                <CloudRain size={16} className={`${rainClass} shrink-0`} />
+              ) : (
+                <Sun size={16} className={`${sunClass} shrink-0`} />
+              )}
+              <div className="flex flex-col leading-[1.15] min-w-0 max-w-[140px]">
+                <span className="text-[11.5px] font-bold text-white tabular-nums truncate">
+                  {tempLabel}C · {displayCity}
+                </span>
+                <span className="text-[10px] text-zinc-400 truncate">{condLabel}</span>
+              </div>
+            </>
+          )}
+        </div>
+      </Tooltip>
 
       <NavbarPopoverShell
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
         anchorRef={anchorRef}
-        title="Cuaca & Lokasi"
+        title={tx(lang, "Weather & Location", "Cuaca & Lokasi")}
         moduleId="cuaca"
         currentView={view}
         config={config}
-        width={255}
+        width={268}
         needsKeyboardFocus={true}
       >
         <div className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between p-2.5 rounded-[10px] bg-white/[0.04]">
-            <div>
-              <div className="text-[20px] font-bold text-white">
-                {weather.temp}°C
+          <div className="flex items-center justify-between gap-2 p-2.5 rounded-[10px] bg-white/[0.04] min-w-0">
+            <div className="min-w-0 flex-1">
+              <div className="text-[20px] font-bold text-white tabular-nums">
+                {tempLabel}C
               </div>
-              <div className="text-[11px] text-zinc-300">
-                {weather.city} · {weather.condition}
+              <div className="text-[11px] text-zinc-200 break-words">
+                {displayCity} · {condLabel}
               </div>
-              <div className="text-[10px] text-zinc-500">
-                Kelembapan {weather.humidity}%
+              <div className="text-[10px] text-zinc-400">
+                {tx(lang, "Humidity", "Kelembapan")}{" "}
+                {weather ? `${weather.humidity}%` : "--"}
               </div>
             </div>
-            <Sun size={26} className="text-[#facc15]" />
+            {isRain ? (
+              <CloudRain size={26} className={`${rainClass} shrink-0`} />
+            ) : (
+              <Sun size={26} className={`${sunClass} shrink-0`} />
+            )}
           </div>
 
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (cityInput.trim()) fetchWeather(cityInput.trim());
+              if (cityInput.trim()) loadWeather(cityInput.trim());
             }}
             className="flex items-center gap-1.5"
           >
@@ -151,17 +199,26 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
               type="text"
               value={cityInput}
               onChange={(e) => setCityInput(e.target.value)}
-              placeholder="Ganti kota..."
-              className="flex-1 min-w-0 h-7 px-2 rounded-[7px] bg-white/[0.06] border border-white/[0.1] text-[11px] text-white outline-none"
+              placeholder={tx(lang, "Change city...", "Ganti kota...")}
+              className={`flex-1 min-w-0 h-7 px-2 rounded-[7px] bg-white/[0.06] border border-white/[0.12] text-[11px] text-white placeholder-zinc-400 ${TRIGGER_FOCUS_RING}`}
             />
             <button
               type="submit"
-              className="h-7 px-2.5 rounded-[7px] bg-[#3882F6] text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+              className={`h-7 px-2.5 shrink-0 rounded-[7px] bg-[#3882F6] text-[#ffffff] text-[11px] font-semibold flex items-center gap-1 cursor-pointer ${TRIGGER_FOCUS_RING}`}
             >
               <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
-              <span>Simpan</span>
+              <span>{tx(lang, "Save", "Simpan")}</span>
             </button>
           </form>
+          {errorMsg && (
+            <div
+              className={`text-[10.5px] ${
+                isLight ? "text-rose-700" : "text-rose-400"
+              }`}
+            >
+              {errorMsg}
+            </div>
+          )}
         </div>
       </NavbarPopoverShell>
     </>
