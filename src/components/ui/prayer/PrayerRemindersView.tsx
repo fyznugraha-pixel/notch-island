@@ -9,6 +9,7 @@ import {
   stopAdzanAudio,
 } from "../../../services/prayerService";
 import { Language } from "../../../services/i18n";
+import { Tooltip } from "../Tooltip";
 import { PRAYER_ACCENT, PrayerIcon, PrayerSpeakerIcon } from "./PrayerIcons";
 
 interface PrayerRemindersViewProps {
@@ -379,11 +380,17 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
               Adzan
             </span>
             <span style={{ flex: 1 }} />
-            <button
-              type="button"
-              onClick={handleTriggerAlertPreview}
-              title={isId ? "Tes pop-up notifikasi adzan" : "Test adzan alert pop-up"}
-              style={{
+            <Tooltip
+              content={isId ? "Tes pop-up notifikasi adzan" : "Test adzan alert pop-up"}
+              side="top"
+              allowFlip
+              isLightMode={isLightMode}
+              wrapperClassName="shrink-0"
+            >
+              <button
+                type="button"
+                onClick={handleTriggerAlertPreview}
+                style={{
                 height: 22,
                 padding: "0 8px",
                 borderRadius: 11,
@@ -396,14 +403,12 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                 fontFamily: "inherit",
                 flexShrink: 0,
               }}
-            >
-              {isId ? "Tes Notif" : "Test Alert"}
-            </button>
-            <button
-              type="button"
-              aria-label={isPreviewPlaying ? "Stop adzan preview" : "Play adzan preview"}
-              onClick={handleToggleAudioPreview}
-              title={
+              >
+                {isId ? "Tes Notif" : "Test Alert"}
+              </button>
+            </Tooltip>
+            <Tooltip
+              content={
                 isPreviewPlaying
                   ? isId
                     ? "Hentikan suara adzan"
@@ -412,6 +417,15 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                   ? "Putar suara adzan"
                   : "Play adzan audio"
               }
+              side="top"
+              allowFlip
+              isLightMode={isLightMode}
+              wrapperClassName="shrink-0"
+            >
+              <button
+                type="button"
+                aria-label={isPreviewPlaying ? "Stop adzan preview" : "Play adzan preview"}
+                onClick={handleToggleAudioPreview}
               style={{
                 width: 24,
                 height: 24,
@@ -452,8 +466,9 @@ export const PrayerRemindersView: React.FC<PrayerRemindersViewProps> = ({
                 >
                   <path d="M7 4.5v15l12-7.5z" fill="currentColor" />
                 </svg>
-              )}
-            </button>
+                )}
+              </button>
+            </Tooltip>
           </div>
 
           {/* Row 2: Volume Slider */}

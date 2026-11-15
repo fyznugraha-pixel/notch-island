@@ -1,13 +1,15 @@
 #![allow(non_snake_case)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use windows::core::{
     implement, interface, Interface, GUID, HRESULT, HSTRING, IUnknown, IUnknown_Vtbl, PCWSTR,
 };
-use windows::Foundation::Numerics::Vector2;
+use windows::Foundation::Numerics::{Vector2, Vector3};
 use windows::Foundation::{IPropertyValue, PropertyValue};
 use windows::Graphics::Effects::{
     IGraphicsEffect, IGraphicsEffectSource, IGraphicsEffectSource_Impl, IGraphicsEffect_Impl,
@@ -15,7 +17,7 @@ use windows::Graphics::Effects::{
 use windows::UI::Composition::Desktop::DesktopWindowTarget;
 use windows::UI::Composition::{
     CompositionEffectBrush, CompositionEffectSourceParameter, CompositionGeometricClip,
-    CompositionRoundedRectangleGeometry, Compositor, SpriteVisual,
+    CompositionRoundedRectangleGeometry, Compositor, SpriteVisual, Visual,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, PAINTSTRUCT};
@@ -25,12 +27,13 @@ use windows::Win32::System::WinRT::{
     RoInitialize,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetWindowRect, IsWindow,
-    IsWindowVisible, PeekMessageW, RegisterClassW, SetWindowPos, ShowWindow, TranslateMessage,
-    HTTRANSPARENT, MA_NOACTIVATE, MSG, PM_REMOVE, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
-    SWP_NOSENDCHANGING, SWP_SHOWWINDOW, SW_HIDE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_NCHITTEST,
-    WM_PAINT, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
+    GetWindowLongW, GetWindowRect, IsWindow, IsWindowVisible, PeekMessageW, RegisterClassW,
+    SetWindowPos, ShowWindow, TranslateMessage, GWL_STYLE, HTTRANSPARENT, MA_NOACTIVATE, MSG,
+    PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSENDCHANGING,
+    SWP_SHOWWINDOW, SW_HIDE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_NCHITTEST, WM_PAINT, WNDCLASSW,
+    WS_CHILD, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 const DWMWA_NCRENDERING_POLICY: u32 = 2;
@@ -54,6 +57,39 @@ extern "system" {
         dispatcher_queue_controller: *mut *mut c_void,
     ) -> i32;
 }
+
+type HWINEVENTHOOK = *mut c_void;
+type WinEventProc =
+    unsafe extern "system" fn(HWINEVENTHOOK, u32, HWND, i32, i32, u32, u32);
+
+#[link(name = "user32")]
+extern "system" {
+    fn SetWinEventHook(
+        event_min: u32,
+        event_max: u32,
+        hmod_win_event_proc: *mut c_void,
+        pfn_win_event_proc: Option<WinEventProc>,
+        id_process: u32,
+        id_thread: u32,
+        dw_flags: u32,
+    ) -> HWINEVENTHOOK;
+}
+
+const WINEVENT_OUTOFCONTEXT_SKIPOWN: u32 = 0x0002;
+const EVENT_SYSTEM_FOREGROUND: u32 = 0x0003;
+const EVENT_SYSTEM_MOVESIZEEND: u32 = 0x000B;
+const EVENT_SYSTEM_MINIMIZESTART: u32 = 0x0016;
+const EVENT_SYSTEM_MINIMIZEEND: u32 = 0x0017;
+const EVENT_SYSTEM_DESKTOPSWITCH: u32 = 0x0020;
+const EVENT_OBJECT_DESTROY: u32 = 0x8001;
+const EVENT_OBJECT_SHOW: u32 = 0x8002;
+const EVENT_OBJECT_HIDE: u32 = 0x8003;
+const EVENT_OBJECT_REORDER: u32 = 0x8004;
+const EVENT_OBJECT_LOCATIONCHANGE: u32 = 0x800B;
+const EVENT_OBJECT_CLOAKED: u32 = 0x8017;
+const EVENT_OBJECT_UNCLOAKED: u32 = 0x8018;
+const OBJID_WINDOW: i32 = 0;
+const CHILDID_SELF: i32 = 0;
 
 #[interface("2FC57384-A068-44D7-A331-30982FCF7177")]
 unsafe trait IGraphicsEffectD2D1Interop: IUnknown {
@@ -138,11 +174,14 @@ impl IGraphicsEffectD2D1Interop_Impl for GaussianBlurEffect_Impl {
     }
 }
 
-fn create_gaussian_backdrop_brush(
+fn blur_sigma_for_strength(blur_strength: u32) -> f32 {
+    (blur_strength as f32 * 0.35).clamp(6.0, 36.0)
+}
+
+fn create_gaussian_backdrop_brush_with_sigma(
     comp: &Compositor,
-    blur_strength: u32,
+    blur_sigma: f32,
 ) -> Option<CompositionEffectBrush> {
-    let blur_sigma = (blur_strength as f32 * 0.35).clamp(6.0, 36.0);
     let source_name = HSTRING::from("source");
     let src_param = CompositionEffectSourceParameter::Create(&source_name).ok()?;
     let src_iface: IGraphicsEffectSource = src_param.cast().ok()?;
@@ -159,6 +198,44 @@ fn create_gaussian_backdrop_brush(
         .SetSourceParameter(&source_name, &host_backdrop)
         .ok()?;
     Some(effect_brush)
+}
+
+/// Alternating pair of subtly offset Gaussian blur brushes so swapping `SetBrush`
+/// forces DWM (`dwmcore.dll`) to invalidate stale `HostBackdrop` tiles across the full pill.
+struct BackdropBrushPair {
+    brushes: [CompositionEffectBrush; 2],
+    phase: usize,
+}
+
+impl BackdropBrushPair {
+    fn new(comp: &Compositor, blur_strength: u32) -> Option<Self> {
+        let base = blur_sigma_for_strength(blur_strength);
+        let alt = if base + 0.03 <= 36.0 {
+            base + 0.03
+        } else {
+            base - 0.03
+        };
+        let a = create_gaussian_backdrop_brush_with_sigma(comp, base)?;
+        let b = create_gaussian_backdrop_brush_with_sigma(comp, alt)?;
+        Some(Self {
+            brushes: [a, b],
+            phase: 0,
+        })
+    }
+
+    fn current(&self) -> &CompositionEffectBrush {
+        &self.brushes[self.phase]
+    }
+
+    fn cycle_on_visual(&mut self, comp: &Compositor, visual: &SpriteVisual) -> bool {
+        self.phase = 1 - self.phase;
+        let next = &self.brushes[self.phase];
+        if let Ok(fresh_host) = comp.CreateHostBackdropBrush() {
+            let source_name = HSTRING::from("source");
+            let _ = next.SetSourceParameter(&source_name, &fresh_host);
+        }
+        visual.SetBrush(next).is_ok()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -182,10 +259,122 @@ pub struct AcrylicSyncRequest {
 }
 
 struct CompositionUnderlay {
-    _target: DesktopWindowTarget,
+    target: DesktopWindowTarget,
     visual: SpriteVisual,
     rounded_rect: CompositionRoundedRectangleGeometry,
     _clip: CompositionGeometricClip,
+    brush_pair: Option<BackdropBrushPair>,
+    opacity_phase: bool,
+    phys_w: i32,
+    phys_h: i32,
+    ox: f32,
+    oy: f32,
+    sw: f32,
+    sh: f32,
+    cr: f32,
+    blur_strength: u32,
+}
+
+impl CompositionUnderlay {
+    fn refresh_backdrop(
+        &mut self,
+        comp: &Compositor,
+        underlay_hwnd: isize,
+        parent_hwnd: isize,
+        screen_x: i32,
+        screen_y: i32,
+        force_revalidate: bool,
+    ) -> bool {
+        self.opacity_phase = !self.opacity_phase;
+        let eps: f32 = if self.opacity_phase { 0.25 } else { 0.0 };
+        let _ = self
+            .visual
+            .SetOpacity(if self.opacity_phase { 0.996 } else { 1.0 });
+
+        if self.phys_w > 0 && self.phys_h > 0 {
+            let _ = self.visual.SetOffset(Vector3 {
+                X: eps,
+                Y: 0.0,
+                Z: 0.0,
+            });
+            let _ = self.visual.SetSize(Vector2 {
+                X: (self.phys_w as f32 - eps).max(1.0),
+                Y: self.phys_h as f32,
+            });
+        }
+        if self.sw > 0.0 && self.sh > 0.0 {
+            let _ = self.rounded_rect.SetOffset(Vector2 {
+                X: self.ox + eps,
+                Y: self.oy,
+            });
+            let _ = self.rounded_rect.SetSize(Vector2 {
+                X: (self.sw - eps).max(1.0),
+                Y: self.sh,
+            });
+            let _ = self.rounded_rect.SetCornerRadius(Vector2 {
+                X: self.cr,
+                Y: self.cr,
+            });
+        }
+
+        if force_revalidate {
+            if underlay_hwnd != 0 {
+                unsafe {
+                    let disable_host_backdrop: u32 = 0;
+                    let _ = DwmSetWindowAttribute(
+                        underlay_hwnd,
+                        DWMWA_USE_HOSTBACKDROPBRUSH,
+                        &disable_host_backdrop as *const _ as *const c_void,
+                        std::mem::size_of::<u32>() as u32,
+                    );
+                    let enable_host_backdrop: u32 = 1;
+                    let _ = DwmSetWindowAttribute(
+                        underlay_hwnd,
+                        DWMWA_USE_HOSTBACKDROPBRUSH,
+                        &enable_host_backdrop as *const _ as *const c_void,
+                        std::mem::size_of::<u32>() as u32,
+                    );
+                    if parent_hwnd != 0 && self.phys_w > 0 && self.phys_h > 0 {
+                        let _ = SetWindowPos(
+                            HWND(underlay_hwnd as *mut c_void),
+                            HWND(parent_hwnd as *mut c_void),
+                            screen_x,
+                            screen_y,
+                            self.phys_w,
+                            self.phys_h,
+                            SWP_NOACTIVATE
+                                | SWP_NOOWNERZORDER
+                                | SWP_NOSENDCHANGING
+                                | SWP_FRAMECHANGED,
+                        );
+                    }
+                }
+            }
+
+            let _ = self.target.SetRoot(None::<&Visual>);
+            let _ = self.target.SetRoot(&self.visual);
+
+            let sigma = blur_sigma_for_strength(self.blur_strength);
+            if let Some(fresh_brush) = create_gaussian_backdrop_brush_with_sigma(comp, sigma) {
+                self.brush_pair = BackdropBrushPair::new(comp, self.blur_strength);
+                return self.visual.SetBrush(&fresh_brush).is_ok();
+            }
+        }
+
+        if let Some(ref mut pair) = self.brush_pair {
+            return pair.cycle_on_visual(comp, &self.visual);
+        }
+        if let Ok(host_brush) = comp.CreateHostBackdropBrush() {
+            return self.visual.SetBrush(&host_brush).is_ok();
+        }
+        false
+    }
+}
+
+unsafe fn commit_composition(compositor: Option<&Compositor>) {
+    if let Some(comp) = compositor {
+        let _ = comp.RequestCommitAsync();
+    }
 }
 
 struct UnderlaySlot {
@@ -205,7 +394,135 @@ struct UnderlaySlot {
     last_req: Option<AcrylicSyncRequest>,
 }
 
-static ACRYLIC_SENDER: OnceLock<Mutex<Sender<AcrylicSyncRequest>>> = OnceLock::new();
+enum AcrylicCommand {
+    Sync(AcrylicSyncRequest),
+    SetHidden { label: String, hidden: bool },
+    KeepBelow { label: String, parent_hwnd: isize },
+    InvalidateBackdrop,
+}
+
+static ACRYLIC_SENDER: OnceLock<Mutex<Sender<AcrylicCommand>>> = OnceLock::new();
+static BACKDROP_INVALIDATE_TX: OnceLock<Sender<AcrylicCommand>> = OnceLock::new();
+static WINEVENT_EPOCH: OnceLock<Instant> = OnceLock::new();
+static LAST_WINEVENT_SIGNAL_MS: AtomicU64 = AtomicU64::new(0);
+
+unsafe extern "system" fn backdrop_win_event_proc(
+    _hook: HWINEVENTHOOK,
+    event: u32,
+    hwnd: HWND,
+    id_object: i32,
+    id_child: i32,
+    _id_event_thread: u32,
+    _dwms_event_time: u32,
+) {
+    let relevant_system = matches!(
+        event,
+        EVENT_SYSTEM_FOREGROUND
+            | EVENT_SYSTEM_MOVESIZEEND
+            | EVENT_SYSTEM_MINIMIZESTART
+            | EVENT_SYSTEM_MINIMIZEEND
+            | EVENT_SYSTEM_DESKTOPSWITCH
+    );
+    let discrete_object = matches!(
+        event,
+        EVENT_OBJECT_DESTROY
+            | EVENT_OBJECT_SHOW
+            | EVENT_OBJECT_HIDE
+            | EVENT_OBJECT_REORDER
+            | EVENT_OBJECT_CLOAKED
+            | EVENT_OBJECT_UNCLOAKED
+    ) && id_object == OBJID_WINDOW
+        && id_child == CHILDID_SELF
+        && !hwnd.0.is_null()
+        && (matches!(
+            event,
+            EVENT_OBJECT_DESTROY
+                | EVENT_OBJECT_HIDE
+                | EVENT_OBJECT_CLOAKED
+                | EVENT_OBJECT_UNCLOAKED
+        ) || (IsWindow(hwnd).as_bool()
+            && (GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_CHILD.0) == 0));
+    let location_object = event == EVENT_OBJECT_LOCATIONCHANGE
+        && id_object == OBJID_WINDOW
+        && id_child == CHILDID_SELF
+        && !hwnd.0.is_null()
+        && IsWindow(hwnd).as_bool()
+        && (GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_CHILD.0) == 0;
+
+    if !relevant_system && !discrete_object && !location_object {
+        return;
+    }
+
+    if event == EVENT_SYSTEM_FOREGROUND && !hwnd.0.is_null() {
+        crate::window_preview::on_foreground_window_observed(hwnd.0 as isize);
+    } else if event == EVENT_SYSTEM_MINIMIZESTART && !hwnd.0.is_null() {
+        crate::window_preview::on_window_minimizing_observed(hwnd.0 as isize);
+    }
+
+    if relevant_system || discrete_object || location_object {
+        crate::navbar_window::request_overlap_recheck();
+    }
+
+    if !relevant_system && !discrete_object {
+        let now_ms = WINEVENT_EPOCH
+            .get_or_init(Instant::now)
+            .elapsed()
+            .as_millis() as u64;
+        let prev_ms = LAST_WINEVENT_SIGNAL_MS.load(Ordering::Relaxed);
+        if now_ms.saturating_sub(prev_ms) < 60 {
+            return;
+        }
+        LAST_WINEVENT_SIGNAL_MS.store(now_ms, Ordering::Relaxed);
+    }
+
+    if let Some(tx) = BACKDROP_INVALIDATE_TX.get() {
+        let _ = tx.send(AcrylicCommand::InvalidateBackdrop);
+    }
+}
+
+fn spawn_backdrop_winevent_watcher(tx: Sender<AcrylicCommand>) {
+    let _ = BACKDROP_INVALIDATE_TX.set(tx);
+    let _ = WINEVENT_EPOCH.get_or_init(Instant::now);
+
+    let _ = std::thread::Builder::new()
+        .name("gili-backdrop-winevent".to_string())
+        .spawn(|| unsafe {
+            let sys_hook = SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND,
+                EVENT_SYSTEM_DESKTOPSWITCH,
+                std::ptr::null_mut(),
+                Some(backdrop_win_event_proc),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT_SKIPOWN,
+            );
+            let obj_hook = SetWinEventHook(
+                EVENT_OBJECT_DESTROY,
+                EVENT_OBJECT_UNCLOAKED,
+                std::ptr::null_mut(),
+                Some(backdrop_win_event_proc),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT_SKIPOWN,
+            );
+            if sys_hook.is_null() && obj_hook.is_null() {
+                return;
+            }
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        });
+}
+
+unsafe fn drain_thread_messages() {
+    let mut msg = MSG::default();
+    while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+        let _ = TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+}
 
 unsafe extern "system" fn underlay_wnd_proc(
     hwnd: HWND,
@@ -227,9 +544,10 @@ unsafe extern "system" fn underlay_wnd_proc(
     }
 }
 
-fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicSyncRequest>> {
+fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicCommand>> {
     ACRYLIC_SENDER.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<AcrylicSyncRequest>();
+        let (tx, rx) = mpsc::channel::<AcrylicCommand>();
+        spawn_backdrop_winevent_watcher(tx.clone());
         std::thread::Builder::new()
             .name("gili-native-dwm-acrylic".to_string())
             .spawn(move || unsafe {
@@ -253,26 +571,115 @@ fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicSyncRequest>> {
                 let _ = RegisterClassW(&wc);
 
                 let mut slots: HashMap<String, UnderlaySlot> = HashMap::new();
+                let mut hidden_labels: HashSet<String> = HashSet::new();
+                let mut burst_until: Option<Instant> = None;
+                let mut last_refresh = Instant::now();
 
                 loop {
-                    let mut msg = MSG::default();
-                    while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                        let _ = TranslateMessage(&msg);
-                        DispatchMessageW(&msg);
-                    }
+                    drain_thread_messages();
 
-                    let first = rx.recv_timeout(std::time::Duration::from_millis(40));
+                    let any_visible = slots.values().any(|s| s.visible && s.comp.is_some());
+                    let in_burst = burst_until.is_some_and(|t| Instant::now() < t);
+                    let wait_ms = if !any_visible {
+                        200
+                    } else if in_burst {
+                        35
+                    } else {
+                        45
+                    };
+
+                    let first = rx.recv_timeout(Duration::from_millis(wait_ms));
                     let mut latest_by_label: HashMap<String, AcrylicSyncRequest> = HashMap::new();
+                    let mut restack_requests: HashMap<String, isize> = HashMap::new();
+                    let mut invalidated = false;
 
-                    if let Ok(req) = first {
-                        latest_by_label.insert(req.label.clone(), req);
-                        while let Ok(next_req) = rx.try_recv() {
-                            latest_by_label.insert(next_req.label.clone(), next_req);
+                    let mut handle_cmd = |cmd: AcrylicCommand| match cmd {
+                        AcrylicCommand::Sync(req) => {
+                            latest_by_label.insert(req.label.clone(), req);
+                        }
+                        AcrylicCommand::SetHidden { label, hidden } => {
+                            if hidden {
+                                hidden_labels.insert(label.clone());
+                                if let Some(slot) = slots.get_mut(&label) {
+                                    if slot.underlay_hwnd != 0 && slot.visible {
+                                        let _ = ShowWindow(
+                                            HWND(slot.underlay_hwnd as *mut c_void),
+                                            SW_HIDE,
+                                        );
+                                        slot.visible = false;
+                                    }
+                                }
+                            } else if hidden_labels.remove(&label) {
+                                invalidated = true;
+                                if !latest_by_label.contains_key(&label) {
+                                    if let Some(last_req) =
+                                        slots.get(&label).and_then(|s| s.last_req.clone())
+                                    {
+                                        latest_by_label.insert(label, last_req);
+                                    }
+                                }
+                            }
+                        }
+                        AcrylicCommand::KeepBelow { label, parent_hwnd } => {
+                            restack_requests.insert(label, parent_hwnd);
+                        }
+                        AcrylicCommand::InvalidateBackdrop => {
+                            invalidated = true;
+                        }
+                    };
+
+                    if let Ok(cmd) = first {
+                        handle_cmd(cmd);
+                        while let Ok(next_cmd) = rx.try_recv() {
+                            handle_cmd(next_cmd);
                         }
                     }
 
+                    if invalidated {
+                        burst_until = Some(Instant::now() + Duration::from_millis(950));
+                    }
+
+                    let mut updated = false;
+                    let mut became_visible = false;
                     for (_, req) in latest_by_label {
-                        apply_acrylic_sync(&class_name, compositor.as_ref(), &mut slots, req);
+                        let is_hidden = hidden_labels.contains(&req.label);
+                        let outcome = apply_acrylic_sync(
+                            &class_name,
+                            compositor.as_ref(),
+                            &mut slots,
+                            req,
+                            is_hidden,
+                        );
+                        if outcome.mutated {
+                            updated = true;
+                        }
+                        if outcome.became_visible {
+                            became_visible = true;
+                        }
+                    }
+                    if became_visible {
+                        invalidated = true;
+                        burst_until = Some(Instant::now() + Duration::from_millis(950));
+                    }
+
+                    for (label, parent_hwnd) in restack_requests {
+                        if let Some(slot) = slots.get(&label) {
+                            if slot.visible && slot.underlay_hwnd != 0 && parent_hwnd != 0 {
+                                let _ = SetWindowPos(
+                                    HWND(slot.underlay_hwnd as *mut c_void),
+                                    HWND(parent_hwnd as *mut c_void),
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE
+                                        | windows::Win32::UI::WindowsAndMessaging::SWP_NOSIZE
+                                        | SWP_NOACTIVATE
+                                        | SWP_NOOWNERZORDER
+                                        | SWP_NOSENDCHANGING,
+                                );
+                            }
+                        }
                     }
 
                     let mut stale_labels = Vec::new();
@@ -328,6 +735,62 @@ fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicSyncRequest>> {
                     for k in stale_labels {
                         slots.remove(&k);
                     }
+
+                    let now = Instant::now();
+                    let burst_active = burst_until.is_some_and(|t| now < t);
+                    let burst_expired = burst_until.is_some_and(|t| now >= t);
+                    let any_visible_now = slots.values().any(|s| s.visible && s.comp.is_some());
+                    let refresh_due = invalidated
+                        || burst_expired
+                        || (burst_active && last_refresh.elapsed() >= Duration::from_millis(85))
+                        || (any_visible_now && last_refresh.elapsed() >= Duration::from_millis(650));
+
+                    if burst_expired {
+                        burst_until = None;
+                    }
+
+                    if refresh_due {
+                        if let Some(ref comp) = compositor {
+                            let force_revalidate =
+                                invalidated || became_visible || burst_active || burst_expired;
+                            let mut refreshed_any = false;
+                            for slot in slots.values_mut() {
+                                if slot.visible {
+                                    let screen_x = if slot.last_screen_x != i32::MIN {
+                                        slot.last_screen_x
+                                    } else {
+                                        0
+                                    };
+                                    let screen_y = if slot.last_screen_y != i32::MIN {
+                                        slot.last_screen_y
+                                    } else {
+                                        0
+                                    };
+                                    if let Some(ref mut underlay) = slot.comp {
+                                        if underlay.refresh_backdrop(
+                                            comp,
+                                            slot.underlay_hwnd,
+                                            slot.parent_hwnd,
+                                            screen_x,
+                                            screen_y,
+                                            force_revalidate,
+                                        ) {
+                                            refreshed_any = true;
+                                        }
+                                    }
+                                }
+                            }
+                            if refreshed_any {
+                                updated = true;
+                                last_refresh = now;
+                            }
+                        }
+                    }
+
+                    if updated {
+                        commit_composition(compositor.as_ref());
+                    }
+                    drain_thread_messages();
                 }
             })
             .expect("failed to spawn gili-native-dwm-acrylic thread");
@@ -386,8 +849,9 @@ unsafe fn create_underlay_window(
         let target = interop.CreateDesktopWindowTarget(hwnd, false).ok()?;
         let visual = comp.CreateSpriteVisual().ok()?;
 
-        if let Some(effect_brush) = create_gaussian_backdrop_brush(comp, blur_strength) {
-            visual.SetBrush(&effect_brush).ok()?;
+        let brush_pair = BackdropBrushPair::new(comp, blur_strength);
+        if let Some(ref pair) = brush_pair {
+            visual.SetBrush(pair.current()).ok()?;
         } else {
             let host_brush = comp.CreateHostBackdropBrush().ok()?;
             visual.SetBrush(&host_brush).ok()?;
@@ -399,10 +863,20 @@ unsafe fn create_underlay_window(
         target.SetRoot(&visual).ok()?;
 
         Some(CompositionUnderlay {
-            _target: target,
+            target,
             visual,
             rounded_rect,
             _clip: clip,
+            brush_pair,
+            opacity_phase: false,
+            phys_w: 0,
+            phys_h: 0,
+            ox: 0.0,
+            oy: 0.0,
+            sw: 0.0,
+            sh: 0.0,
+            cr: 0.0,
+            blur_strength,
         })
     });
 
@@ -439,12 +913,18 @@ pub fn compute_clipped_rounded_rect(
     }
 }
 
+struct SyncOutcome {
+    became_visible: bool,
+    mutated: bool,
+}
+
 unsafe fn apply_acrylic_sync(
     class_name: &[u16],
     compositor: Option<&Compositor>,
     slots: &mut HashMap<String, UnderlaySlot>,
     req: AcrylicSyncRequest,
-) {
+    externally_hidden: bool,
+) -> SyncOutcome {
     let slot = slots.entry(req.label.clone()).or_insert_with(|| UnderlaySlot {
         underlay_hwnd: 0,
         parent_hwnd: req.parent_hwnd,
@@ -465,7 +945,8 @@ unsafe fn apply_acrylic_sync(
     slot.parent_hwnd = req.parent_hwnd;
     let parent = HWND(req.parent_hwnd as *mut c_void);
 
-    if !req.enabled
+    if externally_hidden
+        || !req.enabled
         || req.blur_strength <= 1
         || req.width <= 1.0
         || req.height <= 1.0
@@ -473,29 +954,43 @@ unsafe fn apply_acrylic_sync(
         || !IsWindow(parent).as_bool()
         || !IsWindowVisible(parent).as_bool()
     {
+        let mut mutated = false;
         if slot.underlay_hwnd != 0 && slot.visible {
             let _ = ShowWindow(HWND(slot.underlay_hwnd as *mut c_void), SW_HIDE);
             slot.visible = false;
+            mutated = true;
         }
         slot.last_req = Some(req);
-        return;
+        return SyncOutcome {
+            became_visible: false,
+            mutated,
+        };
     }
 
+    let mut mutated = false;
     if slot.underlay_hwnd == 0 || !IsWindow(HWND(slot.underlay_hwnd as *mut c_void)).as_bool() {
         let (hwnd_val, comp_underlay) =
             create_underlay_window(class_name, compositor, req.blur_strength);
         if hwnd_val == 0 {
-            return;
+            return SyncOutcome {
+                became_visible: false,
+                mutated: false,
+            };
         }
         slot.underlay_hwnd = hwnd_val;
         slot.comp = comp_underlay;
         slot.visible = false;
         slot.last_w = 0;
         slot.last_blur_strength = req.blur_strength;
-    } else if (req.blur_strength as i32 - slot.last_blur_strength as i32).abs() >= 2 {
-        if let (Some(comp), Some(ref underlay)) = (compositor, &slot.comp) {
-            if let Some(effect_brush) = create_gaussian_backdrop_brush(comp, req.blur_strength) {
-                let _ = underlay.visual.SetBrush(&effect_brush);
+        mutated = true;
+    } else if req.blur_strength != slot.last_blur_strength {
+        if let (Some(comp), Some(ref mut underlay)) = (compositor, &mut slot.comp) {
+            underlay.blur_strength = req.blur_strength;
+            let new_pair = BackdropBrushPair::new(comp, req.blur_strength);
+            if let Some(ref pair) = new_pair {
+                let _ = underlay.visual.SetBrush(pair.current());
+                underlay.brush_pair = new_pair;
+                mutated = true;
             }
         }
         slot.last_blur_strength = req.blur_strength;
@@ -515,7 +1010,10 @@ unsafe fn apply_acrylic_sync(
 
     let mut parent_rect = RECT::default();
     if GetWindowRect(parent, &mut parent_rect).is_err() {
-        return;
+        return SyncOutcome {
+            became_visible: false,
+            mutated,
+        };
     }
 
     let screen_x = parent_rect.left + (req.container_left * dpr).round() as i32;
@@ -529,7 +1027,8 @@ unsafe fn apply_acrylic_sync(
         || req.position != slot.last_position;
 
     if shape_changed {
-        if let Some(ref comp) = slot.comp {
+        mutated = true;
+        if let Some(ref mut comp) = slot.comp {
             let (ox, oy, sw, sh, cr) = compute_clipped_rounded_rect(
                 phys_w,
                 phys_h,
@@ -538,6 +1037,13 @@ unsafe fn apply_acrylic_sync(
                 req.is_island,
                 &req.position,
             );
+            comp.phys_w = phys_w;
+            comp.phys_h = phys_h;
+            comp.ox = ox;
+            comp.oy = oy;
+            comp.sw = sw;
+            comp.sh = sh;
+            comp.cr = cr;
             let _ = comp.visual.SetSize(Vector2 {
                 X: phys_w as f32,
                 Y: phys_h as f32,
@@ -557,16 +1063,18 @@ unsafe fn apply_acrylic_sync(
         slot.last_position = req.position.clone();
     }
 
-    let pos_changed = !slot.visible
+    let was_visible = slot.visible;
+    let pos_changed = !was_visible
         || shape_changed
         || screen_x != slot.last_screen_x
         || screen_y != slot.last_screen_y;
 
     if pos_changed {
+        mutated = true;
         let flags = SWP_NOACTIVATE
             | SWP_NOOWNERZORDER
             | SWP_NOSENDCHANGING
-            | if !slot.visible {
+            | if !was_visible {
                 SWP_SHOWWINDOW
             } else {
                 windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS(0)
@@ -585,7 +1093,22 @@ unsafe fn apply_acrylic_sync(
         slot.last_screen_y = screen_y;
     }
 
+    let just_became_visible = !was_visible && slot.visible;
+    if just_became_visible {
+        let use_host_backdrop: u32 = 1;
+        let _ = DwmSetWindowAttribute(
+            slot.underlay_hwnd,
+            DWMWA_USE_HOSTBACKDROPBRUSH,
+            &use_host_backdrop as *const u32 as *const c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+
     slot.last_req = Some(req);
+    SyncOutcome {
+        became_visible: just_became_visible,
+        mutated,
+    }
 }
 
 #[tauri::command]
@@ -630,9 +1153,40 @@ pub fn sync_notch_acrylic(
         is_light,
     };
 
-    if let Ok(tx) = ensure_acrylic_worker().lock() {
-        let _ = tx.send(req);
+    let tx = ensure_acrylic_worker()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _ = tx.send(AcrylicCommand::Sync(req));
+}
+
+pub fn set_window_acrylic_hidden(label: &str, hidden: bool) {
+    let tx = ensure_acrylic_worker()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _ = tx.send(AcrylicCommand::SetHidden {
+        label: label.to_string(),
+        hidden,
+    });
+}
+
+pub fn keep_acrylic_below_window(label: &str, parent_hwnd: isize) {
+    if parent_hwnd == 0 {
+        return;
     }
+    let tx = ensure_acrylic_worker()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _ = tx.send(AcrylicCommand::KeepBelow {
+        label: label.to_string(),
+        parent_hwnd,
+    });
+}
+
+pub fn invalidate_all_backdrops() {
+    let tx = ensure_acrylic_worker()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _ = tx.send(AcrylicCommand::InvalidateBackdrop);
 }
 
 #[cfg(test)]
@@ -663,7 +1217,10 @@ mod tests {
             let _ = RegisterClassW(&wc);
             let (hwnd_val, comp_underlay) = create_underlay_window(&class_name, Some(&comp), 50);
             assert_ne!(hwnd_val, 0);
-            assert!(comp_underlay.is_some());
+            let mut underlay = comp_underlay.expect("composition underlay should initialize");
+            assert!(underlay.refresh_backdrop(&comp, hwnd_val, 0, 0, 0, false));
+            assert!(underlay.refresh_backdrop(&comp, hwnd_val, 0, 0, 0, true));
+            drop(underlay);
             if hwnd_val != 0 {
                 let _ = DestroyWindow(HWND(hwnd_val as *mut c_void));
             }

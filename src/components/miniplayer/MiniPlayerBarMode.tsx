@@ -13,6 +13,8 @@ import { MiniPlayerEqualizer } from "./MiniPlayerEqualizer";
 import { MiniPlayerProgressBar } from "./MiniPlayerProgressBar";
 import { MediaThumbnail } from "../ui/MediaThumbnail";
 import { ScrollingText } from "../ui/ScrollingText";
+import { Tooltip } from "../ui/Tooltip";
+import { useTaskbarLang, tx } from "../../services/taskbarI18n";
 
 export interface MiniPlayerBarModeProps {
   media: MediaPayload | null;
@@ -22,6 +24,7 @@ export interface MiniPlayerBarModeProps {
   showToolbar: boolean;
   toolbarNode: React.ReactNode;
   effectiveScale?: number;
+  isHidden?: boolean;
   onToggleMode?: () => void;
   onWidthChange?: (width: number) => void;
 }
@@ -37,6 +40,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   showToolbar,
   toolbarNode,
   effectiveScale = 1.0,
+  isHidden = false,
   onToggleMode,
   onWidthChange,
 }) => {
@@ -57,7 +61,8 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     position,
     duration,
     isPlaying,
-    offset
+    offset,
+    isHidden
   );
 
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -72,14 +77,16 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     media?.title && totalDuration > 0 && media?.can_seek !== false
   );
 
+  const lang = useTaskbarLang();
+
   // Compute active text, context text, and line timestamps ONLY when active line or state changes
   const { activeText, contextText, currentLineTime, nextLineTime, lineKey } = useMemo(() => {
-    const fallbackArtist = media?.artist || "Artis tidak diketahui";
+    const fallbackArtist = media?.artist || tx(lang, "Unknown artist", "Artis tidak diketahui");
 
     if (!media?.title) {
       return {
         activeText: "Gili Mini Player",
-        contextText: "Menunggu pemutaran musik...",
+        contextText: tx(lang, "Waiting for music playback...", "Menunggu pemutaran musik..."),
         currentLineTime: null,
         nextLineTime: null,
         lineKey: "idle",
@@ -88,7 +95,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
 
     if (lyrics?.state === "loading") {
       return {
-        activeText: "Memuat lirik...",
+        activeText: tx(lang, "Loading lyrics...", "Memuat lirik..."),
         contextText: fallbackArtist,
         currentLineTime: null,
         nextLineTime: null,
@@ -98,7 +105,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
 
     if (lyrics?.state === "instrumental") {
       return {
-        activeText: "♪ Lagu Instrumental ♪",
+        activeText: tx(lang, "♪ Instrumental Track ♪", "♪ Lagu Instrumental ♪"),
         contextText: fallbackArtist,
         currentLineTime: null,
         nextLineTime: null,
@@ -108,7 +115,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
 
     if (lyrics?.state === "not_found") {
       return {
-        activeText: "Lirik tidak ditemukan",
+        activeText: tx(lang, "Lyrics not found", "Lirik tidak ditemukan"),
         contextText: fallbackArtist,
         currentLineTime: null,
         nextLineTime: null,
@@ -160,13 +167,14 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
     }
 
     return {
-      activeText: "Lirik tidak tersedia",
+      activeText: tx(lang, "Lyrics unavailable", "Lirik tidak tersedia"),
       contextText: fallbackArtist,
       currentLineTime: null,
       nextLineTime: null,
       lineKey: "empty",
     };
   }, [
+    lang,
     media?.title,
     media?.artist,
     lyrics?.state,
@@ -200,7 +208,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
   }, [lyrics?.synced, activeIndex, activeLine]);
 
   const titleArtistText = media?.title
-    ? `${media.title} · ${media.artist || "Artis tidak diketahui"}`
+    ? `${media.title} · ${media.artist || tx(lang, "Unknown artist", "Artis tidak diketahui")}`
     : "Gili Mini Player";
 
   return (
@@ -225,7 +233,7 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
         {/* Album Art: 56px, radius 12px */}
         <div
           role="img"
-          aria-label="Sampul album"
+          aria-label={tx(lang, "Album art", "Sampul album")}
           className="w-14 h-14 rounded-xl overflow-hidden bg-white/5 shrink-0 border border-white/10 flex items-center justify-center shadow-md"
         >
           {media && (media.title || media.artist) ? (
@@ -239,16 +247,21 @@ export const MiniPlayerBarMode: React.FC<MiniPlayerBarModeProps> = ({
 
         {/* Left-Aligned Title/Artist + Fixed 2-Line Lyric Slot */}
         <div className="min-w-0 flex-1 min-h-14 flex flex-col justify-between items-start overflow-hidden text-start">
-          <div
-            dir="auto"
-            className="w-full h-4 flex items-center overflow-hidden text-start"
-            title={titleArtistText}
+          <Tooltip
+            content={titleArtistText}
+            allowFlip
+            wrapperClassName="w-full min-w-0 justify-start"
           >
-            <ScrollingText
-              text={titleArtistText}
-              className="text-[11.5px] text-white/60 leading-none w-full"
-            />
-          </div>
+            <div
+              dir="auto"
+              className="w-full h-4 flex items-center overflow-hidden text-start"
+            >
+              <ScrollingText
+                text={titleArtistText}
+                className="text-[11.5px] text-white/60 leading-none w-full"
+              />
+            </div>
+          </Tooltip>
 
           <BarLyricSlot
             lineKey={lineKey}

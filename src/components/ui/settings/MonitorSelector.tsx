@@ -66,10 +66,18 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-2.5 px-3 py-2.5 rounded-[12px] hover:bg-white/[0.02] transition-colors">
+    <div
+      className={`flex flex-col gap-2.5 px-3.5 py-2.5 rounded-[12px] transition-colors ${
+        isLightMode ? "hover:bg-black/[0.02]" : "hover:bg-white/[0.02]"
+      }`}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-[30px] h-[30px] rounded-[8px] flex items-center justify-center shrink-0 bg-[#142333] text-[#3882f6]">
+          <div
+            className={`w-8 h-8 rounded-[9px] flex items-center justify-center shrink-0 ${
+              isLightMode ? "bg-[#3882f6]/12" : "bg-[#142333]"
+            } text-[#3882f6]`}
+          >
             <Monitor size={18} />
           </div>
           <div className="flex flex-col">

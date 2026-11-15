@@ -35,6 +35,7 @@ const LOCAL_SETTING_KEYS: readonly string[] = [
   "island_shortcuts",
   "island_shortcuts_enabled",
   "island_tabs_preferences_v1",
+  "island_navbar_config_v1",
   "island_last_active_tab",
   "island_last_panel_closed_at",
   "island_muted_apps",
@@ -65,6 +66,7 @@ const LOCAL_SETTING_KEYS: readonly string[] = [
 // Preference keys persisted inside settings.json (keeps ai_provider_keys intact).
 const SETTINGS_STORE_KEYS: readonly string[] = [
   "opt_tabs_preferences",
+  "opt_navbar_config",
   "autostart_initialized",
   "opt_autostart",
   "show_greeting",
@@ -112,6 +114,7 @@ export async function resetAllAppSettings(): Promise<void> {
     for (const key of LOCAL_SETTING_KEYS) {
       localStorage.removeItem(key);
     }
+    localStorage.setItem("island_navbar_default_off_v5", "true");
   } catch {}
 
   try {
@@ -119,7 +122,16 @@ export async function resetAllAppSettings(): Promise<void> {
     for (const key of SETTINGS_STORE_KEYS) {
       await store.delete(key);
     }
+    await store.set("opt_navbar_default_off_v5", true);
     await store.save();
+  } catch {}
+
+  try {
+    await invoke("toggle_navbar", { enabled: false });
+  } catch {}
+
+  try {
+    await invoke("set_windows_taskbar_visible", { visible: true });
   } catch {}
 
   try {

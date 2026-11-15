@@ -14,6 +14,27 @@ pub mod miniplayer_window;
 mod app_icon;
 pub mod ai_credentials;
 pub mod backdrop_blur;
+pub mod shared_sampler;
+pub mod taskbar_manager;
+pub mod navbar_window;
+pub mod window_preview;
+pub mod windows_pinned_apps;
+pub mod shell_surface_toggle;
+pub mod taskbar_logger;
+pub mod taskbar_safety;
+pub mod taskbar_hotkey;
+pub mod taskbar_flyout;
+pub mod composition_backdrop;
+pub mod window_backdrop;
+pub mod windows_app_indexer;
+pub mod windows_start_search;
+pub mod system_quick_state;
+pub mod accessibility_toggles;
+pub mod tray_apps;
+pub mod system_hardware;
+pub mod gpu_telemetry;
+pub mod memory_optimizer;
+pub mod store_license;
 
 pub(crate) struct ComGuard(bool);
 
@@ -43,6 +64,7 @@ struct AudioSessionInfo {
     path: Option<String>,
     volume: f32,
     muted: bool,
+    icon: Option<String>,
 }
 
 #[tauri::command]
@@ -113,6 +135,10 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                 process_name = format!("App ({})", pid);
                                             }
 
+                                            let icon_b64 = process_path
+                                                .as_deref()
+                                                .and_then(windows_pinned_apps::get_cached_or_extract_icon);
+
                                             if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
                                                 if let Ok(vol) = volume_ctrl.GetMasterVolume() {
                                                     if let Ok(muted) = volume_ctrl.GetMute() {
@@ -122,6 +148,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                                             path: process_path,
                                                             volume: vol,
                                                             muted: muted.as_bool(),
+                                                            icon: icon_b64,
                                                         });
                                                     }
                                                 }
@@ -139,65 +166,95 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
     }).await.unwrap_or_default()
 }
 
-#[tauri::command]
-fn set_app_volume(pid: u32, volume: f32, name: Option<String>) {
+fn apply_to_matching_audio_sessions<F>(pid: u32, name: Option<String>, mut action: F)
+where
+    F: FnMut(&windows::Win32::Media::Audio::ISimpleAudioVolume) + Send + 'static,
+{
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
         use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume};
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
         use windows::core::Interface;
-        
+
         let target_name_lower = name.as_ref().map(|n| n.trim().to_lowercase());
-        let clamped_vol = volume.clamp(0.0, 1.0);
 
         let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
-            if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
-                if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
-                    if let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) {
-                        if let Ok(session_enum) = manager.GetSessionEnumerator() {
-                            let count = session_enum.GetCount().unwrap_or(0);
-                            for i in 0..count {
-                                if let Ok(session_ctrl) = session_enum.GetSession(i) {
-                                    if let Ok(session_ctrl2) = session_ctrl.cast::<IAudioSessionControl2>() {
-                                        if let Ok(spid) = session_ctrl2.GetProcessId() {
-                                            if spid == 0 { continue; }
-                                            let mut is_match = spid == pid;
-                                            
-                                            if !is_match && target_name_lower.is_some() {
-                                                if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, spid) {
-                                                    let mut buffer = [0u16; 1024];
-                                                    let mut len = buffer.len() as u32;
-                                                    if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buffer.as_mut_ptr()), &mut len).is_ok() && len > 0 {
-                                                        let full_path = String::from_utf16_lossy(&buffer[..len as usize]);
-                                                        if let Some(file_name) = std::path::Path::new(&full_path).file_name() {
-                                                            let s_name = file_name.to_string_lossy().to_lowercase();
-                                                            if let Some(target) = &target_name_lower {
-                                                                if s_name == *target || s_name.replace(".exe", "") == target.replace(".exe", "") {
-                                                                    is_match = true;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    let _ = windows::Win32::Foundation::CloseHandle(handle);
-                                                }
-                                            }
+            let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else {
+                return;
+            };
+            let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) else {
+                return;
+            };
+            let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) else {
+                return;
+            };
+            let Ok(session_enum) = manager.GetSessionEnumerator() else {
+                return;
+            };
 
-                                            if is_match {
-                                                if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
-                                                    let _ = volume_ctrl.SetMasterVolume(clamped_vol, std::ptr::null());
-                                                }
-                                            }
-                                        }
+            let count = session_enum.GetCount().unwrap_or(0);
+            for i in 0..count {
+                let Ok(session_ctrl) = session_enum.GetSession(i) else { continue; };
+                let Ok(session_ctrl2) = session_ctrl.cast::<IAudioSessionControl2>() else { continue; };
+                let Ok(spid) = session_ctrl2.GetProcessId() else { continue; };
+                if spid == 0 {
+                    continue;
+                }
+
+                let mut is_match = spid == pid;
+                if !is_match {
+                    if let Some(target) = &target_name_lower {
+                        if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, spid) {
+                            let mut buffer = [0u16; 1024];
+                            let mut len = buffer.len() as u32;
+                            if QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buffer.as_mut_ptr()), &mut len).is_ok() && len > 0 {
+                                let full_path = String::from_utf16_lossy(&buffer[..len as usize]);
+                                if let Some(file_name) = std::path::Path::new(&full_path).file_name() {
+                                    let s_name = file_name.to_string_lossy().to_lowercase();
+                                    if s_name == *target || s_name.replace(".exe", "") == target.replace(".exe", "") {
+                                        is_match = true;
                                     }
                                 }
                             }
+                            let _ = windows::Win32::Foundation::CloseHandle(handle);
                         }
+                    }
+                }
+
+                if is_match {
+                    if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
+                        action(&volume_ctrl);
                     }
                 }
             }
         }
     });
+}
+
+#[tauri::command]
+fn set_app_volume(pid: u32, volume: f32, name: Option<String>) {
+    let clamped_vol = volume.clamp(0.0, 1.0);
+    apply_to_matching_audio_sessions(pid, name, move |ctrl| unsafe {
+        let _ = ctrl.SetMasterVolume(clamped_vol, std::ptr::null());
+    });
+}
+
+#[tauri::command]
+fn set_app_mute(pid: u32, mute: bool, name: Option<String>) {
+    apply_to_matching_audio_sessions(pid, name, move |ctrl| unsafe {
+        let _ = ctrl.SetMute(mute, std::ptr::null());
+    });
+}
+
+#[tauri::command]
+fn get_current_media_state() -> Option<media_lyrics_store::MediaPayload> {
+    let media = media_lyrics_store::get_current_media();
+    if media.title.trim().is_empty() {
+        None
+    } else {
+        Some(media)
+    }
 }
 
 #[tauri::command]
@@ -1984,7 +2041,7 @@ fn sync_all_displays_windows_inner(
                 .visible(true)
                 .focused(false)
                 .initialization_script("window.__IS_SECONDARY_NOTCH_WINDOW__ = true;")
-                .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion");
+                .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64");
 
                 match builder.build() {
                     Ok(sec_win) => {
@@ -2115,82 +2172,6 @@ fn set_window_position(
     sync_all_displays_windows(&app, is_all);
 }
 
-static IS_TRIM_SCHEDULED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(windows)]
-fn trim_webview_working_set() {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::ProcessStatus::{EmptyWorkingSet, EnumProcesses};
-    use windows::Win32::System::Threading::{
-        GetCurrentProcess, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
-    };
-
-    unsafe {
-        let _ = EmptyWorkingSet(GetCurrentProcess());
-
-        let mut pids = [0u32; 1024];
-        let mut bytes_returned = 0u32;
-        if EnumProcesses(
-            pids.as_mut_ptr(),
-            std::mem::size_of_val(&pids) as u32,
-            &mut bytes_returned,
-        )
-        .is_ok()
-        {
-            let count = (bytes_returned as usize) / std::mem::size_of::<u32>();
-            for &pid in &pids[..count] {
-                if pid == 0 {
-                    continue;
-                }
-                if let Ok(handle) = OpenProcess(
-                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA,
-                    false,
-                    pid,
-                ) {
-                    let mut buf = [0u16; 260];
-                    let mut len = buf.len() as u32;
-                    if QueryFullProcessImageNameW(
-                        handle,
-                        PROCESS_NAME_FORMAT(0),
-                        windows::core::PWSTR(buf.as_mut_ptr()),
-                        &mut len,
-                    )
-                    .is_ok()
-                    {
-                        let path = String::from_utf16_lossy(&buf[..len as usize]);
-                        if path.to_ascii_lowercase().ends_with("msedgewebview2.exe") {
-                            let _ = EmptyWorkingSet(handle);
-                        }
-                    }
-                    let _ = CloseHandle(handle);
-                }
-            }
-        }
-    }
-}
-
-fn schedule_working_set_trim(delay_ms: u64) {
-    #[cfg(windows)]
-    {
-        if IS_TRIM_SCHEDULED
-            .compare_exchange(
-                false,
-                true,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            )
-            .is_ok()
-        {
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                trim_webview_working_set();
-                IS_TRIM_SCHEDULED.store(false, std::sync::atomic::Ordering::SeqCst);
-            });
-        }
-    }
-}
-
 #[tauri::command]
 fn update_pill_size(
     width: f32,
@@ -2219,8 +2200,6 @@ fn update_pill_size(
     let is_island = is_island.unwrap_or(false);
     let dpr = dpr.unwrap_or(0.0);
     if let Ok(mut size) = state.0.lock() {
-        let was_expanded = size.width > 95.0 && size.height > 95.0;
-        let now_expanded = width > 95.0 && height > 95.0;
         let should_reposition = size.top_offset != top_offset
             || size.is_island != is_island
             || size.is_bottom != pos.is_bottom()
@@ -2240,10 +2219,6 @@ fn update_pill_size(
             let effective_sf = if size.dpr > 0.0 { (size.dpr as f64).max(sf) } else { sf * get_system_text_scale() };
             let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
             position_notch_window(&window, pos, phys_offset, size.target_monitor.as_deref());
-        }
-
-        if was_expanded && !now_expanded {
-            schedule_working_set_trim(1200);
         }
     }
 }
@@ -2606,6 +2581,14 @@ fn _unused_marker() {
 
 
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SystemPowerInfo {
+    pub is_charging: bool,
+    pub percent: u8,
+    pub seconds_remaining: Option<u32>,
+    pub battery_saver: bool,
+}
+
 #[tauri::command]
 fn get_battery_status() -> Option<(bool, u8)> {
     use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
@@ -2622,6 +2605,154 @@ fn get_battery_status() -> Option<(bool, u8)> {
     } else {
         None
     }
+}
+
+#[tauri::command]
+fn get_system_power_info() -> Option<SystemPowerInfo> {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut power_status = SYSTEM_POWER_STATUS::default();
+    if unsafe { GetSystemPowerStatus(&mut power_status).is_ok() } {
+        if (power_status.BatteryFlag & 128 != 0) || power_status.BatteryLifePercent > 100 {
+            return None;
+        }
+        let is_charging = power_status.ACLineStatus == 1;
+        let percent = power_status.BatteryLifePercent;
+        let battery_saver = power_status.SystemStatusFlag == 1;
+        let seconds_remaining = if power_status.BatteryLifeTime != 0xFFFFFFFF {
+            Some(power_status.BatteryLifeTime)
+        } else {
+            None
+        };
+        Some(SystemPowerInfo {
+            is_charging,
+            percent,
+            seconds_remaining,
+            battery_saver,
+        })
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WindowsScreenTimeInfo {
+    pub date_key: String,
+    pub active_seconds: u64,
+    pub uptime_awake_seconds: u64,
+}
+
+struct DailyScreenTimeBaseline {
+    date_key: String,
+    base_today_secs: u64,
+    base_unbiased_secs: u64,
+}
+
+static SCREEN_TIME_BASELINE: std::sync::OnceLock<std::sync::Mutex<DailyScreenTimeBaseline>> =
+    std::sync::OnceLock::new();
+
+#[repr(C)]
+#[derive(Default)]
+struct LocalSystemTime {
+    w_year: u16,
+    w_month: u16,
+    w_day_of_week: u16,
+    w_day: u16,
+    w_hour: u16,
+    w_minute: u16,
+    w_second: u16,
+    w_milliseconds: u16,
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetTickCount64() -> u64;
+    fn QueryUnbiasedInterruptTime(unbiased_time: *mut u64) -> i32;
+    fn GetLocalTime(lp_system_time: *mut LocalSystemTime);
+}
+
+fn compute_windows_screen_time() -> WindowsScreenTimeInfo {
+    use windows::Win32::System::Power::{CallNtPowerInformation, LastWakeTime};
+
+    let mut lt = LocalSystemTime::default();
+    unsafe { GetLocalTime(&mut lt) };
+    let date_key = format!("{:04}-{:02}-{:02}", lt.w_year, lt.w_month, lt.w_day);
+    let seconds_since_midnight =
+        (lt.w_hour as u64) * 3600 + (lt.w_minute as u64) * 60 + (lt.w_second as u64);
+
+    let uptime_wall_secs = unsafe { GetTickCount64() } / 1000;
+
+    let mut unbiased_ticks: u64 = 0;
+    let unbiased_ok = unsafe { QueryUnbiasedInterruptTime(&mut unbiased_ticks) != 0 };
+    let unbiased_awake_secs = if unbiased_ok {
+        unbiased_ticks / 10_000_000
+    } else {
+        uptime_wall_secs
+    };
+
+    let mut wake_ticks: u64 = 0;
+    let wake_status = unsafe {
+        CallNtPowerInformation(
+            LastWakeTime,
+            None,
+            0,
+            Some(&mut wake_ticks as *mut u64 as *mut core::ffi::c_void),
+            std::mem::size_of::<u64>() as u32,
+        )
+    };
+    let last_wake_secs = if wake_status.0 == 0 {
+        wake_ticks / 10_000_000
+    } else {
+        0
+    };
+
+    let estimate_base_today = || -> u64 {
+        if uptime_wall_secs <= seconds_since_midnight {
+            unbiased_awake_secs.min(seconds_since_midnight)
+        } else {
+            // LastWakeTime tracks biased interrupt time alongside GetTickCount64
+            let awake_since_last_wake = uptime_wall_secs.saturating_sub(last_wake_secs);
+            if last_wake_secs > 0 && awake_since_last_wake < seconds_since_midnight {
+                awake_since_last_wake
+            } else {
+                seconds_since_midnight
+            }
+        }
+    };
+
+    let lock = SCREEN_TIME_BASELINE.get_or_init(|| {
+        std::sync::Mutex::new(DailyScreenTimeBaseline {
+            date_key: date_key.clone(),
+            base_today_secs: estimate_base_today(),
+            base_unbiased_secs: unbiased_awake_secs,
+        })
+    });
+
+    let active_seconds = match lock.lock() {
+        Ok(mut guard) => {
+            if guard.date_key != date_key {
+                guard.date_key = date_key.clone();
+                guard.base_today_secs = estimate_base_today();
+                guard.base_unbiased_secs = unbiased_awake_secs;
+                guard.base_today_secs
+            } else {
+                (guard.base_today_secs
+                    + unbiased_awake_secs.saturating_sub(guard.base_unbiased_secs))
+                .min(seconds_since_midnight)
+            }
+        }
+        Err(_) => estimate_base_today(),
+    };
+
+    WindowsScreenTimeInfo {
+        date_key,
+        active_seconds,
+        uptime_awake_seconds: unbiased_awake_secs,
+    }
+}
+
+#[tauri::command]
+fn get_windows_screen_time() -> WindowsScreenTimeInfo {
+    compute_windows_screen_time()
 }
 
 #[tauri::command]
@@ -2654,11 +2785,67 @@ fn set_master_volume(level: f32) {
                     if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
                         let level = level.clamp(0.0, 1.0);
                         let _ = volume_ctrl.SetMasterVolumeLevelScalar(level, std::ptr::null());
+                        if level > 0.0 {
+                            let _ = volume_ctrl.SetMute(windows::Win32::Foundation::BOOL::from(false), std::ptr::null());
+                        }
                     }
                 }
             }
         }
     });
+}
+
+#[tauri::command]
+async fn get_master_mute() -> bool {
+    tauri::async_runtime::spawn_blocking(|| {
+        use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
+        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+        use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
+                if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
+                    if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
+                        if let Ok(muted) = volume_ctrl.GetMute() {
+                            return muted.as_bool();
+                        }
+                    }
+                }
+            }
+        }
+        false
+    })
+    .await
+    .unwrap_or(false)
+}
+
+#[tauri::command]
+fn set_master_mute(mute: bool) {
+    tauri::async_runtime::spawn_blocking(move || {
+        use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator};
+        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+        use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_MULTITHREADED, CLSCTX_ALL};
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
+                if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) {
+                    if let Ok(volume_ctrl) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
+                        let _ = volume_ctrl.SetMute(windows::Win32::Foundation::BOOL::from(mute), std::ptr::null());
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[tauri::command]
+fn get_spatial_audio_status() -> audio_endpoints::SpatialAudioInfo {
+    audio_endpoints::get_spatial_audio_info()
+}
+
+#[tauri::command]
+fn open_sound_settings(page: Option<String>) {
+    audio_endpoints::open_sound_settings_page(page.as_deref());
 }
 
 
@@ -2791,6 +2978,12 @@ fn system_power_action(action: &str) {
         "bluetooth" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:bluetooth"]).spawn(); },
         "hotspot" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:network-mobilehotspot"]).spawn(); },
         "focus" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:quiethours"]).spawn(); },
+        "airplane" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:network-airplanemode"]).spawn(); },
+        "nightlight" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:nightlight"]).spawn(); },
+        "accessibility" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:easeofaccess-display"]).spawn(); },
+        "batterysaver" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:batterysaver"]).spawn(); },
+        "project" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings-connectslice:"]).spawn(); },
+        "quicksettings_edit" => { let _ = Command::new("cmd.exe").creation_flags(0x08000000).args(["/c", "start", "ms-settings:taskbar"]).spawn(); },
         _ => {}
     }
 }
@@ -3598,6 +3791,106 @@ fn resolve_active_user_window() -> Option<(windows::Win32::Foundation::HWND, u32
     }
 }
 
+#[cfg(windows)]
+fn check_active_window_maximized_for(
+    fg: windows::Win32::Foundation::HWND,
+    exe_name: &str,
+) -> bool {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, GetWindowTextLengthW, IsZoomed,
+    };
+
+    unsafe {
+        if matches!(
+            exe_name,
+            "searchhost.exe"
+                | "startmenuexperiencehost.exe"
+                | "shellexperiencehost.exe"
+                | "textinputhost.exe"
+                | "lockapp.exe"
+                | "widgets.exe"
+                | "wallpaper32.exe"
+                | "wallpaper64.exe"
+                | "lively.exe"
+                | "rainmeter.exe"
+        ) {
+            return false;
+        }
+
+        if IsZoomed(fg).as_bool() {
+            return true;
+        }
+
+        // File Explorer desktop/background windows are never IsZoomed; real maximized Explorer folders always have IsZoomed == true
+        if exe_name == "explorer.exe" || GetWindowTextLengthW(fg) <= 0 {
+            return false;
+        }
+
+        let mut rect = RECT::default();
+        if GetWindowRect(fg, &mut rect).is_ok() {
+            let monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                let wr = mi.rcWork;
+                let mr = mi.rcMonitor;
+                let is_work_area_max = rect.left <= wr.left + 2
+                    && rect.top <= wr.top + 2
+                    && rect.right >= wr.right - 2
+                    && rect.bottom >= wr.bottom - 2;
+                let is_full_monitor = rect.left <= mr.left + 2
+                    && rect.top <= mr.top + 2
+                    && rect.right >= mr.right - 2
+                    && rect.bottom >= mr.bottom - 2;
+                if is_work_area_max || is_full_monitor {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+fn is_browser_exe_name(exe_name: &str) -> bool {
+    matches!(
+        exe_name,
+        "chrome.exe"
+            | "msedge.exe"
+            | "brave.exe"
+            | "firefox.exe"
+            | "opera.exe"
+            | "vivaldi.exe"
+            | "zen.exe"
+            | "arc.exe"
+    )
+}
+
+#[cfg(windows)]
+fn poll_foreground_browser_and_maximized(
+    check_browser: bool,
+    check_maximized: bool,
+) -> (Option<bool>, Option<bool>) {
+    if !check_browser && !check_maximized {
+        return (None, None);
+    }
+    let Some((fg, pid, _class_name)) = resolve_active_user_window() else {
+        return (
+            check_browser.then_some(false),
+            check_maximized.then_some(false),
+        );
+    };
+    let exe_name = get_process_exe_name_lower(pid).unwrap_or_default();
+    let browser = check_browser.then(|| is_browser_exe_name(&exe_name));
+    let maximized = check_maximized.then(|| check_active_window_maximized_for(fg, &exe_name));
+    (browser, maximized)
+}
+
 fn is_foreground_window_browser() -> Option<bool> {
     #[cfg(windows)]
     {
@@ -3605,18 +3898,7 @@ fn is_foreground_window_browser() -> Option<bool> {
             return Some(false);
         };
         if let Some(exe_name) = get_process_exe_name_lower(pid) {
-            let is_b = matches!(
-                exe_name.as_str(),
-                "chrome.exe"
-                    | "msedge.exe"
-                    | "brave.exe"
-                    | "firefox.exe"
-                    | "opera.exe"
-                    | "vivaldi.exe"
-                    | "zen.exe"
-                    | "arc.exe"
-            );
-            return Some(is_b);
+            return Some(is_browser_exe_name(&exe_name));
         }
         Some(false)
     }
@@ -3634,70 +3916,11 @@ fn check_foreground_browser() -> bool {
 fn is_foreground_window_maximized() -> Option<bool> {
     #[cfg(windows)]
     {
-        use windows::Win32::Foundation::RECT;
-        use windows::Win32::Graphics::Gdi::{
-            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetWindowRect, GetWindowTextLengthW, IsZoomed,
-        };
-
         let Some((fg, pid, _class_name)) = resolve_active_user_window() else {
             return Some(false);
         };
-
-        unsafe {
-            let exe_name = get_process_exe_name_lower(pid).unwrap_or_default();
-            if matches!(
-                exe_name.as_str(),
-                "searchhost.exe"
-                    | "startmenuexperiencehost.exe"
-                    | "shellexperiencehost.exe"
-                    | "textinputhost.exe"
-                    | "lockapp.exe"
-                    | "widgets.exe"
-                    | "wallpaper32.exe"
-                    | "wallpaper64.exe"
-                    | "lively.exe"
-                    | "rainmeter.exe"
-            ) {
-                return Some(false);
-            }
-
-            if IsZoomed(fg).as_bool() {
-                return Some(true);
-            }
-
-            // File Explorer desktop/background windows are never IsZoomed; real maximized Explorer folders always have IsZoomed == true
-            if exe_name == "explorer.exe" || GetWindowTextLengthW(fg) <= 0 {
-                return Some(false);
-            }
-
-            let mut rect = RECT::default();
-            if GetWindowRect(fg, &mut rect).is_ok() {
-                let monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
-                let mut mi = MONITORINFO {
-                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                    ..Default::default()
-                };
-                if GetMonitorInfoW(monitor, &mut mi).as_bool() {
-                    let wr = mi.rcWork;
-                    let mr = mi.rcMonitor;
-                    let is_work_area_max = rect.left <= wr.left + 2
-                        && rect.top <= wr.top + 2
-                        && rect.right >= wr.right - 2
-                        && rect.bottom >= wr.bottom - 2;
-                    let is_full_monitor = rect.left <= mr.left + 2
-                        && rect.top <= mr.top + 2
-                        && rect.right >= mr.right - 2
-                        && rect.bottom >= mr.bottom - 2;
-                    if is_work_area_max || is_full_monitor {
-                        return Some(true);
-                    }
-                }
-            }
-            Some(false)
-        }
+        let exe_name = get_process_exe_name_lower(pid).unwrap_or_default();
+        Some(check_active_window_maximized_for(fg, &exe_name))
     }
     #[cfg(not(windows))]
     {
@@ -3976,6 +4199,7 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
     std::thread::spawn(move || {
         use tauri::Emitter;
         if let Some(w) = app_handle.get_webview_window("settings") {
+            let _ = w.set_min_size(Some(tauri::LogicalSize::new(680.0, 480.0)));
             let _ = w.unminimize();
             let _ = w.show();
             let _ = w.set_focus();
@@ -4001,21 +4225,59 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
             tauri::WebviewUrl::App("index.html".into()),
         )
         .title("Gili Settings")
-        .inner_size(880.0, 620.0)
-        .min_inner_size(760.0, 520.0)
-        .maximizable(false)
-        .resizable(false)
+        .inner_size(860.0, 600.0)
+        .min_inner_size(680.0, 480.0)
+        .maximizable(true)
+        .resizable(true)
         .decorations(false)
         .transparent(false)
         .shadow(true)
         .center()
         .visible(true)
         .focused(true)
+        .skip_taskbar(false)
         .initialization_script("window.__IS_SETTINGS_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64")
         .build()
         {
-            Ok(_win) => {}
+            Ok(win) => {
+                if let Some(icon) = app_handle.default_window_icon() {
+                    let _ = win.set_icon(icon.clone());
+                }
+                win.on_window_event(|event| {
+                    if matches!(event, tauri::WindowEvent::Destroyed) {
+                        crate::memory_optimizer::schedule_working_set_trim(900);
+                    }
+                });
+
+                #[cfg(windows)]
+                {
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+                        SetWindowPos, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_FRAMECHANGED,
+                    };
+                    use windows::Win32::Foundation::HWND;
+
+                    if let Ok(hwnd_val) = win.hwnd() {
+                        let hwnd = HWND(hwnd_val.0);
+                        unsafe {
+                            let mut ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+                            ex_style &= !WS_EX_TOOLWINDOW.0;
+                            ex_style |= WS_EX_APPWINDOW.0;
+                            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style as i32);
+                            let _ = SetWindowPos(
+                                hwnd,
+                                None,
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                            );
+                        }
+                    }
+                }
+            }
             Err(e) => {
                 eprintln!("Failed to create settings window: {:?}", e);
             }
@@ -4044,11 +4306,60 @@ fn trigger_notch_action(app: tauri::AppHandle, action: String) {
 
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
+    taskbar_manager::restore_taskbar_on_exit();
+    window_preview::cleanup_window_previews();
     app.restart();
+}
+
+#[tauri::command]
+fn get_screen_refresh_rate() -> u32 {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::Graphics::Gdi::{
+            EnumDisplaySettingsW, DEVMODEW, ENUM_CURRENT_SETTINGS,
+        };
+        let mut devmode = DEVMODEW {
+            dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+            ..Default::default()
+        };
+        if EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &mut devmode).as_bool() {
+            if devmode.dmDisplayFrequency >= 30 && devmode.dmDisplayFrequency <= 500 {
+                return devmode.dmDisplayFrequency;
+            }
+        }
+    }
+    60
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let args: Vec<String> = std::env::args().collect();
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--taskbar-watchdog" {
+            if let Some(pid_str) = args.get(i + 1) {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    taskbar_safety::run_taskbar_watchdog(pid);
+                    return;
+                }
+            }
+        }
+    }
+
+    if std::env::args().any(|arg| arg == "--restore-taskbar") {
+        taskbar_manager::set_taskbar_visible(true);
+        println!("Windows Taskbar has been restored.");
+        return;
+    }
+
+    taskbar_manager::check_and_recover_on_startup();
+
+    let default_panic_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        taskbar_manager::restore_taskbar_on_exit();
+    window_preview::cleanup_window_previews();
+        default_panic_hook(panic_info);
+    }));
+
     #[cfg(windows)]
     {
         // Migrate and clean up any legacy Notch artifacts before checking mutex
@@ -4057,6 +4368,8 @@ pub fn run() {
         use windows::Win32::System::Threading::CreateMutexW;
         use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
         use windows::core::w;
+
+        static SINGLE_INSTANCE_MUTEX: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
         unsafe {
             let mutex = CreateMutexW(None, true, w!("com_faiz_gili_single_instance_mutex"));
@@ -4076,7 +4389,9 @@ pub fn run() {
                 }
                 std::process::exit(0);
             }
-            let _ = mutex;
+            if let Ok(m) = mutex {
+                SINGLE_INSTANCE_MUTEX.store(m.0 as isize, std::sync::atomic::Ordering::SeqCst);
+            }
         }
         install_repair::spawn_install_repair();
     }
@@ -4163,7 +4478,10 @@ pub fn run() {
             connectivity::toggle_bluetooth,
             connectivity::get_hotspot_status,
             connectivity::toggle_hotspot,
-            system_monitor::get_system_metrics,
+            shared_sampler::get_system_metrics,
+            shared_sampler::subscribe_system_metrics,
+            shared_sampler::unsubscribe_system_metrics,
+            shared_sampler::set_metrics_power_state,
             system_monitor::clear_temp_files,
             windows_dnd::set_windows_dnd,
             windows_dnd::get_windows_dnd,
@@ -4200,9 +4518,84 @@ pub fn run() {
             miniplayer_window::set_follow_system_text_scale,
             get_system_text_scale_factor,
             app_icon::get_app_icon,
-            backdrop_blur::sync_notch_acrylic
+            backdrop_blur::sync_notch_acrylic,
+            get_screen_refresh_rate,
+            taskbar_manager::set_windows_taskbar_hidden,
+            taskbar_manager::set_windows_taskbar_visible,
+            taskbar_manager::get_windows_taskbar_hidden,
+            navbar_window::toggle_navbar,
+            navbar_window::open_navbar_window,
+            navbar_window::close_navbar_window,
+            navbar_window::broadcast_navbar_config_update,
+            navbar_window::set_navbar_ignore_cursor_events,
+            navbar_window::set_navbar_popup_open,
+            navbar_window::register_navbar_popup,
+            navbar_window::unregister_navbar_popup,
+            navbar_window::set_navbar_backdrop_hidden,
+            navbar_window::set_navbar_auto_hide_state,
+            navbar_window::set_navbar_focusable,
+            navbar_window::sync_navbar_bounds,
+            navbar_window::trigger_start_menu,
+            navbar_window::trigger_windows_search,
+            navbar_window::trigger_quick_settings,
+            navbar_window::trigger_volume_flyout,
+            navbar_window::trigger_notification_center,
+            navbar_window::trigger_file_explorer,
+            navbar_window::trigger_task_manager,
+            navbar_window::launch_target,
+            navbar_window::switch_virtual_desktop,
+            navbar_window::trigger_fullscreen_screenshot,
+            navbar_window::get_running_windows,
+            navbar_window::activate_or_toggle_window,
+            navbar_window::capture_window_thumbnail,
+            window_preview::sync_window_previews,
+            window_preview::clear_window_previews,
+            navbar_window::close_window_by_hwnd,
+            navbar_window::get_desktop_luminance,
+            navbar_window::check_navbar_window_overlap,
+            windows_pinned_apps::get_windows_pinned_apps,
+            windows_pinned_apps::launch_pinned_app,
+            taskbar_safety::set_taskbar_window_switches,
+            taskbar_safety::get_taskbar_window_switches,
+            taskbar_safety::trigger_taskbar_kill_switch,
+            taskbar_flyout::toggle_taskbar_flyout,
+            taskbar_flyout::switch_taskbar_flyout_target,
+            taskbar_flyout::resize_taskbar_flyout,
+            taskbar_flyout::close_taskbar_flyout,
+            taskbar_flyout::is_taskbar_flyout_open,
+            taskbar_flyout::get_taskbar_flyout_state,
+            taskbar_logger::get_taskbar_flyout_logs,
+            set_app_mute,
+            get_current_media_state,
+            windows_start_search::get_start_menu_apps,
+            windows_start_search::get_start_app_icons,
+            windows_start_search::get_recent_files,
+            tray_apps::get_tray_background_apps,
+            system_quick_state::get_quick_toggles_state,
+            system_quick_state::toggle_airplane_mode,
+            system_quick_state::toggle_battery_saver,
+            system_quick_state::toggle_night_light,
+            system_quick_state::open_accessibility_feature,
+            accessibility_toggles::get_accessibility_state,
+            accessibility_toggles::toggle_accessibility_feature,
+            get_master_mute,
+            set_master_mute,
+            get_spatial_audio_status,
+            open_sound_settings,
+            get_system_power_info,
+            get_windows_screen_time,
+            system_hardware::get_storage_drives,
+            system_hardware::get_virtual_desktop_state,
+            system_hardware::switch_to_virtual_desktop,
+            system_hardware::get_vpn_status,
+            gpu_telemetry::get_gpu_telemetry,
+            store_license::get_taskbar_pro_status,
+            store_license::refresh_taskbar_pro_license,
+            store_license::purchase_taskbar_pro
         ])
         .setup(|app| {
+            let _ = compute_windows_screen_time();
+            shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
             use tauri::tray::TrayIconBuilder;
             use tauri::Emitter;
@@ -4210,9 +4603,10 @@ pub fn run() {
             let toggle_i = MenuItem::with_id(app, "toggle_visibility", "Show / Hide Gili (Ctrl+Shift+D)", true, None::<&str>)?;
             let cc_i = MenuItem::with_id(app, "open_control_center", "Open Control Center", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
+            let restore_tb_i = MenuItem::with_id(app, "restore_taskbar", "Restore Windows Taskbar", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Gili", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &settings_i, &sep, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &settings_i, &restore_tb_i, &sep, &quit_i])?;
 
             let mut tray_builder = TrayIconBuilder::new()
                 .tooltip("Gili (Running in Background)")
@@ -4244,7 +4638,12 @@ pub fn run() {
                         "open_settings" => {
                             show_or_create_settings_window(app, None);
                         }
+                        "restore_taskbar" => {
+                            taskbar_manager::set_taskbar_visible(true);
+                        }
                         "quit" => {
+                            taskbar_manager::restore_taskbar_on_exit();
+    window_preview::cleanup_window_previews();
                             app.exit(0);
                         }
                         _ => {}
@@ -4256,6 +4655,16 @@ pub fn run() {
             }
 
             let _tray = tray_builder.build(app)?;
+
+            let app_h = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                windows_pinned_apps::start_pinned_apps_watcher(app_h.clone());
+                window_preview::start_preview_prewarmer();
+                memory_optimizer::start_memory_optimizer();
+                std::thread::sleep(std::time::Duration::from_millis(1200));
+                windows_start_search::warm_start_apps_index();
+            });
 
             let window = match app.get_webview_window("main") {
                 Some(w) => w,
@@ -4269,7 +4678,6 @@ pub fn run() {
 
             // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI berubah
             position_notch_window(&window, NotchPos::Top, 0, None);
-            schedule_working_set_trim(3500);
             let win_for_events = window.clone();
             let app_for_events = app.handle().clone();
             window.on_window_event(move |event| {
@@ -4321,8 +4729,10 @@ pub fn run() {
             let win_clone = window.clone();
             let app_handle_poll = app.handle().clone();
             std::thread::spawn(move || {
-                use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
                 use windows::Win32::Foundation::POINT;
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId,
+                };
                 struct SecHitState {
                     was_in: bool,
                     time_since_left: std::time::Instant,
@@ -4338,15 +4748,44 @@ pub fn run() {
                 let mut browser_false_count: u32 = 0;
                 let mut last_is_maximized = false;
                 let mut maximized_false_count: u32 = 0;
+                let mut last_fg_hwnd_raw: isize = 0;
+                let mut last_fg_was_own = false;
+                let mut cursor_near_edge = true;
                 let mut pending_cursor_nudge = false;
                 let mut cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
                 let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
+                let own_pid = std::process::id();
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     
                     loop_count = loop_count.wrapping_add(1);
                     if loop_count.is_multiple_of(15) {
-                        if let Some(is_browser) = is_foreground_window_browser() {
+                        let fg = unsafe { GetForegroundWindow() };
+                        let fg_raw = fg.0 as isize;
+                        let fg_changed = fg_raw != last_fg_hwnd_raw;
+                        if fg_changed {
+                            last_fg_hwnd_raw = fg_raw;
+                            last_fg_was_own = if !fg.0.is_null() {
+                                let mut fg_pid = 0u32;
+                                unsafe { GetWindowThreadProcessId(fg, Some(&mut fg_pid)) };
+                                fg_pid == own_pid
+                            } else {
+                                false
+                            };
+                        }
+
+                        let check_browser = fg_changed
+                            || browser_false_count == 1
+                            || (last_fg_was_own && (cursor_near_edge || loop_count.is_multiple_of(75)));
+                        let check_maximized = fg_changed
+                            || maximized_false_count == 1
+                            || cursor_near_edge
+                            || loop_count.is_multiple_of(75);
+
+                        let (browser_opt, max_opt) =
+                            poll_foreground_browser_and_maximized(check_browser, check_maximized);
+
+                        if let Some(is_browser) = browser_opt {
                             if is_browser {
                                 browser_false_count = 0;
                                 if !last_is_browser {
@@ -4363,7 +4802,7 @@ pub fn run() {
                                 }
                             }
                         }
-                        if let Some(is_max) = is_foreground_window_maximized() {
+                        if let Some(is_max) = max_opt {
                             if is_max {
                                 maximized_false_count = 0;
                                 if !last_is_maximized {
@@ -4405,8 +4844,29 @@ pub fn run() {
                             }
                         }
 
+                        cursor_near_edge = was_in_main
+                            || is_window_interactive("main")
+                            || pill.height >= 120.0
+                            || cached_geom.is_some_and(|(wp, ws, sf)| {
+                                let pad = (56.0 * sf).round() as i32;
+                                pt.x >= wp.x - pad
+                                    && pt.x <= wp.x + ws.width as i32 + pad
+                                    && pt.y >= wp.y - pad
+                                    && pt.y <= wp.y + ws.height as i32 + pad
+                            });
+
                         // Polling hit test untuk notch di layar sekunder
-                        if loop_count.is_multiple_of(10) {
+                        let sec_poll_interval = if !sec_hit_map.is_empty()
+                            || pill
+                                .target_monitor
+                                .as_deref()
+                                .is_some_and(|t| t.trim().eq_ignore_ascii_case("all"))
+                        {
+                            10
+                        } else {
+                            50
+                        };
+                        if loop_count.is_multiple_of(sec_poll_interval) {
                             let cur_windows = app_handle_poll.webview_windows();
                             sec_hit_map.retain(|label, _| cur_windows.contains_key(label));
                             for (label, _) in &cur_windows {
@@ -4425,12 +4885,17 @@ pub fn run() {
                         }
 
                         let is_dragging = IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed);
-                        let (l_down, r_down) = {
+                        let need_mouse_buttons = !sec_hit_map.is_empty()
+                            || is_window_interactive("main")
+                            || pill.height >= 120.0;
+                        let (l_down, r_down) = if need_mouse_buttons {
                             use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
                             (
                                 (unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000) != 0,
                                 (unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } as u16 & 0x8000) != 0,
                             )
+                        } else {
+                            (false, false)
                         };
 
                         for (sec_label, sec_state) in sec_hit_map.iter_mut() {
@@ -4681,6 +5146,7 @@ pub fn run() {
                 let mut last_is_charging = false;
                 let mut last_battery_percent = 255;
                 let mut last_volume = -1.0;
+                let mut last_muted = false;
                 let mut last_progress_emit = std::time::Instant::now();
                 let mut last_position = -1.0;
                 let mut last_duration = -1.0;
@@ -4750,31 +5216,33 @@ pub fn run() {
                         let _ = app_handle.emit("caps-update", CapsPayload { is_on: current_caps == 1 });
                     }
                     
-                    // Volume Check using cached COM interface (zero per-100ms COM activation overhead)
+                    // Volume & Mute Check using cached COM interface (zero per-100ms COM activation overhead)
                     if let Some(volume_ctrl) = &cached_volume_ctrl {
                         if let Ok(level) = unsafe { volume_ctrl.GetMasterVolumeLevelScalar() } {
+                            let cur_mute = unsafe { volume_ctrl.GetMute().map(|m| m.as_bool()).unwrap_or(false) };
                             if (level - last_volume).abs() > 0.01 && last_volume != -1.0 {
                                 #[derive(serde::Serialize, Clone)]
                                 struct VolumePayload { level: f32 }
                                 let _ = app_handle.emit("volume-update", VolumePayload { level });
                             }
+                            if (level - last_volume).abs() > 0.005 || cur_mute != last_muted || last_volume == -1.0 {
+                                #[derive(serde::Serialize, Clone)]
+                                struct VolumeUpdatePayload {
+                                    volume: f32,
+                                    muted: bool,
+                                }
+                                let _ = app_handle.emit("master-volume-changed", VolumeUpdatePayload {
+                                    volume: level,
+                                    muted: cur_mute,
+                                });
+                            }
                             last_volume = level;
+                            last_muted = cur_mute;
                         }
                     }
                     
                     if counter % 5 != 0 {
                         continue;
-                    }
-
-                    // Periodic idle working-set cleanup every 3 minutes when notch is collapsed
-                    if counter % 1800 == 0 {
-                        let is_collapsed = app_handle
-                            .try_state::<PillSize>()
-                            .and_then(|s| s.0.lock().ok().map(|g| g.height <= 95.0 || g.width <= 95.0))
-                            .unwrap_or(true);
-                        if is_collapsed {
-                            schedule_working_set_trim(100);
-                        }
                     }
                     
                     // Real Notifications Check (every 1s with cached access status)
@@ -5564,6 +6032,12 @@ pub fn run() {
                     is_first_run = false;
                 }
             });
+
+            store_license::start_startup_license_sync(app.handle().clone());
+            taskbar_flyout::init_flyout_manager(app.handle());
+            taskbar_safety::init_taskbar_switches_from_disk();
+            taskbar_hotkey::init_taskbar_hotkey_layer();
+            taskbar_safety::ensure_taskbar_watchdog_spawned();
 
             Ok(())
         })

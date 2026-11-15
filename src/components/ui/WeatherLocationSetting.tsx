@@ -101,26 +101,30 @@ export const WeatherLocationSetting: React.FC<WeatherLocationSettingProps> = ({
     <div className="flex flex-col transition-colors">
       {/* Row Header */}
       <div
-        className={`flex items-center justify-between px-3.5 py-2.5 min-h-[44px] cursor-pointer transition-colors select-none ${
+        className={`flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-[12px] min-h-[48px] cursor-pointer transition-colors select-none ${
           isLightMode ? "hover:bg-black/[0.03]" : "hover:bg-white/[0.03]"
         }`}
         onClick={() => setIsExpanded((prev) => !prev)}
       >
-        <div className="flex items-center gap-2.5 pr-2 min-w-0">
-          <div className="w-[28px] h-[28px] rounded-[7px] bg-[#32ade6] flex items-center justify-center text-white shrink-0 shadow-sm">
-            <MapPin size={15} />
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={`w-8 h-8 rounded-[9px] flex items-center justify-center shrink-0 ${
+              isLightMode ? "bg-[#32ade6]/15 text-sky-600" : "bg-[#13262d] text-[#32ade6]"
+            }`}
+          >
+            <MapPin size={17} />
           </div>
           <div className="flex flex-col min-w-0">
             <span
-              className={`text-[12.5px] font-medium leading-tight ${
-                isLightMode ? "text-neutral-900" : "text-white"
+              className={`text-[13px] font-semibold leading-tight ${
+                isLightMode ? "text-neutral-900" : "text-zinc-100"
               }`}
             >
               {t("settings_weather_location")}
             </span>
             <span
-              className={`text-[9.5px] leading-tight mt-0.5 truncate max-w-[190px] ${
-                isLightMode ? "text-neutral-500" : "text-white/50"
+              className={`text-[11px] leading-snug mt-0.5 truncate max-w-[240px] ${
+                isLightMode ? "text-neutral-500" : "text-zinc-400"
               }`}
             >
               {locationTitle}

@@ -1,21 +1,76 @@
-import { Component, ErrorInfo, ReactNode } from "react";
+import { Component, ErrorInfo, ReactNode, Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import "@fontsource/inter/400.css";
-import "@fontsource/inter/500.css";
-import "@fontsource/inter/600.css";
-import "@fontsource/inter/700.css";
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
 import "./App.css";
 import "./index.css";
-import App from "./App";
-import { SettingsWindowApp } from "./components/settingsWindow/SettingsWindowApp";
-import { MiniPlayerApp } from "./components/miniplayer/MiniPlayerApp";
-import { getLanguage } from "./services/i18n";
+import { getLanguage } from "./services/languageStore";
+
+const App = lazy(() => import("./App"));
+const SettingsWindowApp = lazy(() =>
+  import("./components/settingsWindow/SettingsWindowApp").then((m) => ({
+    default: m.SettingsWindowApp,
+  }))
+);
+const NavbarApp = lazy(() =>
+  import("./components/navbar/NavbarApp").then((m) => ({
+    default: m.NavbarApp,
+  }))
+);
+const TaskbarFlyoutApp = lazy(() =>
+  import("./components/taskbarFlyout/TaskbarFlyoutApp").then((m) => ({
+    default: m.TaskbarFlyoutApp,
+  }))
+);
+const MiniPlayerApp = lazy(() =>
+  import("./components/miniplayer/MiniPlayerApp").then((m) => ({
+    default: m.MiniPlayerApp,
+  }))
+);
+
+const isNavbarWindow = (() => {
+  if (typeof window === "undefined") return false;
+  let result = false;
+  if ((window as any).__IS_NAVBAR_WINDOW__ === true) {
+    result = true;
+  } else if ((window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "navbar") {
+    result = true;
+  } else {
+    try {
+      if (getCurrentWindow().label === "navbar") {
+        result = true;
+      }
+    } catch {}
+    if (!result) {
+      result =
+        new URLSearchParams(window.location.search).get("window") === "navbar" ||
+        window.location.search.includes("window=navbar") ||
+        window.location.href.includes("window=navbar");
+    }
+  }
+
+  if (result) {
+    document.documentElement.classList.add("navbar-window");
+    if (document.body) {
+      document.body.classList.add("navbar-window");
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add("navbar-window");
+      });
+    }
+  }
+  return result;
+})();
 
 const isSettingsWindow = (() => {
   if (typeof window === "undefined") return false;
   let result = false;
   if ((window as any).__IS_SETTINGS_WINDOW__ === true) {
+    result = true;
+  } else if ((window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "settings") {
     result = true;
   } else {
     try {
@@ -38,6 +93,58 @@ const isSettingsWindow = (() => {
     } else {
       document.addEventListener("DOMContentLoaded", () => {
         document.body.classList.add("settings-window");
+      });
+    }
+  }
+  return result;
+})();
+
+const isTaskbarFlyoutWindow = (() => {
+  if (typeof window === "undefined") return false;
+  let result = false;
+  if ((window as any).__IS_TASKBAR_FLYOUT_WINDOW__ === true) {
+    result = true;
+  } else if (
+    (window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label ===
+    "taskbar_flyout"
+  ) {
+    result = true;
+  } else {
+    try {
+      if (getCurrentWindow().label === "taskbar_flyout") {
+        result = true;
+      }
+    } catch {}
+    if (!result) {
+      result =
+        new URLSearchParams(window.location.search).get("window") === "flyout" ||
+        window.location.search.includes("window=flyout") ||
+        window.location.href.includes("window=flyout");
+    }
+  }
+
+  if (result) {
+    const flyoutWin = window as unknown as {
+      __setTaskbarFlyoutState?: (target: string, theme?: "solid" | "liquid") => void;
+      __resetTaskbarFlyoutState?: () => void;
+      __PENDING_TASKBAR_FLYOUT__?: { target?: string; theme?: "solid" | "liquid" };
+    };
+    if (!flyoutWin.__setTaskbarFlyoutState) {
+      flyoutWin.__setTaskbarFlyoutState = (target, theme) => {
+        flyoutWin.__PENDING_TASKBAR_FLYOUT__ = { target, theme };
+      };
+    }
+    if (!flyoutWin.__resetTaskbarFlyoutState) {
+      flyoutWin.__resetTaskbarFlyoutState = () => {
+        delete flyoutWin.__PENDING_TASKBAR_FLYOUT__;
+      };
+    }
+    document.documentElement.classList.add("flyout-window");
+    if (document.body) {
+      document.body.classList.add("flyout-window");
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add("flyout-window");
       });
     }
   }
@@ -106,6 +213,7 @@ class RootErrorBoundary extends Component<Props, State> {
         <div
           onClick={() => this.setState({ hasError: false })}
           className="fixed top-0 left-1/2 -translate-x-1/2 bg-black/90 text-white/80 text-[11px] px-3 py-1 rounded-b-lg border border-red-500/30 cursor-pointer shadow-lg select-none"
+          title={getLanguage() === "id" ? "Klik untuk memulihkan" : "Click to recover"}
         >
           {getLanguage() === "id" ? "Notch Error (klik untuk memulihkan)" : "Notch Error (click to recover)"}
         </div>
@@ -117,12 +225,18 @@ class RootErrorBoundary extends Component<Props, State> {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RootErrorBoundary>
-    {isSettingsWindow ? (
-      <SettingsWindowApp />
-    ) : isMiniPlayerWindow ? (
-      <MiniPlayerApp />
-    ) : (
-      <App isSecondaryWindow={isSecondaryWindow} />
-    )}
+    <Suspense fallback={null}>
+      {isNavbarWindow ? (
+        <NavbarApp />
+      ) : isSettingsWindow ? (
+        <SettingsWindowApp />
+      ) : isTaskbarFlyoutWindow ? (
+        <TaskbarFlyoutApp />
+      ) : isMiniPlayerWindow ? (
+        <MiniPlayerApp />
+      ) : (
+        <App isSecondaryWindow={isSecondaryWindow} />
+      )}
+    </Suspense>
   </RootErrorBoundary>
 );

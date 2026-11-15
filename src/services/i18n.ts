@@ -1,4 +1,5 @@
-export type Language = "en" | "id";
+import { type Language, getLanguage, setLanguage } from "./languageStore";
+export { type Language, getLanguage, setLanguage };
 
 export const translations = {
   // Navigation / Tabs
@@ -1132,33 +1133,6 @@ export const translations = {
 } as const;
 
 export type TranslationKey = keyof typeof translations;
-
-export function getLanguage(): Language {
-  try {
-    const saved = localStorage.getItem("island_language");
-    if (saved === "en" || saved === "id") return saved;
-  } catch {}
-
-  if (typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("id")) {
-    return "id";
-  }
-  return "en";
-}
-
-export function setLanguage(lang: Language, autoReload = false) {
-  try {
-    localStorage.setItem("island_language", lang);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("island_language_changed", { detail: lang }));
-    }
-  } catch {}
-
-  if (autoReload && typeof window !== "undefined") {
-    setTimeout(() => {
-      window.location.reload();
-    }, 150);
-  }
-}
 
 export function t(key: TranslationKey, params?: Record<string, string | number>): string {
   const lang = getLanguage();

@@ -158,7 +158,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
       className="w-full h-full flex px-3 pb-2.5 pt-1.5 min-w-0 cursor-default gap-3 relative"
     >
       {/* Left Column: Player Controls */}
-      <div className={`h-full flex flex-col justify-between min-w-0 relative z-10 shrink-0 overflow-hidden ${isCompact ? "w-[298px]" : "w-[320px]"}`}>
+      <div className={`h-full flex flex-col justify-between min-w-0 max-w-full relative z-10 shrink-0 overflow-hidden ${isCompact ? "w-[298px]" : "w-[320px]"}`}>
         <div className="flex items-center gap-3.5 px-0.5">
           <div className="w-14 h-14 bg-neutral-800/50 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-lg border border-white/10 relative">
             {hasMedia && media ? (
@@ -295,10 +295,11 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
 
           <div className={`flex items-center justify-between px-1 relative ${isCompact ? "gap-3" : "gap-4"}`}>
             {/* Lyrics / App Info Toggle Button (Left Side) */}
-            <Tooltip content={showLyrics ? t("media_app_source") : t("lyrics_title")} side="top">
+            <Tooltip content={showLyrics ? t("media_app_source") : t("lyrics_title")} side="top" allowFlip>
               <motion.button
                 whileHover={{ scale: 1.08 }}
                 whileTap={{ scale: 0.9 }}
+                aria-label={showLyrics ? t("media_app_source") : t("lyrics_title")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleLyrics();
@@ -315,10 +316,11 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
 
             {/* Playback Controls (Center) */}
             <div className={`flex items-center ${isCompact ? "gap-4" : "gap-6"}`}>
-              <Tooltip content={t("media_prev")} side="top">
+              <Tooltip content={t("media_prev")} side="top" allowFlip>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
+                  aria-label={t("media_prev")}
                   onClick={(e) => {
                     e.stopPropagation();
                     onMediaControl("prev");
@@ -328,10 +330,11 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   <SkipBack size={isCompact ? 20 : 22} fill="currentColor" />
                 </motion.button>
               </Tooltip>
-              <Tooltip content={activePlaying ? t("media_pause") : t("media_play")} side="top">
+              <Tooltip content={activePlaying ? t("media_pause") : t("media_play")} side="top" allowFlip>
                 <motion.button
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.9 }}
+                  aria-label={activePlaying ? t("media_pause") : t("media_play")}
                   onClick={(e) => {
                     e.stopPropagation();
                     onMediaControl("toggle");
@@ -345,10 +348,11 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   )}
                 </motion.button>
               </Tooltip>
-              <Tooltip content={t("media_next")} side="top">
+              <Tooltip content={t("media_next")} side="top" allowFlip>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
+                  aria-label={t("media_next")}
                   onClick={(e) => {
                     e.stopPropagation();
                     onMediaControl("next");
@@ -370,6 +374,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                   </div>
                 }
                 side="top"
+                allowFlip
               >
                 <motion.button
                   whileHover={{ scale: 1.08 }}

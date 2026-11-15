@@ -204,7 +204,7 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
   const navButtonClass =
     "w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] flex items-center justify-center text-[#e4e4e7] hover:text-white transition-colors cursor-pointer shrink-0";
   const navDisabledClass =
-    "w-8 h-8 rounded-full bg-[#17171c]/50 flex items-center justify-center text-white/25 shrink-0 pointer-events-none";
+    "w-8 h-8 rounded-full bg-[#17171c]/50 flex items-center justify-center text-white/25 shrink-0 cursor-not-allowed";
 
   const mainTitle = t("tab_prayer_reminder") || (isId ? "Sholat" : "Prayer");
 
@@ -239,9 +239,9 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                 </motion.button>
               </Tooltip>
             ) : (
-              <div className={navDisabledClass} role="button" aria-disabled="true">
+              <button type="button" disabled className={navDisabledClass} aria-label={t("nav_prev")}>
                 <ChevronLeft size={16} strokeWidth={2} />
-              </div>
+              </button>
             )}
 
             {onToggleNotifications && (
@@ -315,14 +315,21 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
             data-tab-title-swipe="true"
             className="absolute inset-x-44 flex items-center justify-center overflow-hidden min-w-0 pointer-events-none"
           >
-            <span
-              title={mainTitle}
-              className={`text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${
-                isLightMode ? "text-[#101828]" : "text-white"
-              }`}
+            <Tooltip
+              content={mainTitle}
+              side="bottom"
+              allowFlip
+              isLightMode={isLightMode}
+              wrapperClassName="max-w-full min-w-0 pointer-events-auto"
             >
-              {mainTitle}
-            </span>
+              <span
+                className={`block text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${
+                  isLightMode ? "text-[#101828]" : "text-white"
+                }`}
+              >
+                {mainTitle}
+              </span>
+            </Tooltip>
           </div>
 
           {/* Right Cluster: [ Reminders Pill ] [ Settings ] [ Next ] */}
@@ -386,9 +393,9 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
                 </motion.button>
               </Tooltip>
             ) : (
-              <div className={navDisabledClass} role="button" aria-disabled="true">
+              <button type="button" disabled className={navDisabledClass} aria-label={t("nav_next")}>
                 <ChevronRight size={16} strokeWidth={2} />
-              </div>
+              </button>
             )}
           </div>
         </div>

@@ -278,10 +278,10 @@ export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({
   return (
     <div
       ref={recordingContainerRef}
-      className={`w-full rounded-[22px] p-3 flex flex-col gap-2.5 mt-3 transition-colors ${
+      className={`w-full rounded-[18px] p-4 flex flex-col gap-3 transition-colors ${
         isLight
-          ? "bg-white/80 border border-black/10 shadow-[0_4px_20px_rgba(0,0,0,0.06)] text-[#1d1d1f]"
-          : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)] text-white"
+          ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)] text-[#1d1d1f]"
+          : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)] text-white"
       }`}
     >
       {/* Header with Master Switch */}

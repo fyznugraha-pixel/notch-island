@@ -5,7 +5,15 @@ import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { t } from "../../../services/i18n";
 
-export const WindowsBannerRow: React.FC = () => {
+interface WindowsBannerRowProps {
+  isLightMode?: boolean;
+}
+
+export const WindowsBannerRow: React.FC<WindowsBannerRowProps> = ({ isLightMode }) => {
+  const light =
+    isLightMode ??
+    (typeof document !== "undefined" &&
+      document.documentElement.classList.contains("light"));
   const [isHidden, setIsHidden] = useState(false);
 
   useEffect(() => {
@@ -24,8 +32,9 @@ export const WindowsBannerRow: React.FC = () => {
 
   return (
     <SettingRow
+      isLightMode={light}
       icon={<BellOff size={18} />}
-      iconBgClass="bg-[#2e1616]"
+      iconBgClass={light ? "bg-[#ff453a]/12" : "bg-[#2e1616]"}
       iconColorClass="text-[#ff453a]"
       title={t("settings_hide_windows_banner")}
       subtitle={t("settings_hide_windows_banner_desc")}

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { LyricLine } from "../../services/lyrics/types";
 import { resolveLineWords, splitWordsForWrappedRows } from "../../services/lyrics/wordTiming";
 import { BarLyricLayoutResult, computeMarqueeTiming } from "./lyricsLayout";
+import { Tooltip } from "../ui/Tooltip";
 import { WordFillLyricsLine } from "../ui/WordFillLyricsLine";
 
 export interface BarLyricSlotProps {
@@ -138,35 +139,26 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
         className="w-full h-full flex flex-col justify-center text-start"
       >
         {layout.mode === "wrapped" || layout.mode === "wrapped-clamped" ? (
-          <div
-            dir="auto"
-            style={{
-              fontSize: `${layout.fontSize}px`,
-              textWrap: "balance",
-              transformOrigin: "left center",
-            }}
-            className="w-full text-start font-semibold text-white leading-snug tracking-[-0.01em] line-clamp-2 overflow-hidden"
-            title={layout.lines.join(" ")}
+          <Tooltip
+            content={layout.lines.join(" ")}
+            allowFlip
+            wrapperClassName="w-full min-w-0 justify-start"
           >
-            {wrappedRows && effectivePosition !== undefined ? (
-              <>
-                <div>
-                  <WordFillLyricsLine
-                    line={wrappedRows.row0}
-                    nextLineTime={wrappedRows.row0NextTime}
-                    effectiveTime={effectivePosition}
-                    isActive
-                    isPlaying={isPlaying}
-                    prefersReducedMotion={prefersReducedMotion}
-                    baseColor={fillBaseColor}
-                    fillColor={fillHighlightColor}
-                  />
-                </div>
-                {layout.lines[1] && wrappedRows.row1 && (
+            <div
+              dir="auto"
+              style={{
+                fontSize: `${layout.fontSize}px`,
+                textWrap: "balance",
+                transformOrigin: "left center",
+              }}
+              className="w-full text-start font-semibold text-white leading-snug tracking-[-0.01em] line-clamp-2 overflow-hidden"
+            >
+              {wrappedRows && effectivePosition !== undefined ? (
+                <>
                   <div>
                     <WordFillLyricsLine
-                      line={wrappedRows.row1}
-                      nextLineTime={wrappedRows.row1NextTime}
+                      line={wrappedRows.row0}
+                      nextLineTime={wrappedRows.row0NextTime}
                       effectiveTime={effectivePosition}
                       isActive
                       isPlaying={isPlaying}
@@ -175,40 +167,98 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
                       fillColor={fillHighlightColor}
                     />
                   </div>
-                )}
-              </>
-            ) : (
-              <>
-                <div>{layout.lines[0]}</div>
-                {layout.lines[1] && <div>{layout.lines[1]}</div>}
-              </>
-            )}
-          </div>
+                  {layout.lines[1] && wrappedRows.row1 && (
+                    <div>
+                      <WordFillLyricsLine
+                        line={wrappedRows.row1}
+                        nextLineTime={wrappedRows.row1NextTime}
+                        effectiveTime={effectivePosition}
+                        isActive
+                        isPlaying={isPlaying}
+                        prefersReducedMotion={prefersReducedMotion}
+                        baseColor={fillBaseColor}
+                        fillColor={fillHighlightColor}
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div>{layout.lines[0]}</div>
+                  {layout.lines[1] && <div>{layout.lines[1]}</div>}
+                </>
+              )}
+            </div>
+          </Tooltip>
         ) : layout.mode === "marquee" ? (
           <>
+            <Tooltip
+              content={layout.lines[0]}
+              allowFlip
+              wrapperClassName="w-full min-w-0 justify-start"
+            >
+              <div
+                dir="auto"
+                style={{
+                  maskImage:
+                    "linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%)",
+                  WebkitMaskImage:
+                    "linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%)",
+                }}
+                className="w-full min-h-[20px] h-auto flex items-center overflow-hidden whitespace-nowrap"
+              >
+                <span
+                  style={{
+                    fontSize: `${layout.fontSize}px`,
+                    transformOrigin: "left center",
+                    transform: marqueeMoved
+                      ? `translate3d(-${layout.overflowPx}px, 0, 0)`
+                      : "translate3d(0, 0, 0)",
+                    transition: marqueeMoved
+                      ? `transform ${marqueeTiming.durationSec}s ease-in-out`
+                      : "none",
+                  }}
+                  className="inline-block pl-[2px] pr-3 font-semibold text-white leading-snug tracking-[-0.01em]"
+                >
+                  {singleLinePayload && effectivePosition !== undefined ? (
+                    <WordFillLyricsLine
+                      line={singleLinePayload}
+                      nextLineTime={nextLineTime ?? undefined}
+                      effectiveTime={effectivePosition}
+                      isActive
+                      isPlaying={isPlaying}
+                      prefersReducedMotion={prefersReducedMotion}
+                      singleLine
+                      baseColor={fillBaseColor}
+                      fillColor={fillHighlightColor}
+                    />
+                  ) : (
+                    layout.lines[0]
+                  )}
+                </span>
+              </div>
+            </Tooltip>
             <div
               dir="auto"
-              style={{
-                maskImage:
-                  "linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%)",
-                WebkitMaskImage:
-                  "linear-gradient(to right, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%)",
-              }}
-              className="w-full min-h-[20px] h-auto flex items-center overflow-hidden whitespace-nowrap"
-              title={layout.lines[0]}
+              className="w-full min-h-[16px] h-auto flex items-center text-[12px] font-normal text-white/50 leading-snug truncate text-start"
             >
-              <span
+              {layout.contextText}
+            </div>
+          </>
+        ) : (
+          <>
+            <Tooltip
+              content={layout.lines[0]}
+              allowFlip
+              wrapperClassName="w-full min-w-0 justify-start"
+            >
+              <div
+                dir="auto"
                 style={{
                   fontSize: `${layout.fontSize}px`,
                   transformOrigin: "left center",
-                  transform: marqueeMoved
-                    ? `translate3d(-${layout.overflowPx}px, 0, 0)`
-                    : "translate3d(0, 0, 0)",
-                  transition: marqueeMoved
-                    ? `transform ${marqueeTiming.durationSec}s ease-in-out`
-                    : "none",
                 }}
-                className="inline-block pl-[2px] pr-3 font-semibold text-white leading-snug tracking-[-0.01em]"
+                className="w-full min-h-[20px] h-auto flex items-center font-semibold text-white leading-snug tracking-[-0.01em] truncate text-start"
               >
                 {singleLinePayload && effectivePosition !== undefined ? (
                   <WordFillLyricsLine
@@ -225,42 +275,8 @@ export const BarLyricSlot: React.FC<BarLyricSlotProps> = ({
                 ) : (
                   layout.lines[0]
                 )}
-              </span>
-            </div>
-            <div
-              dir="auto"
-              className="w-full min-h-[16px] h-auto flex items-center text-[12px] font-normal text-white/50 leading-snug truncate text-start"
-            >
-              {layout.contextText}
-            </div>
-          </>
-        ) : (
-          <>
-            <div
-              dir="auto"
-              style={{
-                fontSize: `${layout.fontSize}px`,
-                transformOrigin: "left center",
-              }}
-              className="w-full min-h-[20px] h-auto flex items-center font-semibold text-white leading-snug tracking-[-0.01em] truncate text-start"
-              title={layout.lines[0]}
-            >
-              {singleLinePayload && effectivePosition !== undefined ? (
-                <WordFillLyricsLine
-                  line={singleLinePayload}
-                  nextLineTime={nextLineTime ?? undefined}
-                  effectiveTime={effectivePosition}
-                  isActive
-                  isPlaying={isPlaying}
-                  prefersReducedMotion={prefersReducedMotion}
-                  singleLine
-                  baseColor={fillBaseColor}
-                  fillColor={fillHighlightColor}
-                />
-              ) : (
-                layout.lines[0]
-              )}
-            </div>
+              </div>
+            </Tooltip>
             <div
               dir="auto"
               className="w-full min-h-[16px] h-auto flex items-center text-[12px] font-normal text-white/50 leading-snug truncate text-start"

@@ -273,17 +273,18 @@ export const AiChatConversationView: React.FC<AiChatConversationViewProps> = ({
                   />
                   <div className="flex items-center justify-between pt-0.5">
                     {onPopulateInput ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onPopulateInput(editDraft);
-                          handleCancelEdit();
-                        }}
-                        title={t("aichat_edit_to_input_tooltip")}
-                        className="h-7 px-2.5 rounded-full border border-white/10 hover:border-white/20 bg-white/[0.04] hover:bg-white/[0.08] text-[#a1a1aa] hover:text-white text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-all active:scale-95"
-                      >
-                        <span>{t("aichat_edit_to_input_button")}</span>
-                      </button>
+                      <Tooltip content={t("aichat_edit_to_input_tooltip")} side="top" allowFlip>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onPopulateInput(editDraft);
+                            handleCancelEdit();
+                          }}
+                          className="h-7 px-2.5 rounded-full border border-white/10 hover:border-white/20 bg-white/[0.04] hover:bg-white/[0.08] text-[#a1a1aa] hover:text-white text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                        >
+                          <span>{t("aichat_edit_to_input_button")}</span>
+                        </button>
+                      </Tooltip>
                     ) : <div />}
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button

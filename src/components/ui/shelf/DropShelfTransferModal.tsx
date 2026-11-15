@@ -127,9 +127,10 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
           isLightMode ? "border-black/[0.08]" : "border-white/[0.08]"
         }`}
       >
-        <Tooltip content={isEn ? "Back" : "Kembali"} side="bottom">
+        <Tooltip content={isEn ? "Back" : "Kembali"} side="bottom" allowFlip wrapperClassName="shrink-0">
           <button
             onClick={onClose}
+            aria-label={isEn ? "Back" : "Kembali"}
             className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
               isLightMode
                 ? "bg-black/[0.06] hover:bg-black/[0.12] text-[#1d1d1f]"

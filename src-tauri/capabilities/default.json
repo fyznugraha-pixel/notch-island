@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main, secondary notch, and settings windows",
+  "description": "Capability for the main, secondary notch, settings, navbar, and flyout windows",
   "windows": [
     "main",
     "settings",
@@ -10,7 +10,9 @@
     "notch_secondary_1",
     "notch_secondary_2",
     "notch_secondary_3",
-    "notch_secondary_4"
+    "notch_secondary_4",
+    "navbar",
+    "taskbar_flyout"
   ],
   "permissions": [
     "core:default",
@@ -19,6 +21,9 @@
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
     "core:window:allow-toggle-maximize",
     "core:window:allow-show",
     "core:window:allow-hide",

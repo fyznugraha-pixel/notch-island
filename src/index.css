@@ -1,4 +1,4 @@
-@import url('https://fonts.cdnfonts.com/css/sf-pro-display');
+@import "./styles/taskbarTheme.css";
 
 html, body {
   -webkit-text-size-adjust: 100%;
@@ -38,7 +38,6 @@ html.light,
   50% { transform: scaleY(1); }
 }
 .animate-eq-bar {
-  height: 14px;
   transform-origin: center;
   will-change: transform;
   animation: eqPulse 0.8s ease-in-out infinite;
@@ -932,6 +931,7 @@ html.light .media-volume-fill,
 
 /* Audio Visualizer Waveform: Light Blue (Sky Blue) */
 .audio-visualizer-bar {
+  height: 14px;
   background-color: #38bdf8;
   box-shadow: 0 0 8px rgba(56, 189, 248, 0.65);
 }

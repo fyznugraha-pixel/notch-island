@@ -18,6 +18,52 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "5.0.0",
+    date: "14 Nov 2026",
+    highlights: [
+      {
+        icon: <AppWindow size={14} />,
+        titleId: "Taskbar Kustom Gili Dock & 40+ Modul Utilitas",
+        titleEn: "Gili Custom Taskbar Dock & 40+ Utility Modules",
+        descId: "Hadirkan Taskbar / Dock mengambang di bagian bawah layar dengan reservasi ruang AppBar otomatis, daftar aplikasi aktif beserta pratinjau jendela langsung, dan lebih dari 40 modul cepat seperti monitor sistem, media, cuaca, kalender, serta catatan cepat.",
+        descEn: "Introduces a customizable bottom Taskbar Dock with automatic AppBar workarea reservation, running app switcher with live window previews, and over 40 modular widgets including system monitor, media, weather, calendar, and quick notes.",
+        badge: "new",
+      },
+      {
+        icon: <Layers size={14} />,
+        titleId: "Flyout Kustom Start Menu, Pencarian, Pengaturan Cepat & Tray",
+        titleEn: "Custom Start Menu, Search, Quick Settings & Tray Flyouts",
+        descId: "Panel flyout terintegrasi di atas Dock untuk Start Menu, Pencarian, Pengaturan Cepat (Wi-Fi, Bluetooth, Volume, Output Audio, kecerahan, dan baterai), Notification Center, serta Hidden Tray dengan tema Solid dan Liquid Glass.",
+        descEn: "Integrated Dock flyout panels for Start Menu, Search, Quick Settings (Wi-Fi, Bluetooth, Volume, Audio Output, brightness, and battery), Notification Center, and Hidden Tray supporting both Solid and Liquid Glass themes.",
+        badge: "new",
+      },
+      {
+        icon: <Palette size={14} />,
+        titleId: "Tema Ikon macOS Sequoia 3D & Kustomisasi Tampilan Dock",
+        titleEn: "macOS Sequoia 3D Icon Theme & Dock Theme Engine",
+        descId: "Pilihan tema ikon gaya macOS Sequoia beresolusi tinggi dengan 40+ ikon aplikasi terkurasi, dukungan warna kustom penuh, pengaturan opasitas permukaan langsung, serta mode Solid dan Liquid Glass.",
+        descEn: "High-resolution macOS Sequoia icon theme with 40+ curated app icons, custom color picker, live surface opacity controls, and Solid / Liquid Glass surface modes.",
+        badge: "new",
+      },
+      {
+        icon: <ShieldCheck size={14} />,
+        titleId: "Intersepsi Tombol Windows Global & Pemulihan Taskbar Otomatis",
+        titleEn: "Global Windows Key Interception & Taskbar Fail-Safe Recovery",
+        descId: "Menekan tombol Windows pada keyboard kini langsung membuka Start Menu kustom Gili tanpa memicu ganda taskbar bawaan Windows, disertai adaptasi kontras desktop otomatis saat berpindah jendela dan watchdog pemulihan taskbar.",
+        descEn: "Pressing the Windows key now opens Gili's custom Start Menu directly without triggering the native Windows taskbar alongside it, paired with automatic desktop contrast tracking and a Windows taskbar recovery watchdog.",
+        badge: "improve",
+      },
+      {
+        icon: <Zap size={14} />,
+        titleId: "Optimasi Performa & Konsumsi Memori Multi-Jendela",
+        titleEn: "Multi-Window Performance & Memory Optimizations",
+        descId: "Optimasi backend Rust/Win32 dan pipeline render frontend untuk perpindahan tampilan flyout tanpa flicker, pra-tangkap latar belakang instan, serta konsumsi CPU dan memori lebih efisien.",
+        descEn: "Optimized Rust/Win32 backend handling and frontend rendering pipelines for flicker-free flyout switching, instant backdrop capture, and lower CPU and memory usage.",
+        badge: "improve",
+      },
+    ],
+  },
+  {
     version: "4.6.2",
     date: "14 Nov 2026",
     highlights: [
@@ -97,6 +143,14 @@ const CHANGELOG: ChangelogEntry[] = [
         titleEn: "Real-Time Native GPU Backdrop Blur",
         descId: "Efek kaca (Glass dan Clear) kini di-render langsung oleh GPU Windows secara real-time menggunakan Windows.UI.Composition dan D2D1GaussianBlur tanpa tangkapan layar, tanpa jeda, dan terpotong presisi mengikuti lengkungan sudut notch maupun floating island.",
         descEn: "Glass and Clear modes now render directly on the Windows GPU in real time via Windows.UI.Composition and D2D1GaussianBlur with zero screen capture, zero latency, and exact geometric clipping around notch and floating island corners.",
+        badge: "new",
+      },
+      {
+        icon: <LayoutGrid size={14} />,
+        titleId: "Dock & Taskbar Interaktif dengan Blur Kaca Kasar Native",
+        titleEn: "Interactive Dock & Taskbar with Native Frosted Glass Blur",
+        descId: "Taskbar kustom lengkap dengan 40 modul interaktif, Auto-Hide cerdas, flyout Start/Search/Quick Settings, dan efek kaca buram kasar berbasis GPU Windows.UI.Composition yang selaras penuh dengan Notch.",
+        descEn: "Custom interactive taskbar with 40 modules, smart Auto-Hide, Start/Search/Quick Settings flyouts, and GPU-rendered coarse frosted glass blur via Windows.UI.Composition matching the Notch.",
         badge: "new",
       },
       {
@@ -871,13 +925,13 @@ export const AboutView: React.FC<AboutViewProps> = ({ appVersion, optLanguage, i
   };
 
   const cardBase = isLightMode
-    ? "bg-white/85 border border-black/10 shadow-sm"
-    : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)]";
+    ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
 
   return (
     <div className="flex flex-col gap-5 w-full pb-4">
       {/* App Identity Card */}
-      <div className={`w-full rounded-[22px] p-5 flex items-center gap-5 ${cardBase}`}>
+      <div className={`w-full rounded-[18px] p-5 flex items-center gap-5 ${cardBase}`}>
         <img
           src="/logo/LOGO-GILI.png"
           alt="Gili"

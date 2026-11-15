@@ -4,14 +4,44 @@ use std::sync::{
 };
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewWindow};
 
+const MINIPLAYER_IDLE_DESTROY_SECS: u64 = 10;
+
 static IS_MINIPLAYER_OPEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static WAS_OPEN_BEFORE_FULLSCREEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static CURRENT_MODE: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
 static WAS_RETURNED_TO_NOTCH: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static TRACKER_STARTED: OnceLock<bool> = OnceLock::new();
 static MINIPLAYER_VIS_GEN: AtomicU64 = AtomicU64::new(0);
+static MINIPLAYER_IDLE_GEN: AtomicU64 = AtomicU64::new(0);
 static MINIPLAYER_IGNORE_CURSOR: AtomicBool = AtomicBool::new(true);
 static MINIPLAYER_ALLOW_INTERACTIVE: AtomicBool = AtomicBool::new(false);
+
+fn cancel_miniplayer_idle_destroy() {
+    MINIPLAYER_IDLE_GEN.fetch_add(1, Ordering::SeqCst);
+}
+
+fn schedule_miniplayer_idle_destroy(app: &AppHandle) {
+    let gen = MINIPLAYER_IDLE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(MINIPLAYER_IDLE_DESTROY_SECS));
+        if MINIPLAYER_IDLE_GEN.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        if *get_open_state().lock().unwrap_or_else(|e| e.into_inner()) {
+            return;
+        }
+        if *get_fs_state().lock().unwrap_or_else(|e| e.into_inner()) {
+            return;
+        }
+        if let Some(w) = app_clone.get_webview_window("miniplayer") {
+            if !w.is_visible().unwrap_or(false) {
+                let _ = w.destroy();
+                crate::memory_optimizer::schedule_working_set_trim(800);
+            }
+        }
+    });
+}
 
 fn apply_ignore_cursor(win: &WebviewWindow, ignore: bool) {
     MINIPLAYER_IGNORE_CURSOR.store(ignore, Ordering::Release);
@@ -549,6 +579,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
                             *guard = false;
                             drop(guard);
                             let _ = app_clone.emit("miniplayer:visibility-changed", false);
+                            schedule_miniplayer_idle_destroy(&app_clone);
                         }
                     }
                 });
@@ -556,6 +587,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
             }
         }
         MINIPLAYER_VIS_GEN.fetch_add(1, Ordering::SeqCst);
+        cancel_miniplayer_idle_destroy();
         *get_returned_to_notch_state().lock().unwrap() = false;
         set_window_to_bottom_right(&w);
         let _ = w.show();
@@ -569,6 +601,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
     }
 
     MINIPLAYER_VIS_GEN.fetch_add(1, Ordering::SeqCst);
+    cancel_miniplayer_idle_destroy();
 
     // Window must be created in std::thread::spawn (same as settings window).
     // Tauri command handler threads cannot create WebView windows reliably.
@@ -597,7 +630,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         .visible(true)
         .focused(false)
         .initialization_script("window.__IS_MINIPLAYER_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --enable-gpu-rasterization --disable-features=CalculateNativeWinOcclusion")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64")
         .build();
 
         match win {
@@ -632,6 +665,7 @@ pub fn close_miniplayer_window(app: &AppHandle) -> Result<(), String> {
     }
     *is_open = false;
     let _ = app.emit("miniplayer:visibility-changed", false);
+    schedule_miniplayer_idle_destroy(app);
     Ok(())
 }
 
@@ -668,6 +702,7 @@ pub fn check_fullscreen_and_autohide(app: &AppHandle) {
                 }
             } else if *was_open_fs {
                 MINIPLAYER_VIS_GEN.fetch_add(1, Ordering::SeqCst);
+                cancel_miniplayer_idle_destroy();
                 *was_open_fs = false;
                 *is_open = true;
                 let _ = w.show();

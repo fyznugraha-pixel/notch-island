@@ -551,7 +551,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                       <div className="flex-1 min-w-0 flex flex-col gap-1">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-start gap-1.5 min-w-0 flex-1">
-                            <span className={`text-[12px] font-semibold leading-snug break-words truncate group-hover:whitespace-normal group-hover:overflow-visible group-hover:text-clip ${
+                            <span className={`text-[12px] font-semibold leading-snug line-clamp-1 ${
                               isLightMode ? "text-[#1d1d1f]" : "text-white"
                             }`}>
                               {item.title}
@@ -574,7 +574,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                               <button
                                 type="button"
                                 onClick={(e) => handleDeleteItem(item.id, e)}
-                                className={`opacity-0 group-hover:opacity-100 w-5 h-5 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                                className={`opacity-45 group-hover:opacity-100 w-5 h-5 rounded-full flex items-center justify-center transition-opacity cursor-pointer shrink-0 ${
                                   isLightMode
                                     ? "bg-black/[0.06] hover:bg-red-500/15 text-neutral-500 hover:text-red-500"
                                     : "bg-white/10 hover:bg-red-500/25 text-white/50 hover:text-red-400"
@@ -586,7 +586,7 @@ export const NotificationCenterPanel: React.FC<NotificationCenterPanelProps> = (
                           </div>
                         </div>
 
-                        <p className={`text-[11px] leading-relaxed break-words [overflow-wrap:anywhere] line-clamp-2 max-h-[2.6em] overflow-hidden group-hover:max-h-[5.2em] group-hover:line-clamp-none group-hover:whitespace-pre-wrap transition-all duration-200 ${
+                        <p className={`text-[11px] leading-relaxed break-words [overflow-wrap:anywhere] line-clamp-2 transition-colors duration-150 ${
                           isLightMode ? "text-[#48484a] group-hover:text-[#1d1d1f]" : "text-white/65 group-hover:text-white/90"
                         }`}>
                           {item.body}

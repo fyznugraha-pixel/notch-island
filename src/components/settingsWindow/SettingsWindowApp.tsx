@@ -6,7 +6,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load, Store } from "@tauri-apps/plugin-store";
-import { Minus, X, Clock, Volume2, Send } from "lucide-react";
+import { Minus, X, Clock, Volume2, Send, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2 } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 
 import { Language, getLanguage, setLanguage, t } from "../../services/i18n";
@@ -40,6 +40,10 @@ import {
   UpdateInfo,
   UpdateStatus,
 } from "../../services/updateService";
+import {
+  getTaskbarProStatus,
+  subscribeTaskbarProStatus,
+} from "../../services/taskbarProService";
 import { isValidHex, normalizeHex } from "../../utils/colorUtils";
 import { clearAllLyricsCache } from "../../services/lyricsService";
 import { clearArtworkCache } from "../../services/artworkService";
@@ -52,16 +56,39 @@ import {
   SettingsWindowSection,
   SIDEBAR_SECTIONS,
 } from "./SettingsSidebar";
-import { TabsManagerView } from "./TabsManagerView";
-import { SupportView } from "./SupportView";
-import { AboutView } from "./AboutView";
-import { AppearanceTab } from "../ui/settings/AppearanceTab";
-import { IdleTab } from "../ui/settings/IdleTab";
-import { GeneralTab } from "../ui/settings/GeneralTab";
-import { ModulesTab } from "../ui/settings/ModulesTab";
-import { KeyboardShortcutsCard } from "../ui/settings/KeyboardShortcutsCard";
-import { AdvancedTab } from "../ui/settings/AdvancedTab";
-import { SearchResults } from "../ui/settings/SearchResults";
+const TabsManagerView = React.lazy(() =>
+  import("./TabsManagerView").then((m) => ({ default: m.TabsManagerView }))
+);
+const SupportView = React.lazy(() =>
+  import("./SupportView").then((m) => ({ default: m.SupportView }))
+);
+const AboutView = React.lazy(() =>
+  import("./AboutView").then((m) => ({ default: m.AboutView }))
+);
+const NavbarSettingsTab = React.lazy(() =>
+  import("./navbar/NavbarSettingsTab").then((m) => ({ default: m.NavbarSettingsTab }))
+);
+const AppearanceTab = React.lazy(() =>
+  import("../ui/settings/AppearanceTab").then((m) => ({ default: m.AppearanceTab }))
+);
+const IdleTab = React.lazy(() =>
+  import("../ui/settings/IdleTab").then((m) => ({ default: m.IdleTab }))
+);
+const GeneralTab = React.lazy(() =>
+  import("../ui/settings/GeneralTab").then((m) => ({ default: m.GeneralTab }))
+);
+const ModulesTab = React.lazy(() =>
+  import("../ui/settings/ModulesTab").then((m) => ({ default: m.ModulesTab }))
+);
+const KeyboardShortcutsCard = React.lazy(() =>
+  import("../ui/settings/KeyboardShortcutsCard").then((m) => ({ default: m.KeyboardShortcutsCard }))
+);
+const AdvancedTab = React.lazy(() =>
+  import("../ui/settings/AdvancedTab").then((m) => ({ default: m.AdvancedTab }))
+);
+const SearchResults = React.lazy(() =>
+  import("../ui/settings/SearchResults").then((m) => ({ default: m.SearchResults }))
+);
 import { SettingRow } from "../ui/settings/SettingRow";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { NotifSoundPicker } from "../ui/settings/NotifSoundPicker";
@@ -90,8 +117,26 @@ export const SettingsWindowApp: React.FC = () => {
 
   const [activeSection, setActiveSection] = useState<SettingsWindowSection>(initialSection);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("island_settings_sidebar_collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleSidebarCollapse = useCallback(() => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("island_settings_sidebar_collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("4.4.0");
+  const [currentAppVersion, setCurrentAppVersion] = useState("5.0.0");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
@@ -285,6 +330,7 @@ export const SettingsWindowApp: React.FC = () => {
   // System / Update State
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [taskbarProLocked, setTaskbarProLocked] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [clearTempStatus, setClearTempStatus] = useState<"idle" | "cleaning" | "done" | "error">("idle");
   const [clearedResult, setClearedResult] = useState<{
@@ -325,6 +371,12 @@ export const SettingsWindowApp: React.FC = () => {
       })
       .catch(() => {});
     getVersion().then(setCurrentAppVersion).catch(() => {});
+    getTaskbarProStatus()
+      .then((status) => setTaskbarProLocked(status.isLocked))
+      .catch(() => {});
+    const unsubscribePro = subscribeTaskbarProStatus((status) => {
+      setTaskbarProLocked(status.isLocked);
+    });
     checkForAppUpdate()
       .then((info) => {
         setUpdateInfo(info);
@@ -649,6 +701,7 @@ export const SettingsWindowApp: React.FC = () => {
           payload: { type: "shortcuts_resume_request" },
         }).catch(() => {});
       }
+      unsubscribePro();
       unlistenNav.then((f) => f());
       unlistenSync.then((f) => f());
     };
@@ -1115,6 +1168,25 @@ export const SettingsWindowApp: React.FC = () => {
     SIDEBAR_SECTIONS.find((s) => s.id === activeSection) || SIDEBAR_SECTIONS[0];
   const isId = optLanguage === "id";
 
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    win.isMaximized().then(setIsMaximized).catch(() => {});
+    const unlistenPromise = win.onResized(() => {
+      win.isMaximized().then(setIsMaximized).catch(() => {});
+    });
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, []);
+
+  const handleToggleMaximize = async () => {
+    const win = getCurrentWindow();
+    await win.toggleMaximize();
+    setIsMaximized(await win.isMaximized());
+  };
+
   const handleCloseWindow = async () => {
     if (isShortcutSuspendedRef.current) {
       await handleResumeShortcuts().catch(() => {});
@@ -1134,31 +1206,76 @@ export const SettingsWindowApp: React.FC = () => {
       {/* Top Frameless Window Titlebar */}
       <header
         data-tauri-drag-region
-        onDoubleClick={(e) => e.preventDefault()}
         className={`h-[44px] shrink-0 w-full flex items-center justify-between pl-4 pr-2.5 border-b ${
           isLightMode
             ? "bg-[#ebebef]/95 border-black/[0.08]"
             : "bg-[#141419]/95 border-white/[0.07]"
         }`}
       >
-        {/* Left: Gili Logo + Window Title */}
-        <div className="flex items-center gap-2.5 pointer-events-none">
-          <img
-            src="/logo/LOGO-GILI.png"
-            alt="Gili"
-            draggable={false}
-            className="w-5 h-5 rounded-[5px] object-contain shrink-0"
-          />
-          <span className={`text-[13px] font-semibold tracking-tight ${isLightMode ? "text-neutral-800" : "text-zinc-100"}`}>
-            {isId ? "Pengaturan Gili" : "Gili Settings"}
-          </span>
-        </div>
-
-        {/* Right: Minimize & Close Buttons */}
-        <div className="flex items-center gap-1 pointer-events-auto">
-          <Tooltip content={isId ? "Minimalkan" : "Minimize"} side="bottom">
+        {/* Left: Sidebar Toggle + Gili Logo + Window Title */}
+        <div data-tauri-drag-region className="flex items-center gap-2 pointer-events-auto">
+          <Tooltip
+            side="bottom"
+            delay={200}
+            allowFlip
+            isLightMode={isLightMode}
+            content={
+              isSidebarCollapsed
+                ? isId
+                  ? "Tampilkan menu navigasi"
+                  : "Show navigation menu"
+                : isId
+                ? "Sembunyikan menu navigasi"
+                : "Hide navigation menu"
+            }
+          >
             <button
               type="button"
+              aria-label={
+                isSidebarCollapsed
+                  ? isId
+                    ? "Tampilkan menu navigasi"
+                    : "Show navigation menu"
+                  : isId
+                  ? "Sembunyikan menu navigasi"
+                  : "Hide navigation menu"
+              }
+              onClick={handleToggleSidebarCollapse}
+              className={`w-7 h-7 rounded-[7px] flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.07]"
+                  : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
+              }`}
+            >
+              {isSidebarCollapsed ? (
+                <PanelLeftOpen size={16} strokeWidth={2} />
+              ) : (
+                <PanelLeftClose size={16} strokeWidth={2} />
+              )}
+            </button>
+          </Tooltip>
+          <div data-tauri-drag-region className="flex items-center gap-2">
+            <img
+              src="/logo/LOGO-GILI.png"
+              alt="Gili"
+              draggable={false}
+              className="w-5 h-5 rounded-[5px] object-contain shrink-0 pointer-events-none"
+            />
+            <span
+              data-tauri-drag-region
+              className={`text-[13px] font-semibold tracking-tight ${isLightMode ? "text-neutral-800" : "text-zinc-100"}`}
+            >
+              {isId ? "Pengaturan Gili" : "Gili Settings"}
+            </span>
+          </div>
+        </div>
+
+        {/* Right: Minimize, Maximize & Close Buttons */}
+        <div className="flex items-center gap-1 pointer-events-auto">
+          <Tooltip content={isId ? "Minimalkan" : "Minimize"} side="bottom" allowFlip isLightMode={isLightMode}>
+            <button
+              type="button"
+              aria-label={isId ? "Minimalkan" : "Minimize"}
               onClick={() => getCurrentWindow().minimize()}
               className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
                 isLightMode
@@ -1169,9 +1286,30 @@ export const SettingsWindowApp: React.FC = () => {
               <Minus size={15} strokeWidth={2} />
             </button>
           </Tooltip>
-          <Tooltip content={isId ? "Tutup" : "Close"} side="bottom">
+          <Tooltip
+            side="bottom"
+            delay={300}
+            allowFlip
+            isLightMode={isLightMode}
+            content={isMaximized ? (isId ? "Pulihkan" : "Restore") : (isId ? "Maksimalkan" : "Maximize")}
+          >
             <button
               type="button"
+              aria-label={isMaximized ? (isId ? "Pulihkan" : "Restore") : (isId ? "Maksimalkan" : "Maximize")}
+              onClick={handleToggleMaximize}
+              className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
+                isLightMode
+                  ? "text-neutral-600 hover:text-neutral-900 hover:bg-black/[0.07]"
+                  : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
+              }`}
+            >
+              {isMaximized ? <Minimize2 size={13} strokeWidth={2} /> : <Maximize2 size={13} strokeWidth={2} />}
+            </button>
+          </Tooltip>
+          <Tooltip content={isId ? "Tutup" : "Close"} side="bottom" allowFlip isLightMode={isLightMode}>
+            <button
+              type="button"
+              aria-label={isId ? "Tutup" : "Close"}
               onClick={handleCloseWindow}
               className={`w-8 h-7 rounded-[8px] flex items-center justify-center transition-colors cursor-pointer ${
                 isLightMode
@@ -1197,26 +1335,33 @@ export const SettingsWindowApp: React.FC = () => {
           appVersion={currentAppVersion}
           hasUpdate={Boolean(updateInfo?.available) || updateStatus === "available"}
           updateVersion={updateInfo?.version}
+          isTaskbarProLocked={taskbarProLocked}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleSidebarCollapse}
         />
 
         <main
-          className={`flex-1 h-full overflow-y-auto overflow-x-hidden settings-scroll px-7 py-6 ${
+          className={`flex-1 h-full overflow-y-auto overflow-x-hidden settings-scroll px-6 py-5 ${
             isLightMode ? "bg-[#f5f5f7]" : "bg-[#0c0c10]"
           }`}
         >
-          <div className="max-w-[640px] mx-auto w-full flex flex-col gap-5">
+          <div className="w-full flex flex-col gap-4 transition-all duration-200 ease-in-out">
             {/* Section Title Header */}
             {!searchQuery.trim() && (
-              <div className="flex items-center justify-between pb-1 border-b border-white/[0.06] [html.light_&]:border-black/[0.07]">
-                <div className="flex items-center gap-3">
+              <div
+                className={`flex items-center justify-between pb-3.5 mb-0.5 border-b ${
+                  isLightMode ? "border-black/[0.08]" : "border-white/[0.07]"
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
                   <div
-                    className={`w-10 h-10 rounded-[12px] flex items-center justify-center text-white shadow-md ${currentSectionMeta.bgClass}`}
+                    className={`w-10 h-10 rounded-[12px] flex items-center justify-center text-white shadow-md shrink-0 ${currentSectionMeta.bgClass}`}
                   >
                     {currentSectionMeta.icon}
                   </div>
                   <div className="flex flex-col">
                     <h1
-                      className={`text-[18px] font-bold tracking-tight leading-tight ${
+                      className={`text-[19px] font-bold tracking-tight leading-tight ${
                         isLightMode ? "text-neutral-900" : "text-white"
                       }`}
                     >
@@ -1235,7 +1380,8 @@ export const SettingsWindowApp: React.FC = () => {
             )}
 
             {/* Dynamic Section Content */}
-            <AnimatePresence mode="wait">
+            <React.Suspense fallback={null}>
+              <AnimatePresence mode="wait">
               {searchQuery.trim().length > 0 ? (
                 <motion.div
                   key="search-results"
@@ -1381,6 +1527,13 @@ export const SettingsWindowApp: React.FC = () => {
                     />
                   )}
 
+                  {activeSection === "navbar" && (
+                    <NavbarSettingsTab
+                      isLightMode={isLightMode}
+                      optLanguage={optLanguage}
+                    />
+                  )}
+
                   {activeSection === "idle" && (
                     <IdleTab
                       layout={idleLayout}
@@ -1425,81 +1578,107 @@ export const SettingsWindowApp: React.FC = () => {
                   )}
 
                   {activeSection === "notifications" && (
-                    <div className="flex flex-col gap-4 w-full">
-                      <div
-                        className={`w-full rounded-[22px] p-2 flex flex-col gap-1 ${
-                          isLightMode
-                            ? "bg-white/85 border border-black/10 shadow-sm"
-                            : "bg-[#111114] border border-white/[0.06] shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
-                        }`}
-                      >
-                        <SettingRow
-                          icon={<Clock size={18} />}
-                          iconBgClass="bg-[#2e161c]"
-                          iconColorClass="text-[#ff375f]"
-                          title={t("settings_notif_duration")}
-                          subtitle={t("settings_notif_duration_desc")}
-                          control={
-                            <IosSegmentedControl
-                              value={optNotifTime}
-                              onChange={handleChangeNotifTime}
-                              options={[
-                                { value: 3, label: isId ? "3 dtk" : "3s" },
-                                { value: 5, label: isId ? "5 dtk" : "5s" },
-                                { value: 7, label: isId ? "7 dtk" : "7s" },
-                              ]}
-                            />
-                          }
-                        />
+                    <div className="flex flex-col gap-5 w-full">
+                      <div className="flex flex-col gap-2">
+                        <span
+                          className={`px-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${
+                            isLightMode ? "text-neutral-500" : "text-zinc-500"
+                          }`}
+                        >
+                          {isId ? "Notifikasi & Suara" : "Notification Banner & Sound"}
+                        </span>
+                        <div
+                          className={`w-full rounded-[18px] p-3 flex flex-col gap-0.5 ${
+                            isLightMode
+                              ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+                              : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
+                          }`}
+                        >
+                          <SettingRow
+                            isLightMode={isLightMode}
+                            icon={<Clock size={18} />}
+                            iconBgClass={isLightMode ? "bg-[#ff375f]/12" : "bg-[#2e161c]"}
+                            iconColorClass="text-[#ff375f]"
+                            title={t("settings_notif_duration")}
+                            subtitle={t("settings_notif_duration_desc")}
+                            control={
+                              <IosSegmentedControl
+                                value={optNotifTime}
+                                onChange={handleChangeNotifTime}
+                                options={[
+                                  { value: 3, label: isId ? "3 dtk" : "3s" },
+                                  { value: 5, label: isId ? "5 dtk" : "5s" },
+                                  { value: 7, label: isId ? "7 dtk" : "7s" },
+                                ]}
+                              />
+                            }
+                          />
 
-                        <SettingRow
-                          icon={<Volume2 size={18} />}
-                          iconBgClass="bg-[#26182e]"
-                          iconColorClass="text-[#af52de]"
-                          title={t("settings_notif_sound")}
-                          subtitle={t("settings_notif_sound_desc")}
-                          control={
-                            <NotifSoundPicker
-                              value={optNotifSound}
-                              onChange={handleChangeNotifSound}
-                            />
-                          }
-                        />
+                          <SettingRow
+                            isLightMode={isLightMode}
+                            icon={<Volume2 size={18} />}
+                            iconBgClass={isLightMode ? "bg-[#af52de]/12" : "bg-[#26182e]"}
+                            iconColorClass="text-[#af52de]"
+                            title={t("settings_notif_sound")}
+                            subtitle={t("settings_notif_sound_desc")}
+                            control={
+                              <NotifSoundPicker
+                                value={optNotifSound}
+                                onChange={handleChangeNotifSound}
+                              />
+                            }
+                          />
 
-                        <WindowsBannerRow />
+                          <WindowsBannerRow isLightMode={isLightMode} />
 
-                        <SettingRow
-                          icon={<Send size={18} />}
-                          iconBgClass="bg-[#241c30]"
-                          iconColorClass="text-[#bf5af2]"
-                          title={t("settings_adv_test_notif")}
-                          subtitle={t("settings_adv_test_notif_desc")}
-                          control={
-                            <button
-                              type="button"
-                              onClick={() => {
-                                invoke("trigger_notch_action", { action: "test_notification" }).catch(() => {});
-                              }}
-                              className="px-3.5 py-1.5 rounded-full bg-[#1e1e24] hover:bg-[#282830] text-white text-[12px] font-medium transition-colors cursor-pointer"
-                            >
-                              {t("settings_adv_test_notif_btn")}
-                            </button>
-                          }
-                        />
+                          <SettingRow
+                            isLightMode={isLightMode}
+                            icon={<Send size={18} />}
+                            iconBgClass={isLightMode ? "bg-[#bf5af2]/12" : "bg-[#241c30]"}
+                            iconColorClass="text-[#bf5af2]"
+                            title={t("settings_adv_test_notif")}
+                            subtitle={t("settings_adv_test_notif_desc")}
+                            control={
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  invoke("trigger_notch_action", { action: "test_notification" }).catch(() => {});
+                                }}
+                                className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-colors cursor-pointer ${
+                                  isLightMode
+                                    ? "bg-black/[0.06] hover:bg-black/[0.1] text-neutral-800"
+                                    : "bg-white/[0.08] hover:bg-white/[0.14] text-white"
+                                }`}
+                              >
+                                {t("settings_adv_test_notif_btn")}
+                              </button>
+                            }
+                          />
+                        </div>
                       </div>
 
-                      <ModulesTab
-                        optVolume={optVolume}
-                        onToggleVolume={handleToggleVolume}
-                        optClipboard={optClipboard}
-                        onToggleClipboard={handleToggleClipboard}
-                        optOcr={optOcr}
-                        onToggleOcr={handleToggleOcr}
-                        optMedia={optMedia}
-                        onToggleMedia={handleToggleMedia}
-                        optSoundFx={optSoundFx}
-                        onToggleSoundFx={handleToggleSoundFx}
-                      />
+                      <div className="flex flex-col gap-2">
+                        <span
+                          className={`px-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${
+                            isLightMode ? "text-neutral-500" : "text-zinc-500"
+                          }`}
+                        >
+                          {isId ? "Modul & Sensor Pintar" : "Smart Modules & Monitors"}
+                        </span>
+                        <ModulesTab
+                          optVolume={optVolume}
+                          onToggleVolume={handleToggleVolume}
+                          optClipboard={optClipboard}
+                          onToggleClipboard={handleToggleClipboard}
+                          optOcr={optOcr}
+                          onToggleOcr={handleToggleOcr}
+                          optMedia={optMedia}
+                          onToggleMedia={handleToggleMedia}
+                          optSoundFx={optSoundFx}
+                          onToggleSoundFx={handleToggleSoundFx}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -1534,6 +1713,7 @@ export const SettingsWindowApp: React.FC = () => {
                       onClose={() => {
                         invoke("trigger_notch_action", { action: "restart_onboarding" }).catch(() => {});
                       }}
+                      isLightMode={isLightMode}
                     />
                   )}
 
@@ -1553,7 +1733,8 @@ export const SettingsWindowApp: React.FC = () => {
                   )}
                 </motion.div>
               )}
-            </AnimatePresence>
+              </AnimatePresence>
+            </React.Suspense>
           </div>
         </main>
       </div>

@@ -20,6 +20,7 @@ export interface MiniPlayerCardModeProps {
   tintColor: string;
   showToolbar: boolean;
   toolbarNode: React.ReactNode;
+  isHidden?: boolean;
   onToggleMode?: () => void;
 }
 
@@ -32,6 +33,7 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
   tintColor: _tintColor,
   showToolbar,
   toolbarNode,
+  isHidden = false,
   onToggleMode,
 }) => {
   const isPlaying = Boolean(media?.is_playing);
@@ -47,7 +49,8 @@ export const MiniPlayerCardMode: React.FC<MiniPlayerCardModeProps> = ({
     position,
     duration,
     isPlaying,
-    offset
+    offset,
+    isHidden
   );
 
   const prefersReducedMotion = usePrefersReducedMotion();

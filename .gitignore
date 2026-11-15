@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
 
 # Rust build artifacts
 target/
@@ -19,6 +20,7 @@ wmi_test/target/
 
 # Design drafts
 UI Redesign/
+ui-references/
 public/audio output UI/
 public/volume mixer/
 public/Quick-todo UI/

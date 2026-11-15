@@ -27,6 +27,7 @@ import { AudioVisualizer } from "./components/ui/AudioVisualizer";
 import { ScrollingText } from "./components/ui/ScrollingText";
 import { Tooltip } from "./components/ui/Tooltip";
 import { NotchSurface } from "./components/ui/NotchSurface";
+import { subscribeToSystemMetrics } from "./services/systemMetricsService";
 import {
   getDefaultBlurForOpacity,
   resolveNotchThemeMode,
@@ -92,6 +93,11 @@ import {
 } from "./services/prayerService";
 import { usePrayerReminder } from "./hooks/usePrayerReminder";
 import { fetchHotspotStatus, toggleHotspotState } from "./services/connectivityService";
+import { loadNavbarConfig } from "./services/navbarConfigService";
+import {
+  getTaskbarProStatus,
+  subscribeTaskbarProStatus,
+} from "./services/taskbarProService";
 import { usePomodoro } from "./hooks/usePomodoro";
 import { useTodoReminders } from "./hooks/useTodoReminders";
 import {
@@ -123,7 +129,9 @@ import {
 import type { QueueTrackItem } from "./components/ui/MediaQueueView";
 import { IdleLyrics } from "./components/ui/IdleLyrics";
 import { MiniPlayerDropTarget } from "./components/miniplayer/MiniPlayerDropTarget";
-import { IdleMascot } from "./components/ui/IdleMascot";
+const IdleMascot = React.lazy(() =>
+  import("./components/ui/IdleMascot").then((m) => ({ default: m.IdleMascot }))
+);
 
 const ControlCenterPanel = React.lazy(() =>
   import("./components/ui/ControlCenterPanel").then((m) => ({ default: m.ControlCenterPanel }))
@@ -230,6 +238,52 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   useEffect(() => {
     setNotificationsHistory(loadNotificationHistory());
   }, []);
+
+  // Restore Gili Navbar & Windows Taskbar state on startup if previously enabled and licensed
+  useEffect(() => {
+    if (isSecondaryWindow) return;
+
+    let cancelled = false;
+    let lastLocked: boolean | null = null;
+
+    const syncNavbarWithLicense = async (isLocked: boolean) => {
+      if (cancelled) return;
+      if (lastLocked === isLocked) return;
+      lastLocked = isLocked;
+
+      if (isLocked) {
+        invoke("toggle_navbar", { enabled: false }).catch(() => {});
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+        return;
+      }
+
+      const cfg = await loadNavbarConfig();
+      if (cancelled || lastLocked) return;
+
+      if (cfg.enabled) {
+        invoke("toggle_navbar", { enabled: true }).catch(() => {});
+        invoke("set_windows_taskbar_visible", {
+          visible: !cfg.hideWindowsTaskbar,
+        }).catch(() => {});
+      } else {
+        invoke("toggle_navbar", { enabled: false }).catch(() => {});
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+      }
+    };
+
+    getTaskbarProStatus()
+      .then((status) => syncNavbarWithLicense(status.isLocked))
+      .catch(() => {});
+
+    const unsubscribePro = subscribeTaskbarProStatus((status) => {
+      syncNavbarWithLicense(status.isLocked).catch(() => {});
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribePro();
+    };
+  }, [isSecondaryWindow]);
   const unreadNotifCount = useMemo(
     () => notificationsHistory.filter((item) => !item.read).length,
     [notificationsHistory]
@@ -2393,6 +2447,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const handleChangeLanguage = async (newLang: Language) => {
     setLanguage(newLang, false);
     setOptLanguage(newLang);
+    invoke("broadcast_settings_sync", {
+      payload: { type: "setting_key", key: "opt_language", value: newLang },
+    }).catch(() => {});
     if (store) {
       try {
         await store.set("opt_language", newLang);
@@ -4466,11 +4523,28 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       .catch(console.error);
   }, []);
 
+  const [isDocumentVisible, setIsDocumentVisible] = useState<boolean>(() =>
+    typeof document !== "undefined" ? document.visibilityState === "visible" : true
+  );
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsDocumentVisible(document.visibilityState === "visible");
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  const isNotchVisible = !isHidden && !isBooting && isDocumentVisible;
+
   const needsFpsCounter =
-    idleLayout.left === "fps" ||
-    idleLayout.center === "fps" ||
-    idleLayout.right === "fps" ||
-    isSettings;
+    isNotchVisible &&
+    (idleLayout.left === "fps" ||
+      idleLayout.center === "fps" ||
+      idleLayout.right === "fps" ||
+      isSettings);
 
   useEffect(() => {
     if (!needsFpsCounter) return;
@@ -4507,16 +4581,17 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   }, [needsFpsCounter, screenRefreshRate]);
 
   const needsSystemMetrics =
-    idleLayout.left === "cpu" ||
-    idleLayout.left === "ram" ||
-    idleLayout.left === "netspeed" ||
-    idleLayout.center === "cpu" ||
-    idleLayout.center === "ram" ||
-    idleLayout.center === "netspeed" ||
-    idleLayout.right === "cpu" ||
-    idleLayout.right === "ram" ||
-    idleLayout.right === "netspeed" ||
-    isSettings;
+    isNotchVisible &&
+    (idleLayout.left === "cpu" ||
+      idleLayout.left === "ram" ||
+      idleLayout.left === "netspeed" ||
+      idleLayout.center === "cpu" ||
+      idleLayout.center === "ram" ||
+      idleLayout.center === "netspeed" ||
+      idleLayout.right === "cpu" ||
+      idleLayout.right === "ram" ||
+      idleLayout.right === "netspeed" ||
+      isSettings);
 
   const [sysMetrics, setSysMetrics] = useState<{
     cpu_usage: number;
@@ -4529,31 +4604,29 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   useEffect(() => {
     if (!needsSystemMetrics) return;
-    let mounted = true;
-
-    const fetchMetrics = async () => {
-      try {
-        const res = await invoke<{
-          cpu_usage: number;
-          mem_usage: number;
-          mem_used_gb: number;
-          mem_total_gb: number;
-          wifi_down_mbps: number;
-          wifi_up_mbps: number;
-        }>("get_system_metrics");
-        if (!mounted) return;
-        setSysMetrics(res);
-      } catch {
-        // ignore
-      }
-    };
-
-    fetchMetrics();
-    const id = window.setInterval(fetchMetrics, 1500);
-    return () => {
-      mounted = false;
-      window.clearInterval(id);
-    };
+    return subscribeToSystemMetrics((res) => {
+      setSysMetrics((prev) => {
+        if (
+          prev &&
+          prev.cpu_usage === res.cpu_usage &&
+          prev.mem_usage === res.mem_usage &&
+          prev.mem_used_gb === res.mem_used_gb &&
+          prev.mem_total_gb === res.mem_total_gb &&
+          prev.wifi_down_mbps === res.wifi_down_mbps &&
+          prev.wifi_up_mbps === res.wifi_up_mbps
+        ) {
+          return prev;
+        }
+        return {
+          cpu_usage: res.cpu_usage,
+          mem_usage: res.mem_usage,
+          mem_used_gb: res.mem_used_gb,
+          mem_total_gb: res.mem_total_gb,
+          wifi_down_mbps: res.wifi_down_mbps,
+          wifi_up_mbps: res.wifi_up_mbps,
+        };
+      });
+    });
   }, [needsSystemMetrics]);
 
   const idleRuntimeData: IdleRuntimeData = useMemo(() => ({
@@ -5888,11 +5961,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 onClick={() => openLastOrPreferredTab()}
               >
                 {isIdleEmpty && !isSideCenter && !camActive && !micActive && (
-                  <IdleMascot
-                    idleHeight={idleHeight}
-                    notchColor={optIdleColorEnabled && isIdle ? optIdleColor : null}
-                    isLightMode={effectiveIsLight}
-                  />
+                  <React.Suspense fallback={null}>
+                    <IdleMascot
+                      idleHeight={idleHeight}
+                      notchColor={optIdleColorEnabled && isIdle ? optIdleColor : null}
+                      isLightMode={effectiveIsLight}
+                    />
+                  </React.Suspense>
                 )}
                 <div
                   className={`flex ${

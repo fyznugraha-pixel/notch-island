@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Check, Route } from "lucide-react";
 import { AiBrandLogo, detectAiBrand } from "./AiBrandLogos";
 import { ScrollingText } from "../ScrollingText";
@@ -15,6 +15,7 @@ interface AiChatModelDropdownProps {
   onClose: () => void;
   onOpenConnect?: () => void;
   accentColor?: string;
+  isLightMode?: boolean;
 }
 
 function getDisplayLogoProvider(model: AiModelConfig): string {
@@ -30,8 +31,27 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
   onClose,
   onOpenConnect,
   accentColor = "#3882F6",
+  isLightMode,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [domLightMode, setDomLightMode] = useState(
+    () => typeof document !== "undefined" && document.documentElement.classList.contains("light")
+  );
+  const activeLight = isLightMode ?? domLightMode;
+
+  useEffect(() => {
+    if (typeof isLightMode === "boolean" || typeof document === "undefined") return;
+    const syncLight = () => {
+      setDomLightMode(document.documentElement.classList.contains("light"));
+    };
+    syncLight();
+    const observer = new MutationObserver(syncLight);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, [isLightMode]);
 
   // Close on outside click
   useEffect(() => {
@@ -97,13 +117,17 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
       ref={containerRef}
       role="listbox"
       aria-label={t("aichat_aria_select_model")}
-      className="absolute left-6 top-[48px] w-[385px] z-50 p-2 rounded-[22px] border border-white/[0.14] bg-[#101015]/98 backdrop-blur-2xl shadow-[0_24px_60px_rgba(0,0,0,0.85)] flex flex-col gap-1 select-none animate-in fade-in zoom-in-95 duration-150"
+      className={`absolute left-6 top-[48px] w-[385px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-80px)] overflow-y-auto z-50 p-2 rounded-[22px] border backdrop-blur-2xl flex flex-col gap-1 select-none animate-in fade-in zoom-in-95 duration-150 ${
+        activeLight
+          ? "border-black/[0.12] bg-white/95 shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
+          : "border-white/[0.14] bg-[#101015]/98 shadow-[0_24px_60px_rgba(0,0,0,0.85)]"
+      }`}
     >
       <div className="flex items-center justify-between px-2.5 pt-1 pb-1">
-        <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa]">
+        <span className={`text-[11px] font-semibold tracking-[0.06em] ${activeLight ? "text-neutral-600" : "text-[#a1a1aa]"}`}>
           {t("aichat_dropdown_title")}
         </span>
-        <span className="text-[10.5px] text-emerald-400 font-medium flex items-center gap-1">
+        <span className={`text-[10.5px] font-medium flex items-center gap-1 ${activeLight ? "text-emerald-700" : "text-emerald-400"}`}>
           <Check size={11} strokeWidth={2.5} />
           {models.length > 0
             ? t("aichat_verified_badge")
@@ -139,34 +163,42 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
             onClose();
           }}
           style={{
-            backgroundColor: selectedModelId === "auto" ? "rgba(56,130,246,0.22)" : "transparent",
+            backgroundColor: selectedModelId === "auto" ? (activeLight ? "rgba(56,130,246,0.14)" : "rgba(56,130,246,0.22)") : "transparent",
             borderColor: selectedModelId === "auto" ? accentColor : "transparent",
           }}
-          className="w-full flex items-center gap-2.5 h-14 px-2.5 rounded-[16px] border text-left cursor-pointer transition-all hover:bg-white/[0.06]"
+          className={`w-full flex items-center gap-2.5 h-14 px-2.5 rounded-[16px] border text-left cursor-pointer transition-all ${
+            activeLight ? "hover:bg-black/[0.05]" : "hover:bg-white/[0.06]"
+          }`}
         >
-          <span className="w-7 h-7 rounded-[9px] bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shrink-0 shadow-sm text-white">
+          <span className="w-7 h-7 rounded-[9px] bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shrink-0 shadow-sm !text-white">
             <Route size={15} />
           </span>
           <div className="grow min-w-0 pr-1">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[13px] font-semibold text-white truncate shrink min-w-0">
+              <span className={`text-[13px] font-semibold truncate shrink min-w-0 ${activeLight ? "text-[#1d1d1f]" : "text-white"}`}>
                 {t("aichat_auto_mode_badge")}
               </span>
-              <span className="text-[9.5px] px-1.5 py-0.5 rounded-full bg-blue-500/25 text-blue-300 font-medium shrink-0 whitespace-nowrap">
+              <span className={`text-[9.5px] px-1.5 py-0.5 rounded-full font-medium shrink-0 whitespace-nowrap ${
+                activeLight ? "bg-blue-500/15 text-blue-700" : "bg-blue-500/25 text-blue-300"
+              }`}>
                 {t("aichat_default_badge")}
               </span>
             </div>
             <ScrollingText
               text={t("aichat_auto_desc")}
-              className="text-[11px] text-[#a1a1aa] mt-0.5"
+              className={`text-[11px] mt-0.5 ${activeLight ? "text-neutral-600" : "text-[#a1a1aa]"}`}
             />
           </div>
           {selectedModelId === "auto" ? (
-            <span className="w-5 h-5 rounded-full bg-[#f4f4f5] text-black flex items-center justify-center shrink-0 shadow-sm">
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 shadow-sm ${
+              activeLight ? "bg-[#1d1d1f] !text-white" : "bg-[#f4f4f5] text-black"
+            }`}>
               <Check size={12} strokeWidth={3} />
             </span>
           ) : (
-            <span className="h-5 px-2 rounded-full bg-white/[0.08] flex items-center text-[10.5px] font-medium text-[#c4c4cc] shrink-0">
+            <span className={`h-5 px-2 rounded-full flex items-center text-[10.5px] font-medium shrink-0 ${
+              activeLight ? "bg-black/[0.06] text-neutral-700" : "bg-white/[0.08] text-[#c4c4cc]"
+            }`}>
               {t("aichat_adaptive_badge")}
             </span>
           )}
@@ -183,32 +215,40 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
               onClose();
             }}
             style={{
-              backgroundColor: selectedModelId === "gili-free" ? "rgba(16,185,129,0.22)" : "transparent",
+              backgroundColor: selectedModelId === "gili-free" ? (activeLight ? "rgba(16,185,129,0.14)" : "rgba(16,185,129,0.22)") : "transparent",
               borderColor: selectedModelId === "gili-free" ? "#10b981" : "transparent",
             }}
-            className="w-full flex items-center gap-2.5 h-14 px-2.5 rounded-[16px] border text-left cursor-pointer transition-all hover:bg-white/[0.06]"
+            className={`w-full flex items-center gap-2.5 h-14 px-2.5 rounded-[16px] border text-left cursor-pointer transition-all ${
+              activeLight ? "hover:bg-black/[0.05]" : "hover:bg-white/[0.06]"
+            }`}
           >
             <AiBrandLogo provider="gemini" size={28} withContainer />
             <div className="grow min-w-0 pr-1">
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-[13px] font-semibold text-white truncate shrink min-w-0">
+                <span className={`text-[13px] font-semibold truncate shrink min-w-0 ${activeLight ? "text-[#1d1d1f]" : "text-white"}`}>
                   {getGiliFreeModel().name}
                 </span>
-                <span className="text-[9.5px] px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 font-medium shrink-0 whitespace-nowrap">
+                <span className={`text-[9.5px] px-1.5 py-0.5 rounded-full font-medium shrink-0 whitespace-nowrap ${
+                  activeLight ? "bg-emerald-500/15 text-emerald-700" : "bg-emerald-500/25 text-emerald-300"
+                }`}>
                   {t("aichat_tier_free")}
                 </span>
               </div>
               <ScrollingText
                 text={getGiliFreeModel().description || ""}
-                className="text-[11px] text-[#a1a1aa] mt-0.5"
+                className={`text-[11px] mt-0.5 ${activeLight ? "text-neutral-600" : "text-[#a1a1aa]"}`}
               />
             </div>
             {selectedModelId === "gili-free" ? (
-              <span className="w-5 h-5 rounded-full bg-[#f4f4f5] text-black flex items-center justify-center shrink-0 shadow-sm">
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 shadow-sm ${
+              activeLight ? "bg-[#1d1d1f] !text-white" : "bg-[#f4f4f5] text-black"
+            }`}>
                 <Check size={12} strokeWidth={3} />
               </span>
             ) : (
-              <span className="h-5 px-2 rounded-full bg-emerald-500/15 flex items-center text-[10.5px] font-medium text-emerald-400 shrink-0">
+              <span className={`h-5 px-2 rounded-full bg-emerald-500/15 flex items-center text-[10.5px] font-medium shrink-0 ${
+                activeLight ? "text-emerald-700" : "text-emerald-400"
+              }`}>
                 {t("aichat_tier_free")}
               </span>
             )}
@@ -228,29 +268,35 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
                 onClose();
               }}
               style={{
-                backgroundColor: isSelected ? "rgba(56,130,246,0.22)" : "transparent",
+                backgroundColor: isSelected ? (activeLight ? "rgba(56,130,246,0.14)" : "rgba(56,130,246,0.22)") : "transparent",
                 borderColor: isSelected ? accentColor : "transparent",
               }}
-              className="w-full flex items-center gap-2.5 h-14 px-2.5 rounded-[16px] border text-left cursor-pointer transition-all hover:bg-white/[0.06]"
+              className={`w-full flex items-center gap-2.5 h-14 px-2.5 rounded-[16px] border text-left cursor-pointer transition-all ${
+                activeLight ? "hover:bg-black/[0.05]" : "hover:bg-white/[0.06]"
+              }`}
             >
               <AiBrandLogo provider={getDisplayLogoProvider(model)} size={28} withContainer />
               <div className="grow min-w-0 pr-1">
-                <div className="text-[13px] font-semibold text-white truncate shrink min-w-0">
+                <div className={`text-[13px] font-semibold truncate shrink min-w-0 ${activeLight ? "text-[#1d1d1f]" : "text-white"}`}>
                   {model.name}
                 </div>
                 {model.description ? (
                   <ScrollingText
                     text={model.description}
-                    className="text-[11px] text-[#a1a1aa] mt-0.5"
+                    className={`text-[11px] mt-0.5 ${activeLight ? "text-neutral-600" : "text-[#a1a1aa]"}`}
                   />
                 ) : null}
               </div>
               {isSelected ? (
-                <span className="w-5 h-5 rounded-full bg-[#f4f4f5] text-black flex items-center justify-center shrink-0 shadow-sm">
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 shadow-sm ${
+              activeLight ? "bg-[#1d1d1f] !text-white" : "bg-[#f4f4f5] text-black"
+            }`}>
                   <Check size={12} strokeWidth={3} />
                 </span>
               ) : (
-                <span className="h-5 px-2 rounded-full bg-white/[0.08] flex items-center text-[11px] font-medium text-[#c4c4cc] shrink-0">
+                <span className={`h-5 px-2 rounded-full flex items-center text-[11px] font-medium shrink-0 ${
+                  activeLight ? "bg-black/[0.06] text-neutral-700" : "bg-white/[0.08] text-[#c4c4cc]"
+                }`}>
                   {model.tier}
                 </span>
               )}
@@ -266,13 +312,19 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
             onClose();
             onOpenConnect();
           }}
-          className="h-7.5 px-3 mx-1 mt-1 rounded-[12px] bg-white/[0.04] hover:bg-white/[0.08] text-[11.5px] font-medium text-[#8db8ff] flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+          className={`h-7.5 px-3 mx-1 mt-1 rounded-[12px] text-[11.5px] font-medium flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+            activeLight
+              ? "bg-black/[0.04] hover:bg-black/[0.08] text-[#0066cc]"
+              : "bg-white/[0.04] hover:bg-white/[0.08] text-[#8db8ff]"
+          }`}
         >
           <span>{t("aichat_manage_keys")}</span>
         </button>
       )}
 
-      <div className="flex items-center justify-center gap-2.5 h-7 mt-0.5 border-t border-white/[0.08] text-[11px] text-[#a1a1aa]">
+      <div className={`flex items-center justify-center gap-2.5 h-7 mt-0.5 border-t text-[11px] ${
+        activeLight ? "border-black/[0.08] text-neutral-600" : "border-white/[0.08] text-[#a1a1aa]"
+      }`}>
         <span>{t("aichat_keys_hint")}</span>
       </div>
     </div>

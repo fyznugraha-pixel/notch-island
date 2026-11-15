@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { Cpu, Monitor, Wifi, HardDrive } from "lucide-react";
 import { t } from "../../services/i18n";
+import { subscribeToSystemMetrics } from "../../services/systemMetricsService";
 
 export interface SystemMetrics {
   cpu_usage: number;
@@ -78,27 +78,14 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
   const [memHistory, setMemHistory] = useState<number[]>(() => Array(20).fill(53));
 
   useEffect(() => {
-    let mounted = true;
-    const fetchMetrics = async () => {
-      try {
-        const res = await invoke<SystemMetrics>("get_system_metrics");
-        if (!mounted) return;
-        setMetrics(res);
-        setCpuHistory((prev) => [...prev.slice(1), res.cpu_usage]);
-        setGpuHistory((prev) => [...prev.slice(1), res.gpu_usage]);
-        setWifiHistory((prev) => [...prev.slice(1), res.wifi_usage]);
-        setMemHistory((prev) => [...prev.slice(1), res.mem_usage]);
-      } catch {
-        // ignore
-      }
-    };
-
-    fetchMetrics();
-    const id = window.setInterval(fetchMetrics, 1500);
-    return () => {
-      mounted = false;
-      window.clearInterval(id);
-    };
+    const unsubscribe = subscribeToSystemMetrics((res) => {
+      setMetrics(res);
+      setCpuHistory((prev) => [...prev.slice(1), res.cpu_usage]);
+      setGpuHistory((prev) => [...prev.slice(1), res.gpu_usage]);
+      setWifiHistory((prev) => [...prev.slice(1), res.wifi_usage]);
+      setMemHistory((prev) => [...prev.slice(1), res.mem_usage]);
+    });
+    return unsubscribe;
   }, []);
 
   return (

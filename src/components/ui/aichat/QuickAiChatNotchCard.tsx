@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
+import { Tooltip } from "../Tooltip";
 import {
   Bot,
   Route,
@@ -699,13 +700,12 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
             Quick AI
           </span>
 
-          <div
-            title={t("quick_ai_tooltip_auto_saver")}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/12 text-emerald-400 border border-emerald-500/20"
-          >
-            <Route size={9.5} className="text-emerald-400 shrink-0" />
-            <span>{t("quick_ai_badge_auto")}</span>
-          </div>
+          <Tooltip content={t("quick_ai_tooltip_auto_saver")} side="bottom" allowFlip isLightMode={isLightMode}>
+            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/12 text-emerald-400 border border-emerald-500/20">
+              <Route size={9.5} className="text-emerald-400 shrink-0" />
+              <span>{t("quick_ai_badge_auto")}</span>
+            </div>
+          </Tooltip>
         </div>
 
         {/* Right shortcut & actions */}
@@ -722,24 +722,28 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
             </span>
           ) : null}
 
-          <button
-            type="button"
-            disabled={isStreaming || isThinking}
-            title={t("quick_ai_tooltip_full_chat")}
-            onClick={handleOpenInFullChat}
-            className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <ExternalLink size={12.5} strokeWidth={2} />
-          </button>
+          <Tooltip content={t("quick_ai_tooltip_full_chat")} side="bottom" allowFlip isLightMode={isLightMode}>
+            <button
+              type="button"
+              disabled={isStreaming || isThinking}
+              aria-label={t("quick_ai_tooltip_full_chat")}
+              onClick={handleOpenInFullChat}
+              className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ExternalLink size={12.5} strokeWidth={2} />
+            </button>
+          </Tooltip>
 
-          <button
-            type="button"
-            title={t("quick_ai_tooltip_close")}
-            onClick={onCancel}
-            className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-95"
-          >
-            <X size={14} strokeWidth={2} />
-          </button>
+          <Tooltip content={t("quick_ai_tooltip_close")} side="bottom" align="end" allowFlip isLightMode={isLightMode}>
+            <button
+              type="button"
+              aria-label={t("quick_ai_tooltip_close")}
+              onClick={onCancel}
+              className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer active:scale-95"
+            >
+              <X size={14} strokeWidth={2} />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -791,14 +795,22 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
                 <span className="text-[10.5px] font-medium truncate">
                   {attachedImage.title}
                 </span>
-                <button
-                  type="button"
-                  title={t("quick_ai_remove_image")}
-                  onClick={() => setAttachedImage(null)}
-                  className="w-3.5 h-3.5 rounded-full hover:bg-white/15 flex items-center justify-center text-blue-300 hover:text-white cursor-pointer shrink-0"
+                <Tooltip
+                  content={t("quick_ai_remove_image")}
+                  side="top"
+                  allowFlip
+                  isLightMode={isLightMode}
+                  wrapperClassName="shrink-0"
                 >
-                  <X size={9} strokeWidth={2.5} />
-                </button>
+                  <button
+                    type="button"
+                    aria-label={t("quick_ai_remove_image")}
+                    onClick={() => setAttachedImage(null)}
+                    className="w-3.5 h-3.5 rounded-full hover:bg-white/15 flex items-center justify-center text-blue-300 hover:text-white cursor-pointer shrink-0"
+                  >
+                    <X size={9} strokeWidth={2.5} />
+                  </button>
+                </Tooltip>
               </div>
             )}
 
@@ -826,30 +838,47 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
               }`}
             />
 
-            <button
-              type="button"
-              onClick={handlePasteClipboardImage}
-              title={t("quick_ai_tooltip_paste_image")}
-              className={`w-6 h-6 rounded-[7px] flex items-center justify-center cursor-pointer transition-all active:scale-95 shrink-0 ${
-                attachedImage
-                  ? "text-blue-400 bg-blue-500/15 hover:bg-blue-500/25"
-                  : isLightMode
-                  ? "text-zinc-500 hover:text-zinc-800 hover:bg-black/[0.06]"
-                  : "text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.08]"
-              }`}
+            <Tooltip
+              content={t("quick_ai_tooltip_paste_image")}
+              side="top"
+              allowFlip
+              isLightMode={isLightMode}
+              wrapperClassName="shrink-0"
             >
-              <ImageIcon size={13.5} strokeWidth={2} />
-            </button>
-
-            {(prompt.trim() || attachedImage) && (
               <button
                 type="button"
-                onClick={() => handleSendPrompt()}
-                title={t("aichat_tooltip_send_enter")}
-                className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm shrink-0"
+                onClick={handlePasteClipboardImage}
+                aria-label={t("quick_ai_tooltip_paste_image")}
+                className={`w-6 h-6 rounded-[7px] flex items-center justify-center cursor-pointer transition-all active:scale-95 shrink-0 ${
+                  attachedImage
+                    ? "text-blue-400 bg-blue-500/15 hover:bg-blue-500/25"
+                    : isLightMode
+                    ? "text-zinc-500 hover:text-zinc-800 hover:bg-black/[0.06]"
+                    : "text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.08]"
+                }`}
               >
-                <ArrowUp size={13} strokeWidth={2.4} />
+                <ImageIcon size={13.5} strokeWidth={2} />
               </button>
+            </Tooltip>
+
+            {(prompt.trim() || attachedImage) && (
+              <Tooltip
+                content={t("aichat_tooltip_send_enter")}
+                side="top"
+                align="end"
+                allowFlip
+                isLightMode={isLightMode}
+                wrapperClassName="shrink-0"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleSendPrompt()}
+                  aria-label={t("aichat_tooltip_send_enter")}
+                  className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm shrink-0"
+                >
+                  <ArrowUp size={13} strokeWidth={2.4} />
+                </button>
+              </Tooltip>
             )}
           </div>
 
@@ -1034,14 +1063,16 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
                     <span>{t("quick_ai_open_full_chat_button")}</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleResetPrompt}
-                    title={t("quick_ai_new_prompt")}
-                    className="h-6 px-2 rounded-full border border-white/10 hover:border-white/20 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer transition-all active:scale-95"
-                  >
-                    <RotateCcw size={11} />
-                  </button>
+                  <Tooltip content={t("quick_ai_new_prompt")} side="top" allowFlip isLightMode={isLightMode}>
+                    <button
+                      type="button"
+                      onClick={handleResetPrompt}
+                      aria-label={t("quick_ai_new_prompt")}
+                      className="h-6 px-2 rounded-full border border-white/10 hover:border-white/20 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer transition-all active:scale-95"
+                    >
+                      <RotateCcw size={11} />
+                    </button>
+                  </Tooltip>
                 </>
               )}
             </div>

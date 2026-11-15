@@ -118,8 +118,8 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
       : "w-8 h-8 rounded-full bg-[#17171c] hover:bg-[#23232a] flex items-center justify-center text-[#e4e4e7] hover:text-white transition-colors cursor-pointer shrink-0";
 
     const navDisabledClass = isMusicPage
-      ? "w-8 h-8 rounded-full bg-white/[0.04] backdrop-blur-md border border-white/[0.08] flex items-center justify-center text-white/20 shrink-0 pointer-events-none"
-      : "w-8 h-8 rounded-full bg-[#17171c]/50 flex items-center justify-center text-white/25 shrink-0 pointer-events-none";
+      ? "w-8 h-8 rounded-full bg-white/[0.04] backdrop-blur-md border border-white/[0.08] flex items-center justify-center text-white/20 shrink-0 cursor-not-allowed"
+      : "w-8 h-8 rounded-full bg-[#17171c]/50 flex items-center justify-center text-white/25 shrink-0 cursor-not-allowed";
 
     const settingsButton = onToggleSettings && (
       <Tooltip
@@ -311,9 +311,9 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
                   </motion.button>
                 </Tooltip>
               ) : (
-                <div className={navDisabledClass} role="button" aria-disabled="true" aria-label={prevTooltip || t("nav_prev")}>
+                <button type="button" disabled className={navDisabledClass} aria-label={prevTooltip || t("nav_prev")}>
                   <ChevronLeft size={16} strokeWidth={2} />
-                </div>
+                </button>
               )}
 
               {/* Notification Button (on the right side of slide previous button) */}
@@ -351,19 +351,26 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
               data-tab-title-swipe="true"
               className="absolute inset-x-20 flex items-center justify-center overflow-hidden min-w-0"
             >
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.span
-                  key={title}
-                  title={title}
-                  initial={{ opacity: 0, y: 3 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -3 }}
-                  transition={{ duration: 0.16, ease: "easeOut" }}
-                  className={`text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${activeIsLightMode ? "text-[#101828]" : "text-white"}`}
-                >
-                  {title}
-                </motion.span>
-              </AnimatePresence>
+              <Tooltip
+                content={title}
+                side="bottom"
+                allowFlip
+                isLightMode={activeIsLightMode}
+                wrapperClassName="max-w-full min-w-0"
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={title}
+                    initial={{ opacity: 0, y: 3 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -3 }}
+                    transition={{ duration: 0.16, ease: "easeOut" }}
+                    className={`block text-[18px] font-semibold tracking-[-0.01em] truncate leading-tight text-center ${activeIsLightMode ? "text-[#101828]" : "text-white"}`}
+                  >
+                    {title}
+                  </motion.span>
+                </AnimatePresence>
+              </Tooltip>
             </div>
 
             {/* Right Action Buttons: Settings + Next */}
@@ -388,9 +395,9 @@ export const PanelNavHeader = React.memo<PanelNavHeaderProps>(
               ) : settingsInNextSlot ? (
                 settingsButton
               ) : (
-                <div className={navDisabledClass} role="button" aria-disabled="true" aria-label={nextTooltip || t("nav_next")}>
+                <button type="button" disabled className={navDisabledClass} aria-label={nextTooltip || t("nav_next")}>
                   <ChevronRight size={16} strokeWidth={2} />
-                </div>
+                </button>
               )}
             </div>
           </div>

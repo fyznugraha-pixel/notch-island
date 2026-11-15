@@ -14,27 +14,21 @@ import { listen } from "@tauri-apps/api/event";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
 import { t, getLanguage } from "../../../services/i18n";
 
-export const PRESET_SOLID = { opacity: 1.0, blur: 0 };
-export const PRESET_LIQUID_GLASS = { opacity: 0.78, blur: 68 };
-export const PRESET_GLASS = { opacity: 0.54, blur: 45 };
+import {
+  PRESET_SOLID,
+  PRESET_LIQUID_GLASS,
+  PRESET_GLASS,
+  getDefaultBlurForOpacity,
+  resolveNotchThemeMode,
+} from "../../../utils/frostedGlass";
 
-export function getDefaultBlurForOpacity(opacity: number): number {
-  const num = Number(opacity);
-  if (!Number.isFinite(num) || num >= 0.95) return PRESET_SOLID.blur;
-  if (num >= 0.68) return PRESET_LIQUID_GLASS.blur;
-  return PRESET_GLASS.blur;
-}
-
-export function resolveNotchThemeMode(
-  opacity: number,
-  blur: number
-): "solid" | "glass" | "clear" {
-  const op = Number.isFinite(opacity) ? opacity : 1.0;
-  const bl = Number.isFinite(blur) ? blur : 0;
-  if (op >= 0.96 && bl <= 2) return "solid";
-  if (op >= 0.66) return "glass";
-  return "clear";
-}
+export {
+  PRESET_SOLID,
+  PRESET_LIQUID_GLASS,
+  PRESET_GLASS,
+  getDefaultBlurForOpacity,
+  resolveNotchThemeMode,
+};
 
 export function computeNotchGlassCssVars(
   opacity: number,
@@ -192,11 +186,19 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
   };
 
   return (
-    <div className="flex flex-col gap-2 px-3 py-2.5 rounded-[12px] hover:bg-white/[0.02] transition-colors">
+    <div
+      className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-[12px] transition-colors ${
+        isLightMode ? "hover:bg-black/[0.02]" : "hover:bg-white/[0.02]"
+      }`}
+    >
       {/* Top Row: 3 Default Presets (Solid, Liquid Glass, Glass) */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-[30px] h-[30px] rounded-[8px] flex items-center justify-center shrink-0 bg-[#142d1f] text-[#30d158]">
+          <div
+            className={`w-8 h-8 rounded-[9px] flex items-center justify-center shrink-0 ${
+              isLightMode ? "bg-[#30d158]/12" : "bg-[#142d1f]"
+            } text-[#30d158]`}
+          >
             <Layers size={18} />
           </div>
           <div className="flex flex-col min-w-0">
@@ -301,7 +303,11 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
         </div>
 
         {/* Slider 2: Tingkat Keburaman (Blur) */}
-        <div className="flex flex-col gap-1 pt-1 border-t border-white/[0.05]">
+        <div
+          className={`flex flex-col gap-1 pt-2 border-t ${
+            isLightMode ? "border-black/[0.06]" : "border-white/[0.05]"
+          }`}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <Blend size={12.5} className="text-[#3882F6]" />
@@ -344,7 +350,11 @@ export const TransparencyControlSection: React.FC<TransparencyControlSectionProp
         </div>
 
         {/* Row 3: Live Preview Tab Action Button */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
+        <div
+          className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2 border-t ${
+            isLightMode ? "border-black/[0.06]" : "border-white/[0.06]"
+          }`}
+        >
           <div className="flex items-center gap-1.5 min-w-0">
             <Eye size={12.5} className="text-[#3882F6] shrink-0" />
             <span

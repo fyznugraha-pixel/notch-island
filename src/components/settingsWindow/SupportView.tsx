@@ -45,13 +45,13 @@ export const SupportView: React.FC<SupportViewProps> = ({
   };
 
   const cardClass = isLightMode
-    ? "bg-white/90 border border-black/[0.08] shadow-[0_2px_12px_rgba(0,0,0,0.04)]"
-    : "bg-[#16161b]/95 border border-white/[0.07] shadow-[0_8px_28px_rgba(0,0,0,0.35)]";
+    ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]";
 
   return (
     <div className="flex flex-col gap-4 w-full pb-6">
       {/* 1. Header Appreciation Banner */}
-      <div className={`w-full rounded-[20px] p-4 flex items-center gap-3.5 ${cardClass}`}>
+      <div className={`w-full rounded-[18px] p-4 flex items-center gap-3.5 ${cardClass}`}>
         <div className="w-11 h-11 rounded-[13px] bg-[#ff2d55] text-white flex items-center justify-center shrink-0 shadow-sm">
           <Heart size={21} strokeWidth={2.2} className="fill-white/20" />
         </div>
@@ -76,9 +76,13 @@ export const SupportView: React.FC<SupportViewProps> = ({
       </div>
 
       {/* 2. Saweria Link Card */}
-      <div className={`w-full rounded-[20px] p-4 flex items-center justify-between gap-3 ${cardClass}`}>
+      <div className={`w-full rounded-[18px] p-4 flex flex-wrap items-center justify-between gap-3 ${cardClass}`}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-[12px] overflow-hidden shrink-0 border border-black/[0.08]">
+          <div
+            className={`w-10 h-10 rounded-[12px] overflow-hidden shrink-0 border ${
+              isLightMode ? "border-black/[0.08]" : "border-white/[0.12]"
+            }`}
+          >
             <img src="/logo/saweria.jpg" alt="Saweria" className="w-full h-full object-cover" draggable={false} />
           </div>
           <div className="flex flex-col min-w-0">
@@ -91,7 +95,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
             </span>
             <span
               className={`text-[12px] font-mono truncate mt-0.5 ${
-                isLightMode ? "text-[#0a84ff]" : "text-[#5ac8fa]"
+                isLightMode ? "text-[#0066cc]" : "text-[#5ac8fa]"
               }`}
             >
               {SAWERIA_URL}
@@ -111,7 +115,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
           >
             {copiedTarget === "saweria" ? (
               <>
-                <Check size={13.5} className="text-[#30d158]" />
+                <Check size={13.5} className={isLightMode ? "text-emerald-700" : "text-[#30d158]"} />
                 <span>{isId ? "Tersalin" : "Copied"}</span>
               </>
             ) : (
@@ -125,7 +129,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
           <button
             type="button"
             onClick={() => handleOpenUrl(SAWERIA_URL)}
-            className="px-3.5 py-2 rounded-[11px] bg-[#0a84ff] hover:bg-[#0070e0] text-white text-[12px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3.5 py-2 rounded-[11px] bg-[#0077ed] hover:bg-[#0066cc] text-white text-[12px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <span>{isId ? "Buka Saweria" : "Open Saweria"}</span>
             <ExternalLink size={13.5} strokeWidth={2.2} />
@@ -134,9 +138,13 @@ export const SupportView: React.FC<SupportViewProps> = ({
       </div>
 
       {/* 3. SociaBuzz Link Card */}
-      <div className={`w-full rounded-[20px] p-4 flex items-center justify-between gap-3 ${cardClass}`}>
+      <div className={`w-full rounded-[18px] p-4 flex flex-wrap items-center justify-between gap-3 ${cardClass}`}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-[12px] overflow-hidden shrink-0 border border-black/[0.08]">
+          <div
+            className={`w-10 h-10 rounded-[12px] overflow-hidden shrink-0 border ${
+              isLightMode ? "border-black/[0.08]" : "border-white/[0.12]"
+            }`}
+          >
             <img src="/logo/sociabuzz_logo.jpg" alt="SociaBuzz" className="w-full h-full object-cover" draggable={false} />
           </div>
           <div className="flex flex-col min-w-0">
@@ -149,7 +157,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
             </span>
             <span
               className={`text-[12px] font-mono truncate mt-0.5 ${
-                isLightMode ? "text-[#0a84ff]" : "text-[#5ac8fa]"
+                isLightMode ? "text-[#0066cc]" : "text-[#5ac8fa]"
               }`}
             >
               {SOCIABUZZ_URL}
@@ -169,7 +177,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
           >
             {copiedTarget === "sociabuzz" ? (
               <>
-                <Check size={13.5} className="text-[#30d158]" />
+                <Check size={13.5} className={isLightMode ? "text-emerald-700" : "text-[#30d158]"} />
                 <span>{isId ? "Tersalin" : "Copied"}</span>
               </>
             ) : (
@@ -183,7 +191,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
           <button
             type="button"
             onClick={() => handleOpenUrl(SOCIABUZZ_URL)}
-            className="px-3.5 py-2 rounded-[11px] bg-[#00c28e] hover:bg-[#00a87b] text-white text-[12px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3.5 py-2 rounded-[11px] bg-[#047857] hover:bg-[#065f46] text-white text-[12px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <span>{isId ? "Buka SociaBuzz" : "Open SociaBuzz"}</span>
             <ExternalLink size={13.5} strokeWidth={2.2} />
@@ -192,7 +200,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
       </div>
 
       {/* 4. QRIS Card */}
-      <div className={`w-full rounded-[20px] p-4 flex flex-col gap-3.5 ${cardClass}`}>
+      <div className={`w-full rounded-[18px] p-4 flex flex-col gap-3.5 ${cardClass}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-[10px] bg-[#0a84ff] text-white flex items-center justify-center shrink-0">
@@ -231,8 +239,15 @@ export const SupportView: React.FC<SupportViewProps> = ({
         </div>
 
         <div className="w-full flex flex-col items-center justify-center py-2">
-          <Tooltip content={isId ? "Klik untuk memperbesar QRIS" : "Click to enlarge QRIS"} side="top">
-            <div
+          <Tooltip
+            content={isId ? "Klik untuk memperbesar QRIS" : "Click to enlarge QRIS"}
+            side="top"
+            allowFlip
+            isLightMode={isLightMode}
+          >
+            <button
+              type="button"
+              aria-label={isId ? "Klik untuk memperbesar QRIS" : "Click to enlarge QRIS"}
               onClick={() => setIsZoomed(true)}
               className="bg-white rounded-[18px] p-2.5 shadow-[0_8px_28px_rgba(0,0,0,0.25)] border border-black/10 cursor-zoom-in transition-transform hover:scale-[1.01]"
             >
@@ -240,13 +255,13 @@ export const SupportView: React.FC<SupportViewProps> = ({
                 src="/qris-support.png"
                 alt="QRIS FYURL"
                 draggable={false}
-                className="w-[270px] h-auto rounded-[12px] object-contain select-none"
+                className="w-[270px] max-w-full h-auto rounded-[12px] object-contain select-none"
               />
-            </div>
+            </button>
           </Tooltip>
           <span
             className={`text-[11px] mt-2.5 ${
-              isLightMode ? "text-neutral-500" : "text-zinc-400"
+              isLightMode ? "text-neutral-600" : "text-zinc-400"
             }`}
           >
             {isId
@@ -268,6 +283,7 @@ export const SupportView: React.FC<SupportViewProps> = ({
           >
             <button
               type="button"
+              aria-label={isId ? "Tutup" : "Close"}
               onClick={() => setIsZoomed(false)}
               className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-[#1c1c22] text-white border border-white/15 flex items-center justify-center shadow-lg hover:bg-[#e81123] transition-colors cursor-pointer"
             >

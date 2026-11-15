@@ -1,9 +1,27 @@
 // Extracts a dominant tint color from an image, tuned to be a dark, 100% opaque background
+const MAX_COLOR_CACHE_ENTRIES = 64;
 const colorCache = new Map<string, string>();
+
+function setCachedColor(imgSrc: string, hex: string): void {
+  if (colorCache.has(imgSrc)) {
+    colorCache.delete(imgSrc);
+  } else if (colorCache.size >= MAX_COLOR_CACHE_ENTRIES) {
+    const oldestKey = colorCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      colorCache.delete(oldestKey);
+    }
+  }
+  colorCache.set(imgSrc, hex);
+}
 
 export async function extractDominantColor(imgSrc?: string | null): Promise<string> {
   if (!imgSrc) return "#121216";
-  if (colorCache.has(imgSrc)) return colorCache.get(imgSrc)!;
+  if (colorCache.has(imgSrc)) {
+    const cached = colorCache.get(imgSrc)!;
+    colorCache.delete(imgSrc);
+    colorCache.set(imgSrc, cached);
+    return cached;
+  }
 
   return new Promise<string>((resolve) => {
     const img = new Image();
@@ -62,7 +80,7 @@ export async function extractDominantColor(imgSrc?: string | null): Promise<stri
         const finalB = Math.max(18, Math.min(50, Math.round(avgB * scale)));
 
         const hex = `#${finalR.toString(16).padStart(2, "0")}${finalG.toString(16).padStart(2, "0")}${finalB.toString(16).padStart(2, "0")}`;
-        colorCache.set(imgSrc, hex);
+        setCachedColor(imgSrc, hex);
         resolve(hex);
       } catch {
         resolve("#121216");

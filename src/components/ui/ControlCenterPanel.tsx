@@ -697,9 +697,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                     : ""
                 }`}
               >
-                <Tooltip content={t("cc_lock_pc")} side="bottom">
+                <Tooltip content={t("cc_lock_pc")} side="bottom" allowFlip>
                   <button
                     type="button"
+                    aria-label={t("cc_lock_pc")}
                     onClick={(e) => {
                       e.stopPropagation();
                       invoke("system_power_action", { action: "lock" }).catch(console.error);
@@ -711,9 +712,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                   </button>
                 </Tooltip>
 
-                <Tooltip content={t("cc_sleep_pc")} side="bottom">
+                <Tooltip content={t("cc_sleep_pc")} side="bottom" allowFlip>
                   <button
                     type="button"
+                    aria-label={t("cc_sleep_pc")}
                     onClick={(e) => {
                       e.stopPropagation();
                       invoke("system_power_action", { action: "sleep" }).catch(console.error);
@@ -971,9 +973,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 {Math.round(displayLevel)}%
               </span>
 
-              <Tooltip content={t("cc_brightness_mode")} side="left">
+              <Tooltip content={t("cc_brightness_mode")} side="left" allowFlip>
                 <button
                   type="button"
+                  aria-label={t("cc_brightness_mode")}
                   onClick={handleNextBrightnessMode}
                   className={`w-[30px] h-[30px] rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
                     brightnessMode === "auto"
@@ -1039,9 +1042,10 @@ export const ControlCenterPanel: React.FC<ControlCenterPanelProps> = ({
                 {Math.round(soundLevel)}%
               </span>
 
-              <Tooltip content={t("tab_volume_mixer")} side="left">
+              <Tooltip content={t("tab_volume_mixer")} side="left" allowFlip>
                 <button
                   type="button"
+                  aria-label={t("tab_volume_mixer")}
                   onClick={() => onGoToTab("volume_mixer", 1)}
                   className="w-[30px] h-[30px] rounded-full bg-[#17171c] hover:bg-[#222229] text-[#e4e4e7] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                 >

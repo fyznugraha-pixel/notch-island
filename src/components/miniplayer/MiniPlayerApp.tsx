@@ -92,6 +92,7 @@ export const MiniPlayerApp: React.FC = () => {
   const [isAnchoredRight, setIsAnchoredRight] = useState(true);
   const [exitState, setExitState] = useState<"idle" | "closing" | "to-notch">("idle");
   const [enterKey, setEnterKey] = useState(1);
+  const [isMiniPlayerHidden, setIsMiniPlayerHidden] = useState(false);
   const isExitingRef = useRef(false);
   const triggerExitTimerRef = useRef<number | null>(null);
 
@@ -231,10 +232,22 @@ export const MiniPlayerApp: React.FC = () => {
   // Listen for window visibility to trigger enter animation and close requests
   useEffect(() => {
     let isMounted = true;
+    let receivedVisibilityEvent = false;
     let unlistenVis: (() => void) | null = null;
     let unlistenCloseReq: (() => void) | null = null;
 
+    getCurrentWindow()
+      .isVisible()
+      .then((visible) => {
+        if (isMounted && !receivedVisibilityEvent) {
+          setIsMiniPlayerHidden(!visible);
+        }
+      })
+      .catch(() => {});
+
     listen<boolean>("miniplayer:visibility-changed", (event) => {
+      receivedVisibilityEvent = true;
+      setIsMiniPlayerHidden(!event.payload);
       if (exitTimerRef.current) {
         clearTimeout(exitTimerRef.current);
         exitTimerRef.current = null;
@@ -428,7 +441,7 @@ export const MiniPlayerApp: React.FC = () => {
         dragCheckPollRef.current = null;
       }
     };
-  }, [checkAnchor, triggerExit]);
+  }, [checkAnchor, triggerExit, mode, effectiveTextScale]);
 
   // Keep window width ref in sync across mode switches
   useEffect(() => {
@@ -785,6 +798,7 @@ export const MiniPlayerApp: React.FC = () => {
                 tintColor={tintColor}
                 showToolbar={showToolbar}
                 toolbarNode={toolbarNode}
+                isHidden={isMiniPlayerHidden}
                 onToggleMode={() => handleSetMode("bar")}
               />
             </motion.div>
@@ -818,6 +832,7 @@ export const MiniPlayerApp: React.FC = () => {
                 showToolbar={showToolbar}
                 toolbarNode={toolbarNode}
                 effectiveScale={effectiveTextScale}
+                isHidden={isMiniPlayerHidden}
                 onToggleMode={() => handleSetMode("card")}
                 onWidthChange={handleBarWidthChange}
               />

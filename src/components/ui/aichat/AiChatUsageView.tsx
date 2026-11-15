@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronDown, TrendingUp, RotateCcw } from "lucide-react";
+import { Tooltip } from "../Tooltip";
 import { t, getLanguage } from "../../../services/i18n";
 import { AI_MODELS } from "../../../services/aiChatService";
 import { getGiliFreeModel } from "../../../services/giliFreeService";
@@ -192,14 +193,16 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
           </div>
 
           {onReset && (
-            <button
-              type="button"
-              onClick={onReset}
-              title={t("aichat_usage_reset_tooltip")}
-              className="w-[30px] h-[30px] rounded-full bg-[#17171c] border border-white/[0.06] hover:bg-[#23232a] active:scale-95 text-[#71717a] hover:text-rose-400 flex items-center justify-center p-0 cursor-pointer transition-all"
-            >
-              <RotateCcw size={12.5} strokeWidth={2.2} />
-            </button>
+            <Tooltip content={t("aichat_usage_reset_tooltip")} side="bottom" align="end" allowFlip>
+              <button
+                type="button"
+                onClick={onReset}
+                aria-label={t("aichat_usage_reset_tooltip")}
+                className="w-[30px] h-[30px] rounded-full bg-[#17171c] border border-white/[0.06] hover:bg-[#23232a] active:scale-95 text-[#71717a] hover:text-rose-400 flex items-center justify-center p-0 cursor-pointer transition-all"
+              >
+                <RotateCcw size={12.5} strokeWidth={2.2} />
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -254,23 +257,28 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
                 } catch {}
 
                 return (
-                  <div
+                  <Tooltip
                     key={item.date}
-                    title={`${dayLabel}: ${item.totalTokens.toLocaleString(numLocale)} ${isEn ? "tokens" : "token"}`}
-                    style={{
-                      height: `${barHeight}px`,
-                      width: "19px",
-                      background: isToday
-                        ? hasTokens
-                          ? `linear-gradient(180deg, #5eead4, ${accentColor})`
-                          : "rgba(56,130,246,0.25)"
-                        : hasTokens
-                        ? "rgba(255,255,255,0.22)"
-                        : "rgba(255,255,255,0.06)",
-                      boxShadow: isToday && hasTokens ? `0 0 14px rgba(56,130,246,0.45)` : "none",
-                    }}
-                    className="rounded-[5px] transition-all hover:opacity-80"
-                  />
+                    content={`${dayLabel}: ${item.totalTokens.toLocaleString(numLocale)} ${isEn ? "tokens" : "token"}`}
+                    side="top"
+                    allowFlip
+                  >
+                    <div
+                      style={{
+                        height: `${barHeight}px`,
+                        width: "19px",
+                        background: isToday
+                          ? hasTokens
+                            ? `linear-gradient(180deg, #5eead4, ${accentColor})`
+                            : "rgba(56,130,246,0.25)"
+                          : hasTokens
+                          ? "rgba(255,255,255,0.22)"
+                          : "rgba(255,255,255,0.06)",
+                        boxShadow: isToday && hasTokens ? `0 0 14px rgba(56,130,246,0.45)` : "none",
+                      }}
+                      className="rounded-[5px] transition-all hover:opacity-80"
+                    />
+                  </Tooltip>
                 );
               })}
             </div>
@@ -312,12 +320,13 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
 
               {/* Currency Selector Pill */}
               <div className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsCurrencyDropdownOpen((prev) => !prev)}
-                  title={t("aichat_usage_change_currency")}
-                  className="flex items-center gap-1.5 h-7 px-2.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.08] text-white text-[11.5px] font-semibold cursor-pointer transition-all active:scale-95 shadow-sm"
-                >
+                <Tooltip content={t("aichat_usage_change_currency")} side="top" allowFlip>
+                  <button
+                    type="button"
+                    onClick={() => setIsCurrencyDropdownOpen((prev) => !prev)}
+                    aria-label={t("aichat_usage_change_currency")}
+                    className="flex items-center gap-1.5 h-7 px-2.5 rounded-xl bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.08] text-white text-[11.5px] font-semibold cursor-pointer transition-all active:scale-95 shadow-sm"
+                  >
                   <span className="text-blue-400 font-bold">{currConfig.symbol}</span>
                   <span className="tracking-wide">{currency}</span>
                   <ChevronDown
@@ -326,7 +335,8 @@ export const AiChatUsageView: React.FC<AiChatUsageViewProps> = ({
                       isCurrencyDropdownOpen ? "rotate-180" : ""
                     }`}
                   />
-                </button>
+                  </button>
+                </Tooltip>
 
                 {/* Dropdown Menu */}
                 {isCurrencyDropdownOpen && (

@@ -127,9 +127,7 @@ fn sample_network_bytes() -> (u64, u64) {
     (total_in, total_out)
 }
 
-#[tauri::command]
-pub async fn get_system_metrics() -> SystemMetrics {
-    tauri::async_runtime::spawn_blocking(|| {
+pub fn get_system_metrics_internal() -> SystemMetrics {
         // 1. Memory
         let mut mem_used_gb = 8.0f32;
         let mut mem_total_gb = 16.0f32;
@@ -368,27 +366,8 @@ pub async fn get_system_metrics() -> SystemMetrics {
             wifi_up_mbps: (wifi_up_mbps * 10.0).round() / 10.0,
             wifi_usage,
         }
-    })
-    .await
-    .unwrap_or(SystemMetrics {
-        cpu_usage: 12.0,
-        cpu_speed_ghz: 3.4,
-        cpu_temp_c: 50,
-        cpu_cores: vec![12.0; 8],
-        process_count: 200,
-        top_process: "System".to_string(),
-        top_process_cpu: 2.0,
-        gpu_usage: 10.0,
-        gpu_temp_c: 46,
-        gpu_vram_gb: 1.1,
-        mem_used_gb: 8.0,
-        mem_total_gb: 16.0,
-        mem_usage: 50.0,
-        wifi_down_mbps: 0.0,
-        wifi_up_mbps: 0.0,
-        wifi_usage: 2.0,
-    })
 }
+
 
 fn clean_dir_recursive(
     dir: &std::path::Path,

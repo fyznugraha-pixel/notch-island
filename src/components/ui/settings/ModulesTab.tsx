@@ -23,6 +23,7 @@ export interface ModulesTabProps {
   onToggleMedia: () => void;
   optSoundFx?: boolean;
   onToggleSoundFx?: () => void;
+  isLightMode?: boolean;
 }
 
 export const ModulesTab: React.FC<ModulesTabProps> = ({
@@ -34,7 +35,12 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
   onToggleOcr,
   optSoundFx = true,
   onToggleSoundFx,
+  isLightMode,
 }) => {
+  const light =
+    isLightMode ??
+    (typeof document !== "undefined" &&
+      document.documentElement.classList.contains("light"));
   const [pomodoroIdle, setPomodoroIdle] = useState<boolean>(() => {
     return loadPomodoroSettings().showIdleTimer;
   });
@@ -54,11 +60,18 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
   };
 
   return (
-    <div className="w-full rounded-[22px] bg-[#111114] border border-white/[0.06] p-2 flex flex-col justify-between shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+    <div
+      className={`w-full rounded-[18px] p-3 flex flex-col gap-0.5 ${
+        light
+          ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+          : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
+      }`}
+    >
       {/* 1. Monitor volume */}
       <SettingRow
+        isLightMode={light}
         icon={<Volume2 size={18} />}
-        iconBgClass="bg-[#142333]"
+        iconBgClass={light ? "bg-[#0a84ff]/12" : "bg-[#142333]"}
         iconColorClass="text-[#0a84ff]"
         title={t("settings_volume_monitor")}
         subtitle={t("settings_volume_monitor_desc")}
@@ -73,9 +86,10 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
 
       {/* 2. Monitor clipboard */}
       <SettingRow
+        isLightMode={light}
         icon={<ClipboardList size={18} />}
-        iconBgClass="bg-[#132c1e]"
-        iconColorClass="text-[#34c759]"
+        iconBgClass={light ? "bg-[#34c759]/12" : "bg-[#132c1e]"}
+        iconColorClass={light ? "text-emerald-700" : "text-[#34c759]"}
         title={t("settings_clipboard_monitor")}
         subtitle={t("settings_clipboard_monitor_desc")}
         control={
@@ -89,9 +103,16 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
 
       {/* 2b. OCR teks dari screenshot (sub-setting clipboard) */}
       <SettingRow
+        isLightMode={light}
         icon={<ScanText size={18} />}
-        iconBgClass="bg-[#1a2b1f]"
-        iconColorClass={optClipboard ? "text-[#30d158]" : "text-[#30d158]/40"}
+        iconBgClass={light ? "bg-[#30d158]/12" : "bg-[#1a2b1f]"}
+        iconColorClass={
+          optClipboard
+            ? light
+              ? "text-emerald-700"
+              : "text-[#30d158]"
+            : "text-[#30d158]/40"
+        }
         title={t("settings_clipboard_ocr")}
         subtitle={t("settings_clipboard_ocr_desc")}
         control={
@@ -106,8 +127,9 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
 
       {/* 4. Efek suara */}
       <SettingRow
+        isLightMode={light}
         icon={<Volume2 size={18} />}
-        iconBgClass="bg-[#241c30]"
+        iconBgClass={light ? "bg-[#bf5af2]/12" : "bg-[#241c30]"}
         iconColorClass="text-[#bf5af2]"
         title={t("settings_sound_effects")}
         subtitle={t("settings_sound_effects_desc")}
@@ -122,8 +144,9 @@ export const ModulesTab: React.FC<ModulesTabProps> = ({
 
       {/* 5. Pomodoro */}
       <SettingRow
+        isLightMode={light}
         icon={<Timer size={18} />}
-        iconBgClass="bg-[#2f2014]"
+        iconBgClass={light ? "bg-[#ff9f0a]/15" : "bg-[#2f2014]"}
         iconColorClass="text-[#ff9f0a]"
         title={t("settings_module_pomodoro")}
         subtitle={t("settings_module_pomodoro_desc")}

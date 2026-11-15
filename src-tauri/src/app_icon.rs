@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 
 use windows::core::PCWSTR;
@@ -10,11 +10,44 @@ use windows::Win32::UI::Shell::SHDefExtractIconW;
 use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
 
 const ICON_SIZE: u32 = 64;
+const MAX_ICON_CACHE_ENTRIES: usize = 256;
+
+struct BoundedIconCache {
+    map: HashMap<String, Option<String>>,
+    order: VecDeque<String>,
+}
+
+impl BoundedIconCache {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    fn get(&self, key: &str) -> Option<&Option<String>> {
+        self.map.get(key)
+    }
+
+    fn insert(&mut self, key: String, val: Option<String>) {
+        if !self.map.contains_key(&key) {
+            while self.order.len() >= MAX_ICON_CACHE_ENTRIES {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.map.remove(&oldest);
+                } else {
+                    break;
+                }
+            }
+            self.order.push_back(key.clone());
+        }
+        self.map.insert(key, val);
+    }
+}
 
 // Keyed by exe path. None is cached too so exes without an icon are not re-extracted every poll.
-fn icon_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn icon_cache() -> &'static Mutex<BoundedIconCache> {
+    static CACHE: OnceLock<Mutex<BoundedIconCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(BoundedIconCache::new()))
 }
 
 unsafe fn read_bitmap_bgra(hdc: HDC, hbm: HBITMAP, width: i32, height: i32) -> Option<Vec<u8>> {
@@ -101,7 +134,7 @@ unsafe fn hicon_to_png_data_url(hicon: HICON) -> Option<String> {
     result
 }
 
-pub fn extract_exe_icon(exe_path: &str) -> Option<String> {
+fn extract_exe_icon_uncached(exe_path: &str) -> Option<String> {
     let wide: Vec<u16> = exe_path.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         let mut hicon = HICON::default();
@@ -115,6 +148,22 @@ pub fn extract_exe_icon(exe_path: &str) -> Option<String> {
     }
 }
 
+pub fn extract_exe_icon(exe_path: &str) -> Option<String> {
+    if exe_path.trim().is_empty() {
+        return None;
+    }
+    if let Ok(cache) = icon_cache().lock() {
+        if let Some(cached) = cache.get(exe_path) {
+            return cached.clone();
+        }
+    }
+    let icon = extract_exe_icon_uncached(exe_path);
+    if let Ok(mut cache) = icon_cache().lock() {
+        cache.insert(exe_path.to_string(), icon.clone());
+    }
+    icon
+}
+
 #[tauri::command]
 pub async fn get_app_icon(path: String) -> Option<String> {
     if path.trim().is_empty() {
@@ -124,12 +173,8 @@ pub async fn get_app_icon(path: String) -> Option<String> {
         return cached.clone();
     }
     let lookup_path = path.clone();
-    let icon = tauri::async_runtime::spawn_blocking(move || extract_exe_icon(&lookup_path))
+    tauri::async_runtime::spawn_blocking(move || extract_exe_icon(&lookup_path))
         .await
         .ok()
-        .flatten();
-    if let Ok(mut cache) = icon_cache().lock() {
-        cache.insert(path, icon.clone());
-    }
-    icon
+        .flatten()
 }

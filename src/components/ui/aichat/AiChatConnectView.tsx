@@ -480,34 +480,47 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
               className="grow min-w-0 bg-transparent border-0 outline-none text-white text-[12.5px] font-mono placeholder-[#a1a1aa]"
             />
             <div className="flex items-center gap-1.5 shrink-0 ml-auto pr-1.5">
-              <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                aria-label={showKey ? t("aichat_connect_toggle_hide") : t("aichat_connect_toggle_show")}
-                title={showKey ? t("aichat_connect_toggle_hide") : t("aichat_connect_toggle_show")}
-                className="w-7 h-7 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[#e4e4e7] flex items-center justify-center p-0 shrink-0 cursor-pointer transition-all active:scale-95"
+              <Tooltip
+                content={showKey ? t("aichat_connect_toggle_hide") : t("aichat_connect_toggle_show")}
+                side="top"
+                allowFlip
               >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-              <button
-                type="button"
-                onClick={handlePaste}
-                title={t("aichat_connect_paste_tooltip")}
-                className="h-7 px-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[#e4e4e7] text-[12px] font-medium shrink-0 flex items-center justify-center cursor-pointer transition-all active:scale-95"
-              >
-                {t("aichat_connect_paste_btn")}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  aria-label={showKey ? t("aichat_connect_toggle_hide") : t("aichat_connect_toggle_show")}
+                  className="w-7 h-7 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[#e4e4e7] flex items-center justify-center p-0 shrink-0 cursor-pointer transition-all active:scale-95"
+                >
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </Tooltip>
+              <Tooltip content={t("aichat_connect_paste_tooltip")} side="top" allowFlip>
+                <button
+                  type="button"
+                  onClick={handlePaste}
+                  aria-label={t("aichat_connect_paste_tooltip")}
+                  className="h-7 px-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[#e4e4e7] text-[12px] font-medium shrink-0 flex items-center justify-center cursor-pointer transition-all active:scale-95"
+                >
+                  {t("aichat_connect_paste_btn")}
+                </button>
+              </Tooltip>
             </div>
-            <button
-              type="button"
-              onClick={handleSaveCurrentKey}
-              disabled={!apiKey.trim()}
-              title={t("aichat_connect_save_tooltip")}
-              aria-label={t("aichat_connect_save_key")}
-              className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-default text-white flex items-center justify-center shrink-0 cursor-pointer transition-all active:scale-95 shadow-sm"
+            <Tooltip
+              content={t("aichat_connect_save_tooltip")}
+              side="top"
+              allowFlip
+              wrapperClassName="shrink-0"
             >
-              <Save size={14} strokeWidth={2.4} />
-            </button>
+              <button
+                type="button"
+                onClick={handleSaveCurrentKey}
+                disabled={!apiKey.trim()}
+                aria-label={t("aichat_connect_save_key")}
+                className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center shrink-0 cursor-pointer transition-all active:scale-95 shadow-sm"
+              >
+                <Save size={14} strokeWidth={2.4} />
+              </button>
+            </Tooltip>
           </div>
 
           {/* Status line & saved preview */}
@@ -527,15 +540,16 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
             {activeSavedKey && (
               <div className="inline-flex items-center gap-2 text-[11px] text-[#a1a1aa] ml-auto">
                 <span>{maskApiKey(activeSavedKey)}</span>
-                <button
-                  type="button"
-                  onClick={handleClearKey}
-                  title={t("aichat_connect_remove_key")}
-                  className="text-red-400 hover:text-red-300 flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <Trash2 size={11} />
-                  {t("action_delete")}
-                </button>
+                <Tooltip content={t("aichat_connect_remove_key")} side="top" allowFlip>
+                  <button
+                    type="button"
+                    onClick={handleClearKey}
+                    className="text-red-400 hover:text-red-300 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Trash2 size={11} />
+                    {t("action_delete")}
+                  </button>
+                </Tooltip>
               </div>
             )}
 

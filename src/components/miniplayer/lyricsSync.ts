@@ -31,7 +31,8 @@ export function useLyricsSync(
   initialPosition: number,
   initialDuration: number,
   isPlaying: boolean,
-  offset: number = 0
+  offset: number = 0,
+  isPaused: boolean = false
 ) {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [livePosition, setLivePosition] = useState<number>(initialPosition);
@@ -43,6 +44,7 @@ export function useLyricsSync(
   });
   const activeIndexRef = useRef<number>(-1);
   const isPlayingRef = useRef<boolean>(isPlaying);
+  const wasPausedRef = useRef<boolean>(isPaused);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
@@ -50,7 +52,19 @@ export function useLyricsSync(
 
   // Subscribe to live backend progress stream
   useEffect(() => {
+    if (isPaused) {
+      wasPausedRef.current = true;
+      return;
+    }
+
+    let forceSnap = wasPausedRef.current;
+    wasPausedRef.current = false;
+
     const unsubscribe = subscribeProgress((p) => {
+      if (p.position === 0 && p.duration === 0 && anchorRef.current.time > 0) {
+        forceSnap = false;
+        return;
+      }
       if (typeof p.duration === "number" && p.duration >= 0) {
         setLiveDuration(p.duration);
       }
@@ -60,35 +74,26 @@ export function useLyricsSync(
         ? anchorRef.current.time + elapsed
         : anchorRef.current.time;
 
-      if (Math.abs(estimated - p.position) > 0.35) {
+      if (forceSnap || Math.abs(estimated - p.position) > 0.35 || !isPlayingRef.current) {
         anchorRef.current = { time: p.position, timestamp: now };
         setLivePosition(p.position);
       }
+      forceSnap = false;
     });
 
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [isPaused]);
 
-  // Tick loop for binary search and progress bar (runs when playing)
+  // Tick loop for binary search and progress bar (runs when playing and visible)
   useEffect(() => {
+    if (isPaused) return;
+
     const userOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
     const effectiveOffset = userOffset + BASE_LYRICS_OFFSET;
 
-    if (!isPlaying) {
-      if (lyrics?.synced && lyrics.lines.length > 0) {
-        const effective = anchorRef.current.time + effectiveOffset;
-        const idx = findActiveLyricIndex(lyrics.lines, effective);
-        if (idx !== activeIndexRef.current) {
-          activeIndexRef.current = idx;
-          setActiveIndex(idx);
-        }
-      }
-      return;
-    }
-
-    const interval = setInterval(() => {
+    const syncPlaybackState = () => {
       const now = performance.now();
       const elapsed = (now - anchorRef.current.timestamp) / 1000;
       const current = Math.min(liveDuration || 9999, anchorRef.current.time + elapsed);
@@ -102,13 +107,29 @@ export function useLyricsSync(
           setActiveIndex(idx);
         }
       }
-    }, 50);
+    };
+
+    if (!isPlaying) {
+      if (lyrics?.synced && lyrics.lines.length > 0) {
+        const effective = anchorRef.current.time + effectiveOffset;
+        const idx = findActiveLyricIndex(lyrics.lines, effective);
+        if (idx !== activeIndexRef.current) {
+          activeIndexRef.current = idx;
+          setActiveIndex(idx);
+        }
+      }
+      return;
+    }
+
+    syncPlaybackState();
+    const interval = setInterval(syncPlaybackState, 50);
 
     return () => clearInterval(interval);
-  }, [lyrics?.synced, lyrics?.lines, lyrics?.offset, isPlaying, liveDuration, offset]);
+  }, [lyrics?.synced, lyrics?.lines, lyrics?.offset, isPlaying, isPaused, liveDuration, offset]);
 
   // When lyrics track changes or offset changes, re-evaluate immediately
   useEffect(() => {
+    if (isPaused) return;
     const userOffset = typeof lyrics?.offset === "number" ? lyrics.offset : offset;
     const effectiveOffset = userOffset + BASE_LYRICS_OFFSET;
     if (!lyrics?.synced || !lyrics.lines.length) {
@@ -120,7 +141,7 @@ export function useLyricsSync(
       activeIndexRef.current = idx;
       setActiveIndex(idx);
     }
-  }, [lyrics?.title, lyrics?.artist, lyrics?.synced, lyrics?.offset, offset]);
+  }, [lyrics?.title, lyrics?.artist, lyrics?.synced, lyrics?.offset, offset, isPaused]);
 
   const seekLocal = useCallback(
     (newPositionSec: number) => {

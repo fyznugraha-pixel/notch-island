@@ -13,6 +13,20 @@ import { hexToRgba, getPerceivedLuminance } from "../../utils/colorUtils";
 
 export type NotchSurfaceTone = "default" | "drag_over";
 
+function readInlinePx(raw: string): number | null {
+  if (!raw || !raw.endsWith("px")) return null;
+  const val = parseFloat(raw);
+  return Number.isFinite(val) ? val : null;
+}
+
+function readObservedBorderBoxSize(entry: ResizeObserverEntry): { width: number; height: number } {
+  const borderBox = entry.borderBoxSize?.[0];
+  if (borderBox) {
+    return { width: borderBox.inlineSize, height: borderBox.blockSize };
+  }
+  return { width: entry.contentRect.width, height: entry.contentRect.height };
+}
+
 interface NotchSurfaceProps {
   containerRef: React.RefObject<HTMLElement | null>;
   position?: NotchPosition;
@@ -101,6 +115,8 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
   const lastRbRef = useRef<number>(-1);
   const lastRtRef = useRef<number>(-1);
   const lastDprRef = useRef<number>(-1);
+  const observedSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const lastAcrylicEnabledRef = useRef<boolean>(false);
 
   const morphProgressRef = useRef<number>(isIsland ? 1.0 : 0.0);
   const targetMorphRef = useRef<number>(isIsland ? 1.0 : 0.0);
@@ -136,14 +152,32 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
     // Force immediate recalculation when props change
     lastWidthRef.current = -1;
 
+    const reducedMotionQuery =
+      typeof window !== "undefined" && window.matchMedia
+        ? window.matchMedia("(prefers-reduced-motion: reduce)")
+        : null;
+
+    if (containerRef.current && observedSizeRef.current === null) {
+      observedSizeRef.current = {
+        width: containerRef.current.offsetWidth,
+        height: containerRef.current.offsetHeight,
+      };
+    }
+
     const updateSurface = () => {
       animFrameId = null;
       const container = containerRef.current;
       if (!container) return;
 
       const dpr = window.devicePixelRatio || 1;
-      const cssW = parseFloat(container.style.width) || container.offsetWidth;
-      const cssH = parseFloat(container.style.height) || container.offsetHeight;
+      const cssW =
+        readInlinePx(container.style.width) ??
+        observedSizeRef.current?.width ??
+        container.offsetWidth;
+      const cssH =
+        readInlinePx(container.style.height) ??
+        observedSizeRef.current?.height ??
+        container.offsetHeight;
       const rawW = snapToPhysicalPixel(cssW, dpr);
       const rawH = snapToPhysicalPixel(cssH, dpr);
 
@@ -157,10 +191,7 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
       // Spring-based continuous morphing between Notch (m=0) and Island (m=1)
       const targetMorph = targetMorphRef.current;
       let currentMorph = morphProgressRef.current;
-      const isReducedMotion =
-        typeof window !== "undefined" &&
-        window.matchMedia &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const isReducedMotion = Boolean(reducedMotionQuery?.matches);
 
       let isMorphing = false;
       if (isReducedMotion) {
@@ -264,6 +295,10 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
         const { totalW, totalH, offsetLeft, offsetTop } =
           getNotchSurfaceMetrics(pathParams);
 
+        // Read layout geometry before mutating wrapperRef styles to avoid read-after-write layout thrashing
+        const ac = acrylicConfigRef.current;
+        const containerRect = ac.enabled ? container.getBoundingClientRect() : null;
+
         if (wrapperRef.current) {
           wrapperRef.current.style.width = `${totalW}px`;
           wrapperRef.current.style.height = `${totalH}px`;
@@ -271,24 +306,25 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           wrapperRef.current.style.top = `${offsetTop}px`;
         }
 
-        const containerRect = container.getBoundingClientRect();
-        const ac = acrylicConfigRef.current;
-        invoke("sync_notch_acrylic", {
-          enabled: ac.enabled,
-          containerLeft: containerRect.left,
-          containerTop: containerRect.top,
-          width: rawW,
-          height: rawH,
-          earRadius: targetRe,
-          bottomRadius: targetRb,
-          topRadius: targetRt,
-          isIsland: isIslandPath,
-          position,
-          dpr,
-          blurStrength: ac.blurStrength,
-          opacity: ac.opacity,
-          isLight: ac.isLight,
-        }).catch(() => {});
+        if (ac.enabled || lastAcrylicEnabledRef.current) {
+          lastAcrylicEnabledRef.current = ac.enabled;
+          invoke("sync_notch_acrylic", {
+            enabled: ac.enabled,
+            containerLeft: containerRect ? containerRect.left : 0,
+            containerTop: containerRect ? containerRect.top : 0,
+            width: rawW,
+            height: rawH,
+            earRadius: targetRe,
+            bottomRadius: targetRb,
+            topRadius: targetRt,
+            isIsland: isIslandPath,
+            position,
+            dpr,
+            blurStrength: ac.blurStrength,
+            opacity: ac.opacity,
+            isLight: ac.isLight,
+          }).catch(() => {});
+        }
 
         if (svgRef.current) {
           svgRef.current.setAttribute("viewBox", `0 0 ${totalW} ${totalH}`);
@@ -344,7 +380,11 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
 
     let observer: ResizeObserver | null = null;
     if (containerRef.current && typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(() => {
+      observer = new ResizeObserver((entries) => {
+        const entry = entries[entries.length - 1];
+        if (entry) {
+          observedSizeRef.current = readObservedBorderBoxSize(entry);
+        }
         wakeLoop(500);
       });
       observer.observe(containerRef.current);
@@ -530,33 +570,47 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
             </clipPath>
           )}
 
-          <filter
-            id="notch-ambient-blur"
-            x="-35%"
-            y="-35%"
-            width="170%"
-            height="170%"
-            colorInterpolationFilters="sRGB"
-          >
-            <feGaussianBlur stdDeviation="34" edgeMode="duplicate" />
-            <feColorMatrix type="saturate" values="1.85" />
-          </filter>
+          {Boolean(displayedImage) && (
+            <filter
+              id="notch-ambient-blur"
+              x="-35%"
+              y="-35%"
+              width="170%"
+              height="170%"
+              colorInterpolationFilters="sRGB"
+            >
+              <feGaussianBlur stdDeviation="34" edgeMode="duplicate" />
+              <feColorMatrix type="saturate" values="1.85" />
+            </filter>
+          )}
 
           {/* Native 1:1 resolution frosted matte grain ("burem kasar") */}
-          <filter id="notch-frosted-grain" x="0%" y="0%" width="100%" height="100%">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.82"
-              numOctaves="3"
-              stitchTiles="stitch"
-              result="noise"
-            />
-            <feColorMatrix
-              type="matrix"
-              values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0.085 0"
-              in="noise"
-            />
-          </filter>
+          {isTranslucent && effectiveBlur > 0 && (
+            <>
+              <filter id="notch-frosted-grain" x="0%" y="0%" width="100%" height="100%">
+                <feTurbulence
+                  type="fractalNoise"
+                  baseFrequency="0.82"
+                  numOctaves="3"
+                  stitchTiles="stitch"
+                  result="noise"
+                />
+                <feColorMatrix
+                  type="matrix"
+                  values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0.085 0"
+                  in="noise"
+                />
+              </filter>
+              <pattern
+                id="notch-frosted-grain-pattern"
+                patternUnits="userSpaceOnUse"
+                width="64"
+                height="64"
+              >
+                <rect width="64" height="64" filter="url(#notch-frosted-grain)" />
+              </pattern>
+            </>
+          )}
 
           <linearGradient id="notch-drag-over-grad" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="rgba(8, 51, 68, 0.96)" />
@@ -659,11 +713,11 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
                 )}
 
                 {/* Native 1:1 Frosted Matte Acrylic Grain ("burem kasar" texture) */}
-                {effectiveBlur > 0 && (
+                {isTranslucent && effectiveBlur > 0 && (
                   <rect
                     width="100%"
                     height="100%"
-                    filter="url(#notch-frosted-grain)"
+                    fill="url(#notch-frosted-grain-pattern)"
                     opacity={Math.min(1, blurRatio * 1.15)}
                   />
                 )}
