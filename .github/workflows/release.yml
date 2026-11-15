@@ -76,6 +76,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          VITE_GILI_FREE_URL: ${{ secrets.VITE_GILI_FREE_URL || 'https://gili-free-proxy.gilinotch.workers.dev' }}
         with:
           tagName: v__VERSION__
           releaseName: 'Gili v__VERSION__'
