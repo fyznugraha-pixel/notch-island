@@ -195,7 +195,7 @@ export const NavbarApp: React.FC = () => {
     }
   }, []);
 
-  const AUTO_HIDE_IDLE_DELAY_MS = 2000;
+  const AUTO_HIDE_IDLE_DELAY_MS = 1000;
 
   const scheduleAutoHideIfIdle = useCallback(
     (delayMs = AUTO_HIDE_IDLE_DELAY_MS) => {
@@ -333,7 +333,7 @@ export const NavbarApp: React.FC = () => {
     scheduleAutoHideIfIdle,
   ]);
 
-  // Keep Rust informed of auto-hide state so hit-testing switches to 4px screen edge when hidden
+  // Keep Rust informed of auto-hide state so hit-testing switches to 2px bezel edge when hidden
   const isEffectiveAutoHide =
     config.autoHide &&
     ((config.autoHideMode || "normal") === "maxsize" || isWindowCoveringDock);
@@ -691,6 +691,14 @@ export const NavbarApp: React.FC = () => {
       "trigger_notification_center",
     );
 
+  const handleTrayClick = () =>
+    dispatchFlyoutTrigger(
+      Boolean(config.useGiliTray) || Boolean(config.hideWindowsTaskbar),
+      '[data-flyout-trigger="tray"]',
+      "tray",
+      "trigger_hidden_tray",
+    );
+
   const handlePreviewStateChange = useCallback((_isShowing: boolean) => {
     // WindowPreviewCard registers its exact bounding rect via navbarPopupService.
   }, []);
@@ -759,6 +767,7 @@ export const NavbarApp: React.FC = () => {
             onNotificationsClick={handleNotificationsClick}
             onClockClick={handleClockClick}
             onVolumeClick={handleVolumeClick}
+            onTrayClick={handleTrayClick}
             onPreviewStateChange={handlePreviewStateChange}
             onLightSurfaceChange={setIsLightSurface}
             onSurfaceThemeChange={handleSurfaceThemeChange}

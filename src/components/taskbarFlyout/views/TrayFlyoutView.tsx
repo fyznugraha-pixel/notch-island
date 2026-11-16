@@ -25,7 +25,7 @@ export const TrayFlyoutView: React.FC<TrayFlyoutViewProps> = ({ onClose }) => {
     invoke<TrayBackgroundAppEntry[]>("get_tray_background_apps")
       .then((list) => {
         if (Array.isArray(list)) {
-          setApps(list.slice(0, 16));
+          setApps(list.slice(0, 24));
         }
       })
       .catch(() => {})

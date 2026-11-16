@@ -57,13 +57,33 @@ interface SidebarItemMeta {
 }
 
 const SIDEBAR_GROUPS: { id: SidebarGroupId; titleId: string; titleEn: string }[] = [
+  { id: "info", titleId: "Informasi", titleEn: "Information" },
   { id: "island", titleId: "Notch & Island", titleEn: "Notch & Island" },
   { id: "taskbar", titleId: "Taskbar & Dock", titleEn: "Taskbar & Dock" },
   { id: "preferences", titleId: "Sistem & Preferensi", titleEn: "System & Preferences" },
-  { id: "info", titleId: "Informasi", titleEn: "Information" },
 ];
 
 export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
+  {
+    id: "about",
+    group: "info",
+    labelId: "Tentang & Berita",
+    labelEn: "About & News",
+    subId: "Info app, pembuat & berita",
+    subEn: "App info, author & news",
+    icon: <Info size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#5ac8fa]",
+  },
+  {
+    id: "support",
+    group: "info",
+    labelId: "Dukungan (Support)",
+    labelEn: "Support & Donate",
+    subId: "Saweria, SociaBuzz & QRIS",
+    subEn: "Saweria, SociaBuzz & QRIS",
+    icon: <Heart size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#ff2d55]",
+  },
   {
     id: "tabs",
     group: "island",
@@ -143,26 +163,6 @@ export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
     subEn: "Updates, cache & reset",
     icon: <ShieldCheck size={15} strokeWidth={2.2} />,
     bgClass: "bg-[#32ade6]",
-  },
-  {
-    id: "about",
-    group: "info",
-    labelId: "Tentang & Berita",
-    labelEn: "About & News",
-    subId: "Info app, pembuat & berita",
-    subEn: "App info, author & news",
-    icon: <Info size={15} strokeWidth={2.2} />,
-    bgClass: "bg-[#5ac8fa]",
-  },
-  {
-    id: "support",
-    group: "info",
-    labelId: "Dukungan (Support)",
-    labelEn: "Support & Donate",
-    subId: "Saweria, SociaBuzz & QRIS",
-    subEn: "Saweria, SociaBuzz & QRIS",
-    icon: <Heart size={15} strokeWidth={2.2} />,
-    bgClass: "bg-[#ff2d55]",
   },
 ];
 

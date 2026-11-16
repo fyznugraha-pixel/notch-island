@@ -646,7 +646,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
   return (
     <div className="flex flex-col w-full h-full min-h-0 px-6 pb-1 select-none text-white overflow-hidden">
       {/* Top Toolbar: Note count + Chevrons + Search + New Note Button */}
-      <div className="flex items-center justify-between gap-2 mt-0.5 mb-1.5 shrink-0">
+      <div className="flex items-center justify-between gap-2 mb-1 shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-[12.5px] font-bold text-white">
             {t("note_count", { count: notes.length })}
@@ -667,7 +667,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                   type="button"
                   onClick={() => scrollByAmount(-210)}
                   disabled={!canScrollLeft}
-                  className="w-[28px] h-[28px] rounded-[8px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+                  className="w-[26px] h-[26px] rounded-[8px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
                 >
                   <ChevronLeft size={13.5} />
                 </button>
@@ -677,7 +677,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                   type="button"
                   onClick={() => scrollByAmount(210)}
                   disabled={!canScrollRight}
-                  className="w-[28px] h-[28px] rounded-[8px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+                  className="w-[26px] h-[26px] rounded-[8px] bg-[#121216] border border-[#1e1e25] flex items-center justify-center text-[#a1a1aa] hover:text-white hover:bg-[#1a1a22] disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
                 >
                   <ChevronRight size={13.5} />
                 </button>
@@ -685,7 +685,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
             </div>
           )}
 
-          <div className="w-[180px] h-[28px] rounded-[9px] bg-[#121216] border border-[#1e1e25] px-2.5 flex items-center gap-1.5 focus-within:border-[#3882F6]/60 transition-colors">
+          <div className="w-[180px] h-[26px] rounded-[9px] bg-[#121216] border border-[#1e1e25] px-2.5 flex items-center gap-1.5 focus-within:border-[#3882F6]/60 transition-colors">
             <Search size={12.5} className="text-[#a1a1aa] shrink-0" />
             <input
               type="text"
@@ -708,7 +708,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
           <button
             type="button"
             onClick={handleCreateNewNote}
-            className="h-[28px] px-3 rounded-[9px] bg-[#3882F6] hover:bg-[#2563eb] text-white text-[11.5px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+            className="h-[26px] px-3 rounded-[9px] bg-[#3882F6] hover:bg-[#2563eb] text-white text-[11.5px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
           >
             <Plus size={13.5} strokeWidth={2.4} />
             <span>{t("note_new")}</span>
@@ -717,37 +717,41 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
       </div>
 
       {/* Horizontal Swipe Note Cards Row with Chevrons and Gesture Isolation */}
-      <div className="relative w-full shrink-0">
+      <div className="relative w-full flex-1 min-h-0 flex flex-col justify-start">
         {/* Floating Left Scroll Chevron */}
         {canScrollLeft && (
-          <Tooltip content={t("note_prev")} side="right" wrapperClassName="absolute left-1.5 top-1/2 -translate-y-1/2 z-20">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                scrollByAmount(-210);
-              }}
-              className="w-7 h-7 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
-            >
-              <ChevronLeft size={15} />
-            </button>
-          </Tooltip>
+          <div className="absolute left-1 top-[66px] -translate-y-1/2 z-20">
+            <Tooltip content={t("note_prev")} side="right">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  scrollByAmount(-210);
+                }}
+                className="w-7 h-7 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
+              >
+                <ChevronLeft size={15} />
+              </button>
+            </Tooltip>
+          </div>
         )}
 
         {/* Floating Right Scroll Chevron */}
         {canScrollRight && (
-          <Tooltip content={t("note_next")} side="left" wrapperClassName="absolute right-1.5 top-1/2 -translate-y-1/2 z-20">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                scrollByAmount(210);
-              }}
-              className="w-7 h-7 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
-            >
-              <ChevronRight size={15} />
-            </button>
-          </Tooltip>
+          <div className="absolute right-1 top-[66px] -translate-y-1/2 z-20">
+            <Tooltip content={t("note_next")} side="left">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  scrollByAmount(210);
+                }}
+                className="w-7 h-7 rounded-full bg-[#121216]/90 hover:bg-[#1f1f28] border border-[#2e2e38] backdrop-blur-md shadow-xl flex items-center justify-center text-[#d4d4d8] hover:text-white hover:scale-105 transition-all cursor-pointer"
+              >
+                <ChevronRight size={15} />
+              </button>
+            </Tooltip>
+          </div>
         )}
 
         <div
@@ -774,10 +778,10 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
             dragStartXRef.current = e.clientX;
             scrollStartLeftRef.current = cardsRowRef.current.scrollLeft;
           }}
-          className="notes-horizontal-scroll flex items-stretch gap-2.5 overflow-x-auto overflow-y-hidden no-scrollbar pb-0.5 shrink-0 cursor-grab active:cursor-grabbing select-none"
+          className="notes-horizontal-scroll flex items-stretch gap-2.5 overflow-x-auto overflow-y-hidden no-scrollbar py-0.5 shrink-0 cursor-grab active:cursor-grabbing select-none"
         >
           {sortedFilteredNotes.length === 0 ? (
-            <div className="w-full h-[138px] flex flex-col items-center justify-center text-center text-[#71717a] border border-dashed border-[#1e1e25] rounded-[16px] px-4">
+            <div className="w-full h-[132px] flex flex-col items-center justify-center text-center text-[#71717a] border border-dashed border-[#1e1e25] rounded-[16px] px-4">
               <p className="text-[12.5px] font-medium text-[#a1a1aa]">
                 {searchQuery ? t("note_empty_search") : t("note_empty_notes")}
               </p>
@@ -803,7 +807,7 @@ export const MiniNotePanel: React.FC<MiniNotePanelProps> = ({ optLanguage, onEdi
                     if (hasDraggedRef.current) return;
                     setEditingNoteId(note.id);
                   }}
-                  className={`group w-[196px] shrink-0 h-[138px] rounded-[16px] p-3 bg-[#101015] flex flex-col gap-1 cursor-pointer transition-all ${
+                  className={`group w-[196px] shrink-0 h-[132px] rounded-[16px] p-2.5 bg-[#101015] flex flex-col gap-1 cursor-pointer transition-all ${
                     note.pinned
                       ? "border border-[#3882F6]/80 hover:border-[#3882F6]"
                       : "border border-[#1e1e25] hover:border-[#3a3a43]"

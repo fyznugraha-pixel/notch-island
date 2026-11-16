@@ -179,10 +179,13 @@ export const Tooltip: React.FC<TooltipProps> = ({
       (document.documentElement.classList.contains("light") ||
         document.documentElement.getAttribute("data-taskbar-light") === "true"));
 
+  const hasExplicitPosition = /(?:^|\s)(?:static|relative|absolute|fixed|sticky)(?:\s|$)/.test(wrapperClassName);
+  const hasExplicitDisplay = /(?:^|\s)(?:block|inline-block|flex|inline-flex|inline-grid|grid|inline|contents|hidden)(?:\s|$)/.test(wrapperClassName);
+
   return (
     <div
       ref={triggerRef}
-      className={`relative inline-flex items-center justify-center ${wrapperClassName}`}
+      className={`${hasExplicitPosition ? "" : "relative"} ${hasExplicitDisplay ? "" : "inline-flex items-center justify-center"} ${wrapperClassName}`.trim()}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onFocus={handleMouseEnter}

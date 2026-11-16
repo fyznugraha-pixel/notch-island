@@ -17,6 +17,7 @@ pub mod backdrop_blur;
 pub mod shared_sampler;
 pub mod taskbar_manager;
 pub mod navbar_window;
+pub mod window_dock_anim;
 pub mod window_preview;
 pub mod windows_pinned_apps;
 pub mod shell_surface_toggle;
@@ -4200,17 +4201,27 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         use tauri::Emitter;
         if let Some(w) = app_handle.get_webview_window("settings") {
             let _ = w.set_min_size(Some(tauri::LogicalSize::new(680.0, 480.0)));
-            let _ = w.unminimize();
-            let _ = w.show();
-            let _ = w.set_focus();
-            #[cfg(windows)]
-            if let Ok(hwnd) = w.hwnd() {
-                use windows::Win32::Foundation::HWND;
-                use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, ShowWindow, SW_RESTORE};
-                unsafe {
-                    let h = HWND(hwnd.0);
-                    let _ = ShowWindow(h, SW_RESTORE);
-                    let _ = SetForegroundWindow(h);
+            let was_minimized = w.is_minimized().unwrap_or(false);
+            if was_minimized {
+                #[cfg(windows)]
+                if let Ok(hwnd) = w.hwnd() {
+                    navbar_window::restore_hwnd_with_dock_anchor(&app_handle, hwnd.0 as isize, None);
+                } else {
+                    let _ = w.unminimize();
+                }
+            } else {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+                #[cfg(windows)]
+                if let Ok(hwnd) = w.hwnd() {
+                    use windows::Win32::Foundation::HWND;
+                    use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, ShowWindow, SW_RESTORE};
+                    unsafe {
+                        let h = HWND(hwnd.0);
+                        let _ = ShowWindow(h, SW_RESTORE);
+                        let _ = SetForegroundWindow(h);
+                    }
                 }
             }
             if let Some(sec) = section {
@@ -4286,7 +4297,14 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
 }
 
 #[tauri::command]
-async fn open_settings_window(app: tauri::AppHandle, section: Option<String>) {
+async fn open_settings_window(
+    app: tauri::AppHandle,
+    section: Option<String>,
+    anchor_rect: Option<window_dock_anim::DockAnchorRect>,
+) {
+    if let Some(anchor) = anchor_rect {
+        window_dock_anim::record_last_dock_anchor(anchor);
+    }
     show_or_create_settings_window(&app, section);
 }
 
@@ -4540,12 +4558,15 @@ pub fn run() {
             navbar_window::trigger_quick_settings,
             navbar_window::trigger_volume_flyout,
             navbar_window::trigger_notification_center,
+            navbar_window::trigger_hidden_tray,
             navbar_window::trigger_file_explorer,
             navbar_window::trigger_task_manager,
             navbar_window::launch_target,
             navbar_window::switch_virtual_desktop,
             navbar_window::trigger_fullscreen_screenshot,
             navbar_window::get_running_windows,
+            navbar_window::set_dock_action_anchor,
+            window_dock_anim::set_window_dock_animation,
             navbar_window::activate_or_toggle_window,
             navbar_window::capture_window_thumbnail,
             window_preview::sync_window_previews,

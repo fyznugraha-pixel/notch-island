@@ -204,6 +204,13 @@ pub fn sync_switches_from_navbar_config_value(cfg: &serde_json::Value) {
 
     set_taskbar_window_switches(switches);
 
+    let genie_enabled = cfg
+        .get("windowAnimation")
+        .and_then(|v| v.as_str())
+        .map(|s| s != "normal")
+        .unwrap_or(true);
+    crate::window_dock_anim::set_genie_animation_enabled(genie_enabled);
+
     if !cfg!(test) {
         let hide_windows_taskbar = flag("hideWindowsTaskbar");
         crate::taskbar_manager::set_taskbar_visible(!hide_windows_taskbar);
@@ -296,12 +303,20 @@ mod tests {
             "enabled": true,
             "useGiliStart": true,
             "useGiliSearch": false,
-            "useGiliQuickSettings": true
+            "useGiliQuickSettings": true,
+            "windowAnimation": "normal"
         }));
         let when_enabled = get_taskbar_window_switches();
         assert!(when_enabled.use_gili_start);
         assert!(!when_enabled.use_gili_search);
         assert!(when_enabled.use_gili_quick_settings);
+        assert!(!crate::window_dock_anim::is_genie_animation_enabled());
+
+        sync_switches_from_navbar_config_value(&serde_json::json!({
+            "enabled": true,
+            "windowAnimation": "genie"
+        }));
+        assert!(crate::window_dock_anim::is_genie_animation_enabled());
 
         // Reset to original state
         set_taskbar_window_switches(initial);

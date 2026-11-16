@@ -11,17 +11,17 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     keybd_event, GetAsyncKeyState, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
-    VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_LWIN, VK_RBUTTON, VK_SHIFT,
+    VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_LWIN, VK_RBUTTON, VK_RETURN, VK_SHIFT,
 };
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_REMOVE, APPBARDATA};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetLayeredWindowAttributes,
-    GetWindow, GetWindowLongW, GetWindowPlacement, GetWindowRect, GetWindowTextW,
+    GetTopWindow, GetWindow, GetWindowLongW, GetWindowPlacement, GetWindowRect, GetWindowTextW,
     GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, SetWindowLongW,
-    SetWindowPos, ShowWindow, ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, HWND_TOPMOST,
-    LWA_ALPHA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_MINIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE,
-    WINDOWPLACEMENT, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_THICKFRAME,
+    SetWindowPos, ShowWindow, ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE, GW_HWNDNEXT, GW_OWNER,
+    HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_MINIMIZE, SW_RESTORE,
+    SW_SHOWNOACTIVATE, WINDOWPLACEMENT, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_THICKFRAME,
 };
 
 static NAVBAR_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -279,6 +279,39 @@ fn is_trackable_fg_window(hwnd: HWND) -> bool {
     unsafe {
         IsWindowVisible(hwnd).as_bool() && !is_window_cloaked(hwnd) && is_gili_settings_window(hwnd)
     }
+}
+
+pub fn on_external_foreground_observed(hwnd: isize) {
+    if hwnd == 0 {
+        return;
+    }
+    let h = HWND(hwnd as *mut _);
+    if is_trackable_fg_window(h) {
+        LAST_EXTERNAL_FG_HWND.store(hwnd, Ordering::Relaxed);
+    }
+}
+
+pub(crate) fn is_topmost_visible_trackable_window(target: HWND) -> bool {
+    if target.0.is_null() {
+        return false;
+    }
+    unsafe {
+        let mut cur = GetTopWindow(None).unwrap_or_default();
+        for _ in 0..64 {
+            if cur.0.is_null() {
+                break;
+            }
+            if IsWindowVisible(cur).as_bool()
+                && !IsIconic(cur).as_bool()
+                && !is_window_cloaked(cur)
+                && is_trackable_fg_window(cur)
+            {
+                return cur == target;
+            }
+            cur = GetWindow(cur, GW_HWNDNEXT).unwrap_or_default();
+        }
+    }
+    false
 }
 
 /// Checks if the current foreground window is a true fullscreen application (game, video player, F11 browser)
@@ -558,17 +591,56 @@ fn is_any_window_covering_dock(
     ctx.is_covered
 }
 
-fn is_dock_reveal_edge_hit(pt: POINT, sf: f64, geom: &NavbarHitGeometry) -> bool {
+fn is_dock_reveal_edge_hit(
+    pt: POINT,
+    win_pos: tauri::PhysicalPosition<i32>,
+    win_size: tauri::PhysicalSize<u32>,
+    sf: f64,
+    geom: &NavbarHitGeometry,
+) -> bool {
+    let win_left = win_pos.x;
+    let win_top = win_pos.y;
+    let win_right = win_left + win_size.width as i32;
+    let win_bottom = win_top + win_size.height as i32;
+
     let (mon_l, mon_t, mon_r, mon_b) = geom.mon_rect;
-    if mon_r <= mon_l || mon_b <= mon_t {
-        return false;
-    }
-    let strip = (8.0 * sf).round().max(6.0) as i32;
+    let (edge_l, edge_t, edge_r, edge_b) = if mon_r > mon_l && mon_b > mon_t {
+        (mon_l, mon_t, mon_r, mon_b)
+    } else {
+        (win_left, win_top, win_right, win_bottom)
+    };
+
+    let dock_rect =
+        compute_dock_visual_phys_rect(win_left, win_top, win_right, win_bottom, sf, geom, false);
+    let _ = sf;
+    // Require cursor to reach the literal 2px screen bezel strip inside the dock span.
+    let strip = 2i32;
+
     match geom.position.as_str() {
-        "top" => pt.x >= mon_l && pt.x <= mon_r && pt.y >= mon_t && pt.y <= mon_t + strip,
-        "left" => pt.y >= mon_t && pt.y <= mon_b && pt.x >= mon_l && pt.x <= mon_l + strip,
-        "right" => pt.y >= mon_t && pt.y <= mon_b && pt.x >= mon_r - strip && pt.x <= mon_r,
-        _ => pt.x >= mon_l && pt.x <= mon_r && pt.y >= mon_b - strip && pt.y <= mon_b,
+        "top" => {
+            pt.x >= dock_rect.left
+                && pt.x <= dock_rect.right
+                && pt.y >= edge_t
+                && pt.y < edge_t + strip
+        }
+        "left" => {
+            pt.y >= dock_rect.top
+                && pt.y <= dock_rect.bottom
+                && pt.x >= edge_l
+                && pt.x < edge_l + strip
+        }
+        "right" => {
+            pt.y >= dock_rect.top
+                && pt.y <= dock_rect.bottom
+                && pt.x >= edge_r - strip
+                && pt.x < edge_r
+        }
+        _ => {
+            pt.x >= dock_rect.left
+                && pt.x <= dock_rect.right
+                && pt.y >= edge_b - strip
+                && pt.y < edge_b
+        }
     }
 }
 
@@ -580,8 +652,8 @@ fn calculate_navbar_hit(
     geom: &NavbarHitGeometry,
     active_popups: &[Option<PopupHitRect>],
 ) -> bool {
-    if geom.auto_hide && geom.is_dock_hidden && is_dock_reveal_edge_hit(pt, sf, geom) {
-        return true;
+    if geom.auto_hide && geom.is_dock_hidden {
+        return is_dock_reveal_edge_hit(pt, win_pos, win_size, sf, geom);
     }
 
     let win_left = win_pos.x;
@@ -1230,8 +1302,7 @@ pub fn sync_navbar_bounds(
                     false,
                 );
                 let is_liquid = style.as_deref() == Some("liquid");
-                let alpha = opacity.unwrap_or(100.0) / 100.0;
-                let is_glass = is_liquid || alpha < 0.98;
+                let _ = opacity;
                 let is_light = is_light_surface.unwrap_or(false);
                 let raw_radius = corner_radius.unwrap_or(15.0);
                 let effective_radius_css = if is_anchored_bool {
@@ -1248,7 +1319,7 @@ pub fn sync_navbar_bounds(
                     && !(geom_snapshot.auto_hide && geom_snapshot.is_dock_hidden);
                 crate::window_backdrop::sync_navbar_backdrop(
                     backdrop_enabled,
-                    is_glass,
+                    is_liquid,
                     is_light,
                     raw_hwnd.0 as isize,
                     dock_rect.left,
@@ -1803,7 +1874,12 @@ fn activate_or_toggle_window_sync(hwnd: isize) {
         let is_minimized = IsIconic(target).as_bool();
         let fg_is_other_trackable = is_trackable_fg_window(fg) && fg != target;
 
-        if !is_minimized && (fg == target || (!fg_is_other_trackable && last_ext == hwnd)) {
+        if !is_minimized
+            && (fg == target
+                || (!fg_is_other_trackable
+                    && (last_ext == hwnd
+                        || (last_ext == 0 && is_topmost_visible_trackable_window(target)))))
+        {
             crate::window_preview::capture_window_before_minimize(hwnd);
             let _ = ShowWindowAsync(target, SW_MINIMIZE);
             LAST_EXTERNAL_FG_HWND.store(0, Ordering::Relaxed);
@@ -1833,9 +1909,67 @@ fn activate_or_toggle_window_sync(hwnd: isize) {
     }
 }
 
+fn toggle_hwnd_with_optional_dock_anchor(
+    app: &tauri::AppHandle,
+    hwnd: isize,
+    anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
+) {
+    let effective_anchor = anchor_rect.or_else(|| {
+        crate::window_dock_anim::get_recent_dock_anchor(std::time::Duration::from_secs(12))
+    });
+    if effective_anchor.is_some() {
+        crate::window_dock_anim::toggle_window_with_dock_animation(
+            app,
+            hwnd,
+            effective_anchor,
+            &LAST_EXTERNAL_FG_HWND,
+            |fg, target| is_trackable_fg_window(fg) && fg != target,
+            is_topmost_visible_trackable_window,
+            || {
+                request_overlap_recheck();
+                crate::backdrop_blur::invalidate_all_backdrops();
+            },
+        );
+    } else {
+        activate_or_toggle_window_sync(hwnd);
+    }
+}
+
+pub(crate) fn restore_hwnd_with_dock_anchor(
+    app: &tauri::AppHandle,
+    hwnd: isize,
+    anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
+) {
+    let effective_anchor = anchor_rect.or_else(|| {
+        crate::window_dock_anim::get_recent_dock_anchor(std::time::Duration::from_secs(12))
+    });
+    crate::window_dock_anim::restore_window_with_dock_animation(
+        app,
+        hwnd,
+        effective_anchor,
+        &LAST_EXTERNAL_FG_HWND,
+        || {
+            request_overlap_recheck();
+            crate::backdrop_blur::invalidate_all_backdrops();
+        },
+    );
+}
+
 #[tauri::command]
-pub async fn activate_or_toggle_window(hwnd: isize) {
-    let _ = tauri::async_runtime::spawn_blocking(move || activate_or_toggle_window_sync(hwnd)).await;
+pub fn set_dock_action_anchor(anchor: crate::window_dock_anim::DockAnchorRect) {
+    crate::window_dock_anim::record_last_dock_anchor(anchor);
+}
+
+#[tauri::command]
+pub async fn activate_or_toggle_window(
+    app: tauri::AppHandle,
+    hwnd: isize,
+    anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
+) {
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        toggle_hwnd_with_optional_dock_anchor(&app, hwnd, anchor_rect);
+    })
+    .await;
 }
 
 #[tauri::command]
@@ -1854,6 +1988,7 @@ pub fn trigger_start_menu() {
         );
     }
 }
+
 
 #[tauri::command]
 pub fn trigger_windows_search() {
@@ -1875,6 +2010,7 @@ pub fn trigger_windows_search() {
         );
     }
 }
+
 
 #[tauri::command]
 pub fn trigger_quick_settings() {
@@ -1899,6 +2035,7 @@ pub fn trigger_quick_settings() {
     }
 }
 
+
 #[tauri::command]
 pub fn trigger_volume_flyout() {
     unsafe {
@@ -1915,6 +2052,7 @@ pub fn trigger_volume_flyout() {
         );
     }
 }
+
 
 #[tauri::command]
 pub fn trigger_notification_center() {
@@ -1939,9 +2077,46 @@ pub fn trigger_notification_center() {
     }
 }
 
+
 #[tauri::command]
-pub async fn trigger_file_explorer() {
-    let _ = tauri::async_runtime::spawn_blocking(|| {
+pub fn trigger_hidden_tray() {
+    if crate::taskbar_manager::get_windows_taskbar_hidden() {
+        crate::taskbar_flyout::toggle_taskbar_flyout_by_target("tray");
+        return;
+    }
+    if crate::shell_surface_toggle::was_just_open(crate::shell_surface_toggle::Surface::ShellFlyout)
+    {
+        return;
+    }
+    crate::shell_surface_toggle::record_surface_opened(
+        crate::shell_surface_toggle::Surface::ShellFlyout,
+    );
+    unsafe {
+        keybd_event(VK_LWIN.0 as u8, 0, KEYEVENTF_EXTENDEDKEY, 0);
+        keybd_event(b'B', 0, KEYBD_EVENT_FLAGS(0), 0);
+        keybd_event(b'B', 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(
+            VK_LWIN.0 as u8,
+            0,
+            KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP,
+            0,
+        );
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        unsafe {
+            keybd_event(VK_RETURN.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
+            keybd_event(VK_RETURN.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+        }
+    });
+}
+
+#[tauri::command]
+pub async fn trigger_file_explorer(
+    app: tauri::AppHandle,
+    anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
+) {
+    let _ = tauri::async_runtime::spawn_blocking(move || {
         let running = enumerate_running_windows(false, None);
         if let Some(exp) = running
             .iter()
@@ -1952,7 +2127,7 @@ pub async fn trigger_file_explorer() {
                     .find(|w| w.process_name.eq_ignore_ascii_case("explorer.exe"))
             })
         {
-            activate_or_toggle_window_sync(exp.hwnd);
+            toggle_hwnd_with_optional_dock_anchor(&app, exp.hwnd, anchor_rect);
             return;
         }
         unsafe {
@@ -1971,14 +2146,17 @@ pub async fn trigger_file_explorer() {
 }
 
 #[tauri::command]
-pub async fn trigger_task_manager() {
-    let _ = tauri::async_runtime::spawn_blocking(|| {
+pub async fn trigger_task_manager(
+    app: tauri::AppHandle,
+    anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
+) {
+    let _ = tauri::async_runtime::spawn_blocking(move || {
         let running = enumerate_running_windows(false, None);
         if let Some(tm) = running
             .iter()
             .find(|w| w.process_name.eq_ignore_ascii_case("Taskmgr.exe"))
         {
-            activate_or_toggle_window_sync(tm.hwnd);
+            toggle_hwnd_with_optional_dock_anchor(&app, tm.hwnd, anchor_rect);
             return;
         }
         unsafe {
@@ -1994,16 +2172,19 @@ pub async fn trigger_task_manager() {
 }
 
 #[tauri::command]
-pub async fn launch_target(target: String) {
+pub async fn launch_target(
+    app: tauri::AppHandle,
+    target: String,
+    anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
+) {
     let _ = tauri::async_runtime::spawn_blocking(move || {
         if target == "ms-settings:" {
             let running = enumerate_running_windows(false, None);
             if let Some(settings_win) = running.iter().find(|w| {
                 w.process_name.eq_ignore_ascii_case("SystemSettings.exe")
-                    && w.is_active
-                    && !w.is_minimized
+                    && (w.is_minimized || w.is_active)
             }) {
-                activate_or_toggle_window_sync(settings_win.hwnd);
+                toggle_hwnd_with_optional_dock_anchor(&app, settings_win.hwnd, anchor_rect);
                 return;
             }
         }
@@ -2075,6 +2256,7 @@ pub fn trigger_fullscreen_screenshot() {
         );
     }
 }
+
 
 #[tauri::command]
 pub fn check_navbar_window_overlap(app: tauri::AppHandle) -> bool {
@@ -2271,6 +2453,104 @@ mod preview_probe_tests {
             &maximized_above_workarea,
             0x0100_0000,
             &dock
+        ));
+    }
+
+    #[test]
+    fn test_hidden_dock_reveal_requires_edge_inside_dock_span() {
+        let geom = NavbarHitGeometry {
+            dock_width: 600.0,
+            dock_height: 50.0,
+            position: "bottom".to_string(),
+            distance_from_edge: 14.0,
+            is_anchored: false,
+            auto_hide: true,
+            auto_hide_enabled: true,
+            is_dock_hidden: true,
+            scale_factor: 1.0,
+            mon_rect: (0, 0, 1920, 1080),
+        };
+        let win_pos = tauri::PhysicalPosition::new(0, 618);
+        let win_size = tauri::PhysicalSize::new(1920, 462);
+        let stale_popups = vec![Some(PopupHitRect {
+            x: 660.0,
+            y: 300.0,
+            width: 300.0,
+            height: 150.0,
+        })];
+
+        // Moving cursor down near bottom without reaching the 2px bezel strip must NOT reveal
+        assert!(!calculate_navbar_hit(
+            POINT { x: 960, y: 1068 },
+            win_pos,
+            win_size,
+            1.0,
+            &geom,
+            &stale_popups,
+        ));
+        assert!(!calculate_navbar_hit(
+            POINT { x: 960, y: 1077 },
+            win_pos,
+            win_size,
+            1.0,
+            &geom,
+            &stale_popups,
+        ));
+        assert!(!calculate_navbar_hit(
+            POINT { x: 960, y: 1077 },
+            win_pos,
+            win_size,
+            1.5,
+            &geom,
+            &stale_popups,
+        ));
+
+        // Bottom corner or outside exact dock horizontal span (660..1260) must NOT reveal
+        assert!(!calculate_navbar_hit(
+            POINT { x: 100, y: 1079 },
+            win_pos,
+            win_size,
+            1.0,
+            &geom,
+            &stale_popups,
+        ));
+        assert!(!calculate_navbar_hit(
+            POINT { x: 655, y: 1079 },
+            win_pos,
+            win_size,
+            1.0,
+            &geom,
+            &stale_popups,
+        ));
+
+        // Touching actual 2px bottom bezel strip inside dock span MUST reveal
+        assert!(calculate_navbar_hit(
+            POINT { x: 960, y: 1078 },
+            win_pos,
+            win_size,
+            1.0,
+            &geom,
+            &[],
+        ));
+        assert!(calculate_navbar_hit(
+            POINT { x: 960, y: 1079 },
+            win_pos,
+            win_size,
+            1.5,
+            &geom,
+            &[],
+        ));
+
+        // Once revealed (is_dock_hidden = false), hovering the floating dock body keeps it active
+        let mut shown = geom;
+        shown.is_dock_hidden = false;
+        assert!(calculate_navbar_hit(
+            POINT { x: 960, y: 1035 },
+            win_pos,
+            win_size,
+            1.0,
+            &shown,
+            &[],
         ));
     }
 }

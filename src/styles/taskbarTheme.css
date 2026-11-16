@@ -74,19 +74,19 @@
 }
 
 [data-taskbar-theme="liquid"] {
-  --taskbar-bg: rgba(18, 20, 32, 0.62);
+  --taskbar-bg: rgba(18, 20, 32, 0.78);
   --taskbar-surface: linear-gradient(
       180deg,
       rgba(255, 255, 255, 0.14) 0%,
-      rgba(255, 255, 255, 0.04) 50%,
+      rgba(255, 255, 255, 0.04) 48%,
       rgba(255, 255, 255, 0.08) 100%
     ),
-    rgba(20, 18, 48, 0.42);
+    rgba(18, 19, 34, 0.88);
   --taskbar-surface-hover: rgba(255, 255, 255, 0.14);
-  --taskbar-surface-border: 1px solid rgba(255, 255, 255, 0.18);
-  --taskbar-surface-radius: 8px;
+  --taskbar-surface-border: 1px solid rgba(255, 255, 255, 0.2);
+  --taskbar-surface-radius: 24px;
   --taskbar-surface-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
     inset 0 0 0 1px rgba(255, 255, 255, 0.16);
   --taskbar-backdrop-filter: none;
 
@@ -228,20 +228,20 @@
 
 [data-taskbar-light="true"] [data-taskbar-theme="liquid"],
 [data-taskbar-theme="liquid"][data-taskbar-light="true"] {
-  --taskbar-bg: rgba(248, 250, 252, 0.76);
+  --taskbar-bg: rgba(248, 250, 252, 0.86);
   --taskbar-surface: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.76) 0%,
-      rgba(255, 255, 255, 0.56) 55%,
-      rgba(248, 250, 252, 0.7) 100%
+      rgba(255, 255, 255, 0.9) 0%,
+      rgba(248, 250, 252, 0.84) 55%,
+      rgba(241, 245, 249, 0.88) 100%
     ),
-    rgba(241, 245, 249, 0.65);
+    rgba(241, 245, 249, 0.88);
   --taskbar-surface-hover: rgba(15, 23, 42, 0.07);
-  --taskbar-surface-border: 1px solid rgba(15, 23, 42, 0.14);
-  --taskbar-surface-radius: 8px;
-  --taskbar-surface-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    inset 0 -1px 0 rgba(15, 23, 42, 0.06),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+  --taskbar-surface-border: 1px solid rgba(15, 23, 42, 0.15);
+  --taskbar-surface-radius: 24px;
+  --taskbar-surface-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55);
   --taskbar-backdrop-filter: none;
 
   --taskbar-card: rgba(255, 255, 255, 0.82);
@@ -318,8 +318,7 @@
   overflow: hidden;
   user-select: none;
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  transition: opacity 140ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
 }
 
 .gili-flyout-card {

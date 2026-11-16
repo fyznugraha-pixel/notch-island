@@ -5,6 +5,7 @@ export type NavbarBackground = "followNotch" | "black" | "custom";
 export type NavbarIconSpacing = "tight" | "normal" | "roomy";
 export type NavbarIconTheme = "fluent" | "windows" | "ios";
 export type NavbarAutoHideMode = "normal" | "maxsize";
+export type NavbarWindowAnimation = "genie" | "normal";
 export type NavbarModuleView = "compact" | "full";
 export type NavbarPowerState = "ACTIVE" | "IDLE" | "SUSPENDED";
 
@@ -33,6 +34,7 @@ export interface NavbarConfig {
   blur: number;
   autoHide: boolean;
   autoHideMode: NavbarAutoHideMode;
+  windowAnimation: NavbarWindowAnimation;
   windowPreviews: boolean;
   magnify: boolean;
   appLabels: boolean;
@@ -51,6 +53,7 @@ export const BUILTIN_MODULE_IDS = [
   "startSearch",
   "pinnedApps",
   "runningApps",
+  "hiddenTray",
   "systemIcons",
   "notifications",
   "clockDate",
@@ -62,6 +65,7 @@ export const DEFAULT_NAVBAR_MODULES: NavbarModuleConfig[] = [
   { id: "startSearch", group: 1, enabled: true, view: "compact" },
   { id: "pinnedApps", group: 2, enabled: true, view: "compact" },
   { id: "runningApps", group: 2, enabled: true, view: "compact" },
+  { id: "hiddenTray", group: 3, enabled: true, view: "compact" },
   { id: "systemIcons", group: 3, enabled: true, view: "compact" },
   { id: "notifications", group: 3, enabled: true, view: "compact" },
   { id: "clockDate", group: 3, enabled: true, view: "compact" },
@@ -85,6 +89,7 @@ export const DEFAULT_NAVBAR_CONFIG: NavbarConfig = {
   blur: 68,
   autoHide: false,
   autoHideMode: "normal",
+  windowAnimation: "genie",
   windowPreviews: true,
   magnify: true,
   appLabels: false,

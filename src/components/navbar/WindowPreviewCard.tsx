@@ -460,11 +460,7 @@ export const WindowPreviewCard: React.FC<WindowPreviewCardProps> = ({
           }}
           role="dialog"
           aria-label={tx(lang, `${appName} windows`, `Jendela ${appName}`)}
-          className={`rounded-[15px] border p-2 ring-1 ring-inset max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] overflow-auto ${
-            isLightMode
-              ? "border-black/[0.1] bg-white/[0.96] shadow-[0_20px_50px_rgba(15,23,42,0.18)] ring-black/[0.04] text-zinc-900"
-              : "border-white/[0.14] bg-[#13141a]/[0.96] shadow-[0_20px_50px_rgba(0,0,0,0.72)] ring-white/[0.06] text-white"
-          }`}
+          className="max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] overflow-visible"
         >
         <div className={cardsContainerClass}>
           {visibleWindows.map((win) => (
@@ -480,10 +476,10 @@ export const WindowPreviewCard: React.FC<WindowPreviewCardProps> = ({
                 }
               }}
               style={{ width: cardWidth }}
-              className={`group relative shrink-0 max-w-full p-2 rounded-[11px] border transition-colors duration-150 cursor-pointer ${
+              className={`group relative shrink-0 max-w-full p-2 rounded-[13px] border ring-1 ring-inset transition-colors duration-150 cursor-pointer ${
                 isLightMode
-                  ? "border-black/[0.08] bg-black/[0.03] hover:bg-black/[0.07] hover:border-black/[0.16] text-zinc-900"
-                  : "border-white/[0.09] bg-white/[0.045] hover:bg-white/[0.085] hover:border-white/[0.24] text-white"
+                  ? "border-black/[0.1] ring-black/[0.04] bg-white/[0.96] hover:bg-white hover:border-black/[0.18] shadow-[0_14px_34px_rgba(15,23,42,0.18)] text-zinc-900"
+                  : "border-white/[0.14] ring-white/[0.06] bg-[#13141a]/[0.96] hover:bg-[#191b23] hover:border-white/[0.24] shadow-[0_16px_40px_rgba(0,0,0,0.72)] text-white"
               }`}
             >
               <div className="flex items-center justify-between gap-1.5 h-5 mb-1.5 px-0.5">
@@ -566,12 +562,12 @@ export const WindowPreviewCard: React.FC<WindowPreviewCardProps> = ({
         </div>
 
         {overflowCount > 0 && (
-          <div className="mt-1.5 px-1 flex items-center justify-end">
+          <div className="mt-1.5 flex items-center justify-end">
             <span
-              className={`px-2 py-0.5 rounded-full border text-[10px] font-medium ${
+              className={`px-2.5 py-0.5 rounded-full border text-[10px] font-medium shadow-md ${
                 isLightMode
-                  ? "bg-black/[0.06] border-black/[0.08] text-zinc-700"
-                  : "bg-white/[0.08] border-white/[0.08] text-white/70"
+                  ? "bg-white/[0.96] border-black/[0.1] text-zinc-700"
+                  : "bg-[#13141a]/[0.96] border-white/[0.14] text-white/80"
               }`}
             >
               +{overflowCount}{" "}

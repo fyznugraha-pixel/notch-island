@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { NavbarConfig } from "../../../types/navbar";
-import { Sliders, RotateCcw, AlertTriangle, Check, Lock } from "lucide-react";
+import { Sliders, RotateCcw, AlertTriangle, Lock } from "lucide-react";
 import { Language } from "../../../services/i18n";
+import { NavbarOptionGroup } from "./NavbarOptionGroup";
 
 interface NavbarBehaviorCardProps {
   config: NavbarConfig;
@@ -124,97 +125,70 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
         )}
 
         {config.autoHide && (
-          <div
-            className={`flex flex-col gap-2.5 my-1.5 p-3 rounded-[12px] border ${
-              isLightMode
-                ? "bg-black/[0.03] border-black/[0.07]"
-                : "bg-white/[0.03] border-white/[0.06]"
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className={`text-[11.5px] font-medium ${textTitle}`}>
-                {isId ? "Pilihan Sembunyi Otomatis:" : "Auto-Hide Behavior:"}
-              </span>
-              <span className={`text-[10px] ${textSub}`}>
-                {(config.autoHideMode || "normal") === "normal"
-                  ? isId
-                    ? "Normal • Tampil di Desktop"
-                    : "Normal • Visible on Desktop"
-                  : isId
-                  ? "Only Maxsize • Selalu Sembunyi"
-                  : "Only Maxsize • Always Hidden"}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {/* Option 1: Normal */}
-              <button
-                type="button"
-                onClick={() => onChange({ autoHideMode: "normal" })}
-                className={`p-2.5 rounded-[10px] border text-left flex flex-col gap-1 transition-all cursor-pointer ${
-                  (config.autoHideMode || "normal") === "normal"
-                    ? isLightMode
-                      ? "bg-white border-black/20 ring-1 ring-black/10 shadow-sm"
-                      : "bg-white/[0.08] border-white/30 ring-1 ring-white/20 shadow-sm"
-                    : isLightMode
-                    ? "bg-transparent border-black/[0.08] hover:bg-black/[0.04]"
-                    : "bg-transparent border-white/[0.07] hover:bg-white/[0.04]"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={`text-[12px] font-semibold ${textTitle}`}>
-                    {isId ? "Normal (Cerdas)" : "Normal"}
-                  </span>
-                  {(config.autoHideMode || "normal") === "normal" && (
-                    <Check
-                      size={13}
-                      className={isLightMode ? "text-emerald-600" : "text-emerald-400"}
-                      strokeWidth={2.6}
-                    />
-                  )}
-                </div>
-                <span className={`text-[10.5px] leading-relaxed ${textSub}`}>
-                  {isId
-                    ? "Pas di desktop tetap muncul. Otomatis ngumpet pas ada jendela terbuka / maximized."
-                    : "Stays visible on desktop. Auto-hides when windows are open or maximized."}
-                </span>
-              </button>
-
-              {/* Option 2: Only Maxsize */}
-              <button
-                type="button"
-                onClick={() => onChange({ autoHideMode: "maxsize" })}
-                className={`p-2.5 rounded-[10px] border text-left flex flex-col gap-1 transition-all cursor-pointer ${
-                  config.autoHideMode === "maxsize"
-                    ? isLightMode
-                      ? "bg-white border-black/20 ring-1 ring-black/10 shadow-sm"
-                      : "bg-white/[0.08] border-white/30 ring-1 ring-white/20 shadow-sm"
-                    : isLightMode
-                    ? "bg-transparent border-black/[0.08] hover:bg-black/[0.04]"
-                    : "bg-transparent border-white/[0.07] hover:bg-white/[0.04]"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={`text-[12px] font-semibold ${textTitle}`}>
-                    {isId ? "Only Maxsize" : "Only Maxsize"}
-                  </span>
-                  {config.autoHideMode === "maxsize" && (
-                    <Check
-                      size={13}
-                      className={isLightMode ? "text-emerald-600" : "text-emerald-400"}
-                      strokeWidth={2.6}
-                    />
-                  )}
-                </div>
-                <span className={`text-[10.5px] leading-relaxed ${textSub}`}>
-                  {isId
-                    ? "Di desktop pun tetap ke-hide. Selalu ngumpet dan muncul pas kursor mepet layar."
-                    : "Hides even on desktop. Always stays hidden until cursor moves to screen edge."}
-                </span>
-              </button>
-            </div>
-          </div>
+          <NavbarOptionGroup
+            label={isId ? "Pilihan Sembunyi Otomatis:" : "Auto-Hide Behavior:"}
+            activeSummary={
+              (config.autoHideMode || "normal") === "normal"
+                ? isId
+                  ? "Normal • Tampil di Desktop"
+                  : "Normal • Visible on Desktop"
+                : isId
+                ? "Only Maxsize • Selalu Sembunyi"
+                : "Only Maxsize • Always Hidden"
+            }
+            value={config.autoHideMode || "normal"}
+            onChange={(autoHideMode) => onChange({ autoHideMode })}
+            isLightMode={isLightMode}
+            options={[
+              {
+                value: "normal",
+                title: isId ? "Normal (Cerdas)" : "Normal",
+                desc: isId
+                  ? "Pas di desktop tetap muncul. Otomatis ngumpet pas ada jendela terbuka / maximized."
+                  : "Stays visible on desktop. Auto-hides when windows are open or maximized.",
+              },
+              {
+                value: "maxsize",
+                title: "Only Maxsize",
+                desc: isId
+                  ? "Di desktop pun tetap ke-hide. Selalu ngumpet dan muncul pas kursor mepet layar."
+                  : "Hides even on desktop. Always stays hidden until cursor moves to screen edge.",
+              },
+            ]}
+          />
         )}
+
+        <NavbarOptionGroup
+          label={isId ? "Animasi Buka & Tutup Jendela:" : "Window & Module Animation:"}
+          activeSummary={
+            (config.windowAnimation || "genie") === "genie"
+              ? isId
+                ? "Genie • Sedot ke Tombol"
+                : "Genie • Suction into Button"
+              : isId
+              ? "Normal • Hemat RAM"
+              : "Normal • Light RAM"
+          }
+          value={config.windowAnimation || "genie"}
+          onChange={(windowAnimation) => onChange({ windowAnimation })}
+          isLightMode={isLightMode}
+          options={[
+            {
+              value: "genie",
+              title: isId ? "Genie (Sedot macOS)" : "Genie (macOS Suction)",
+              desc: isId
+                ? "Jendela, modul, & flyout tersedot halus ke tombolnya. Butuh cache snapshot tambahan di RAM."
+                : "Windows, modules & flyouts funnel into their button. Uses extra snapshot cache in RAM.",
+            },
+            {
+              value: "normal",
+              title: isId ? "Normal (Ringan)" : "Normal (Light)",
+              desc: isId
+                ? "Animasi bawaan Windows & transisi standar. Lebih ringan tanpa cache snapshot di RAM."
+                : "Uses native Windows minimize animation & standard transitions with zero snapshot cache.",
+            },
+          ]}
+        />
 
         {renderToggleRow(
           isId ? "Pratinjau Jendela (Window Previews)" : "Window Previews",

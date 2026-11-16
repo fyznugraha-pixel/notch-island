@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { load } from "@tauri-apps/plugin-store";
@@ -27,6 +27,13 @@ import { switchFlyoutTarget } from "../../services/taskbarLaunchService";
 import { FrostedGlassOverlay } from "../ui/FrostedGlassOverlay";
 import { computeCalibratedGlassPalette } from "../../utils/frostedGlass";
 
+interface FlyoutAnchorInfo {
+  originX: number;
+  originY: number;
+  position?: string;
+  seq?: number;
+}
+
 interface FlyoutStatePayload {
   isOpen: boolean;
   target: string;
@@ -34,6 +41,59 @@ interface FlyoutStatePayload {
   isLight?: boolean;
   width?: number;
   height?: number;
+  anchor?: FlyoutAnchorInfo;
+  closing?: boolean;
+}
+
+function buildFlyoutKeyframes(
+  pos: string,
+  isExit: boolean,
+  useGenie: boolean
+): Keyframe[] {
+  const isVert = pos === "left" || pos === "right";
+  if (!useGenie) {
+    const slide = 10;
+    const dx = pos === "left" ? -slide : pos === "right" ? slide : 0;
+    const dy = pos === "top" ? -slide : isVert ? 0 : slide;
+    const hidden: Keyframe = {
+      opacity: 0,
+      transform: `translate3d(${dx}px, ${dy}px, 0px) scale(0.97, 0.97)`,
+    };
+    const visible: Keyframe = {
+      opacity: 1,
+      transform: "translate3d(0px, 0px, 0px) scale(1, 1)",
+    };
+    return isExit ? [visible, hidden] : [hidden, visible];
+  }
+
+  const delta = 24;
+  const dx = pos === "left" ? -delta : pos === "right" ? delta : 0;
+  const dy = pos === "top" ? -delta : isVert ? 0 : delta;
+  const rotAxis = isVert ? "rotateY" : "rotateX";
+  const tiltDeg = pos === "bottom" || pos === "left" ? 13 : -13;
+  const restTransform = `perspective(680px) translate3d(0px, 0px, 0px) ${rotAxis}(0deg) scale(1, 1)`;
+
+  const pinchSx = isVert ? 0.08 : 0.14;
+  const pinchSy = isVert ? 0.14 : 0.08;
+  const midSx = isVert ? 1.02 : 0.58;
+  const midSy = isVert ? 0.58 : 1.02;
+
+  const pinch: Keyframe = {
+    opacity: 0,
+    offset: isExit ? 1 : 0,
+    transform: `perspective(680px) translate3d(${dx}px, ${dy}px, 0px) ${rotAxis}(${tiltDeg}deg) scale(${pinchSx}, ${pinchSy})`,
+  };
+  const throat: Keyframe = {
+    opacity: isExit ? 0.92 : 0.88,
+    offset: isExit ? 0.38 : 0.42,
+    transform: `perspective(680px) translate3d(${(dx * 0.22).toFixed(1)}px, ${(dy * 0.22).toFixed(1)}px, 0px) ${rotAxis}(${(tiltDeg * 0.35).toFixed(1)}deg) scale(${midSx}, ${midSy})`,
+  };
+  const full: Keyframe = {
+    opacity: 1,
+    offset: isExit ? 0 : 1,
+    transform: restTransform,
+  };
+  return isExit ? [full, throat, pinch] : [pinch, throat, full];
 }
 
 type ThemePreference = "dark" | "light" | "auto";
@@ -93,6 +153,16 @@ export const TaskbarFlyoutApp: React.FC = () => {
   });
   const [desktopLuminance, setDesktopLuminance] = useState<number | null>(null);
   const [payloadLightOverride, setPayloadLightOverride] = useState<boolean | null>(null);
+  const [anchorInfo, setAnchorInfo] = useState<FlyoutAnchorInfo | null>(null);
+  const flyoutContainerRef = useRef<HTMLDivElement>(null);
+  const flyoutAnimRef = useRef<Animation | null>(null);
+  const lastAnimatedSeqRef = useRef<number>(0);
+  const anchorInfoRef = useRef<FlyoutAnchorInfo | null>(null);
+  const posRef = useRef<string>(navbarConfig.position || "bottom");
+  const windowAnimGenieRef = useRef<boolean>(navbarConfig.windowAnimation !== "normal");
+  anchorInfoRef.current = anchorInfo;
+  posRef.current = anchorInfo?.position || navbarConfig.position || "bottom";
+  windowAnimGenieRef.current = navbarConfig.windowAnimation !== "normal";
 
   const syncThemeFromStore = useCallback(async () => {
     try {
@@ -207,7 +277,8 @@ export const TaskbarFlyoutApp: React.FC = () => {
     const applyFlyoutOpen = (
       nextTarget?: string,
       nextTheme?: "solid" | "liquid",
-      nextIsLight?: boolean
+      nextIsLight?: boolean,
+      nextAnchor?: FlyoutAnchorInfo
     ) => {
       if (nextTarget) {
         if (nextTarget !== "search") {
@@ -219,6 +290,9 @@ export const TaskbarFlyoutApp: React.FC = () => {
       if (nextTheme === "solid" || nextTheme === "liquid") {
         setTheme(nextTheme);
       }
+      if (nextAnchor) {
+        setAnchorInfo(nextAnchor);
+      }
       setPayloadLightOverride(typeof nextIsLight === "boolean" ? nextIsLight : null);
       isOpenRef.current = true;
       setIsOpen(true);
@@ -227,10 +301,11 @@ export const TaskbarFlyoutApp: React.FC = () => {
     // 1. Direct synchronous hook called from Rust before show() to guarantee zero view flicker
     (window as any).__setTaskbarFlyoutState = (
       newTarget: string,
-      newTheme: "solid" | "liquid"
+      newTheme: "solid" | "liquid",
+      newAnchor?: FlyoutAnchorInfo
     ) => {
       hasLiveStateUpdate = true;
-      applyFlyoutOpen(newTarget, newTheme);
+      applyFlyoutOpen(newTarget, newTheme, undefined, newAnchor);
     };
 
     (window as any).__resetTaskbarFlyoutState = () => {
@@ -242,6 +317,36 @@ export const TaskbarFlyoutApp: React.FC = () => {
       setSearchInitialTab("all");
       setSearchInitialQuery("");
       setPayloadLightOverride(null);
+      setAnchorInfo(null);
+    };
+
+    (window as any).__playTaskbarFlyoutClose = () => {
+      const el = flyoutContainerRef.current;
+      if (!el || typeof el.animate !== "function") return;
+      const curPos = posRef.current || "bottom";
+      const curAnchor = anchorInfoRef.current;
+      const useGenie = windowAnimGenieRef.current;
+      if (useGenie) {
+        const ox = curAnchor ? `${Math.round(curAnchor.originX)}px` : "50%";
+        const oy = curAnchor
+          ? `${Math.round(curAnchor.originY)}px`
+          : curPos === "top"
+          ? "0%"
+          : curPos === "left" || curPos === "right"
+          ? "50%"
+          : "100%";
+        el.style.transformOrigin = `${ox} ${oy}`;
+      } else {
+        el.style.transformOrigin = "50% 50%";
+      }
+      flyoutAnimRef.current?.cancel();
+      flyoutAnimRef.current = el.animate(buildFlyoutKeyframes(curPos, true, useGenie), {
+        duration: useGenie ? 170 : 120,
+        easing: useGenie
+          ? "cubic-bezier(0.36, 0, 0.72, 0.15)"
+          : "cubic-bezier(0.32, 0, 0.67, 0)",
+        fill: "forwards",
+      });
     };
 
     const pendingState = (window as any).__PENDING_TASKBAR_FLYOUT__ as
@@ -251,7 +356,12 @@ export const TaskbarFlyoutApp: React.FC = () => {
       delete (window as any).__PENDING_TASKBAR_FLYOUT__;
       if (pendingState.isOpen !== false && pendingState.target) {
         hasLiveStateUpdate = true;
-        applyFlyoutOpen(pendingState.target, pendingState.theme, pendingState.isLight);
+        applyFlyoutOpen(
+          pendingState.target,
+          pendingState.theme,
+          pendingState.isLight,
+          pendingState.anchor
+        );
       }
     }
 
@@ -259,7 +369,7 @@ export const TaskbarFlyoutApp: React.FC = () => {
       invoke<Partial<FlyoutStatePayload>>("get_taskbar_flyout_state")
         .then((state) => {
           if (cancelled || hasLiveStateUpdate || !state?.isOpen || !state.target) return;
-          applyFlyoutOpen(state.target, state.theme, state.isLight);
+          applyFlyoutOpen(state.target, state.theme, state.isLight, state.anchor);
         })
         .catch(() => {});
     }
@@ -306,15 +416,17 @@ export const TaskbarFlyoutApp: React.FC = () => {
             applyFlyoutOpen(
               event.payload.target,
               event.payload.theme,
-              event.payload.isLight
+              event.payload.isLight,
+              event.payload.anchor
             );
-          } else {
+          } else if (!event.payload.closing) {
             isOpenRef.current = false;
             targetRef.current = null;
             setIsOpen(false);
             setTarget(null);
             setSearchInitialQuery("");
             setPayloadLightOverride(null);
+            setAnchorInfo(null);
           }
         }
       }
@@ -324,6 +436,7 @@ export const TaskbarFlyoutApp: React.FC = () => {
       cancelled = true;
       delete (window as any).__setTaskbarFlyoutState;
       delete (window as any).__resetTaskbarFlyoutState;
+      delete (window as any).__playTaskbarFlyoutClose;
       window.removeEventListener("keydown", handleKeyDown);
       unsubscribeConfig();
       unlisten.then((fn) => fn());
@@ -356,6 +469,43 @@ export const TaskbarFlyoutApp: React.FC = () => {
     switchFlyoutTarget(nextTarget).catch(() => {});
   };
 
+  useLayoutEffect(() => {
+    if (!isOpen || !target) return;
+    const el = flyoutContainerRef.current;
+    if (!el || typeof el.animate !== "function") return;
+
+    const seq = anchorInfo?.seq ?? 0;
+    if (seq > 0 && seq === lastAnimatedSeqRef.current) return;
+    lastAnimatedSeqRef.current = seq;
+
+    const pos = anchorInfo?.position || navbarConfig.position || "bottom";
+    const useGenie = navbarConfig.windowAnimation !== "normal";
+    if (useGenie) {
+      const ox = anchorInfo ? `${Math.round(anchorInfo.originX)}px` : "50%";
+      const oy = anchorInfo
+        ? `${Math.round(anchorInfo.originY)}px`
+        : pos === "top"
+        ? "0%"
+        : pos === "left"
+        ? "50%"
+        : pos === "right"
+        ? "50%"
+        : "100%";
+      el.style.transformOrigin = `${ox} ${oy}`;
+    } else {
+      el.style.transformOrigin = "50% 50%";
+    }
+
+    flyoutAnimRef.current?.cancel();
+    flyoutAnimRef.current = el.animate(buildFlyoutKeyframes(pos, false, useGenie), {
+      duration: useGenie ? 240 : 160,
+      easing: useGenie
+        ? "cubic-bezier(0.22, 1, 0.36, 1)"
+        : "cubic-bezier(0.16, 1, 0.3, 1)",
+      fill: "none",
+    });
+  }, [isOpen, target, anchorInfo, theme, navbarConfig.position, navbarConfig.windowAnimation]);
+
   if (!isOpen || !target) {
     return <div className="w-screen h-screen bg-transparent pointer-events-none" />;
   }
@@ -367,6 +517,7 @@ export const TaskbarFlyoutApp: React.FC = () => {
       className="w-screen h-screen overflow-hidden bg-transparent flex flex-col select-none"
     >
       <div
+        ref={flyoutContainerRef}
         role="dialog"
         aria-label={`Gili ${target}`}
         className="gili-flyout-container w-full h-full flex flex-col relative p-3.5 box-border overflow-hidden"

@@ -18,6 +18,44 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "5.0.1",
+    date: "16 Nov 2026",
+    highlights: [
+      {
+        icon: <Layers size={14} />,
+        titleId: "Tombol Hidden System Tray (^) di Gili Dock",
+        titleEn: "Hidden System Tray Overflow (^) Button on Gili Dock",
+        descId: "Menambahkan tombol panah tray tersembunyi di sebelah ikon sistem pada Gili Dock untuk membuka daftar aplikasi latar belakang Gili atau overflow tray Windows (termasuk pintasan Win+B saat mode Gili Tray aktif).",
+        descEn: "Adds the hidden system tray chevron button next to the Dock system icons to open Gili's background apps flyout or the native Windows tray overflow (with Win+B shortcut support when Gili Tray is active).",
+        badge: "new",
+      },
+      {
+        icon: <Smartphone size={14} />,
+        titleId: "Perbaikan Transfer File Shelf (Kirim & Terima dari HP)",
+        titleEn: "File Shelf Transfer Fixes (Send & Receive with Phone)",
+        descId: "Menyelesaikan ukuran 0 B saat kirim ke HP dengan validasi berkas di disk, penanda file hilang, pratinjau media inline, dan dukungan HTTP Range 206. Unggahan dari HP kini menyaring karakter terlarang Windows, memberi nomor otomatis untuk nama kembar, menayangkan batch multi-file cepat beserta thumbnail, dan melaporkan status gagal dengan tepat.",
+        descEn: "Fixes 0 B downloads when sharing to phones via pre-session disk validation, missing-file badges, inline media previews, and HTTP 206 byte-range support. Phone uploads now sanitize Windows filenames, auto-rename duplicates instead of overwriting, show rapid multi-file batches with thumbnails, and report failed transfers accurately.",
+        badge: "fix",
+      },
+      {
+        icon: <MousePointerClick size={14} />,
+        titleId: "Presisi Hitbox Reveal & Jeda Auto-Hide Taskbar",
+        titleEn: "Taskbar Auto-Hide Timing & Reveal Hitbox Precision",
+        descId: "Membatasi area pemicu saat Dock tersembunyi ke strip tepi bawah selebar panjang Dock agar tidak terbuka sebelum kursor menyentuh batas bawah, serta mengatur jeda auto-hide idle menjadi 1 detik.",
+        descEn: "Restricts the hidden Dock reveal zone to the bottom edge strip matching the Dock width so it stays closed until the cursor reaches the edge, and sets the idle auto-hide delay to 1 second.",
+        badge: "fix",
+      },
+      {
+        icon: <LayoutGrid size={14} />,
+        titleId: "Perbaikan Tata Letak Kartu Mini Note",
+        titleEn: "Mini Note Card Spacing & Layout Fix",
+        descId: "Merapikan posisi tombol panah geser agar tidak menimpa isi catatan, menaikkan posisi daftar kartu, dan menyesuaikan tinggi kartu agar bagian bawah tidak terpotong.",
+        descEn: "Fixes Mini Note scroll chevron positioning so arrows no longer cover note content, lifts the card row upward, and adjusts card height to prevent bottom clipping.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "5.0.0",
     date: "14 Nov 2026",
     highlights: [
@@ -931,38 +969,89 @@ export const AboutView: React.FC<AboutViewProps> = ({ appVersion, optLanguage, i
   return (
     <div className="flex flex-col gap-5 w-full pb-4">
       {/* App Identity Card */}
-      <div className={`w-full rounded-[18px] p-5 flex items-center gap-5 ${cardBase}`}>
-        <img
-          src="/logo/LOGO-GILI.png"
-          alt="Gili"
-          draggable={false}
-          className="w-16 h-16 rounded-[18px] object-contain shadow-[0_8px_24px_rgba(0,0,0,0.35)] shrink-0"
-        />
-        <div className="flex flex-col min-w-0 flex-1 gap-0.5">
-          <div className="flex items-baseline gap-2.5">
-            <span className={`text-[22px] font-bold tracking-tight ${isLightMode ? "text-neutral-900" : "text-white"}`}>
-              Gili Island
-            </span>
-            <span className={`text-[12px] font-semibold px-2 py-0.5 rounded-full ${isLightMode ? "bg-black/[0.06] text-neutral-500" : "bg-white/[0.08] text-zinc-400"}`}>
-              v{appVersion}
-            </span>
+      <div className={`w-full rounded-[18px] p-5 flex flex-col gap-4 ${cardBase}`}>
+        <div className="flex items-center gap-5">
+          <img
+            src="/logo/LOGO-GILI.png"
+            alt="Gili"
+            draggable={false}
+            className="w-16 h-16 rounded-[18px] object-contain shadow-[0_8px_24px_rgba(0,0,0,0.35)] shrink-0"
+          />
+          <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+            <div className="flex items-baseline gap-2.5">
+              <span className={`text-[22px] font-bold tracking-tight ${isLightMode ? "text-neutral-900" : "text-white"}`}>
+                Gili Island
+              </span>
+              <span className={`text-[12px] font-semibold px-2 py-0.5 rounded-full ${isLightMode ? "bg-black/[0.06] text-neutral-500" : "bg-white/[0.08] text-zinc-400"}`}>
+                v{appVersion}
+              </span>
+            </div>
+            <p className={`text-[12.5px] leading-snug ${isLightMode ? "text-neutral-600" : "text-zinc-400"}`}>
+              {isId
+                ? "Notch bar cerdas untuk Windows. Menghadirkan widget media, to-do list, catatan cepat, timer, dan berbagai utilitas dalam satu tempat elegan."
+                : "A smart notch bar for Windows. Media controls, to-dos, quick notes, timers, and essential utilities in one elegant surface."}
+            </p>
+            <div className={`flex items-center gap-1 mt-1.5 text-[12px] font-medium ${isLightMode ? "text-neutral-500" : "text-zinc-500"}`}>
+              <span>{isId ? "Dibuat oleh" : "Made by"}</span>
+              <button
+                type="button"
+                onClick={() => openUrl("https://instagram.com/faizngraha").catch(() => {})}
+                className={`flex items-center gap-1 font-semibold transition-colors cursor-pointer ${isLightMode ? "text-[#0a84ff] hover:text-[#0070e0]" : "text-[#8db8ff] hover:text-white"}`}
+              >
+                Faiz Nugraha (@faizngraha)
+                <ExternalLink size={11} />
+              </button>
+            </div>
           </div>
-          <p className={`text-[12.5px] leading-snug ${isLightMode ? "text-neutral-600" : "text-zinc-400"}`}>
-            {isId
-              ? "Notch bar cerdas untuk Windows. Menghadirkan widget media, to-do list, catatan cepat, timer, dan berbagai utilitas dalam satu tempat elegan."
-              : "A smart notch bar for Windows. Media controls, to-dos, quick notes, timers, and essential utilities in one elegant surface."}
-          </p>
-          <div className={`flex items-center gap-1 mt-1.5 text-[12px] font-medium ${isLightMode ? "text-neutral-500" : "text-zinc-500"}`}>
-            <span>{isId ? "Dibuat oleh" : "Made by"}</span>
-            <button
-              type="button"
-              onClick={() => openUrl("https://instagram.com/faizngraha").catch(() => {})}
-              className={`flex items-center gap-1 font-semibold transition-colors cursor-pointer ${isLightMode ? "text-[#0a84ff] hover:text-[#0070e0]" : "text-[#8db8ff] hover:text-white"}`}
+        </div>
+
+        <div
+          className={`pt-3.5 border-t flex items-center justify-between gap-3 flex-wrap ${
+            isLightMode ? "border-black/[0.06]" : "border-white/[0.06]"
+          }`}
+        >
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div
+              className={`w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 border ${
+                isLightMode
+                  ? "bg-[#5865F2]/10 border-[#5865F2]/20"
+                  : "bg-[#5865F2]/15 border-[#5865F2]/25"
+              }`}
             >
-              Faiz Nugraha (@faizngraha)
-              <ExternalLink size={11} />
-            </button>
+              <img
+                src="/logo/discord.webp"
+                alt=""
+                aria-hidden="true"
+                className="w-5 h-5 object-contain"
+              />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span
+                className={`text-[12.5px] font-semibold leading-tight ${
+                  isLightMode ? "text-neutral-800" : "text-zinc-100"
+                }`}
+              >
+                {isId ? "Komunitas Discord Gili" : "Gili Discord Community"}
+              </span>
+              <span
+                className={`text-[11.5px] leading-snug ${
+                  isLightMode ? "text-neutral-500" : "text-zinc-400"
+                }`}
+              >
+                {isId
+                  ? "Yuk gabung buat diskusi, request fitur, laporan bug, & info update."
+                  : "Join to share feedback, request features, report bugs, and catch updates."}
+              </span>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={() => openUrl("https://discord.gg/tCtQSa5H").catch(() => {})}
+            className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-[10px] text-[12px] font-semibold transition-colors cursor-pointer shrink-0 bg-[#5865F2] hover:bg-[#4752C4] text-white shadow-sm"
+          >
+            <span>{isId ? "Gabung Discord" : "Join Discord"}</span>
+            <ExternalLink size={11} />
+          </button>
         </div>
       </div>
 

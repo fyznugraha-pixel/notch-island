@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   NavbarConfig,
   NavbarModuleConfig,
+  NavbarWindowAnimation,
   DEFAULT_NAVBAR_CONFIG,
   DEFAULT_NAVBAR_MODULES,
   NAVBAR_ACCENT_COLORS,
@@ -50,6 +51,7 @@ let syncChannel: BroadcastChannel | null = null;
 let debouncedSaveTimer: any = null;
 let pendingConfigToSave: NavbarConfig | null = null;
 let lastSavedSwitchesHash = "";
+let lastSyncedWindowAnim: NavbarWindowAnimation | null = null;
 
 function getSyncChannel(): BroadcastChannel | null {
   if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
@@ -173,7 +175,17 @@ function normalizeModules(rawModules: unknown): NavbarModuleConfig[] {
   // Ensure all built-in modules are present in the list
   for (const defaultMod of DEFAULT_NAVBAR_MODULES) {
     if (!seenIds.has(defaultMod.id)) {
-      validModules.push({ ...defaultMod });
+      if (defaultMod.id === "hiddenTray") {
+        // Place upgraded Hidden Tray before the right-side system group items
+        const group3Idx = validModules.findIndex((m) => m.group === 3);
+        if (group3Idx !== -1) {
+          validModules.splice(group3Idx, 0, { ...defaultMod });
+        } else {
+          validModules.push({ ...defaultMod });
+        }
+      } else {
+        validModules.push({ ...defaultMod });
+      }
       seenIds.add(defaultMod.id);
     }
   }
@@ -235,6 +247,10 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
     blur: clamp(r.blur, 0, 100, DEFAULT_NAVBAR_CONFIG.blur),
     autoHide: typeof r.autoHide === "boolean" ? r.autoHide : DEFAULT_NAVBAR_CONFIG.autoHide,
     autoHideMode: r.autoHideMode === "maxsize" ? "maxsize" : "normal",
+    windowAnimation:
+      r.windowAnimation === "normal"
+        ? "normal"
+        : DEFAULT_NAVBAR_CONFIG.windowAnimation,
     windowPreviews:
       typeof r.windowPreviews === "boolean" ? r.windowPreviews : DEFAULT_NAVBAR_CONFIG.windowPreviews,
     magnify: typeof r.magnify === "boolean" ? r.magnify : DEFAULT_NAVBAR_CONFIG.magnify,
@@ -272,6 +288,17 @@ function syncTaskbarWindowSwitches(normalized: NavbarConfig): void {
           use_gili_notif_cal: isEnabled && !!normalized.useGiliNotificationsCalendar,
           use_gili_tray: isEnabled && !!normalized.useGiliTray,
         },
+      }).catch(() => {});
+    } catch {}
+  }
+
+  const nextAnim: NavbarWindowAnimation =
+    normalized.windowAnimation === "normal" ? "normal" : "genie";
+  if (nextAnim !== lastSyncedWindowAnim) {
+    lastSyncedWindowAnim = nextAnim;
+    try {
+      invoke("set_window_dock_animation", {
+        enabled: nextAnim !== "normal",
       }).catch(() => {});
     } catch {}
   }

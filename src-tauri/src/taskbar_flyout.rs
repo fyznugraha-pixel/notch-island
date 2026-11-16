@@ -16,6 +16,7 @@ const FLYOUT_IDLE_DESTROY_SECS: u64 = 8;
 static FLYOUT_OPEN: AtomicBool = AtomicBool::new(false);
 static FLYOUT_CREATING: AtomicBool = AtomicBool::new(false);
 static FLYOUT_IDLE_GEN: AtomicU64 = AtomicU64::new(0);
+static FLYOUT_OPEN_SEQ: AtomicU64 = AtomicU64::new(0);
 static ACTIVE_TARGET: Mutex<String> = Mutex::new(String::new());
 static LAST_FG_HWND: AtomicIsize = AtomicIsize::new(0);
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
@@ -258,6 +259,12 @@ fn resolve_navbar_anchor_for_target(
                 width: 70.0,
                 height: dock_h,
             }),
+            "tray" => Some(FlyoutTriggerRect {
+                x: pill_x + (dock_w - 164.0).max(0.0),
+                y: pill_y,
+                width: 32.0,
+                height: dock_h,
+            }),
             "notificationsCalendar" => Some(FlyoutTriggerRect {
                 x: pill_x + (dock_w - 56.0).max(0.0),
                 y: pill_y,
@@ -286,6 +293,12 @@ fn resolve_navbar_anchor_for_target(
                 width: dock_w,
                 height: 70.0,
             }),
+            "tray" => Some(FlyoutTriggerRect {
+                x: pill_x,
+                y: pill_y + (dock_h - 164.0).max(0.0),
+                width: dock_w,
+                height: 32.0,
+            }),
             "notificationsCalendar" => Some(FlyoutTriggerRect {
                 x: pill_x,
                 y: pill_y + (dock_h - 56.0).max(0.0),
@@ -304,6 +317,17 @@ pub fn open_taskbar_flyout_by_target(target: &str) {
         let (trigger_rect, dock_pos) = resolve_navbar_anchor_for_target(app, target);
         open_taskbar_flyout_internal(app, target, trigger_rect, dock_pos, None);
     }
+}
+
+pub fn toggle_taskbar_flyout_by_target(target: &str) {
+    if FLYOUT_OPEN.load(Ordering::SeqCst) {
+        let current = ACTIVE_TARGET.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if current == target {
+            hide_taskbar_flyout();
+            return;
+        }
+    }
+    open_taskbar_flyout_by_target(target);
 }
 
 fn apply_target_to_flyout_window(
@@ -327,11 +351,6 @@ fn apply_target_to_flyout_window(
     };
     let theme_str = if is_liquid { "liquid" } else { "solid" };
 
-    #[cfg(windows)]
-    if let Ok(raw_hwnd) = win.hwnd() {
-        crate::window_backdrop::apply_flyout_backdrop(HWND(raw_hwnd.0), is_liquid, hint_light);
-    }
-
     let escaped_target = target.replace('\'', "\\'");
     let escaped_theme = theme_str.replace('\'', "\\'");
 
@@ -340,13 +359,46 @@ fn apply_target_to_flyout_window(
     FLYOUT_OPEN.store(true, Ordering::SeqCst);
     *ACTIVE_TARGET.lock().unwrap_or_else(|e| e.into_inner()) = target.to_string();
 
+    if let Some(trig) = trigger_rect {
+        crate::window_dock_anim::record_last_dock_anchor(crate::window_dock_anim::DockAnchorRect {
+            x: trig.x,
+            y: trig.y,
+            width: trig.width,
+            height: trig.height,
+            position: Some(pos_str.to_string()),
+        });
+    }
+
+    let (origin_x, origin_y) = compute_flyout_anchor_origin(
+        win,
+        pos_str,
+        target_x,
+        target_y,
+        desired_w,
+        desired_h,
+        trigger_rect,
+        scale_factor,
+    );
+    let open_seq = FLYOUT_OPEN_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let anchor_json = serde_json::json!({
+        "originX": origin_x,
+        "originY": origin_y,
+        "position": pos_str,
+        "seq": open_seq,
+    });
+
     let _ = win.eval(&format!(
-        "window.__PENDING_TASKBAR_FLYOUT__ = {{ target: '{}', theme: '{}' }}; if (typeof window.__setTaskbarFlyoutState === 'function') {{ window.__setTaskbarFlyoutState('{}', '{}'); }} window.focus();",
-        escaped_target, escaped_theme, escaped_target, escaped_theme
+        "window.__PENDING_TASKBAR_FLYOUT__ = {{ target: '{}', theme: '{}', anchor: {} }}; if (typeof window.__setTaskbarFlyoutState === 'function') {{ window.__setTaskbarFlyoutState('{}', '{}', {}); }} window.focus();",
+        escaped_target, escaped_theme, anchor_json, escaped_target, escaped_theme, anchor_json
     ));
 
     let _ = win.set_size(tauri::LogicalSize::new(desired_w, desired_h));
     let _ = win.set_position(tauri::LogicalPosition::new(target_x, target_y));
+    #[cfg(windows)]
+    if let Ok(raw_hwnd) = win.hwnd() {
+        crate::window_backdrop::apply_flyout_backdrop(HWND(raw_hwnd.0), is_liquid, hint_light);
+    }
+    let _ = win.set_ignore_cursor_events(false);
     let _ = win.show();
     #[cfg(windows)]
     if let Ok(raw_hwnd) = win.hwnd() {
@@ -386,7 +438,8 @@ fn apply_target_to_flyout_window(
         "target": target,
         "theme": theme_str,
         "width": desired_w,
-        "height": desired_h
+        "height": desired_h,
+        "anchor": anchor_json
     });
 
     let _ = win.emit("taskbar-flyout-state-changed", state_payload.clone());
@@ -529,6 +582,72 @@ pub fn get_taskbar_flyout_state() -> serde_json::Value {
     })
 }
 
+fn resolve_trigger_screen_logical(
+    win: &WebviewWindow,
+    trigger: Option<&FlyoutTriggerRect>,
+    scale_factor: f64,
+) -> (f64, f64, f64, f64, f64) {
+    let safe_scale = scale_factor.max(1.0);
+    let (nav_x_px, nav_y_px, nav_scale) =
+        if let Some(navbar_win) = win.app_handle().get_webview_window("navbar") {
+            let n_scale = navbar_win.scale_factor().unwrap_or(safe_scale).max(1.0);
+            if let Ok(raw_hwnd) = navbar_win.hwnd() {
+                let hwnd = HWND(raw_hwnd.0);
+                let mut r = RECT::default();
+                if unsafe { GetWindowRect(hwnd, &mut r).is_ok() } {
+                    (r.left as f64, r.top as f64, n_scale)
+                } else {
+                    let p = navbar_win.outer_position().unwrap_or_default();
+                    (p.x as f64, p.y as f64, n_scale)
+                }
+            } else {
+                let p = navbar_win.outer_position().unwrap_or_default();
+                (p.x as f64, p.y as f64, n_scale)
+            }
+        } else {
+            (0.0, 0.0, safe_scale)
+        };
+
+    let nav_x = nav_x_px / safe_scale;
+    let nav_y = nav_y_px / safe_scale;
+    let ratio = nav_scale / safe_scale;
+    if let Some(t) = trigger {
+        (
+            nav_x + t.x * ratio,
+            nav_y + t.y * ratio,
+            t.width * ratio,
+            t.height * ratio,
+            nav_scale,
+        )
+    } else {
+        (nav_x, nav_y, 40.0, 40.0, nav_scale)
+    }
+}
+
+fn compute_flyout_anchor_origin(
+    win: &WebviewWindow,
+    pos: &str,
+    target_x: f64,
+    target_y: f64,
+    width: f64,
+    height: f64,
+    trigger: Option<&FlyoutTriggerRect>,
+    scale_factor: f64,
+) -> (f64, f64) {
+    let (trig_x, trig_y, trig_w, trig_h, _) =
+        resolve_trigger_screen_logical(win, trigger, scale_factor);
+    let cx = trig_x + trig_w / 2.0 - target_x;
+    let cy = trig_y + trig_h / 2.0 - target_y;
+    let clamped_x = cx.clamp(24.0, (width - 24.0).max(24.0));
+    let clamped_y = cy.clamp(24.0, (height - 24.0).max(24.0));
+    match pos {
+        "top" => (clamped_x, 0.0),
+        "left" => (0.0, clamped_y),
+        "right" => (width, clamped_y),
+        _ => (clamped_x, height),
+    }
+}
+
 fn calculate_anchored_position(
     win: &WebviewWindow,
     pos: &str,
@@ -538,37 +657,12 @@ fn calculate_anchored_position(
     scale_factor: f64,
 ) -> (f64, f64) {
     let margin = 12.0;
-
-    // Resolve navbar window's screen position using navbar's own monitor scale
-    let (nav_x, nav_y, nav_scale) =
-        if let Some(navbar_win) = win.app_handle().get_webview_window("navbar") {
-            let n_scale = navbar_win.scale_factor().unwrap_or(scale_factor);
-            if let Ok(raw_hwnd) = navbar_win.hwnd() {
-                let hwnd = HWND(raw_hwnd.0);
-                let mut r = RECT::default();
-                if unsafe { GetWindowRect(hwnd, &mut r).is_ok() } {
-                    (r.left as f64 / n_scale, r.top as f64 / n_scale, n_scale)
-                } else {
-                    let p = navbar_win.outer_position().unwrap_or_default();
-                    (p.x as f64 / n_scale, p.y as f64 / n_scale, n_scale)
-                }
-            } else {
-                let p = navbar_win.outer_position().unwrap_or_default();
-                (p.x as f64 / n_scale, p.y as f64 / n_scale, n_scale)
-            }
-        } else {
-            (0.0, 0.0, scale_factor)
-        };
-
-    let (trig_x, trig_y, trig_w, trig_h) = if let Some(t) = trigger {
-        (nav_x + t.x, nav_y + t.y, t.width, t.height)
-    } else {
-        (nav_x, nav_y, 40.0, 40.0)
-    };
+    let (trig_x, trig_y, trig_w, trig_h, _nav_scale) =
+        resolve_trigger_screen_logical(win, trigger, scale_factor);
 
     let point = POINT {
-        x: ((trig_x + trig_w / 2.0) * nav_scale) as i32,
-        y: ((trig_y + trig_h / 2.0) * nav_scale) as i32,
+        x: ((trig_x + trig_w / 2.0) * scale_factor) as i32,
+        y: ((trig_y + trig_h / 2.0) * scale_factor) as i32,
     };
 
     let mut work_left = 0.0;
@@ -684,28 +778,53 @@ pub fn hide_taskbar_flyout() {
             Some((target.clone(), Instant::now(), dismiss_pt));
     }
 
+    let close_seq = FLYOUT_OPEN_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
     let mut flyout_hwnd_raw: isize = 0;
     if let Some(app) = APP_HANDLE.get() {
+        let _ = app.emit(
+            "taskbar-flyout-state-changed",
+            serde_json::json!({ "isOpen": false, "target": target, "closing": true }),
+        );
         if let Some(win) = app.get_webview_window("taskbar_flyout") {
+            let _ = win.set_ignore_cursor_events(true);
             if let Ok(h) = win.hwnd() {
                 flyout_hwnd_raw = h.0 as isize;
             }
-            let _ = win.eval("delete window.__PENDING_TASKBAR_FLYOUT__; if (window.__resetTaskbarFlyoutState) { window.__resetTaskbarFlyoutState(); }");
-            let _ = win.hide();
-            let _ = win.emit(
-                "taskbar-flyout-state-changed",
-                serde_json::json!({ "isOpen": false, "target": target }),
+            let _ = win.eval(
+                "if (typeof window.__playTaskbarFlyoutClose === 'function') { window.__playTaskbarFlyoutClose(); }",
             );
+            let win_hide = win.clone();
+            let target_done = target.clone();
+            let hide_delay_ms = if crate::window_dock_anim::is_genie_animation_enabled() {
+                175
+            } else {
+                125
+            };
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(hide_delay_ms));
+                if FLYOUT_OPEN.load(Ordering::SeqCst)
+                    || FLYOUT_OPEN_SEQ.load(Ordering::SeqCst) != close_seq
+                {
+                    return;
+                }
+                let _ = win_hide.hide();
+                let _ = win_hide.eval(
+                    "delete window.__PENDING_TASKBAR_FLYOUT__; if (window.__resetTaskbarFlyoutState) { window.__resetTaskbarFlyoutState(); }",
+                );
+                let _ = win_hide.emit(
+                    "taskbar-flyout-state-changed",
+                    serde_json::json!({ "isOpen": false, "target": target_done }),
+                );
+                schedule_flyout_idle_destroy();
+            });
+        } else {
+            schedule_flyout_idle_destroy();
         }
-        let _ = app.emit(
-            "taskbar-flyout-state-changed",
-            serde_json::json!({ "isOpen": false, "target": target }),
-        );
+    } else {
+        schedule_flyout_idle_destroy();
     }
 
-    schedule_flyout_idle_destroy();
-
-    // Restore focus only if focus stayed on the now-hidden flyout or nowhere (don't steal from a newly clicked window)
+    // Restore focus only if focus stayed on the now-closing flyout or nowhere (don't steal from a newly clicked window)
     let prev_hwnd = LAST_FG_HWND.swap(0, Ordering::SeqCst);
     if prev_hwnd != 0 {
         unsafe {

@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Bell, Wifi, Volume2, Zap } from "lucide-react";
+import {
+  Bell,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Wifi,
+  Volume2,
+  Zap,
+} from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Tooltip } from "../../ui/Tooltip";
@@ -19,10 +28,11 @@ interface SystemTrayGroupProps {
   use24HourClock?: boolean;
   showDayOfWeek?: boolean;
   locale?: string;
+  showHiddenTray?: boolean;
   showSystemIcons?: boolean;
   showNotifications?: boolean;
   showClockDate?: boolean;
-  singleItem?: "systemIcons" | "notifications" | "clockDate";
+  singleItem?: "hiddenTray" | "systemIcons" | "notifications" | "clockDate";
   isVertical?: boolean;
   position?: DockPosition;
   isHidden?: boolean;
@@ -31,6 +41,7 @@ interface SystemTrayGroupProps {
   onNotificationsClick?: () => void;
   onClockClick?: () => void;
   onVolumeClick?: (e: React.MouseEvent) => void;
+  onTrayClick?: () => void;
 }
 
 interface BatteryState {
@@ -84,6 +95,7 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
   use24HourClock = true,
   showDayOfWeek = true,
   locale,
+  showHiddenTray = true,
   showSystemIcons = true,
   showNotifications = true,
   showClockDate = true,
@@ -96,11 +108,13 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
   onNotificationsClick,
   onClockClick,
   onVolumeClick,
+  onTrayClick,
 }) => {
   const lang = useTaskbarLang();
   const isLightMode = useNavbarLightMode();
   const tooltipSide = getNavbarTooltipSide(position);
   const effectiveLocale = locale ?? dateLocale(lang);
+  const renderTray = singleItem ? singleItem === "hiddenTray" : showHiddenTray;
   const renderSys = singleItem ? singleItem === "systemIcons" : showSystemIcons;
   const renderNotif = singleItem ? singleItem === "notifications" : showNotifications;
   const renderClock = singleItem ? singleItem === "clockDate" : showClockDate;
@@ -239,12 +253,43 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
   const subTriggerClass =
     "rounded-[8px] bg-transparent flex items-center justify-center cursor-pointer text-white/70 hover:text-white hover:bg-white/[0.11] active:scale-95 transition-all p-1 shrink-0";
 
+  const TrayChevronIcon =
+    position === "top"
+      ? ChevronDown
+      : position === "left"
+      ? ChevronRight
+      : position === "right"
+      ? ChevronLeft
+      : ChevronUp;
+  const trayLabel = tx(lang, "Show hidden icons", "Tampilkan ikon tersembunyi");
+
   return (
     <div
       className={`flex ${
         isVertical ? "flex-col w-full min-w-0 max-w-full" : "flex-row"
       } items-center gap-1 shrink-0`}
     >
+      {/* Hidden System Tray Overflow Toggle */}
+      {renderTray && (
+        <Tooltip side={tooltipSide} delay={150} content={trayLabel}>
+          <button
+            type="button"
+            data-flyout-trigger="tray"
+            onClick={onTrayClick}
+            aria-label={trayLabel}
+            style={{
+              transition:
+                "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, color 180ms ease",
+            }}
+            className={`${
+              isVertical ? "w-10 h-7" : "w-7 h-10"
+            } rounded-[10px] bg-transparent text-white/65 hover:text-white hover:bg-white/[0.09] ${trayLiftHoverClass} hover:scale-[1.06] active:scale-95 flex items-center justify-center p-0 cursor-pointer shrink-0`}
+          >
+            <TrayChevronIcon size={15} strokeWidth={2.1} />
+          </button>
+        </Tooltip>
+      )}
+
       {/* Control Center Pill (sibling triggers avoid nested interactive controls) */}
       {renderSys && (
         <div className={pillContainerClass}>

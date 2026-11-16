@@ -13,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use crate::taskbar_logger::log_taskbar_event;
 use crate::taskbar_safety::{
     trigger_emergency_kill_switch, USE_GILI_NOTIF_CAL, USE_GILI_QUICK_SETTINGS,
-    USE_GILI_SEARCH, USE_GILI_START, USE_GILI_VOLUME_OUTPUT,
+    USE_GILI_SEARCH, USE_GILI_START, USE_GILI_TRAY, USE_GILI_VOLUME_OUTPUT,
 };
 
 static HOOK_HANDLE: AtomicIsize = AtomicIsize::new(0);
@@ -23,6 +23,7 @@ static HOTKEY_THREAD_STARTED: AtomicBool = AtomicBool::new(false);
 
 const VK_S_CODE: u32 = 0x53;
 const VK_A_CODE: u32 = 0x41;
+const VK_B_CODE: u32 = 0x42;
 const VK_N_CODE: u32 = 0x4E;
 const VK_V_CODE: u32 = 0x56;
 const VK_NEUTRAL_UNASSIGNED: u8 = 0xE8;
@@ -141,6 +142,18 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 if USE_GILI_QUICK_SETTINGS.load(Ordering::SeqCst) {
                     inject_neutral_key();
                     dispatch_hotkey_flyout("quickSettings", "pengaturan_cepat");
+                    return LRESULT(1);
+                }
+            }
+            // Win + B (Hidden System Tray)
+            else if vk == VK_B_CODE && !ctrl_down {
+                if USE_GILI_TRAY.load(Ordering::SeqCst) {
+                    inject_neutral_key();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        crate::taskbar_flyout::toggle_taskbar_flyout_by_target("tray");
+                        log_taskbar_event("tray_tersembunyi", "hotkey_trigger", "ok", None);
+                    });
                     return LRESULT(1);
                 }
             }

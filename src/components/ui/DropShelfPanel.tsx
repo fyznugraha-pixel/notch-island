@@ -25,7 +25,13 @@ import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { Tooltip } from "./Tooltip";
 import { getWheelVerticalDirection, getNormalizedHorizontalDelta } from "../../utils/gesture";
 import { t, getLanguage } from "../../services/i18n";
-import { FilePreview, queueFilePreviews, getCachedPreview, loadShelfSettings } from "../../services/shelfService";
+import {
+  FilePreview,
+  queueFilePreviews,
+  getCachedPreview,
+  invalidateShelfVerification,
+  loadShelfSettings,
+} from "../../services/shelfService";
 import { DropShelfSettingsView } from "./shelf/DropShelfSettingsView";
 import { DropShelfTransferModal } from "./shelf/DropShelfTransferModal";
 import { DropShelfReceivedBanner } from "./shelf/DropShelfReceivedBanner";
@@ -66,7 +72,13 @@ export interface DropShelfPanelProps {
   onFilesTransferred?: (ids: string[]) => void;
   onAddFiles?: (
     paths: string[],
-    meta?: { source?: "local" | "phone"; deviceName?: string; isNew?: boolean; thumbnail?: string }
+    meta?: {
+      source?: "local" | "phone";
+      deviceName?: string;
+      isNew?: boolean;
+      thumbnail?: string;
+      sizeFormatted?: string;
+    }
   ) => void;
   onDragStateChange?: (active: boolean, paths?: string[]) => void;
   isDragOver?: boolean;
@@ -188,14 +200,19 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     const [incomingProgress, setIncomingProgress] = useState<Record<string, ShelfTransferProgressPayload>>({});
     const [activeDeviceName, setActiveDeviceName] = useState<string>("");
     const [receivedBanner, setReceivedBanner] = useState<{ count: number; deviceName: string } | null>(null);
+    const [shareError, setShareError] = useState<string | null>(null);
+    const onAddFilesRef = useRef(onAddFiles);
+    onAddFilesRef.current = onAddFiles;
 
     useEffect(() => {
+      let isCancelled = false;
       let unlistenProgress: (() => void) | undefined;
       let unlistenFile: (() => void) | undefined;
       let unlistenComplete: (() => void) | undefined;
 
       const initListeners = async () => {
-        unlistenProgress = await onShelfTransferProgress((payload) => {
+        const uProgress = await onShelfTransferProgress((payload) => {
+          setShareError(null);
           setTransferMode("receiving");
           setActiveDeviceName(payload.device_name);
           setIncomingProgress((prev) => ({
@@ -203,68 +220,125 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
             [payload.id]: payload,
           }));
         });
+        if (isCancelled) {
+          uProgress();
+          return;
+        }
+        unlistenProgress = uProgress;
 
-        unlistenFile = await onShelfFileReceived((payload) => {
-          if (onAddFiles) {
-            onAddFiles([payload.path], {
-              source: "phone",
-              deviceName: payload.device_name,
-              isNew: true,
-              thumbnail: payload.thumbnail,
-            });
-          }
-        });
-
-        unlistenComplete = await onShelfTransferCompleted((payload) => {
-          setReceivedBanner({
-            count: payload.total_files,
+        const uFile = await onShelfFileReceived((payload) => {
+          onAddFilesRef.current?.([payload.path], {
+            source: "phone",
             deviceName: payload.device_name,
+            isNew: true,
+            thumbnail: payload.thumbnail,
+            sizeFormatted: payload.size_formatted,
           });
+        });
+        if (isCancelled) {
+          uFile();
+          return;
+        }
+        unlistenFile = uFile;
+
+        const uComplete = await onShelfTransferCompleted((payload) => {
+          if (payload.total_files > 0) {
+            setReceivedBanner({
+              count: payload.total_files,
+              deviceName: payload.device_name,
+            });
+            setShareError(null);
+          } else {
+            setReceivedBanner(null);
+            setShareError(t("shelf_receive_failed"));
+          }
           setIncomingProgress({});
           setTransferMode("idle");
         });
+        if (isCancelled) {
+          uComplete();
+          return;
+        }
+        unlistenComplete = uComplete;
       };
 
       initListeners();
 
       return () => {
+        isCancelled = true;
         unlistenProgress?.();
         unlistenFile?.();
         unlistenComplete?.();
       };
-    }, [onAddFiles]);
+    }, []);
+
+    const isFileMissing = (file: StashedFile) =>
+      Boolean((previews[file.id] || getCachedPreview(file.id) || getCachedPreview(file.path))?.isMissing);
+
+    const missingFiles = files.filter(isFileMissing);
+
+    const handleCleanMissingFiles = () => {
+      if (missingFiles.length === 0) return;
+      const missingIds = missingFiles.map((f) => f.id);
+      if (onRemoveFiles) {
+        onRemoveFiles(missingIds);
+      } else {
+        missingIds.forEach((id) => onRemoveFile(id));
+      }
+      setShareError(null);
+    };
 
     const handleSendSingleFile = async (targetFile: StashedFile) => {
+      if (isFileMissing(targetFile)) {
+        setShareError(t("shelf_cannot_share_missing", { names: targetFile.name }));
+        return;
+      }
+      setShareError(null);
       try {
         const session = await startShelfSend([targetFile.path]);
         setSessionInfo(session);
         setTransferMode("send");
       } catch (err) {
         console.error("Failed to start shelf send for file:", err);
+        setShareError(String(err));
+        invalidateShelfVerification([targetFile.id]);
+        queueFilePreviews([targetFile]);
       }
     };
 
     const handleStartSend = async () => {
-      const targetFiles = selectedIds.size > 0
+      const candidateFiles = selectedIds.size > 0
         ? files.filter((f) => selectedIds.has(f.id))
         : files;
-      if (targetFiles.length === 0) return;
+      if (candidateFiles.length === 0) return;
+      const targetFiles = candidateFiles.filter((f) => !isFileMissing(f));
+      if (targetFiles.length === 0) {
+        const names = candidateFiles.map((f) => f.name).slice(0, 3).join(", ");
+        setShareError(t("shelf_cannot_share_missing", { names }));
+        return;
+      }
+      setShareError(null);
       try {
         const session = await startShelfSend(targetFiles.map((f) => f.path));
         setSessionInfo(session);
         setTransferMode("send");
       } catch (err) {
         console.error("Failed to start shelf send:", err);
+        setShareError(String(err));
+        invalidateShelfVerification(targetFiles.map((f) => f.id));
+        queueFilePreviews(targetFiles);
       }
     };
 
     const handleStartReceive = async () => {
+      setShareError(null);
       try {
         const session = await startShelfReceive();
         setSessionInfo(session);
         setTransferMode("receive");
       } catch (err) {
         console.error("Failed to start shelf receive:", err);
+        setShareError(String(err));
       }
     };
 
@@ -462,6 +536,53 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
       );
     }
 
+    const alertBanner = (shareError || missingFiles.length > 0) ? (
+      <div
+        className={`mb-1 px-2.5 py-1 rounded-lg border text-[10.5px] flex items-center justify-between gap-2 shrink-0 ${
+          shareError
+            ? isLightMode
+              ? "bg-rose-500/10 border-rose-600/30 text-rose-700"
+              : "bg-rose-500/12 border-rose-500/35 text-rose-300"
+            : isLightMode
+            ? "bg-amber-500/10 border-amber-600/30 text-amber-800"
+            : "bg-amber-500/12 border-amber-500/35 text-amber-300"
+        }`}
+      >
+        <span className="truncate">
+          {shareError || t("shelf_missing_banner", { count: missingFiles.length })}
+        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {missingFiles.length > 0 && (
+            <button
+              type="button"
+              onClick={handleCleanMissingFiles}
+              className={`px-2 py-0.5 rounded font-semibold cursor-pointer transition-colors ${
+                isLightMode
+                  ? "bg-amber-500/20 hover:bg-amber-500/30 text-amber-900"
+                  : "bg-amber-500/20 hover:bg-amber-500/35 text-amber-200"
+              }`}
+            >
+              {t("shelf_clean_missing")}
+            </button>
+          )}
+          {shareError && (
+            <button
+              type="button"
+              onClick={() => setShareError(null)}
+              aria-label="Close"
+              className={
+                isLightMode
+                  ? "text-rose-700 hover:text-rose-900 cursor-pointer"
+                  : "text-rose-200 hover:text-white cursor-pointer"
+              }
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      </div>
+    ) : null;
+
     return (
       <div
         data-scrollable="true"
@@ -469,8 +590,10 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
         className="relative flex flex-col w-full h-full min-h-0 select-none overflow-hidden px-6 pb-1"
       >
         {files.length === 0 ? (
-          /* Empty / Active Drop Zone */
-          <div
+          <>
+            {shareError && alertBanner}
+            {/* Empty / Active Drop Zone */}
+            <div
             className={`flex-1 my-1.5 rounded-[20px] flex flex-col items-center justify-center gap-1.5 px-6 text-center transition-all ${
               isDropActive
                 ? "border-2 border-[#3882F6] bg-[rgba(56,130,246,0.08)] shadow-[0_0_24px_rgba(56,130,246,0.2)]"
@@ -524,7 +647,8 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 </Tooltip>
               </div>
             )}
-          </div>
+            </div>
+          </>
         ) : (
           /* Filled State */
           <>
@@ -537,6 +661,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                 onDismiss={() => setReceivedBanner(null)}
               />
             )}
+            {alertBanner}
             {/* Toolbar: summary left, clean actions right */}
             <div className="flex items-center gap-2 mt-0.5 mb-1.5 h-[28px] shrink-0">
               <div className="flex items-center gap-2">
@@ -667,11 +792,12 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                     ].includes(cleanExt);
 
                     const preview = previews[file.id] || getCachedPreview(file.id) || getCachedPreview(file.path);
+                    const isMissing = Boolean(preview?.isMissing);
                     const candidateThumb =
                       file.thumbnail ||
                       preview?.thumbnail ||
-                      (isImg && file.path ? convertFileSrc(file.path) : undefined);
-                    const thumb = failedThumbIds.has(file.id) ? undefined : candidateThumb;
+                      (isImg && file.path && !isMissing ? convertFileSrc(file.path) : undefined);
+                    const thumb = failedThumbIds.has(file.id) || isMissing ? undefined : candidateThumb;
 
                     const sizeText =
                       file.sizeFormatted ||
@@ -705,6 +831,8 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                           className={`relative w-[138px] h-[94px] rounded-[14px] bg-[#121217] flex items-center justify-center overflow-hidden transition-all ${
                             isSelected
                               ? "border-2 border-[#3882F6] shadow-[0_0_12px_rgba(56,130,246,0.3)] bg-[#3882F6]/5"
+                              : isMissing
+                              ? "border border-amber-500/45 bg-amber-500/[0.04]"
                               : "border border-white/10 group-hover:border-white/20 group-hover:bg-[#16161d]"
                           }`}
                         >
@@ -718,7 +846,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                               }}
                               className="w-full h-full object-contain p-1.5 select-none pointer-events-none"
                             />
-                          ) : isVid ? (
+                          ) : isVid && !isMissing ? (
                             <div className="relative w-full h-full overflow-hidden rounded-[10px] flex items-center justify-center bg-black/40">
                               <video
                                 key={file.id}
@@ -835,6 +963,17 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
                               {extBadge}
                             </span>
                             <span className="truncate">{sizeText}</span>
+                            {isMissing && (
+                              <span
+                                className={`px-1 py-0.2 rounded text-[8.5px] font-semibold ${
+                                  isLightMode
+                                    ? "bg-amber-500/20 text-amber-800"
+                                    : "bg-amber-500/20 text-amber-300"
+                                }`}
+                              >
+                                {t("shelf_file_missing")}
+                              </span>
+                            )}
                             {file.source === "phone" && (
                               <span className="text-[9.5px] text-zinc-400 flex items-center gap-0.5">
                                 · {t("shelf_from_phone")}

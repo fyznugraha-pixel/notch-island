@@ -14,14 +14,27 @@ use windows::Foundation::{IPropertyValue, PropertyValue};
 use windows::Graphics::Effects::{
     IGraphicsEffect, IGraphicsEffectSource, IGraphicsEffectSource_Impl, IGraphicsEffect_Impl,
 };
+use windows::Graphics::{IGeometrySource2D, IGeometrySource2D_Impl};
 use windows::UI::Composition::Desktop::DesktopWindowTarget;
 use windows::UI::Composition::{
     CompositionEffectBrush, CompositionEffectSourceParameter, CompositionGeometricClip,
-    CompositionRoundedRectangleGeometry, Compositor, SpriteVisual, Visual,
+    CompositionPath, CompositionPathGeometry, CompositionRoundedRectangleGeometry, Compositor,
+    SpriteVisual, Visual,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Direct2D::Common::{
+    D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED, D2D_POINT_2F, D2D_SIZE_F,
+};
+use windows::Win32::Graphics::Direct2D::{
+    D2D1CreateFactory, ID2D1Factory, ID2D1Geometry, D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_SMALL,
+    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_SWEEP_DIRECTION_CLOCKWISE,
+    D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
+};
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, PAINTSTRUCT};
 use windows::Win32::System::WinRT::Composition::ICompositorDesktopInterop;
+use windows::Win32::System::WinRT::Graphics::Direct2D::{
+    IGeometrySource2DInterop, IGeometrySource2DInterop_Impl,
+};
 use windows::Win32::System::WinRT::{
     DispatcherQueueOptions, DQTAT_COM_STA, DQTYPE_THREAD_CURRENT, RO_INIT_SINGLETHREADED,
     RoInitialize,
@@ -258,11 +271,33 @@ pub struct AcrylicSyncRequest {
     pub is_light: bool,
 }
 
+#[implement(IGeometrySource2D, IGeometrySource2DInterop)]
+struct D2DGeometrySource {
+    geometry: ID2D1Geometry,
+}
+
+impl IGeometrySource2D_Impl for D2DGeometrySource_Impl {}
+
+impl IGeometrySource2DInterop_Impl for D2DGeometrySource_Impl {
+    fn GetGeometry(&self) -> windows::core::Result<ID2D1Geometry> {
+        Ok(self.geometry.clone())
+    }
+
+    fn TryGetGeometryUsingFactory(
+        &self,
+        factory: Option<&ID2D1Factory>,
+    ) -> windows::core::Result<ID2D1Geometry> {
+        let _ = factory;
+        Ok(self.geometry.clone())
+    }
+}
+
 struct CompositionUnderlay {
     target: DesktopWindowTarget,
     visual: SpriteVisual,
     rounded_rect: CompositionRoundedRectangleGeometry,
-    _clip: CompositionGeometricClip,
+    clip: CompositionGeometricClip,
+    use_path_clip: bool,
     brush_pair: Option<BackdropBrushPair>,
     opacity_phase: bool,
     phys_w: i32,
@@ -302,7 +337,7 @@ impl CompositionUnderlay {
                 Y: self.phys_h as f32,
             });
         }
-        if self.sw > 0.0 && self.sh > 0.0 {
+        if !self.use_path_clip && self.sw > 0.0 && self.sh > 0.0 {
             let _ = self.rounded_rect.SetOffset(Vector2 {
                 X: self.ox + eps,
                 Y: self.oy,
@@ -386,6 +421,7 @@ struct UnderlaySlot {
     last_screen_y: i32,
     last_w: i32,
     last_h: i32,
+    last_re: i32,
     last_rb: i32,
     last_rt: i32,
     last_is_island: bool,
@@ -455,8 +491,10 @@ unsafe extern "system" fn backdrop_win_event_proc(
 
     if event == EVENT_SYSTEM_FOREGROUND && !hwnd.0.is_null() {
         crate::window_preview::on_foreground_window_observed(hwnd.0 as isize);
+        crate::navbar_window::on_external_foreground_observed(hwnd.0 as isize);
     } else if event == EVENT_SYSTEM_MINIMIZESTART && !hwnd.0.is_null() {
         crate::window_preview::on_window_minimizing_observed(hwnd.0 as isize);
+        crate::window_dock_anim::on_window_minimizing_observed(hwnd.0 as isize);
     }
 
     if relevant_system || discrete_object || location_object {
@@ -473,6 +511,10 @@ unsafe extern "system" fn backdrop_win_event_proc(
             return;
         }
         LAST_WINEVENT_SIGNAL_MS.store(now_ms, Ordering::Relaxed);
+    }
+
+    if crate::window_dock_anim::is_genie_animating() {
+        return;
     }
 
     if let Some(tx) = BACKDROP_INVALIDATE_TX.get() {
@@ -561,6 +603,8 @@ fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicCommand>> {
                 let mut dq_controller: *mut c_void = std::ptr::null_mut();
                 let _ = CreateDispatcherQueueController(dq_options, &mut dq_controller);
                 let compositor = Compositor::new().ok();
+                let d2d_factory: Option<ID2D1Factory> =
+                    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None).ok();
 
                 let class_name: Vec<u16> = "GiliNativeAcrylicUnderlay\0".encode_utf16().collect();
                 let wc = WNDCLASSW {
@@ -646,6 +690,7 @@ fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicCommand>> {
                         let outcome = apply_acrylic_sync(
                             &class_name,
                             compositor.as_ref(),
+                            d2d_factory.as_ref(),
                             &mut slots,
                             req,
                             is_hidden,
@@ -702,14 +747,17 @@ fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicCommand>> {
                                     SW_HIDE,
                                 );
                                 slot.visible = false;
-                            } else if let Some(ref req) = slot.last_req {
-                                let mut parent_rect = RECT::default();
-                                if GetWindowRect(parent, &mut parent_rect).is_ok() {
-                                    let dpr = req.dpr.max(1.0);
-                                    let target_x = parent_rect.left
-                                        + (req.container_left * dpr).round() as i32;
-                                    let target_y = parent_rect.top
-                                        + (req.container_top * dpr).round() as i32;
+                    } else if let Some(ref req) = slot.last_req {
+                        let mut parent_rect = RECT::default();
+                        if GetWindowRect(parent, &mut parent_rect).is_ok() {
+                            let dpr = req.dpr.max(1.0);
+                            let layout = compute_acrylic_surface_layout(req);
+                            let target_x = parent_rect.left
+                                + (req.container_left * dpr).round() as i32
+                                + layout.off_x_px;
+                            let target_y = parent_rect.top
+                                + (req.container_top * dpr).round() as i32
+                                + layout.off_y_px;
                                     if target_x != slot.last_screen_x
                                         || target_y != slot.last_screen_y
                                     {
@@ -866,7 +914,8 @@ unsafe fn create_underlay_window(
             target,
             visual,
             rounded_rect,
-            _clip: clip,
+            clip,
+            use_path_clip: false,
             brush_pair,
             opacity_phase: false,
             phys_w: 0,
@@ -888,6 +937,296 @@ unsafe fn create_underlay_window(
 /// - In Island mode, all 4 corners are rounded with `r = max(rb, rt)`.
 /// - In Anchored mode, the edge flush with the screen bezel is extended outward by `r` so it stays flat
 ///   against the bezel while the inner corners are smoothly rounded with exact radius `r = rb`.
+struct AcrylicSurfaceLayout {
+    body_w_px: i32,
+    body_h_px: i32,
+    off_x_px: i32,
+    off_y_px: i32,
+    total_w_px: i32,
+    total_h_px: i32,
+    re_px: i32,
+    rb_px: i32,
+    rt_px: i32,
+}
+
+fn compute_acrylic_surface_layout(req: &AcrylicSyncRequest) -> AcrylicSurfaceLayout {
+    let dpr = req.dpr.max(1.0);
+    let body_w_px = (req.width * dpr).round().max(1.0) as i32;
+    let body_h_px = (req.height * dpr).round().max(1.0) as i32;
+    let rb_px = ((req.bottom_radius * dpr).round() as i32)
+        .min(body_w_px / 2)
+        .min(body_h_px / 2)
+        .max(0);
+    let rt_px = ((req.top_radius * dpr).round() as i32)
+        .min(body_w_px / 2)
+        .min(body_h_px / 2)
+        .max(0);
+
+    let re_px = if req.is_island || req.ear_radius <= 0.5 {
+        0
+    } else {
+        let is_side = matches!(req.position.as_str(), "left" | "right");
+        let max_along = if is_side {
+            (body_w_px - rb_px).max(0)
+        } else {
+            (body_h_px - rb_px).max(0)
+        };
+        let max_cap = (48.0 * dpr).round() as i32;
+        ((req.ear_radius * dpr).round() as i32)
+            .min(max_along)
+            .min(max_cap)
+            .max(0)
+    };
+
+    if re_px == 0 {
+        return AcrylicSurfaceLayout {
+            body_w_px,
+            body_h_px,
+            off_x_px: 0,
+            off_y_px: 0,
+            total_w_px: body_w_px,
+            total_h_px: body_h_px,
+            re_px: 0,
+            rb_px,
+            rt_px,
+        };
+    }
+
+    let (off_x_px, off_y_px, total_w_px, total_h_px) = match req.position.as_str() {
+        "left" | "right" => (0, -re_px, body_w_px, body_h_px + 2 * re_px),
+        "top-left" | "bottom-left" => (0, 0, body_w_px + re_px, body_h_px),
+        "top-right" | "bottom-right" => (-re_px, 0, body_w_px + re_px, body_h_px),
+        _ => (-re_px, 0, body_w_px + 2 * re_px, body_h_px),
+    };
+
+    AcrylicSurfaceLayout {
+        body_w_px,
+        body_h_px,
+        off_x_px,
+        off_y_px,
+        total_w_px,
+        total_h_px,
+        re_px,
+        rb_px,
+        rt_px,
+    }
+}
+
+fn d2d_pt(x: f32, y: f32) -> D2D_POINT_2F {
+    D2D_POINT_2F { x, y }
+}
+
+fn d2d_arc(end: (f32, f32), radius: f32, clockwise: bool) -> D2D1_ARC_SEGMENT {
+    D2D1_ARC_SEGMENT {
+        point: d2d_pt(end.0, end.1),
+        size: D2D_SIZE_F {
+            width: radius,
+            height: radius,
+        },
+        rotationAngle: 0.0,
+        sweepDirection: if clockwise {
+            D2D1_SWEEP_DIRECTION_CLOCKWISE
+        } else {
+            D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE
+        },
+        arcSize: D2D1_ARC_SIZE_SMALL,
+    }
+}
+
+fn build_concave_ear_path_geometry(
+    d2d_factory: &ID2D1Factory,
+    comp: &Compositor,
+    layout: &AcrylicSurfaceLayout,
+    position: &str,
+) -> Option<CompositionPathGeometry> {
+    if layout.re_px <= 0 {
+        return None;
+    }
+    let w = layout.body_w_px as f32;
+    let h = layout.body_h_px as f32;
+    let re = layout.re_px as f32;
+    let rb = layout.rb_px as f32;
+    let tw = layout.total_w_px as f32;
+    let th = layout.total_h_px as f32;
+
+    unsafe {
+        let d2d_path = d2d_factory.CreatePathGeometry().ok()?;
+        let sink = d2d_path.Open().ok()?;
+
+        match position {
+            "left" => {
+                let bt = re;
+                let bb = re + h;
+                sink.BeginFigure(d2d_pt(0.0, 0.0), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddArc(&d2d_arc((re, bt), re, false));
+                sink.AddLine(d2d_pt(w - rb, bt));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((w, bt + rb), rb, true));
+                } else {
+                    sink.AddLine(d2d_pt(w, bt));
+                }
+                sink.AddLine(d2d_pt(w, bb - rb));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((w - rb, bb), rb, true));
+                } else {
+                    sink.AddLine(d2d_pt(w, bb));
+                }
+                sink.AddLine(d2d_pt(re, bb));
+                sink.AddArc(&d2d_arc((0.0, th), re, false));
+            }
+            "right" => {
+                let bt = re;
+                let bb = re + h;
+                sink.BeginFigure(d2d_pt(w, 0.0), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddArc(&d2d_arc((w - re, bt), re, true));
+                sink.AddLine(d2d_pt(rb, bt));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((0.0, bt + rb), rb, false));
+                } else {
+                    sink.AddLine(d2d_pt(0.0, bt));
+                }
+                sink.AddLine(d2d_pt(0.0, bb - rb));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((rb, bb), rb, false));
+                } else {
+                    sink.AddLine(d2d_pt(0.0, bb));
+                }
+                sink.AddLine(d2d_pt(w - re, bb));
+                sink.AddArc(&d2d_arc((w, th), re, true));
+            }
+            "top-left" => {
+                let br = w;
+                sink.BeginFigure(d2d_pt(0.0, 0.0), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddLine(d2d_pt(tw, 0.0));
+                sink.AddArc(&d2d_arc((br, re), re, false));
+                sink.AddLine(d2d_pt(br, h - rb));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((br - rb, h), rb, true));
+                } else {
+                    sink.AddLine(d2d_pt(br, h));
+                }
+                sink.AddLine(d2d_pt(rb, h));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((0.0, h - rb), rb, true));
+                } else {
+                    sink.AddLine(d2d_pt(0.0, h));
+                }
+                sink.AddLine(d2d_pt(0.0, 0.0));
+            }
+            "top-right" => {
+                let bl = re;
+                sink.BeginFigure(d2d_pt(0.0, 0.0), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddLine(d2d_pt(tw, 0.0));
+                sink.AddLine(d2d_pt(tw, h - rb));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((tw - rb, h), rb, true));
+                } else {
+                    sink.AddLine(d2d_pt(tw, h));
+                }
+                sink.AddLine(d2d_pt(bl + rb, h));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((bl, h - rb), rb, true));
+                } else {
+                    sink.AddLine(d2d_pt(bl, h));
+                }
+                sink.AddLine(d2d_pt(bl, re));
+                sink.AddArc(&d2d_arc((0.0, 0.0), re, false));
+            }
+            "bottom-left" => {
+                let br = w;
+                sink.BeginFigure(d2d_pt(0.0, h), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddLine(d2d_pt(tw, h));
+                sink.AddArc(&d2d_arc((br, h - re), re, true));
+                sink.AddLine(d2d_pt(br, rb));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((br - rb, 0.0), rb, false));
+                } else {
+                    sink.AddLine(d2d_pt(br, 0.0));
+                }
+                sink.AddLine(d2d_pt(rb, 0.0));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((0.0, rb), rb, false));
+                } else {
+                    sink.AddLine(d2d_pt(0.0, 0.0));
+                }
+                sink.AddLine(d2d_pt(0.0, h));
+            }
+            "bottom-right" => {
+                let bl = re;
+                sink.BeginFigure(d2d_pt(0.0, h), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddLine(d2d_pt(tw, h));
+                sink.AddLine(d2d_pt(tw, rb));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((tw - rb, 0.0), rb, false));
+                } else {
+                    sink.AddLine(d2d_pt(tw, 0.0));
+                }
+                sink.AddLine(d2d_pt(bl + rb, 0.0));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((bl, rb), rb, false));
+                } else {
+                    sink.AddLine(d2d_pt(bl, 0.0));
+                }
+                sink.AddLine(d2d_pt(bl, h - re));
+                sink.AddArc(&d2d_arc((0.0, h), re, true));
+            }
+            "top" => {
+                let bl = re;
+                let br = re + w;
+                sink.BeginFigure(d2d_pt(0.0, 0.0), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddLine(d2d_pt(tw, 0.0));
+                sink.AddArc(&d2d_arc((br, re), re, false));
+                sink.AddLine(d2d_pt(br, h - rb));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((br - rb, h), rb, true));
+                } else {
+                    sink.AddLine(d2d_pt(br, h));
+                }
+                sink.AddLine(d2d_pt(bl + rb, h));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((bl, h - rb), rb, true));
+                } else {
+                    sink.AddLine(d2d_pt(bl, h));
+                }
+                sink.AddLine(d2d_pt(bl, re));
+                sink.AddArc(&d2d_arc((0.0, 0.0), re, false));
+            }
+            _ => {
+                // "bottom"
+                let bl = re;
+                let br = re + w;
+                sink.BeginFigure(d2d_pt(0.0, h), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddLine(d2d_pt(tw, h));
+                sink.AddArc(&d2d_arc((br, h - re), re, true));
+                sink.AddLine(d2d_pt(br, rb));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((br - rb, 0.0), rb, false));
+                } else {
+                    sink.AddLine(d2d_pt(br, 0.0));
+                }
+                sink.AddLine(d2d_pt(bl + rb, 0.0));
+                if rb > 0.0 {
+                    sink.AddArc(&d2d_arc((bl, rb), rb, false));
+                } else {
+                    sink.AddLine(d2d_pt(bl, 0.0));
+                }
+                sink.AddLine(d2d_pt(bl, h - re));
+                sink.AddArc(&d2d_arc((0.0, h), re, true));
+            }
+        }
+
+        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink.Close().ok()?;
+
+        let source: IGeometrySource2D = D2DGeometrySource {
+            geometry: d2d_path.into(),
+        }
+        .into();
+        let comp_path = CompositionPath::Create(&source).ok()?;
+        comp.CreatePathGeometryWithPath(&comp_path).ok()
+    }
+}
+
 pub fn compute_clipped_rounded_rect(
     phys_w: i32,
     phys_h: i32,
@@ -921,6 +1260,7 @@ struct SyncOutcome {
 unsafe fn apply_acrylic_sync(
     class_name: &[u16],
     compositor: Option<&Compositor>,
+    d2d_factory: Option<&ID2D1Factory>,
     slots: &mut HashMap<String, UnderlaySlot>,
     req: AcrylicSyncRequest,
     externally_hidden: bool,
@@ -934,6 +1274,7 @@ unsafe fn apply_acrylic_sync(
         last_screen_y: i32::MIN,
         last_w: 0,
         last_h: 0,
+        last_re: -1,
         last_rb: -1,
         last_rt: -1,
         last_is_island: false,
@@ -997,16 +1338,12 @@ unsafe fn apply_acrylic_sync(
     }
 
     let dpr = req.dpr.max(1.0);
-    let phys_w = (req.width * dpr).round().max(1.0) as i32;
-    let phys_h = (req.height * dpr).round().max(1.0) as i32;
-    let rb = ((req.bottom_radius * dpr).round() as i32)
-        .min(phys_w / 2)
-        .min(phys_h / 2)
-        .max(0);
-    let rt = ((req.top_radius * dpr).round() as i32)
-        .min(phys_w / 2)
-        .min(phys_h / 2)
-        .max(0);
+    let layout = compute_acrylic_surface_layout(&req);
+    let phys_w = layout.total_w_px;
+    let phys_h = layout.total_h_px;
+    let rb = layout.rb_px;
+    let rt = layout.rt_px;
+    let re = layout.re_px;
 
     let mut parent_rect = RECT::default();
     if GetWindowRect(parent, &mut parent_rect).is_err() {
@@ -1016,11 +1353,12 @@ unsafe fn apply_acrylic_sync(
         };
     }
 
-    let screen_x = parent_rect.left + (req.container_left * dpr).round() as i32;
-    let screen_y = parent_rect.top + (req.container_top * dpr).round() as i32;
+    let screen_x = parent_rect.left + (req.container_left * dpr).round() as i32 + layout.off_x_px;
+    let screen_y = parent_rect.top + (req.container_top * dpr).round() as i32 + layout.off_y_px;
 
     let shape_changed = phys_w != slot.last_w
         || phys_h != slot.last_h
+        || re != slot.last_re
         || rb != slot.last_rb
         || rt != slot.last_rt
         || req.is_island != slot.last_is_island
@@ -1029,34 +1367,56 @@ unsafe fn apply_acrylic_sync(
     if shape_changed {
         mutated = true;
         if let Some(ref mut comp) = slot.comp {
-            let (ox, oy, sw, sh, cr) = compute_clipped_rounded_rect(
-                phys_w,
-                phys_h,
-                rb,
-                rt,
-                req.is_island,
-                &req.position,
-            );
             comp.phys_w = phys_w;
             comp.phys_h = phys_h;
-            comp.ox = ox;
-            comp.oy = oy;
-            comp.sw = sw;
-            comp.sh = sh;
-            comp.cr = cr;
             let _ = comp.visual.SetSize(Vector2 {
                 X: phys_w as f32,
                 Y: phys_h as f32,
             });
-            let _ = comp.rounded_rect.SetOffset(Vector2 { X: ox, Y: oy });
-            let _ = comp.rounded_rect.SetSize(Vector2 { X: sw, Y: sh });
-            let _ = comp
-                .rounded_rect
-                .SetCornerRadius(Vector2 { X: cr, Y: cr });
+
+            if re > 0 && !req.is_island {
+                if let (Some(c), Some(fac)) = (compositor, d2d_factory) {
+                    if let Some(path_geom) =
+                        build_concave_ear_path_geometry(fac, c, &layout, &req.position)
+                    {
+                        let _ = comp.clip.SetGeometry(&path_geom);
+                        comp.use_path_clip = true;
+                    } else {
+                        comp.use_path_clip = false;
+                    }
+                } else {
+                    comp.use_path_clip = false;
+                }
+            } else {
+                comp.use_path_clip = false;
+            }
+
+            if !comp.use_path_clip {
+                let (ox, oy, sw, sh, cr) = compute_clipped_rounded_rect(
+                    phys_w,
+                    phys_h,
+                    rb,
+                    rt,
+                    req.is_island,
+                    &req.position,
+                );
+                comp.ox = ox;
+                comp.oy = oy;
+                comp.sw = sw;
+                comp.sh = sh;
+                comp.cr = cr;
+                let _ = comp.rounded_rect.SetOffset(Vector2 { X: ox, Y: oy });
+                let _ = comp.rounded_rect.SetSize(Vector2 { X: sw, Y: sh });
+                let _ = comp
+                    .rounded_rect
+                    .SetCornerRadius(Vector2 { X: cr, Y: cr });
+                let _ = comp.clip.SetGeometry(&comp.rounded_rect);
+            }
         }
 
         slot.last_w = phys_w;
         slot.last_h = phys_h;
+        slot.last_re = re;
         slot.last_rb = rb;
         slot.last_rt = rt;
         slot.last_is_island = req.is_island;
@@ -1207,6 +1567,9 @@ mod tests {
             let hr_dq = CreateDispatcherQueueController(dq_options, &mut dq_controller);
             assert_eq!(hr_dq, 0);
             let comp = Compositor::new().expect("Compositor::new() should succeed");
+            let d2d_factory: ID2D1Factory =
+                D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)
+                    .expect("D2D1CreateFactory should succeed");
 
             let class_name: Vec<u16> = "GiliTestUnderlay\0".encode_utf16().collect();
             let wc = WNDCLASSW {
@@ -1218,6 +1581,29 @@ mod tests {
             let (hwnd_val, comp_underlay) = create_underlay_window(&class_name, Some(&comp), 50);
             assert_ne!(hwnd_val, 0);
             let mut underlay = comp_underlay.expect("composition underlay should initialize");
+            for pos in ["bottom", "top", "left", "right"] {
+                let sample_req = AcrylicSyncRequest {
+                    label: "test".to_string(),
+                    parent_hwnd: 0,
+                    enabled: true,
+                    container_left: 0.0,
+                    container_top: 0.0,
+                    width: if pos == "left" || pos == "right" { 48.0 } else { 520.0 },
+                    height: if pos == "left" || pos == "right" { 520.0 } else { 48.0 },
+                    ear_radius: 32.0,
+                    bottom_radius: 15.0,
+                    top_radius: 15.0,
+                    is_island: false,
+                    position: pos.to_string(),
+                    dpr: 1.0,
+                    blur_strength: 68,
+                    opacity: 0.8,
+                    is_light: false,
+                };
+                let layout = compute_acrylic_surface_layout(&sample_req);
+                assert!(layout.re_px > 0);
+                assert!(build_concave_ear_path_geometry(&d2d_factory, &comp, &layout, pos).is_some());
+            }
             assert!(underlay.refresh_backdrop(&comp, hwnd_val, 0, 0, 0, false));
             assert!(underlay.refresh_backdrop(&comp, hwnd_val, 0, 0, 0, true));
             drop(underlay);

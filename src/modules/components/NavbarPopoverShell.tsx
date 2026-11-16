@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
+import { AnimatePresence, motion } from "framer-motion";
 import { NavbarConfig, NavbarModuleView } from "../../types/navbar";
 import { saveNavbarConfig } from "../../services/navbarConfigService";
 import { useNavbarPopupHit } from "../../services/navbarPopupService";
@@ -72,7 +73,17 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
   const isLightSurface = useNavbarIsLightSurface(config);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const popoverCardRef = useRef<HTMLDivElement>(null);
-  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+  type PopoverCoords = {
+    left: number;
+    top: number;
+    originX: number;
+    originY: number;
+    enterX: number;
+    enterY: number;
+  };
+  const [coords, setCoords] = useState<PopoverCoords | null>(null);
+  const lastCoordsRef = useRef<PopoverCoords | null>(null);
+  const hasMeasuredOnceRef = useRef(false);
 
   useNavbarPopupHit({
     idPrefix: moduleId || "popover",
@@ -107,9 +118,25 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
 
   useLayoutEffect(() => {
     if (!isOpen) {
+      hasMeasuredOnceRef.current = false;
       setCoords(null);
       return;
     }
+
+    const syncDockAnchor = (anchor: HTMLElement) => {
+      const r = anchor.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        invoke("set_dock_action_anchor", {
+          anchor: {
+            x: r.left,
+            y: r.top,
+            width: r.width,
+            height: r.height,
+            position: pos,
+          },
+        }).catch(() => {});
+      }
+    };
 
     const computeCoords = () => {
       const card = popoverCardRef.current;
@@ -121,8 +148,10 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
       const wRect = wrapper.getBoundingClientRect();
       const scale = anchor.offsetWidth > 0 ? aRect.width / anchor.offsetWidth : 1;
       const safeScale = scale > 0.1 ? scale : 1;
-      const cardW = (card.offsetWidth || width || 260) * safeScale;
-      const cardH = (card.offsetHeight || 180) * safeScale;
+      const unscaledW = card.offsetWidth || width || 260;
+      const unscaledH = card.offsetHeight || 180;
+      const cardW = unscaledW * safeScale;
+      const cardH = unscaledH * safeScale;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
 
@@ -175,19 +204,70 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
       const relLeft = Math.round((clampedLeft - wRect.left) / safeScale);
       const relTop = Math.round((clampedTop - wRect.top) / safeScale);
 
+      const anchorRelX = Math.max(
+        14,
+        Math.min(unscaledW - 14, (aRect.left + aRect.width / 2 - clampedLeft) / safeScale),
+      );
+      const anchorRelY = Math.max(
+        14,
+        Math.min(unscaledH - 14, (aRect.top + aRect.height / 2 - clampedTop) / safeScale),
+      );
+
+      let originX = Math.round(anchorRelX);
+      let originY = unscaledH;
+      let enterX = 0;
+      let enterY = 18;
+      if (pos === "top") {
+        originY = 0;
+        enterY = -18;
+      } else if (pos === "left") {
+        originX = 0;
+        originY = Math.round(anchorRelY);
+        enterX = -18;
+        enterY = 0;
+      } else if (pos === "right") {
+        originX = unscaledW;
+        originY = Math.round(anchorRelY);
+        enterX = 18;
+        enterY = 0;
+      }
+
+      const nextCoords: PopoverCoords = {
+        left: relLeft,
+        top: relTop,
+        originX,
+        originY,
+        enterX,
+        enterY,
+      };
+      lastCoordsRef.current = nextCoords;
+
       setCoords((prev) =>
-        prev && prev.left === relLeft && prev.top === relTop
+        prev &&
+        prev.left === nextCoords.left &&
+        prev.top === nextCoords.top &&
+        prev.originX === nextCoords.originX &&
+        prev.originY === nextCoords.originY
           ? prev
-          : { left: relLeft, top: relTop }
+          : nextCoords
       );
     };
 
+    const anchorEl = anchorRef?.current || wrapperRef.current;
+    if (anchorEl) {
+      syncDockAnchor(anchorEl);
+    }
+
     computeCoords();
+    const rafId = window.requestAnimationFrame(() => {
+      hasMeasuredOnceRef.current = true;
+    });
     const ro = new ResizeObserver(computeCoords);
     if (popoverCardRef.current) ro.observe(popoverCardRef.current);
     if (anchorRef?.current) ro.observe(anchorRef.current);
     window.addEventListener("resize", computeCoords);
     return () => {
+      window.cancelAnimationFrame(rafId);
       ro.disconnect();
       window.removeEventListener("resize", computeCoords);
     };
@@ -231,7 +311,18 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
     } catch {}
   };
 
-  if (!isOpen && !trigger) return null;
+  const prevIsOpenRef = useRef(isOpen);
+  const [isExiting, setIsExiting] = useState(false);
+  if (prevIsOpenRef.current !== isOpen) {
+    prevIsOpenRef.current = isOpen;
+    if (!isOpen && (coords || lastCoordsRef.current)) {
+      setIsExiting(true);
+    } else if (isOpen && isExiting) {
+      setIsExiting(false);
+    }
+  }
+
+  if (!isOpen && !isExiting && !trigger) return null;
 
   const fallbackTitle = tx(lang, "Navbar Module", "Modul Navbar");
   const displayTitle = title || fallbackTitle;
@@ -241,9 +332,113 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
     "Ubah tampilan modul di taskbar"
   );
 
+  const activeCoords = coords ?? lastCoordsRef.current;
+  const useGenie = config.windowAnimation !== "normal";
+  const isVert = pos === "left" || pos === "right";
+  const tiltX = pos === "bottom" ? 15 : pos === "top" ? -15 : 0;
+  const tiltY = pos === "left" ? 15 : pos === "right" ? -15 : 0;
+  const normalSlideX = pos === "left" ? -10 : pos === "right" ? 10 : 0;
+  const normalSlideY = pos === "top" ? -10 : isVert ? 0 : 10;
+
+  const hiddenTransform = useGenie
+    ? {
+        opacity: 0,
+        scaleX: isVert ? 0.07 : 0.14,
+        scaleY: isVert ? 0.14 : 0.07,
+        x: activeCoords
+          ? activeCoords.enterX
+          : pos === "left"
+          ? -18
+          : pos === "right"
+          ? 18
+          : 0,
+        y: activeCoords
+          ? activeCoords.enterY
+          : pos === "top"
+          ? -18
+          : isVert
+          ? 0
+          : 18,
+        rotateX: tiltX,
+        rotateY: tiltY,
+        transformPerspective: 620,
+      }
+    : {
+        opacity: 0,
+        scaleX: 0.96,
+        scaleY: 0.96,
+        x: normalSlideX,
+        y: normalSlideY,
+        rotateX: 0,
+        rotateY: 0,
+        transformPerspective: 620,
+      };
+  const openTransform = {
+    opacity: 1,
+    scaleX: 1,
+    scaleY: 1,
+    x: 0,
+    y: 0,
+    rotateX: 0,
+    rotateY: 0,
+    transformPerspective: 620,
+    transition: useGenie
+      ? {
+          x: { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const },
+          y: { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const },
+          scaleX: isVert
+            ? { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const }
+            : { duration: 0.23, delay: 0.03, ease: [0.22, 1, 0.36, 1] as const },
+          scaleY: isVert
+            ? { duration: 0.23, delay: 0.03, ease: [0.22, 1, 0.36, 1] as const }
+            : { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const },
+          rotateX: { duration: 0.24, ease: [0.22, 1, 0.36, 1] as const },
+          rotateY: { duration: 0.24, ease: [0.22, 1, 0.36, 1] as const },
+          opacity: { duration: 0.14, ease: "easeOut" as const },
+        }
+      : {
+          duration: 0.16,
+          ease: [0.22, 1, 0.36, 1] as const,
+        },
+  };
+  const exitTransform = useGenie
+    ? {
+        ...hiddenTransform,
+        scaleX: isVert ? 0.05 : 0.1,
+        scaleY: isVert ? 0.1 : 0.05,
+        transition: {
+          scaleX: isVert
+            ? { duration: 0.15, delay: 0.025, ease: [0.36, 0, 0.8, 0.15] as const }
+            : { duration: 0.13, ease: [0.4, 0, 0.85, 0.6] as const },
+          scaleY: isVert
+            ? { duration: 0.13, ease: [0.4, 0, 0.85, 0.6] as const }
+            : { duration: 0.15, delay: 0.025, ease: [0.36, 0, 0.8, 0.15] as const },
+          x: { duration: 0.155, delay: 0.02, ease: [0.36, 0, 0.8, 0.15] as const },
+          y: { duration: 0.155, delay: 0.02, ease: [0.36, 0, 0.8, 0.15] as const },
+          rotateX: { duration: 0.16, ease: [0.36, 0, 0.8, 0.15] as const },
+          rotateY: { duration: 0.16, ease: [0.36, 0, 0.8, 0.15] as const },
+          opacity: { duration: 0.12, delay: 0.055, ease: "easeIn" as const },
+        },
+      }
+    : {
+        ...hiddenTransform,
+        transition: {
+          duration: 0.12,
+          ease: [0.32, 0, 0.67, 0] as const,
+        },
+      };
+  const defaultOrigin =
+    pos === "top"
+      ? "50% 0%"
+      : pos === "left"
+      ? "0% 50%"
+      : pos === "right"
+      ? "100% 50%"
+      : "50% 100%";
+
   return (
     <div ref={wrapperRef} className="relative flex items-center shrink-0">
-      {isOpen && (
+      {(isOpen || isExiting) && (
         <div
           ref={popoverCardRef}
           data-module-popover
@@ -253,58 +448,84 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
           onPointerDown={(e) => e.stopPropagation()}
           style={{
             ...(width ? { width: `${width}px` } : {}),
-            left: coords ? `${coords.left}px` : "0px",
-            top: coords ? `${coords.top}px` : "0px",
-            visibility: coords ? "visible" : "hidden",
-            transition:
-              "left 0.2s cubic-bezier(0.22, 1, 0.36, 1), top 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+            left: activeCoords ? `${activeCoords.left}px` : "0px",
+            top: activeCoords ? `${activeCoords.top}px` : "0px",
+            visibility:
+              coords || (!isOpen && activeCoords) ? "visible" : "hidden",
+            pointerEvents: isOpen ? "auto" : "none",
+            transition: hasMeasuredOnceRef.current
+              ? "left 0.18s cubic-bezier(0.22, 1, 0.36, 1), top 0.18s cubic-bezier(0.22, 1, 0.36, 1)"
+              : "none",
           }}
-          className={`${
-            isLightSurface
-              ? "navbar-surface-light bg-[#f8fafc]/95 border-black/15 shadow-[0_20px_50px_rgba(15,23,42,0.18)] text-[#18181b]"
-              : "navbar-preview-dark bg-[#11131a]/95 border-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.75)] text-white"
-          } absolute z-50 ${
+          className={`absolute z-50 ${
             width ? "" : widthClass
-          } max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] overflow-y-auto p-3 rounded-[16px] backdrop-blur-2xl border flex flex-col gap-2.5 whitespace-normal break-words select-none animate-in fade-in zoom-in-95 duration-150`}
+          } max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)]`}
         >
-          {(title || moduleId) && (
-            <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-white/[0.1] shrink-0 min-w-0">
-              <span className="text-[11px] font-semibold text-white/90 truncate min-w-0 flex-1">
-                {displayTitle}
-              </span>
-              {moduleId && (
-                <Tooltip content={viewSwitchTip} side="top" isLightMode={isLightSurface}>
-                  <div className="flex items-center bg-white/[0.06] rounded-[7px] p-0.5 border border-white/[0.08] shrink-0">
-                    <button
-                      type="button"
-                      onClick={(e) => handleSwitchView("compact", e)}
-                      className={`px-1.5 py-0.5 rounded-[5px] text-[9.5px] font-semibold transition-all cursor-pointer ${TRIGGER_FOCUS_RING} ${
-                        activeView === "compact"
-                          ? "bg-[#3882F6] text-[#ffffff]"
-                          : "text-zinc-300 hover:text-white"
-                      }`}
-                    >
-                      {tx(lang, "Icon", "Ikon")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => handleSwitchView("full", e)}
-                      className={`px-1.5 py-0.5 rounded-[5px] text-[9.5px] font-semibold transition-all cursor-pointer ${TRIGGER_FOCUS_RING} ${
-                        activeView === "full"
-                          ? "bg-[#3882F6] text-[#ffffff]"
-                          : "text-zinc-300 hover:text-white"
-                      }`}
-                    >
-                      {tx(lang, "Pill", "Panjang")}
-                    </button>
+          <AnimatePresence onExitComplete={() => setIsExiting(false)}>
+            {isOpen && (
+              <motion.div
+                key="module-popover-card"
+                initial={hiddenTransform}
+                animate={coords ? openTransform : hiddenTransform}
+                exit={exitTransform}
+                style={{
+                  willChange: "transform, opacity",
+                  transformOrigin:
+                    useGenie && activeCoords
+                      ? `${activeCoords.originX}px ${activeCoords.originY}px`
+                      : defaultOrigin,
+                }}
+                className={`${
+                  isLightSurface
+                    ? "navbar-surface-light bg-[#f8fafc]/95 border-black/15 shadow-[0_20px_50px_rgba(15,23,42,0.18)] text-[#18181b]"
+                    : "navbar-preview-dark bg-[#11131a]/95 border-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.75)] text-white"
+                } w-full max-h-[calc(100vh-24px)] overflow-y-auto p-3 rounded-[16px] backdrop-blur-2xl border flex flex-col gap-2.5 whitespace-normal break-words select-none`}
+              >
+                {(title || moduleId) && (
+                  <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-white/[0.1] shrink-0 min-w-0">
+                    <span className="text-[11px] font-semibold text-white/90 truncate min-w-0 flex-1">
+                      {displayTitle}
+                    </span>
+                    {moduleId && (
+                      <Tooltip
+                        content={viewSwitchTip}
+                        side="top"
+                        isLightMode={isLightSurface}
+                      >
+                        <div className="flex items-center bg-white/[0.06] rounded-[7px] p-0.5 border border-white/[0.08] shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => handleSwitchView("compact", e)}
+                            className={`px-1.5 py-0.5 rounded-[5px] text-[9.5px] font-semibold transition-all cursor-pointer ${TRIGGER_FOCUS_RING} ${
+                              activeView === "compact"
+                                ? "bg-[#3882F6] text-[#ffffff]"
+                                : "text-zinc-300 hover:text-white"
+                            }`}
+                          >
+                            {tx(lang, "Icon", "Ikon")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleSwitchView("full", e)}
+                            className={`px-1.5 py-0.5 rounded-[5px] text-[9.5px] font-semibold transition-all cursor-pointer ${TRIGGER_FOCUS_RING} ${
+                              activeView === "full"
+                                ? "bg-[#3882F6] text-[#ffffff]"
+                                : "text-zinc-300 hover:text-white"
+                            }`}
+                          >
+                            {tx(lang, "Pill", "Panjang")}
+                          </button>
+                        </div>
+                      </Tooltip>
+                    )}
                   </div>
-                </Tooltip>
-              )}
-            </div>
-          )}
-          <div className="flex flex-col gap-2.5 flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain px-1 -mx-1 py-0.5 -my-0.5">
-            {children}
-          </div>
+                )}
+                <div className="flex flex-col gap-2.5 flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain px-1 -mx-1 py-0.5 -my-0.5">
+                  {children}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
       {trigger}

@@ -185,6 +185,7 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
               progressList.map((item) => {
                 const ext = item.name.split(".").pop()?.toUpperCase() || "FILE";
                 const isCompleted = item.status === "completed" || item.progress >= 100;
+                const isError = item.status === "error";
                 return (
                   <div
                     key={item.id}
@@ -208,6 +209,10 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
                         <span className={`text-[11px] font-medium flex items-center gap-1 ${isLightMode ? "text-emerald-700" : "text-emerald-400"}`}>
                           <Check size={12} strokeWidth={2.6} />
                           <span>{isEn ? "done" : "selesai"}</span>
+                        </span>
+                      ) : isError ? (
+                        <span className={`text-[11px] font-medium ${isLightMode ? "text-rose-700" : "text-rose-400"}`}>
+                          {isEn ? "failed" : "gagal"}
                         </span>
                       ) : (
                         <div className="flex items-center gap-1.5">

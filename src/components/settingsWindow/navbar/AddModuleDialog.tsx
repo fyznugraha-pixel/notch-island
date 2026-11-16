@@ -38,6 +38,7 @@ const BUILTIN_IDS = new Set([
   "startSearch",
   "pinnedApps",
   "runningApps",
+  "hiddenTray",
   "systemIcons",
   "notifications",
   "clockDate",

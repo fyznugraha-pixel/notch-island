@@ -1288,7 +1288,16 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   const lastDropTimeRef = useRef<number>(0);
 
-  const addStashedFiles = async (paths: string[]) => {
+  const addStashedFiles = useCallback(async (
+    paths: string[],
+    meta?: {
+      source?: "local" | "phone";
+      deviceName?: string;
+      isNew?: boolean;
+      thumbnail?: string;
+      sizeFormatted?: string;
+    }
+  ) => {
     if (isShelfDraggingRef.current) return;
     if (!paths || paths.length === 0) return;
 
@@ -1298,12 +1307,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       .filter((p) => Boolean(p) && (p.includes("\\") || p.includes("/")));
     if (cleaned.length === 0) return;
 
-    // Guard against rapid duplicate drop events (e.g. OS drop + DOM onDrop within 250ms)
-    const now = Date.now();
-    if (now - lastDropTimeRef.current < 250) {
-      return;
+    // Phone uploads arrive back-to-back over HTTP and must never hit the local OS-drop duplicate guard.
+    if (meta?.source !== "phone") {
+      const now = Date.now();
+      if (now - lastDropTimeRef.current < 250) {
+        return;
+      }
+      lastDropTimeRef.current = now;
     }
-    lastDropTimeRef.current = now;
 
     const uniqueIncoming = Array.from(new Set(cleaned));
 
@@ -1316,15 +1327,21 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       return;
     }
 
+    const addedAt = Date.now();
     const newItems: StashedFile[] = finalPaths.map((cleanPath) => {
       const name = cleanPath.split(/[\\/]/).pop() || "File";
       const ext = name.includes(".") ? name.split(".").pop() || "" : "";
       return {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: `${addedAt}_${Math.random().toString(36).slice(2, 7)}`,
         name,
         path: cleanPath,
         ext,
-        addedAt: Date.now(),
+        addedAt,
+        ...(meta?.sizeFormatted ? { sizeFormatted: meta.sizeFormatted } : {}),
+        ...(meta?.thumbnail ? { thumbnail: meta.thumbnail } : {}),
+        ...(meta?.source ? { source: meta.source } : {}),
+        ...(meta?.deviceName ? { deviceName: meta.deviceName } : {}),
+        ...(meta?.isNew !== undefined ? { isNew: meta.isNew } : {}),
       };
     });
 
@@ -1344,11 +1361,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         let hasChanges = false;
         const updated = prev.map((f) => {
           const res = batch[f.id];
-          if (res && !f.sizeFormatted) {
+          if (!res) return f;
+          const needsSize = !f.sizeFormatted && Boolean(res.sizeFormatted);
+          const needsThumb = !f.thumbnail && Boolean(res.thumbnail);
+          if (needsSize || needsThumb) {
             hasChanges = true;
             return {
               ...f,
-              sizeFormatted: res.sizeFormatted,
+              ...(needsSize ? { sizeFormatted: res.sizeFormatted } : {}),
+              ...(needsThumb ? { thumbnail: res.thumbnail } : {}),
             };
           }
           return f;
@@ -1361,7 +1382,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         return prev;
       });
     });
-  };
+  }, []);
   const addStashedFilesRef = useRef(addStashedFiles);
   addStashedFilesRef.current = addStashedFiles;
 

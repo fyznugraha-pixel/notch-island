@@ -47,6 +47,7 @@ interface NavbarDockProps {
   onNotificationsClick?: () => void;
   onClockClick?: () => void;
   onVolumeClick?: (e: React.MouseEvent) => void;
+  onTrayClick?: () => void;
   onPreviewStateChange?: (isShowing: boolean) => void;
   onLightSurfaceChange?: (isLight: boolean) => void;
   onSurfaceThemeChange?: (info: NavbarSurfaceThemeInfo) => void;
@@ -80,6 +81,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       onNotificationsClick,
       onClockClick,
       onVolumeClick,
+      onTrayClick,
       onPreviewStateChange,
       onLightSurfaceChange,
       onSurfaceThemeChange,
@@ -365,7 +367,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       ? isHexLight(customColor)
       : false;
 
-    const useConcaveEars = isAnchored && !isTranslucent;
+    const useConcaveEars = isAnchored;
 
     const glassPalette = computeCalibratedGlassPalette({
       opacity: effectiveAlpha,
@@ -406,9 +408,11 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       ? anchoredGlassRadius
       : borderRadiusValue;
     const useNativeAcrylic =
-      glassPalette.isTranslucent &&
-      Math.round(glassPalette.effectiveBlur) > 1 &&
-      !useConcaveEars;
+      glassPalette.isTranslucent && Math.round(glassPalette.effectiveBlur) > 1;
+    // Concave ears across all Anchored modes (solid, liquid glass, follow-notch & custom opacity)
+    const earRadius = useConcaveEars
+      ? Math.max(28, Math.min(40, Math.round(dockThickness * 0.58 + (radius - 10) * 0.4)))
+      : 0;
 
     const rawClipId = useId();
     const clipId = `dock_unified_clip_${rawClipId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
@@ -496,6 +500,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         if (rect.width < 4 || rect.height < 4) return;
         const scaleX = currentW > 0 ? rect.width / currentW : 1;
         const scaledR = effectiveRadiusPx * scaleX;
+        const earScaled = useConcaveEars ? Math.round(earRadius * scaleX) : 0;
         acrylicSyncedOnceRef.current = true;
         invoke("sync_notch_acrylic", {
           enabled: true,
@@ -503,10 +508,10 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           containerTop: rect.top,
           width: rect.width,
           height: rect.height,
-          earRadius: 0,
+          earRadius: earScaled,
           bottomRadius: scaledR,
           topRadius: scaledR,
-          isIsland: true,
+          isIsland: !isAnchored,
           position: pos,
           dpr: window.devicePixelRatio || 1,
           blurStrength: Math.round(glassPalette.effectiveBlur),
@@ -541,6 +546,9 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       isPreview,
       isHidden,
       useNativeAcrylic,
+      useConcaveEars,
+      isAnchored,
+      earRadius,
       pos,
       effectiveRadiusPx,
       currentW,
@@ -577,10 +585,6 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       };
     }, [isPreview]);
 
-    // Concave ears only in Solid anchored mode; translucent anchored renders as a rounded frosted bar
-    const earRadius = useConcaveEars
-      ? Math.max(28, Math.min(40, Math.round(dockThickness * 0.58 + (radius - 10) * 0.4)))
-      : 0;
     const pathParams = {
       width: currentW,
       height: currentH,
@@ -647,16 +651,30 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     const hasModule = (id: string) =>
       config.modules.some((m) => m.id === id && m.enabled);
 
-    const handleAppClick = async (app: any, forceNewInstance = false) => {
+    const handleAppClick = async (
+      app: any,
+      forceNewInstance = false,
+      anchorRect?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        position: string;
+      },
+    ) => {
       emit("navbar-dismiss-popovers").catch(() => {});
       if (!forceNewInstance && app.hwnd) {
         try {
-          await invoke("activate_or_toggle_window", { hwnd: app.hwnd });
+          await invoke("activate_or_toggle_window", { hwnd: app.hwnd, anchorRect });
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
           }, 180);
           return;
         } catch {}
+      }
+
+      if (anchorRect) {
+        invoke("set_dock_action_anchor", { anchor: anchorRect }).catch(() => {});
       }
 
       if (app.lnkPath) {
@@ -675,34 +693,34 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       try {
         switch (app.id) {
           case "explorer":
-            await invoke("trigger_file_explorer");
+            await invoke("trigger_file_explorer", { anchorRect });
             break;
           case "chrome":
-            await invoke("launch_target", { target: "chrome" });
+            await invoke("launch_target", { target: "chrome", anchorRect });
             break;
           case "brave":
-            await invoke("launch_target", { target: "brave" });
+            await invoke("launch_target", { target: "brave", anchorRect });
             break;
           case "vscode":
-            await invoke("launch_target", { target: "code" });
+            await invoke("launch_target", { target: "code", anchorRect });
             break;
           case "terminal":
-            await invoke("launch_target", { target: "wt" });
+            await invoke("launch_target", { target: "wt", anchorRect });
             break;
           case "settings":
-            await invoke("launch_target", { target: "ms-settings:" });
+            await invoke("launch_target", { target: "ms-settings:", anchorRect });
             break;
           case "gili":
-            await invoke("open_settings_window", { section: null });
+            await invoke("open_settings_window", { section: null, anchorRect });
             break;
           case "spotify":
-            await invoke("launch_target", { target: "spotify" });
+            await invoke("launch_target", { target: "spotify", anchorRect });
             break;
           case "discord":
-            await invoke("launch_target", { target: "discord" });
+            await invoke("launch_target", { target: "discord", anchorRect });
             break;
           default:
-            await invoke("launch_target", { target: app.id });
+            await invoke("launch_target", { target: app.id, anchorRect });
             break;
         }
       } catch (err) {
@@ -717,6 +735,18 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       const rect = slotEl
         ? slotEl.getBoundingClientRect()
         : (e.currentTarget as HTMLElement).getBoundingClientRect();
+
+      if (rect.width > 0 && rect.height > 0) {
+        invoke("set_dock_action_anchor", {
+          anchor: {
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+            position: pos,
+          },
+        }).catch(() => {});
+      }
 
       modDragRef.current = {
         id: modId,
@@ -825,6 +855,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       }
 
       if (
+        m.id === "hiddenTray" ||
         m.id === "systemIcons" ||
         m.id === "notifications" ||
         m.id === "clockDate"
@@ -844,6 +875,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             onNotificationsClick={onNotificationsClick}
             onClockClick={onClockClick}
             onVolumeClick={onVolumeClick}
+            onTrayClick={onTrayClick}
           />
         );
       }
@@ -910,7 +942,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           isLightSurface ? "navbar-surface-light text-zinc-900" : "text-white"
         } select-none whitespace-nowrap box-border overflow-visible ${spacingClass}`}
       >
-        {/* Unified Anchored Surface for opaque solid mode (ears + flat edge join) */}
+        {/* Unified Anchored Surface for all styles (ears + flat bezel join) */}
         {useConcaveEars && surfaceMetrics && (
           <div
             aria-hidden="true"
@@ -920,7 +952,9 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               top: `${surfaceMetrics.offsetTop}px`,
               width: `${surfaceMetrics.totalW}px`,
               height: `${surfaceMetrics.totalH}px`,
-              filter: isLightSurface
+              filter: isTranslucent
+                ? undefined
+                : isLightSurface
                 ? "drop-shadow(0 6px 18px rgba(0,0,0,0.12))"
                 : "drop-shadow(0 12px 28px rgba(0,0,0,0.45))",
             }}
@@ -944,8 +978,32 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
                 clipPath: `url(#${clipId})`,
                 WebkitClipPath: `url(#${clipId})`,
                 background: glassPalette.backgroundFill,
+                backdropFilter: isPreview
+                  ? glassPalette.previewBackdropFilter
+                  : undefined,
+                WebkitBackdropFilter: isPreview
+                  ? glassPalette.previewBackdropFilter
+                  : undefined,
               }}
-            />
+            >
+              {glassPalette.isTranslucent && (
+                <FrostedGlassOverlay
+                  palette={glassPalette}
+                  isLight={isLightSurface}
+                  borderRadius={0}
+                  position={
+                    pos === "top"
+                      ? "top"
+                      : pos === "left"
+                      ? "left"
+                      : pos === "right"
+                      ? "right"
+                      : "bottom"
+                  }
+                  showBevelBorder={false}
+                />
+              )}
+            </div>
 
             <svg
               className="absolute inset-0 w-full h-full block overflow-visible"
@@ -956,7 +1014,15 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
               <path
                 d={outlinePath}
                 fill="none"
-                stroke={isLightSurface ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)"}
+                stroke={
+                  glassPalette.isTranslucent
+                    ? isLightSurface
+                      ? "rgba(255,255,255,0.52)"
+                      : "rgba(255,255,255,0.20)"
+                    : isLightSurface
+                    ? "rgba(0,0,0,0.08)"
+                    : "rgba(255,255,255,0.08)"
+                }
                 strokeWidth="1"
               />
             </svg>

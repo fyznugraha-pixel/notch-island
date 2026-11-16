@@ -828,6 +828,11 @@ export const translations = {
   shelf_settings_clear_cache: { en: "Clear Thumbnail Cache", id: "Bersihkan Cache Thumbnail" },
   shelf_settings_clear_cache_desc: { en: "Free memory by clearing cached shelf previews", id: "Kosongkan memori dengan membersihkan cache pratinjau" },
   shelf_settings_cache_cleared: { en: "Cache Cleared!", id: "Cache Berhasil Dibersihkan!" },
+  shelf_file_missing: { en: "Missing", id: "Hilang" },
+  shelf_missing_banner: { en: "{count} file no longer exists at its original folder", id: "{count} file sudah tidak ada di folder aslinya" },
+  shelf_clean_missing: { en: "Clear missing", id: "Bersihkan hilang" },
+  shelf_cannot_share_missing: { en: "File not found on disk: {names}", id: "File tidak ditemukan di disk: {names}" },
+  shelf_receive_failed: { en: "Transfer failed: no files were received from phone", id: "Transfer gagal: tidak ada file yang berhasil diterima dari HP" },
 
   // Clipboard
   clipboard_title: { en: "Clipboard History", id: "Riwayat Papan Klip" },

@@ -11,6 +11,7 @@ let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 export interface FilePreview {
   sizeFormatted: string;
   thumbnail?: string;
+  isMissing?: boolean;
 }
 
 // In-memory cache for previews (thumbnails & formatted sizes) so they survive tab switches without re-fetching
@@ -42,6 +43,12 @@ export function clearShelfPreviewCache(): void {
   inFlightRequests.clear();
   completedFetches.clear();
   pendingQueue = [];
+}
+
+export function invalidateShelfVerification(ids: string[]): void {
+  for (const id of ids) {
+    completedFetches.delete(id);
+  }
 }
 
 type BatchCallback = (updates: Record<string, FilePreview>) => void;
@@ -85,8 +92,9 @@ function processQueue() {
     if (!file) break;
 
     const cached = getCachedPreview(file.id) || getCachedPreview(file.path);
-    const needsImageThumb = isImageExt(file.ext) && !cached?.thumbnail && !completedFetches.has(file.id);
-    if (cached && !needsImageThumb) {
+    const isVerified = completedFetches.has(file.id);
+    const needsImageThumb = isImageExt(file.ext) && !cached?.thumbnail && !isVerified;
+    if (cached && isVerified && !needsImageThumb) {
       continue;
     }
 
@@ -100,16 +108,24 @@ function processQueue() {
         const preview: FilePreview = {
           sizeFormatted: res?.size_formatted || file.sizeFormatted || "--",
           thumbnail: resolvedThumb,
+          isMissing: false,
         };
         setCachedPreview(file.id, file.path, preview);
         pendingBatch[file.id] = preview;
         scheduleFlush();
       })
-      .catch(() => {
+      .catch((err) => {
         const existing = getCachedPreview(file.id) || getCachedPreview(file.path);
+        const errText = String(err || "").toLowerCase();
+        const isMissing =
+          errText.includes("not found") ||
+          errText.includes("tidak ditemukan") ||
+          errText.includes("cannot find") ||
+          errText.includes("no such file");
         const fallback: FilePreview = {
           sizeFormatted: file.sizeFormatted || "--",
           thumbnail: existing?.thumbnail || file.thumbnail,
+          isMissing,
         };
         setCachedPreview(file.id, file.path, fallback);
         pendingBatch[file.id] = fallback;
@@ -144,6 +160,7 @@ export function queueFilePreviews(
         setCachedPreview(f.id, f.path, {
           sizeFormatted: f.sizeFormatted || existing?.sizeFormatted || "--",
           thumbnail: f.thumbnail || existing?.thumbnail,
+          isMissing: existing?.isMissing,
         });
       }
     }
@@ -151,9 +168,10 @@ export function queueFilePreviews(
 
   const needed = files.filter((f) => {
     if (inFlightRequests.has(f.id)) return false;
+    const isVerified = completedFetches.has(f.id);
     const cached = getCachedPreview(f.id) || getCachedPreview(f.path);
-    if (!cached) return true;
-    if (isImageExt(f.ext) && !cached.thumbnail && !completedFetches.has(f.id)) return true;
+    if (!cached || !isVerified) return true;
+    if (isImageExt(f.ext) && !cached.thumbnail && !isVerified) return true;
     return false;
   });
 

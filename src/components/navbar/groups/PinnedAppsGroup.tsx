@@ -90,8 +90,20 @@ interface PinnedAppsGroupProps {
   isHidden?: boolean;
   showPinnedApps?: boolean;
   showRunningApps?: boolean;
-  onAppClick?: (app: NavbarAppItem, forceNewInstance?: boolean) => void;
+  onAppClick?: (
+    app: NavbarAppItem,
+    forceNewInstance?: boolean,
+    anchorRect?: DockAnchorRect,
+  ) => void;
   onPreviewStateChange?: (isShowing: boolean) => void;
+}
+
+export interface DockAnchorRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  position: NavbarPosition;
 }
 
 const APP_ORDER_KEY = "gili_navbar_app_order_v1";
@@ -186,6 +198,22 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const slotRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const innerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const positionRef = useRef<NavbarPosition>(position);
+  positionRef.current = position;
+
+  const getAppAnchorRect = (appId: string): DockAnchorRect | undefined => {
+    const el = slotRefs.current.get(appId) ?? innerRefs.current.get(appId);
+    if (!el) return undefined;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return undefined;
+    return {
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+      position: positionRef.current,
+    };
+  };
 
   const dragSessionRef = useRef<{
     id: string;
@@ -618,7 +646,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
         void unregisterNavbarPopup("drag:pinned");
       } else {
         setContextMenuAppId(null);
-        onAppClick?.(drag.app, drag.shiftKey);
+        onAppClick?.(drag.app, drag.shiftKey, getAppAnchorRect(drag.id));
       }
       setDraggingAppId(null);
     };
@@ -889,16 +917,17 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
                   onMouseEnter={cancelLeaveTimer}
                   onMouseLeave={handleMouseLeave}
                   onSelectWindow={(_winId, hwnd) => {
+                    const anchorRect = getAppAnchorRect(app.id);
                     setHoveredAppId(null);
                     onPreviewStateChange?.(false);
                     if (hwnd) {
-                      invoke("activate_or_toggle_window", { hwnd })
+                      invoke("activate_or_toggle_window", { hwnd, anchorRect })
                         .then(() => {
                           window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
                         })
                         .catch(() => {});
                     } else {
-                      onAppClick?.(app, false);
+                      onAppClick?.(app, false, anchorRect);
                     }
                   }}
                   onCloseWindow={(winId, hwnd) => {
