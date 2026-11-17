@@ -41,6 +41,10 @@ export function clearArtworkCache(): void {
 export function markArtworkUrlFailed(url: string | null | undefined): void {
   if (!url) return;
   if (!failedArtworkUrls.has(url)) {
+    if (failedArtworkUrls.size >= 64) {
+      const oldest = failedArtworkUrls.values().next().value;
+      if (oldest !== undefined) failedArtworkUrls.delete(oldest);
+    }
     failedArtworkUrls.add(url);
     artworkListeners.forEach((listener) => listener());
   }
@@ -111,7 +115,12 @@ export function getBrandedMediaType(media: MediaPayload | null | undefined): str
   if (title.includes("discord") || artist.includes("discord") || appId.includes("discord")) {
     return "discord";
   }
-  if (title.includes("reddit") || artist.includes("reddit") || title.includes("r/") || appId.includes("reddit")) {
+  if (
+    title.includes("reddit") ||
+    artist.includes("reddit") ||
+    /(?:^|\s)r\/[a-z0-9_]+/i.test(title) ||
+    appId.includes("reddit")
+  ) {
     return "reddit";
   }
   return null;
@@ -133,14 +142,13 @@ export function isThirdPartyMusicClient(media: MediaPayload | null | undefined):
   if (
     webSource.includes("youtube") ||
     appId.includes("youtube") ||
-    artist.includes("youtube") ||
-    title.includes("youtube")
+    (media.is_browser && (artist.includes("youtube") || title.includes("youtube")))
   ) {
     return false;
   }
 
   // Spotify Desktop delivers official high-res art directly in SMTC
-  if (appId.includes("spotify") || artist.includes("spotify")) {
+  if (appId.includes("spotify")) {
     return false;
   }
 
@@ -150,6 +158,8 @@ export function isThirdPartyMusicClient(media: MediaPayload | null | undefined):
     "itunes",
     "bitchord",
     "cider",
+    "spotube",
+    "moosync",
     "foobar2000",
     "foobar",
     "aimp",
@@ -161,6 +171,12 @@ export function isThirdPartyMusicClient(media: MediaPayload | null | undefined):
     "tidal",
     "deezer",
     "qobuz",
+    "soundcloud",
+    "bandcamp",
+    "plex",
+    "jellyfin",
+    "mediamonkey",
+    "roon",
     "amazonmusic",
     "amazon music",
     "vlc",
@@ -171,7 +187,12 @@ export function isThirdPartyMusicClient(media: MediaPayload | null | undefined):
   ];
 
   for (const sig of studioArtworkPreferredSignatures) {
-    if (appId.includes(sig) || artist.includes(sig) || title.includes(sig)) {
+    if (
+      appId.includes(sig) ||
+      webSource.includes(sig) ||
+      artist.includes(sig) ||
+      title.includes(sig)
+    ) {
       return true;
     }
   }
@@ -337,4 +358,20 @@ export function getResolvedArtworkUrl(
   }
 
   return null;
+}
+
+/**
+ * Preserves an already-resolved native thumbnail if a subsequent state update
+ * for the exact same track arrives before SMTC re-attaches cover bytes.
+ */
+export function mergeMediaPayloadPreservingThumbnail(
+  prev: MediaPayload | null,
+  incoming: MediaPayload
+): MediaPayload {
+  if (incoming.thumbnail || !prev?.thumbnail) return incoming;
+  const sameTitle =
+    (prev.title || "").trim().toLowerCase() === (incoming.title || "").trim().toLowerCase();
+  const sameArtist =
+    (prev.artist || "").trim().toLowerCase() === (incoming.artist || "").trim().toLowerCase();
+  return sameTitle && sameArtist ? { ...incoming, thumbnail: prev.thumbnail } : incoming;
 }

@@ -96,8 +96,20 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     const isRight = pos === "right";
     const isVertical = isLeft || isRight;
 
+    const dockThickness = Math.max(36, Math.min(64, config.taskbarHeight || 48));
+    const slotSize = Math.max(24, dockThickness - 8); // 40px when taskbarHeight = 48px
     const iconSize = config.iconSize || 40;
-    const dockThickness = iconSize + 8; // 48px when iconSize = 40px
+    const moduleSize = slotSize;
+    const isDenseDock = moduleSize < 36;
+    const dockCssVars = {
+      "--navbar-icon-size": `${slotSize}px`,
+      "--navbar-mod-size": `${moduleSize}px`,
+      "--navbar-dock-thickness": `${dockThickness}px`,
+      "--navbar-mod-px": moduleSize < 30 ? "6px" : isDenseDock ? "8px" : "12px",
+      "--navbar-mod-gap": moduleSize < 30 ? "4px" : isDenseDock ? "6px" : "8px",
+      "--navbar-mod-title": moduleSize < 30 ? "9.5px" : isDenseDock ? "10.5px" : "11px",
+      "--navbar-mod-sub": moduleSize < 30 ? "8px" : isDenseDock ? "9px" : "9.5px",
+    } as React.CSSProperties;
     const radius = config.cornerRadius ?? 15;
     const accentColor = config.accent || "#3882F6";
     const {
@@ -438,6 +450,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       return () => ro.disconnect();
     }, [
       config.modules,
+      config.taskbarHeight,
       config.iconSize,
       config.shape,
       config.position,
@@ -552,6 +565,8 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       pos,
       effectiveRadiusPx,
       currentW,
+      dockDim.h,
+      config.taskbarHeight,
       glassPalette.effectiveBlur,
       glassPalette.effectiveOpacity,
       isLightSurface,
@@ -642,8 +657,8 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
         aria-hidden="true"
         className={
           isVertical
-            ? `w-[20px] h-[1px] ${isLightSurface ? "bg-black/15" : "bg-white/10"} my-1.5 shrink-0 select-none pointer-events-none`
-            : `w-[1px] h-[20px] ${isLightSurface ? "bg-black/15" : "bg-white/10"} mx-1.5 shrink-0 select-none pointer-events-none`
+            ? `w-[min(20px,calc(var(--navbar-mod-size,40px)-6px))] h-[1px] ${isLightSurface ? "bg-black/15" : "bg-white/10"} my-1.5 shrink-0 select-none pointer-events-none`
+            : `w-[1px] h-[min(20px,calc(var(--navbar-mod-size,40px)-6px))] ${isLightSurface ? "bg-black/15" : "bg-white/10"} mx-1.5 shrink-0 select-none pointer-events-none`
         }
       />
     );
@@ -663,24 +678,39 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
       },
     ) => {
       emit("navbar-dismiss-popovers").catch(() => {});
-      if (!forceNewInstance && app.hwnd) {
-        try {
-          await invoke("activate_or_toggle_window", { hwnd: app.hwnd, anchorRect });
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
-          }, 180);
-          return;
-        } catch {}
+      if (!forceNewInstance) {
+        const candidateHwnds = Array.from(
+          new Set(
+            [
+              app.hwnd,
+              ...((Array.isArray(app.windows) ? app.windows : []).map((w: any) => w?.hwnd)),
+            ].filter((h): h is number => typeof h === "number" && h > 0),
+          ),
+        );
+        for (const candidateHwnd of candidateHwnds) {
+          try {
+            const activated = await invoke<boolean>("activate_or_toggle_window", {
+              hwnd: candidateHwnd,
+              anchorRect,
+            });
+            if (activated) {
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent("gili_sync_running_windows"));
+              }, 180);
+              return;
+            }
+          } catch {}
+        }
       }
 
       if (anchorRect) {
         invoke("set_dock_action_anchor", { anchor: anchorRect }).catch(() => {});
       }
 
-      if (app.lnkPath) {
+      if (app.lnkPath || app.targetPath) {
         try {
           await invoke("launch_pinned_app", {
-            lnkPath: app.lnkPath,
+            lnkPath: app.lnkPath || "",
             targetPath: app.targetPath || "",
             arguments: app.arguments || "",
           });
@@ -719,8 +749,24 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           case "discord":
             await invoke("launch_target", { target: "discord", anchorRect });
             break;
+          case "telegram":
+            await invoke("launch_target", { target: "tg://", anchorRect });
+            break;
+          case "whatsapp":
+            await invoke("launch_target", { target: "whatsapp://", anchorRect });
+            break;
+          case "slack":
+            await invoke("launch_target", { target: "slack://", anchorRect });
+            break;
+          case "calculator":
+          case "calculatorapp":
+            await invoke("launch_target", { target: "calculator:", anchorRect });
+            break;
           default:
-            await invoke("launch_target", { target: app.id, anchorRect });
+            await invoke("launch_target", {
+              target: app.targetPath || app.id,
+              anchorRect,
+            });
             break;
         }
       } catch (err) {
@@ -820,7 +866,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           m.id,
           <StartSearchGroup
             key="startSearch"
-            iconSize={iconSize}
+            iconSize={slotSize}
             accentColor={accentColor}
             isVertical={isVertical}
             position={pos}
@@ -839,6 +885,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             key="pinnedAppsGroup"
             isPreview={isPreview}
             isHidden={effectiveHidden}
+            slotSize={slotSize}
             iconSize={iconSize}
             iconTheme={config.iconTheme || "fluent"}
             position={pos}
@@ -846,6 +893,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
             windowPreviews={config.windowPreviews}
             showAppLabels={config.appLabels}
             accentColor={config.accent}
+            isLightSurface={isLightSurface}
             showPinnedApps={hasModule("pinnedApps")}
             showRunningApps={hasModule("runningApps")}
             onPreviewStateChange={onPreviewStateChange}
@@ -901,7 +949,7 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
           <NavbarModuleUnifiedPreview
             moduleId={m.id}
             variant={!isVertical && m.view === "full" ? "pill" : "compact"}
-            className="cursor-pointer hover:opacity-90 transition-opacity"
+            className="gili-mod-unified cursor-pointer hover:opacity-90 transition-opacity"
           />
         </React.Suspense>
       );
@@ -935,7 +983,9 @@ export const NavbarDock = React.forwardRef<HTMLDivElement, NavbarDockProps>(
     return (
       <div
         ref={setCombinedRef}
-        style={dockStyle}
+        data-gili-navbar-dock="true"
+        data-dock-dense={isDenseDock ? "true" : undefined}
+        style={{ ...dockStyle, ...dockCssVars }}
         className={`relative inline-flex ${
           isVertical ? "flex-col" : "flex-row"
         } items-center ${

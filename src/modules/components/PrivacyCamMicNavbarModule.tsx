@@ -100,10 +100,8 @@ export const PrivacyCamMicNavbarModule: React.FC<NavbarModuleProps> = ({
           {...makeTriggerA11yProps(handleToggle, privacyAria, isOpen)}
           className={`relative flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
-              : `h-10 px-3 gap-2 rounded-[12px] border ${
+              ? `gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
+              : `gili-mod-pill px-3 gap-2 rounded-[12px] border ${
                   anyActive
                     ? isLight
                       ? "bg-emerald-600/15 border-emerald-600/35"

@@ -292,6 +292,10 @@ export function formatShortcutForBadge(shortcut: string | null): string {
     .join(" ");
 }
 
+const RESERVED_SYSTEM_COMBINATIONS_LOWER = new Set(
+  Array.from(RESERVED_SYSTEM_COMBINATIONS, (combo) => combo.toLowerCase())
+);
+
 /**
  * Validates if an accelerator is valid and doesn't duplicate another action
  */
@@ -303,17 +307,19 @@ export function validateShortcut(
 ): { valid: boolean; error?: string } {
   if (!accelerator) return { valid: true };
 
-  const parts = accelerator.split("+");
-  const hasModifier = parts.some((p) => ["Control", "Ctrl", "Alt", "Shift", "CommandOrControl"].includes(p));
+  const parts = accelerator.split("+").map((p) => p.trim().toLowerCase());
+  if (parts.some((p) => p === "super" || p === "meta" || p === "win")) {
+    return { valid: false, error: "shortcut_err_no_windows_key" };
+  }
+
+  const hasModifier = parts.some((p) =>
+    ["control", "ctrl", "alt", "shift", "commandorcontrol"].includes(p)
+  );
   if (!hasModifier) {
     return { valid: false, error: "shortcut_err_need_modifier" };
   }
 
-  if (parts.some((p) => p === "Super" || p === "Meta")) {
-    return { valid: false, error: "shortcut_err_no_windows_key" };
-  }
-
-  if (RESERVED_SYSTEM_COMBINATIONS.has(accelerator)) {
+  if (RESERVED_SYSTEM_COMBINATIONS_LOWER.has(accelerator.trim().toLowerCase())) {
     return { valid: false, error: "shortcut_err_reserved_system" };
   }
 

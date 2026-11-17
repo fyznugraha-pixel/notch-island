@@ -14,9 +14,14 @@ import { listen } from "@tauri-apps/api/event";
 import { MediaPayload } from "../../types";
 import { NavbarModuleProps } from "../registry";
 import { NavbarPopoverShell, useNavbarIsLightSurface } from "./NavbarPopoverShell";
+import { MediaThumbnail } from "../../components/ui/MediaThumbnail";
 import { ScrollingText } from "../../components/ui/ScrollingText";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { getMediaBranding } from "../../utils/playerBranding";
+import {
+  mergeMediaPayloadPreservingThumbnail,
+  prefetchArtwork,
+} from "../../services/artworkService";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 
@@ -54,6 +59,8 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
     } catch {}
     return null;
   });
+  const mediaRef = useRef<MediaPayload | null>(media);
+  mediaRef.current = media;
 
   const [progress, setProgress] = useState<{ position: number; duration: number }>({
     position: 0,
@@ -61,25 +68,17 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
   });
 
   useEffect(() => {
-    invoke<MediaPayload | null>("get_current_media_state")
-      .then((initial) => {
-        if (!initial) {
-          setMedia((prev) => (prev ? { ...prev, is_playing: false } : null));
-          return;
-        }
-        setMedia(initial);
-        if (
-          typeof initial.position === "number" &&
-          typeof initial.duration === "number"
-        ) {
-          setProgress({ position: initial.position, duration: initial.duration });
-        }
-      })
-      .catch(() => {});
+    let cancelled = false;
+    let receivedLiveUpdate = false;
 
     const unlistenMedia = listen<MediaPayload>("media-update", (ev) => {
+      if (cancelled) return;
+      receivedLiveUpdate = true;
       if (ev.payload?.title || ev.payload?.artist) {
-        setMedia(ev.payload);
+        const resolvedPayload = mergeMediaPayloadPreservingThumbnail(mediaRef.current, ev.payload);
+        mediaRef.current = resolvedPayload;
+        setMedia(resolvedPayload);
+        prefetchArtwork(resolvedPayload);
         if (
           ev.payload.position !== undefined &&
           ev.payload.duration !== undefined
@@ -90,16 +89,58 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
           });
         }
         try {
-          localStorage.setItem(MEDIA_STORAGE_KEY, JSON.stringify(ev.payload));
+          localStorage.setItem(MEDIA_STORAGE_KEY, JSON.stringify(resolvedPayload));
         } catch {}
       } else if (ev.payload && !ev.payload.is_playing) {
-        setMedia((prev) => (prev ? { ...prev, is_playing: false } : null));
+        setMedia((prev) => {
+          const next = prev ? { ...prev, is_playing: false } : null;
+          mediaRef.current = next;
+          return next;
+        });
       }
     });
+
+    unlistenMedia
+      .then(() => {
+        if (!cancelled) {
+          invoke("request_media_resync").catch(() => {});
+        }
+      })
+      .catch(() => {});
+
+    invoke<MediaPayload | null>("get_current_media_state")
+      .then((initial) => {
+        if (cancelled || receivedLiveUpdate) return;
+        if (!initial) {
+          setMedia((prev) => {
+            const next = prev ? { ...prev, is_playing: false } : null;
+            mediaRef.current = next;
+            return next;
+          });
+          return;
+        }
+        prefetchArtwork(initial);
+        const merged = mergeMediaPayloadPreservingThumbnail(mediaRef.current, initial);
+        mediaRef.current = merged;
+        setMedia(merged);
+        if (merged.title || merged.artist) {
+          try {
+            localStorage.setItem(MEDIA_STORAGE_KEY, JSON.stringify(merged));
+          } catch {}
+        }
+        if (
+          typeof initial.position === "number" &&
+          typeof initial.duration === "number"
+        ) {
+          setProgress({ position: initial.position, duration: initial.duration });
+        }
+      })
+      .catch(() => {});
 
     const unlistenProgress = listen<{ position: number; duration: number }>(
       "media-progress",
       (ev) => {
+        if (cancelled) return;
         if (typeof ev.payload?.position === "number") {
           setProgress({
             position: ev.payload.position,
@@ -110,8 +151,9 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
     );
 
     return () => {
-      unlistenMedia.then((fn) => fn());
-      unlistenProgress.then((fn) => fn());
+      cancelled = true;
+      unlistenMedia.then((fn) => fn()).catch(() => {});
+      unlistenProgress.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -119,6 +161,7 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
   const title = media?.title?.trim() || tx(lang, "No media playing", "Tidak ada media");
   const artist = media?.artist?.trim() || tx(lang, "Media Player", "Pemutar Media");
   const hasMedia = Boolean(media?.title);
+  const hasCoverContext = Boolean(media && (media.title?.trim() || media.artist?.trim() || media.thumbnail));
   const branding = getMediaBranding(media);
 
   const triggerAction = async (
@@ -182,10 +225,8 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
           )}
           className={`relative flex items-center cursor-pointer select-none group/mediapill ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08]`
-              : "h-10 px-2.5 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] shadow-sm overflow-hidden"
+              ? `gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08]`
+              : "gili-mod-pill px-2.5 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] shadow-sm overflow-hidden"
           }`}
           style={{
             transition:
@@ -193,20 +234,16 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
           }}
         >
           {isCompact ? (
-            <div className="relative w-[28px] h-[28px] shrink-0">
+            <div className="relative w-[min(28px,calc(var(--navbar-mod-size,40px)-6px))] h-[min(28px,calc(var(--navbar-mod-size,40px)-6px))] shrink-0">
               <div className="w-full h-full rounded-[8px] bg-gradient-to-br from-pink-500 via-rose-500 to-indigo-600 flex items-center justify-center overflow-hidden shadow-sm ring-1 ring-white/10">
-                {media?.thumbnail ? (
-                  <img
-                    src={media.thumbnail}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
+                {hasCoverContext && media ? (
+                  <MediaThumbnail media={media} size="compact" />
                 ) : (
                   <Music size={13} className="text-[#ffffff]/90" />
                 )}
               </div>
               {isPlaying && (
-                <div className="absolute -bottom-1 -right-1 h-[10px] px-[2.5px] rounded-[4px] bg-[#090a0f]/95 flex items-center justify-center gap-[1.5px] ring-1 ring-white/15 shadow-sm pointer-events-none">
+                <div className="absolute bottom-0 right-0 h-[10px] px-[2.5px] rounded-[4px] bg-[#090a0f]/95 flex items-center justify-center gap-[1.5px] ring-1 ring-white/15 shadow-sm pointer-events-none">
                   <span className="w-[1.5px] h-[5px] bg-emerald-400 rounded-full animate-eq-bar" style={{ animationDelay: "0ms" }} />
                   <span className="w-[1.5px] h-[5px] bg-emerald-400 rounded-full animate-eq-bar" style={{ animationDelay: "180ms" }} />
                   <span className="w-[1.5px] h-[5px] bg-emerald-400 rounded-full animate-eq-bar" style={{ animationDelay: "360ms" }} />
@@ -215,13 +252,9 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
             </div>
           ) : (
             <>
-              <div className="relative w-[26px] h-[26px] rounded-[7px] bg-gradient-to-br from-pink-500 via-rose-500 to-indigo-600 flex items-center justify-center overflow-hidden shrink-0 shadow-sm ring-1 ring-white/10">
-                {media?.thumbnail ? (
-                  <img
-                    src={media.thumbnail}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
+              <div className="relative w-[min(26px,calc(var(--navbar-mod-size,40px)-8px))] h-[min(26px,calc(var(--navbar-mod-size,40px)-8px))] rounded-[7px] bg-gradient-to-br from-pink-500 via-rose-500 to-indigo-600 flex items-center justify-center overflow-hidden shrink-0 shadow-sm ring-1 ring-white/10">
+                {hasCoverContext && media ? (
+                  <MediaThumbnail media={media} size="compact" />
                 ) : (
                   <Music size={13} className="text-[#ffffff]/90" />
                 )}
@@ -261,9 +294,17 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
               )}
 
               {progress.duration > 0 && isPlaying && (
-                <div className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-white/[0.08] overflow-hidden pointer-events-none">
+                <div
+                  className={`absolute bottom-0 left-2 right-2 h-[2px] rounded-full overflow-hidden pointer-events-none ${
+                    isLight ? "bg-black/[0.14]" : "bg-white/[0.12]"
+                  }`}
+                >
                   <div
-                    className="h-full bg-gradient-to-r from-pink-500 via-rose-400 to-indigo-400 transition-all duration-300"
+                    className={`h-full transition-all duration-300 ${
+                      isLight
+                        ? "bg-gradient-to-r from-pink-600 via-rose-500 to-amber-500"
+                        : "bg-gradient-to-r from-pink-500 via-rose-400 to-indigo-400"
+                    }`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
@@ -286,12 +327,8 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
         <div className="flex flex-col gap-3">
           <div className="relative p-3 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-3 overflow-hidden">
             <div className="relative w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 via-rose-500 to-indigo-600 flex items-center justify-center overflow-hidden shrink-0 shadow-[0_8px_20px_rgba(0,0,0,0.45)] ring-1 ring-white/10">
-              {media?.thumbnail ? (
-                <img
-                  src={media.thumbnail}
-                  alt=""
-                  className="w-full h-full object-cover select-none pointer-events-none"
-                />
+              {hasCoverContext && media ? (
+                <MediaThumbnail media={media} size="normal" />
               ) : (
                 <Music size={22} className="text-[#ffffff]/85" />
               )}
@@ -304,7 +341,7 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
               />
               <ScrollingText
                 text={artist}
-                className="text-[11px] text-zinc-300 font-medium tracking-tight leading-snug mt-0.5"
+                className="text-[11px] text-zinc-400 font-medium tracking-tight leading-snug mt-0.5"
               />
 
               <div className="flex items-center gap-2 mt-1.5 min-w-0">
@@ -340,9 +377,17 @@ export const MediaNavbarModule: React.FC<NavbarModuleProps> = ({
                 wrapperClassName="w-full"
               >
                 <div className="relative w-full h-3.5 flex items-center group/scrubber cursor-pointer">
-                  <div className="w-full h-1 group-hover/scrubber:h-1.5 rounded-full bg-white/[0.1] transition-all overflow-hidden">
+                  <div
+                    className={`w-full h-1 group-hover/scrubber:h-1.5 rounded-full transition-all overflow-hidden ${
+                      isLight ? "bg-black/[0.14]" : "bg-white/[0.12]"
+                    }`}
+                  >
                     <div
-                      className="h-full bg-gradient-to-r from-pink-500 via-rose-400 to-amber-300 rounded-full transition-all duration-150"
+                      className={`h-full rounded-full transition-all duration-150 ${
+                        isLight
+                          ? "bg-gradient-to-r from-pink-600 via-rose-500 to-amber-500"
+                          : "bg-gradient-to-r from-pink-500 via-rose-400 to-amber-300"
+                      }`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>

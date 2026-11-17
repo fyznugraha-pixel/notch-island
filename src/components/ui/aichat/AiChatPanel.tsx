@@ -17,9 +17,6 @@ import {
   loadUsageStats,
   resetUsageStats,
   saveMonthlyLimit,
-  recordTokenUsage,
-  streamChatCompletion,
-  estimateTextTokens,
   getEffectiveApiKey,
   loadSavedBaseUrls,
   loadSavedApiKeys,
@@ -28,7 +25,6 @@ import {
 import {
   initCredentials,
 } from "../../../services/aiCredentialService";
-import { isAbortError } from "../../../services/aiHttp";
 import { formatIdrCostInCurrency } from "../../../services/aiCurrencyService";
 import {
   loadRouterConfig,
@@ -55,15 +51,19 @@ import {
   pruneInactiveConversations,
 } from "../../../services/aiConversationService";
 import {
-  parseAndExecuteGiliActions,
-  stripActionBlocksForDisplay,
-} from "../../../services/aiNotchTools";
-import {
   getGiliFreeModel,
   getGiliFreeNotice,
   isGiliFreeEnabled,
-  describeGiliFreeError,
 } from "../../../services/giliFreeService";
+import {
+  startBackgroundAiChatStream,
+  stopBackgroundAiStream,
+  subscribeAiBackgroundStreams,
+  getLiveConversationStreamState,
+  getActiveAiStreamForConversation,
+  getCompletedConversationMessages,
+  consumeCompletedTokenDelta,
+} from "../../../services/aiBackgroundStreamService";
 import { getLanguage, t, type Language } from "../../../services/i18n";
 import { readRasterImageFileForVision } from "../../../utils/imageUtils";
 import type {
@@ -160,7 +160,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
 
   const [usageStats, setUsageStats] = useState(() => loadUsageStats());
 
-  // Conversation persistence across notch open/close
+  // Conversation persistence across notch open/close (including active background streams)
   const [activeConversationId, setActiveConversationIdState] = useState<string | null>(() => {
     pruneInactiveConversations();
     const prov = loadActiveProvider();
@@ -173,17 +173,35 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     const prov = loadActiveProvider();
     const model = loadActiveModel(prov);
     const initialConv = getOrCreateActiveConversation(prov, model.id);
-    return initialConv.messages || [];
+    const live = getLiveConversationStreamState(initialConv.id);
+    return (
+      live?.messages ||
+      getCompletedConversationMessages(initialConv.id) ||
+      initialConv.messages ||
+      []
+    );
   });
 
-  const [inputPrompt, setInputPrompt] = useState("");
+  const [inputPrompt, setInputPrompt] = useState(() => {
+    try {
+      return sessionStorage.getItem("island_ai_draft_input_v1") || "";
+    } catch {
+      return "";
+    }
+  });
   const [activeContext, setActiveContext] = useState<AiMessageContext | null>(null);
 
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingTokens, setStreamingTokens] = useState(0);
-  const [sessionTokens, setSessionTokens] = useState(0);
+  const [isStreaming, setIsStreaming] = useState(() =>
+    Boolean(getActiveAiStreamForConversation(activeConversationId))
+  );
+  const [streamingTokens, setStreamingTokens] = useState(() => {
+    const live = getLiveConversationStreamState(activeConversationId);
+    return live ? live.streamingTokens : 0;
+  });
+  const [sessionTokens, setSessionTokens] = useState(() =>
+    consumeCompletedTokenDelta(activeConversationId)
+  );
 
-  const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
   const isSendingRef = useRef(false);
@@ -198,20 +216,83 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     messagesRef.current = messages;
   }, [messages]);
 
-  // Abort active stream and save current conversation on unmount (e.g. notch collapsed or tab changed)
+  useEffect(() => {
+    try {
+      if (inputPrompt) {
+        sessionStorage.setItem("island_ai_draft_input_v1", inputPrompt);
+      } else {
+        sessionStorage.removeItem("island_ai_draft_input_v1");
+      }
+    } catch {}
+  }, [inputPrompt]);
+
+  // Background streams keep running when Island collapses or switches tabs
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-      if (activeConvIdRef.current && messagesRef.current.length > 0) {
-        updateConversationMessages(activeConvIdRef.current, messagesRef.current);
+      const convId = activeConvIdRef.current;
+      if (convId && !getActiveAiStreamForConversation(convId) && messagesRef.current.length > 0) {
+        updateConversationMessages(convId, messagesRef.current);
       }
     };
   }, []);
+
+  const syncActiveConvWithBackgroundStream = React.useCallback((convId: string | null) => {
+    if (!convId || !isMountedRef.current) return;
+    const live = getLiveConversationStreamState(convId);
+    if (live) {
+      setIsStreaming(true);
+      setStreamingTokens(live.streamingTokens);
+      setMessages(live.messages);
+      return;
+    }
+
+    const tokenDelta = consumeCompletedTokenDelta(convId);
+    if (tokenDelta > 0) {
+      setSessionTokens((prev) => prev + tokenDelta);
+    }
+    const cachedMessages = getCompletedConversationMessages(convId);
+    const savedConv = getConversationById(convId);
+    if (cachedMessages || savedConv) {
+      setMessages(cachedMessages ?? savedConv?.messages ?? []);
+    }
+    setIsStreaming(false);
+    setStreamingTokens(0);
+  }, []);
+
+  useEffect(() => {
+    const syncIfChanged = () => {
+      const convId = activeConvIdRef.current;
+      if (!convId || !isMountedRef.current) return;
+      const live = getLiveConversationStreamState(convId);
+      if (live) {
+        setIsStreaming(true);
+        setStreamingTokens(live.streamingTokens);
+        setMessages(live.messages);
+        return;
+      }
+      setIsStreaming((prevWasStreaming) => {
+        const tokenDelta = consumeCompletedTokenDelta(convId);
+        if (tokenDelta > 0) {
+          setSessionTokens((s) => s + tokenDelta);
+        }
+        if (prevWasStreaming || tokenDelta > 0) {
+          const cached = getCompletedConversationMessages(convId);
+          const saved = getConversationById(convId);
+          if (cached || saved) {
+            setMessages(cached ?? saved?.messages ?? []);
+          }
+          setStreamingTokens(0);
+        }
+        return false;
+      });
+    };
+
+    const unsub = subscribeAiBackgroundStreams(syncIfChanged);
+    syncIfChanged();
+    return unsub;
+  }, [activeConversationId]);
 
   const lastAppliedHandoffNonceRef = useRef<number | null>(null);
 
@@ -219,20 +300,18 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     if (!handoff || lastAppliedHandoffNonceRef.current === handoff.nonce) return;
     lastAppliedHandoffNonceRef.current = handoff.nonce;
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-      setIsStreaming(false);
-    }
-
     if (handoff.conversationId) {
       const found = getConversationById(handoff.conversationId);
-      const nextMsgs = found?.messages || handoff.messages || [];
+      const live = getLiveConversationStreamState(handoff.conversationId);
+      const cached = getCompletedConversationMessages(handoff.conversationId);
+      const nextMsgs = live?.messages || cached || found?.messages || handoff.messages || [];
       const convId = found?.id || handoff.conversationId;
       activeConvIdRef.current = convId;
       setActiveConversationId(convId);
       setActiveConversationIdState(convId);
       setMessages(nextMsgs);
+      setIsStreaming(Boolean(live));
+      setStreamingTokens(live?.streamingTokens || 0);
       if (found?.providerId && found.providerId !== provider) {
         setProvider(found.providerId);
         saveActiveProvider(found.providerId);
@@ -269,15 +348,10 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
       if (convId) {
         const found = getConversationById(convId);
         if (found) {
-          if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            abortControllerRef.current = null;
-            setIsStreaming(false);
-          }
           activeConvIdRef.current = found.id;
           setActiveConversationId(found.id);
           setActiveConversationIdState(found.id);
-          setMessages(found.messages || []);
+          syncActiveConvWithBackgroundStream(found.id);
           setActiveView("chat");
           try {
             sessionStorage.setItem("island_ai_active_view_state", "chat");
@@ -287,7 +361,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     };
     window.addEventListener("gili_ai_conversation_switch" as any, handleSwitch);
     return () => window.removeEventListener("gili_ai_conversation_switch" as any, handleSwitch);
-  }, []);
+  }, [syncActiveConvWithBackgroundStream]);
 
   React.useEffect(() => {
     try {
@@ -339,6 +413,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
       setProvider("gemini");
     } else {
       saveActiveModel(provider, model.id);
+      setKeysVersion((v) => v + 1);
     }
     setIsModelDropdownOpen(false);
   };
@@ -346,7 +421,8 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const handleSaveConnect = (
     newProvider: AiProviderId,
     _newKey: string,
-    newModel: AiModelConfig
+    newModel: AiModelConfig,
+    explicitModelSelection?: boolean
   ) => {
     saveActiveProvider(newProvider);
     saveActiveModel(newProvider, newModel.id);
@@ -354,11 +430,13 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     const nextMode =
       newModel.id === "gili-free"
         ? "gili-free"
-        : selectedMode === "gili-free"
-          ? "auto"
-          : selectedMode === "auto"
+        : explicitModelSelection
+          ? newModel.id
+          : selectedMode === "gili-free"
             ? "auto"
-            : newModel.id;
+            : selectedMode === "auto"
+              ? "auto"
+              : newModel.id;
     if (nextMode !== selectedMode) {
       setSelectedMode(nextMode);
       const updatedRouter = { ...routerConfig, selectedMode: nextMode };
@@ -373,10 +451,6 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   };
 
   const handleNewConversation = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
     const newConv = createConversation(provider, activeModel.id);
     activeConvIdRef.current = newConv.id;
     setActiveConversationId(newConv.id);
@@ -385,20 +459,16 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     setInputPrompt("");
     setActiveContext(null);
     setIsStreaming(false);
+    setStreamingTokens(0);
   };
 
   const handleSelectConversationFromHistory = (conv: AiConversation) => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    setIsStreaming(false);
     activeConvIdRef.current = conv.id;
     setActiveConversationId(conv.id);
     setActiveConversationIdState(conv.id);
-    setMessages(conv.messages || []);
     setInputPrompt("");
     setActiveContext(null);
+    syncActiveConvWithBackgroundStream(conv.id);
 
     if (conv.providerId && conv.providerId !== provider) {
       setProvider(conv.providerId);
@@ -530,10 +600,9 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   };
 
   const handleStopStreaming = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    stopBackgroundAiStream(activeConvIdRef.current || undefined);
     setIsStreaming(false);
+    setStreamingTokens(0);
   };
 
   const handleSendPrompt = async (
@@ -550,7 +619,14 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   ) => {
     let prompt = (promptToSend ?? inputPrompt).trim();
     const effectiveContext = editOptions ? editOptions.userMessage.context : activeContext;
-    if ((!prompt && !effectiveContext) || isStreaming || isSendingRef.current) return;
+    if (
+      (!prompt && !effectiveContext) ||
+      isStreaming ||
+      isSendingRef.current ||
+      Boolean(getActiveAiStreamForConversation(activeConvIdRef.current))
+    ) {
+      return;
+    }
     if (!prompt && effectiveContext) {
       const isEnLang = (optLanguage || getLanguage()) === "en";
       prompt = effectiveContext.imageDataUrl
@@ -565,8 +641,6 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     isSendingRef.current = true;
     setIsStreaming(true);
     setStreamingTokens(0);
-    const myController = new AbortController();
-    abortControllerRef.current = myController;
 
     // Detect slash commands (/ringkas, /lengkap, /normal)
     let promptLengthOverride: ResponseLengthMode | undefined = overrideLength;
@@ -595,13 +669,6 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     let estCostIdr: number | undefined;
     let useGiliFree = false;
     let currentConvId: string | null = activeConversationId;
-    let accumulated = "";
-    let accumulatedReasoning = "";
-    let isTruncated = false;
-    let buildAssistantSnapshot: (
-      contentValue: string,
-      extraFields?: Partial<AiChatMessage>
-    ) => AiChatMessage[] = () => [];
 
     try {
       if (isAuto) {
@@ -670,10 +737,6 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
               }
             } catch {}
           }
-        }
-
-        if (myController.signal.aborted || !isMountedRef.current) {
-          return;
         }
 
         const visionCandidates = hasImage
@@ -828,11 +891,18 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
           context: activeContext || undefined,
         };
         updatedMessages = [...messages, userMessage];
-        setInputPrompt("");
-        setActiveContext(null);
+        try {
+          sessionStorage.removeItem("island_ai_draft_input_v1");
+        } catch {}
+        if (isMountedRef.current) {
+          setInputPrompt("");
+          setActiveContext(null);
+        }
       }
 
-      setMessages(updatedMessages);
+      if (isMountedRef.current) {
+        setMessages(updatedMessages);
+      }
       updateConversationMessages(currentConvId, updatedMessages);
 
       const assistantMsgId = `ast-${Date.now()}`;
@@ -850,162 +920,43 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         estimatedCostIdr: estCostIdr,
       };
 
-      const messagesWithAssistant = [...updatedMessages, initialAssistantMessage];
-      setMessages(messagesWithAssistant);
-      updateConversationMessages(currentConvId, messagesWithAssistant);
+      setMessages([...updatedMessages, initialAssistantMessage]);
 
-      buildAssistantSnapshot = (
-        contentValue: string,
-        extraFields: Partial<AiChatMessage> = {}
-      ): AiChatMessage[] =>
-        messagesWithAssistant.map((msg) =>
-          msg.id === assistantMsgId
-            ? {
-                ...msg,
-                content: contentValue,
-                reasoning: accumulatedReasoning || undefined,
-              ...extraFields,
-            }
-          : msg
-      );
-
-      const result = await streamChatCompletion({
+      startBackgroundAiChatStream({
+        conversationId: currentConvId,
+        source: "panel",
         provider: providerToUse,
         apiKey: keyToUse,
         model: modelToUse,
-        messages: updatedMessages,
+        updatedMessages,
+        assistantMsgId,
         lengthMode: targetLengthMode,
         historyWindowSize: routerConfig.historyWindowSize,
         useGiliFree,
-        signal: myController.signal,
-        onTruncated: () => {
-          isTruncated = true;
-        },
-        onReasoningChunk: (reasoningChunk: string) => {
-          if (myController.signal.aborted) return;
-          accumulatedReasoning += reasoningChunk;
-          if (!isMountedRef.current || activeConvIdRef.current !== currentConvId) return;
-          setStreamingTokens(estimateTextTokens(accumulated + accumulatedReasoning));
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMsgId ? { ...msg, reasoning: accumulatedReasoning } : msg
-            )
-          );
-        },
-        onChunk: (chunk: string) => {
-          if (myController.signal.aborted) return;
-          accumulated += chunk;
-          if (!isMountedRef.current || activeConvIdRef.current !== currentConvId) return;
-          setStreamingTokens(estimateTextTokens(accumulated + accumulatedReasoning));
-          const displayContent = stripActionBlocksForDisplay(accumulated);
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMsgId
-                ? { ...msg, content: displayContent, reasoning: accumulatedReasoning || undefined }
-                : msg
-            )
-          );
-        },
-      });
-
-      if (myController.signal.aborted) {
-        const partialMessages = buildAssistantSnapshot(
-          stripActionBlocksForDisplay(accumulated) || accumulated
-        );
-        updateConversationMessages(currentConvId, partialMessages);
-        if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
-          setMessages(partialMessages);
-        }
-        return;
-      }
-
-      const totalTokens = result.inputTokens + result.outputTokens;
-      if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
-        setSessionTokens((prev) => prev + totalTokens);
-      }
-
-      const actualCostIdr =
-        modelToUse.id === "gili-free" || useGiliFree
-          ? undefined
-          : calculateEstimatedCostIdr(modelToUse, result.inputTokens, result.outputTokens);
-
-      // Execute any Gili notch actions embedded by the AI
-      const { cleanText, results: executedActions } = await parseAndExecuteGiliActions(accumulated);
-
-      const finalMessages = buildAssistantSnapshot(cleanText || accumulated, {
-        tokens: result.outputTokens,
-        provider: providerToUse,
-        modelId: modelToUse.id,
-        modelName: modelToUse.name,
-        tier: targetTier,
-        lengthMode: targetLengthMode,
+        targetTier,
         isAutoRouted,
-        estimatedCostIdr: actualCostIdr,
-        isTruncated,
-        notchActions: executedActions.length > 0 ? executedActions : undefined,
+        estCostIdr,
       });
-      updateConversationMessages(currentConvId, finalMessages, totalTokens);
-      if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
-        setMessages(finalMessages);
-      }
-
-      recordTokenUsage(modelToUse, result.inputTokens, result.outputTokens);
     } catch (err: any) {
-      if (isAbortError(err) || myController.signal.aborted) {
-        // Save the partial snapshot belonging to currentConvId so switching chats never mixes messages
-        const partialMessages = buildAssistantSnapshot(
-          stripActionBlocksForDisplay(accumulated) || accumulated
-        );
-        if (currentConvId) {
-          updateConversationMessages(currentConvId, partialMessages);
-        }
-        if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
-          setMessages(partialMessages);
-        }
-      } else {
-        let errorMsg =
-          err?.message || "Terjadi kesalahan saat memproses jawaban.";
-        if (useGiliFree) {
-          errorMsg = describeGiliFreeError(errorMsg);
-        }
-        // Clean HTTP / JSON errors from proxies (e.g. "HTTP 401: {"error":{"message":"..."}}")
-        if (typeof errorMsg === "string" && errorMsg.includes("HTTP ")) {
-          try {
-            const jsonPart = errorMsg.replace(/^HTTP \d+:\s*/, "").trim();
-            const parsed = JSON.parse(jsonPart);
-            if (parsed?.error?.message) {
-              errorMsg = parsed.error.message;
-            } else if (parsed?.message) {
-              errorMsg = parsed.message;
-            }
-          } catch {}
-        }
-        const partialContent = stripActionBlocksForDisplay(accumulated) || accumulated;
-        const errorMessages = buildAssistantSnapshot(partialContent, {
-          error: errorMsg,
-          provider: providerToUse,
-          modelId: modelToUse.id,
-          modelName: modelToUse.name,
-          tier: targetTier,
-          lengthMode: targetLengthMode,
-          isAutoRouted,
-          estimatedCostIdr: estCostIdr,
-        });
-        if (currentConvId) {
-          updateConversationMessages(currentConvId, errorMessages);
-        }
-        if (isMountedRef.current && activeConvIdRef.current === currentConvId) {
-          setMessages(errorMessages);
-        }
+      if (isMountedRef.current) {
+        setIsStreaming(false);
+        const errorMsg = err?.message || "Failed to start AI request.";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `ast-err-${Date.now()}`,
+            role: "assistant",
+            content: "",
+            error: errorMsg,
+            timestamp: Date.now(),
+            provider: providerToUse,
+            modelId: modelToUse.id,
+            modelName: modelToUse.name,
+          },
+        ]);
       }
     } finally {
       isSendingRef.current = false;
-      if (abortControllerRef.current === myController) {
-        abortControllerRef.current = null;
-        if (isMountedRef.current) {
-          setIsStreaming(false);
-        }
-      }
     }
   };
 
@@ -1114,7 +1065,19 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
           onKeyChanged={() => setKeysVersion((v) => v + 1)}
           onBack={() => {
             setKeysVersion((v) => v + 1);
-            const freshKey = getEffectiveApiKey(provider, activeModel.id);
+            const freshProv = loadActiveProvider();
+            const freshModel = loadActiveModel(freshProv);
+            if (freshProv !== provider) {
+              setProvider(freshProv);
+            }
+            if (freshModel && freshModel.id !== activeModel.id) {
+              setActiveModel(freshModel);
+              setSelectedMode(freshModel.id);
+              const updatedRouter = { ...routerConfig, selectedMode: freshModel.id };
+              setRouterConfig(updatedRouter);
+              saveRouterConfig(updatedRouter);
+            }
+            const freshKey = getEffectiveApiKey(freshProv, freshModel.id);
             if (freshKey || isGiliFreeEnabled()) {
               setActiveView("chat");
             } else if (onPrevTab) {

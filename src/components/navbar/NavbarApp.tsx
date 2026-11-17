@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import {
   availableMonitors,
+  getCurrentWindow,
   primaryMonitor,
   type Monitor,
 } from "@tauri-apps/api/window";
@@ -18,7 +19,53 @@ import {
 } from "../../services/taskbarProService";
 import { NavbarDock, NavbarSurfaceThemeInfo } from "./NavbarDock";
 
-function applyNavbarActivation(cfg: NavbarConfig, isProLocked: boolean) {
+function resolveNavbarWindowIdentity(): { windowLabel: string; secondaryIndex: number } {
+  let windowLabel = "navbar";
+  let secondaryIndex = 0;
+  if (typeof window !== "undefined") {
+    const winAny = window as any;
+    if (
+      typeof winAny.__NAVBAR_SECONDARY_INDEX__ === "number" &&
+      winAny.__NAVBAR_SECONDARY_INDEX__ > 0
+    ) {
+      secondaryIndex = winAny.__NAVBAR_SECONDARY_INDEX__;
+    }
+    try {
+      const lbl = getCurrentWindow().label;
+      if (lbl) {
+        windowLabel = lbl;
+        if (lbl.startsWith("navbar_secondary_")) {
+          const parsed = Number.parseInt(lbl.slice("navbar_secondary_".length), 10);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            secondaryIndex = parsed;
+          }
+        }
+      }
+    } catch {}
+    if (secondaryIndex === 0) {
+      const monParam = new URLSearchParams(window.location.search).get("monitor");
+      if (monParam) {
+        const parsed = Number.parseInt(monParam, 10);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          secondaryIndex = parsed;
+          if (windowLabel === "navbar") {
+            windowLabel = `navbar_secondary_${parsed}`;
+          }
+        }
+      }
+    }
+  }
+  return { windowLabel, secondaryIndex };
+}
+
+function applyNavbarActivation(
+  cfg: NavbarConfig,
+  isProLocked: boolean,
+  isSecondaryNavbar: boolean
+) {
+  if (isSecondaryNavbar) {
+    return;
+  }
   if (isProLocked || !cfg.enabled) {
     invoke("close_navbar_window").catch(() => {});
     invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
@@ -32,6 +79,8 @@ function applyNavbarActivation(cfg: NavbarConfig, isProLocked: boolean) {
 }
 
 export const NavbarApp: React.FC = () => {
+  const { windowLabel, secondaryIndex } = useMemo(() => resolveNavbarWindowIdentity(), []);
+  const isSecondaryNavbar = secondaryIndex > 0 || windowLabel.startsWith("navbar_secondary_");
   const [config, setConfig] = useState<NavbarConfig>(() =>
     getCachedNavbarConfigSync()
   );
@@ -123,7 +172,7 @@ export const NavbarApp: React.FC = () => {
       latestConfigRef.current = activeCfg;
       setConfig(activeCfg);
       if (proStatus !== null) {
-        applyNavbarActivation(activeCfg, proStatus.isLocked);
+        applyNavbarActivation(activeCfg, proStatus.isLocked, isSecondaryNavbar);
       }
       if (proStatus && !proStatus.isLocked && activeCfg.enabled) {
         requestAnimationFrame(() => {
@@ -135,7 +184,7 @@ export const NavbarApp: React.FC = () => {
     const handleConfigUpdate = (payload: NavbarConfig) => {
       latestConfigRef.current = payload;
       setConfig(payload);
-      applyNavbarActivation(payload, isProLockedRef.current);
+      applyNavbarActivation(payload, isProLockedRef.current, isSecondaryNavbar);
       requestAnimationFrame(() => {
         measureAndSyncRef.current?.(true);
       });
@@ -144,7 +193,7 @@ export const NavbarApp: React.FC = () => {
     const unsubscribePro = subscribeTaskbarProStatus((status) => {
       isProLockedRef.current = status.isLocked;
       if (!latestConfigRef.current) return;
-      applyNavbarActivation(latestConfigRef.current, status.isLocked);
+      applyNavbarActivation(latestConfigRef.current, status.isLocked, isSecondaryNavbar);
       if (!status.isLocked && latestConfigRef.current.enabled) {
         requestAnimationFrame(() => {
           measureAndSyncRef.current?.(true);
@@ -162,11 +211,15 @@ export const NavbarApp: React.FC = () => {
       if (event.payload) handleConfigUpdate(event.payload);
     });
 
-    const unlistenSyncBounds = listen("navbar-request-sync-bounds", () => {
-      requestAnimationFrame(() => {
-        measureAndSyncRef.current?.(true);
-      });
-    });
+    const unlistenSyncBounds = listen(
+      "navbar-request-sync-bounds",
+      () => {
+        requestAnimationFrame(() => {
+          measureAndSyncRef.current?.(true);
+        });
+      },
+      { target: windowLabel }
+    );
 
     return () => {
       cancelled = true;
@@ -176,7 +229,7 @@ export const NavbarApp: React.FC = () => {
       unlistenPromise2.then((fn) => fn());
       unlistenSyncBounds.then((fn) => fn());
     };
-  }, []);
+  }, [isSecondaryNavbar, windowLabel]);
 
   // 2. Listen to native Rust cursor hit, fullscreen, and window overlap events
   useEffect(() => {
@@ -252,39 +305,51 @@ export const NavbarApp: React.FC = () => {
       })
       .catch(() => { });
 
-    const unlistenHit = listen<boolean>("navbar-cursor-hit", (event) => {
-      const hit = !!event.payload;
-      isCursorInDockRef.current = hit;
-      if (hit) {
-        clearAutoHideTimer();
-        setIsDockVisible(true);
-        invoke("set_metrics_power_state", { state: "Active" }).catch(() => { });
-      } else {
-        if (!config.autoHide) {
+    const unlistenHit = listen<boolean>(
+      "navbar-cursor-hit",
+      (event) => {
+        const hit = !!event.payload;
+        isCursorInDockRef.current = hit;
+        if (hit) {
           clearAutoHideTimer();
           setIsDockVisible(true);
-        } else if (!isFlyoutOpenRef.current) {
-          const mode = config.autoHideMode || "normal";
-          if (mode === "maxsize" || isWindowCoveringDockRef.current) {
-            scheduleAutoHideIfIdle(AUTO_HIDE_IDLE_DELAY_MS);
-          } else {
+          invoke("set_metrics_power_state", { state: "Active" }).catch(() => { });
+        } else {
+          if (!config.autoHide) {
             clearAutoHideTimer();
             setIsDockVisible(true);
+          } else if (!isFlyoutOpenRef.current) {
+            const mode = config.autoHideMode || "normal";
+            if (mode === "maxsize" || isWindowCoveringDockRef.current) {
+              scheduleAutoHideIfIdle(AUTO_HIDE_IDLE_DELAY_MS);
+            } else {
+              clearAutoHideTimer();
+              setIsDockVisible(true);
+            }
           }
+          invoke("set_metrics_power_state", { state: "Idle" }).catch(() => { });
         }
-        invoke("set_metrics_power_state", { state: "Idle" }).catch(() => { });
-      }
-    });
+      },
+      { target: windowLabel }
+    );
 
-    const unlistenFullscreen = listen<boolean>("navbar-fullscreen-state", (event) => {
-      setIsFullscreenCovered(!!event.payload);
-    });
+    const unlistenFullscreen = listen<boolean>(
+      "navbar-fullscreen-state",
+      (event) => {
+        setIsFullscreenCovered(!!event.payload);
+      },
+      { target: windowLabel }
+    );
 
-    const unlistenOverlap = listen<boolean>("navbar-window-overlap-state", (event) => {
-      const isCovered = !!event.payload;
-      setIsWindowCoveringDock(isCovered);
-      isWindowCoveringDockRef.current = isCovered;
-    });
+    const unlistenOverlap = listen<boolean>(
+      "navbar-window-overlap-state",
+      (event) => {
+        const isCovered = !!event.payload;
+        setIsWindowCoveringDock(isCovered);
+        isWindowCoveringDockRef.current = isCovered;
+      },
+      { target: windowLabel }
+    );
 
     const unlistenFlyoutState = listen<{ isOpen?: boolean }>(
       "taskbar-flyout-state-changed",
@@ -305,7 +370,13 @@ export const NavbarApp: React.FC = () => {
       unlistenOverlap.then((fn) => fn());
       unlistenFlyoutState.then((fn) => fn());
     };
-  }, [config.autoHide, config.autoHideMode, clearAutoHideTimer, scheduleAutoHideIfIdle]);
+  }, [
+    config.autoHide,
+    config.autoHideMode,
+    clearAutoHideTimer,
+    scheduleAutoHideIfIdle,
+    windowLabel,
+  ]);
 
   // Keep dock visible during open overlays/exposed desktop; otherwise auto-hide smoothly
   useEffect(() => {
@@ -380,24 +451,53 @@ export const NavbarApp: React.FC = () => {
     let active = true;
     const resolveMonitor = async () => {
       try {
-        const targetId = config.monitorId || "primary";
+        const targetId = config.monitorId || "all";
         const monitors = await availableMonitors();
+        const primary =
+          (await primaryMonitor()) ??
+          monitors.find((m) => m.position.x === 0 && m.position.y === 0) ??
+          monitors[0] ??
+          null;
+
         let chosen: Monitor | null = null;
-        if (targetId && targetId !== "primary") {
-          chosen =
-            monitors.find((m, idx) => {
-              const name = m.name || "";
-              return (
-                name === targetId ||
-                `monitor-${idx}` === targetId ||
-                `DISPLAY${idx + 1}` === targetId ||
-                name.endsWith(targetId)
-              );
-            }) ?? null;
+        if (isSecondaryNavbar && secondaryIndex > 0) {
+          const secondaryMonitors = monitors.filter((m) => {
+            if (!primary) return false;
+            if (
+              m.position.x === primary.position.x &&
+              m.position.y === primary.position.y &&
+              m.size.width === primary.size.width &&
+              m.size.height === primary.size.height
+            ) {
+              return false;
+            }
+            if (m.name && primary.name && m.name === primary.name) {
+              return false;
+            }
+            return true;
+          });
+          chosen = secondaryMonitors[secondaryIndex - 1] ?? null;
+        } else {
+          if (targetId && targetId !== "primary" && targetId !== "all") {
+            const cleanTarget = targetId.replace(/^\\\\\.\\/, "").toLowerCase();
+            chosen =
+              monitors.find((m, idx) => {
+                const name = m.name || "";
+                const cleanName = name.replace(/^\\\\\.\\/, "").toLowerCase();
+                return (
+                  name === targetId ||
+                  cleanName === cleanTarget ||
+                  `monitor-${idx}` === targetId ||
+                  `DISPLAY${idx + 1}` === targetId ||
+                  name.endsWith(targetId)
+                );
+              }) ?? null;
+          }
+          if (!chosen) {
+            chosen = primary;
+          }
         }
-        if (!chosen) {
-          chosen = (await primaryMonitor()) ?? monitors[0] ?? null;
-        }
+
         if (active && chosen) {
           const sf = chosen.scaleFactor || 1;
           monitorBoundsRef.current = {
@@ -412,7 +512,7 @@ export const NavbarApp: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [config.monitorId, config.enabled]);
+  }, [config.monitorId, config.enabled, isSecondaryNavbar, secondaryIndex]);
 
   // 3. Report measured bounds to Rust for window centering & hit-test geometry
   const syncBounds = useCallback(
@@ -425,7 +525,7 @@ export const NavbarApp: React.FC = () => {
     ) => {
       if (!config.enabled || width <= 0 || height <= 0) return;
       const pos = config.position || "bottom";
-      const mon = config.monitorId || "primary";
+      const mon = config.monitorId || "all";
       const isAnchoredBool = config.shape === "anchored";
       const currentDist = isAnchoredBool ? 0 : config.distanceFromEdge ?? 14;
       const styleVal = resolvedSurfaceTheme
@@ -598,6 +698,7 @@ export const NavbarApp: React.FC = () => {
     config.style,
     config.opacity,
     config.cornerRadius,
+    config.taskbarHeight,
     config.iconSize,
     config.iconSpacing,
     isLightSurface,
@@ -691,13 +792,31 @@ export const NavbarApp: React.FC = () => {
       "trigger_notification_center",
     );
 
-  const handleTrayClick = () =>
-    dispatchFlyoutTrigger(
-      Boolean(config.useGiliTray) || Boolean(config.hideWindowsTaskbar),
-      '[data-flyout-trigger="tray"]',
-      "tray",
-      "trigger_hidden_tray",
-    );
+  const handleTrayClick = () => {
+    if (Boolean(config.useGiliTray)) {
+      dispatchFlyoutTrigger(
+        true,
+        '[data-flyout-trigger="tray"]',
+        "tray",
+        "trigger_hidden_tray",
+      );
+      return;
+    }
+    emit("navbar-dismiss-popovers").catch(() => {});
+    const rect = getTriggerRect('[data-flyout-trigger="tray"]');
+    invoke("trigger_hidden_tray", {
+      anchorRect: rect
+        ? {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            position: config.position || "bottom",
+          }
+        : null,
+      position: config.position || "bottom",
+    }).catch(() => {});
+  };
 
   const handlePreviewStateChange = useCallback((_isShowing: boolean) => {
     // WindowPreviewCard registers its exact bounding rect via navbarPopupService.

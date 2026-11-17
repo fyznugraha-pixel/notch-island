@@ -250,8 +250,10 @@ export function addNotificationHistoryItem(notif: NotifPayload): NotificationHis
     aumid: notif.aumid,
   };
 
-  const updated = [newItem, ...currentList.filter((item) => item.id !== newItem.id)].slice(0, 50);
-  saveNotificationHistory(updated);
+  if (!isTransientSystemHistoryItem(newItem)) {
+    const updated = [newItem, ...currentList.filter((item) => item.id !== newItem.id)].slice(0, 50);
+    saveNotificationHistory(updated);
+  }
   return newItem;
 }
 

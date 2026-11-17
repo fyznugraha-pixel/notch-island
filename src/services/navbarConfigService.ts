@@ -3,12 +3,30 @@ import { emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import {
   NavbarConfig,
+  NavbarIconTheme,
   NavbarModuleConfig,
   NavbarWindowAnimation,
   DEFAULT_NAVBAR_CONFIG,
   DEFAULT_NAVBAR_MODULES,
   NAVBAR_ACCENT_COLORS,
 } from "../types/navbar";
+
+const VALID_ICON_THEMES: ReadonlySet<NavbarIconTheme> = new Set([
+  "fluent",
+  "windows",
+  "ios",
+  "glass",
+  "monochrome",
+  "tinted",
+  "circle",
+  "retro",
+  "neon",
+  "clay",
+  "outline",
+  "pastel",
+  "sticker",
+  "contrast",
+]);
 
 export function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace("#", "").trim();
@@ -41,8 +59,10 @@ export function darkenHex(hex: string, keep: number): string {
 const STORE_FILENAME = "settings.json";
 const STORE_KEY = "opt_navbar_config";
 const STORE_DEFAULT_OFF_MIGRATION_KEY = "opt_navbar_default_off_v5";
+const STORE_DUAL_MONITOR_MIGRATION_KEY = "opt_navbar_dual_monitor_all_v1";
 const LOCAL_STORAGE_KEY = "island_navbar_config_v1";
 const DEFAULT_OFF_MIGRATION_KEY = "island_navbar_default_off_v5";
+const DUAL_MONITOR_MIGRATION_KEY = "island_navbar_dual_monitor_all_v1";
 const BROADCAST_CHANNEL_NAME = "gili_navbar_sync_channel";
 
 let storeInstance: Store | null = null;
@@ -69,6 +89,7 @@ async function flushConfigToStore(normalized: NavbarConfig): Promise<void> {
     if (store) {
       await store.set(STORE_KEY, normalized);
       await store.set(STORE_DEFAULT_OFF_MIGRATION_KEY, true);
+      await store.set(STORE_DUAL_MONITOR_MIGRATION_KEY, true);
       await store.save();
     }
   } catch (err) {
@@ -219,9 +240,9 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
       ? r.iconSpacing
       : "tight";
 
-  const iconTheme =
-    r.iconTheme === "windows" || r.iconTheme === "ios"
-      ? r.iconTheme
+  const iconTheme: NavbarIconTheme =
+    typeof r.iconTheme === "string" && VALID_ICON_THEMES.has(r.iconTheme as NavbarIconTheme)
+      ? (r.iconTheme as NavbarIconTheme)
       : "fluent";
 
   const accent =
@@ -229,14 +250,32 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
       ? r.accent
       : NAVBAR_ACCENT_COLORS[0];
 
+  const iconSize = clamp(r.iconSize, 24, 56, DEFAULT_NAVBAR_CONFIG.iconSize);
+  const legacyDockHeight = clamp(
+    (typeof r.iconSize === "number" && Number.isFinite(r.iconSize)
+      ? r.iconSize
+      : DEFAULT_NAVBAR_CONFIG.iconSize) + 8,
+    36,
+    64,
+    DEFAULT_NAVBAR_CONFIG.taskbarHeight
+  );
+  const taskbarHeight =
+    typeof r.taskbarHeight === "number" && Number.isFinite(r.taskbarHeight)
+      ? clamp(r.taskbarHeight, 36, 64, DEFAULT_NAVBAR_CONFIG.taskbarHeight)
+      : legacyDockHeight;
+
   return {
     enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_NAVBAR_CONFIG.enabled,
     shape,
     position,
-    monitorId: typeof r.monitorId === "string" && r.monitorId.trim() ? r.monitorId.trim() : "primary",
+    monitorId:
+      typeof r.monitorId === "string" && r.monitorId.trim()
+        ? r.monitorId.trim()
+        : DEFAULT_NAVBAR_CONFIG.monitorId,
     cornerRadius: clamp(r.cornerRadius, 0, 30, DEFAULT_NAVBAR_CONFIG.cornerRadius),
     distanceFromEdge: clamp(r.distanceFromEdge, 0, 40, DEFAULT_NAVBAR_CONFIG.distanceFromEdge),
-    iconSize: clamp(r.iconSize, 28, 56, DEFAULT_NAVBAR_CONFIG.iconSize),
+    taskbarHeight,
+    iconSize,
     iconSpacing,
     iconTheme,
     style,
@@ -308,26 +347,40 @@ export function getCachedNavbarConfigSync(): NavbarConfig {
   if (typeof window !== "undefined") {
     try {
       const migratedLocal = localStorage.getItem(DEFAULT_OFF_MIGRATION_KEY) === "true";
+      const migratedDualLocal = localStorage.getItem(DUAL_MONITOR_MIGRATION_KEY) === "true";
       const rawLocal = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (rawLocal) {
         let normalized = normalizeNavbarConfig(JSON.parse(rawLocal));
+        let dirty = false;
         if (!migratedLocal) {
           normalized = {
             ...normalized,
             enabled: false,
             hideWindowsTaskbar: false,
           };
+          dirty = true;
+        }
+        if (!migratedDualLocal && normalized.monitorId === "primary") {
+          normalized = {
+            ...normalized,
+            monitorId: "all",
+          };
+          dirty = true;
+        }
+        if (dirty || !migratedLocal || !migratedDualLocal) {
           try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
             localStorage.setItem(DEFAULT_OFF_MIGRATION_KEY, "true");
+            localStorage.setItem(DUAL_MONITOR_MIGRATION_KEY, "true");
           } catch {}
         }
         syncTaskbarWindowSwitches(normalized);
         return normalized;
       }
-      if (!migratedLocal) {
+      if (!migratedLocal || !migratedDualLocal) {
         try {
           localStorage.setItem(DEFAULT_OFF_MIGRATION_KEY, "true");
+          localStorage.setItem(DUAL_MONITOR_MIGRATION_KEY, "true");
         } catch {}
       }
     } catch { }
@@ -342,12 +395,14 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
   let loadedData: unknown = null;
   let store: Store | null = null;
   let migratedInStore = false;
+  let migratedDualInStore = false;
 
   try {
     store = await getSettingsStore();
     if (store) {
       loadedData = await store.get<unknown>(STORE_KEY);
       migratedInStore = (await store.get<boolean>(STORE_DEFAULT_OFF_MIGRATION_KEY)) === true;
+      migratedDualInStore = (await store.get<boolean>(STORE_DUAL_MONITOR_MIGRATION_KEY)) === true;
     }
   } catch (err) {
     console.error("Error loading navbar config from store:", err);
@@ -356,6 +411,9 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
   const migratedLocal =
     typeof window !== "undefined" &&
     localStorage.getItem(DEFAULT_OFF_MIGRATION_KEY) === "true";
+  const migratedDualLocal =
+    typeof window !== "undefined" &&
+    localStorage.getItem(DUAL_MONITOR_MIGRATION_KEY) === "true";
 
   if (!loadedData && typeof window !== "undefined") {
     try {
@@ -368,6 +426,7 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
 
   let normalized = normalizeNavbarConfig(loadedData);
   const needsDefaultOffMigration = store ? !migratedInStore : !migratedLocal;
+  const needsDualMonitorMigration = store ? !migratedDualInStore : !migratedDualLocal;
 
   if (needsDefaultOffMigration) {
     normalized = {
@@ -375,14 +434,21 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
       enabled: false,
       hideWindowsTaskbar: false,
     };
-    if (store) {
-      try {
-        await store.set(STORE_KEY, normalized);
-        await store.set(STORE_DEFAULT_OFF_MIGRATION_KEY, true);
-        await store.save();
-      } catch (err) {
-        console.error("Error saving navbar default-off migration:", err);
-      }
+  }
+  if (needsDualMonitorMigration && normalized.monitorId === "primary") {
+    normalized = {
+      ...normalized,
+      monitorId: "all",
+    };
+  }
+  if (store && (needsDefaultOffMigration || needsDualMonitorMigration)) {
+    try {
+      await store.set(STORE_KEY, normalized);
+      await store.set(STORE_DEFAULT_OFF_MIGRATION_KEY, true);
+      await store.set(STORE_DUAL_MONITOR_MIGRATION_KEY, true);
+      await store.save();
+    } catch (err) {
+      console.error("Error saving navbar migration:", err);
     }
   }
 
@@ -391,6 +457,7 @@ export async function loadNavbarConfig(): Promise<NavbarConfig> {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
       localStorage.setItem(DEFAULT_OFF_MIGRATION_KEY, "true");
+      localStorage.setItem(DUAL_MONITOR_MIGRATION_KEY, "true");
     } catch { }
   }
 
@@ -407,6 +474,7 @@ export async function saveNavbarConfig(config: NavbarConfig): Promise<NavbarConf
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
       localStorage.setItem(DEFAULT_OFF_MIGRATION_KEY, "true");
+      localStorage.setItem(DUAL_MONITOR_MIGRATION_KEY, "true");
     } catch { }
   }
 

@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
 
-use tauri::Manager;
 use windows::core::w;
 use windows::Win32::Foundation::{BOOL, COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Dwm::{
@@ -26,7 +25,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     RegisterClassW, SendMessageW, SetForegroundWindow, ShowWindow, ShowWindowAsync,
     UpdateLayeredWindowIndirect, DI_NORMAL, GCLP_HICON, GCLP_HICONSM, HICON, ICON_BIG, ICON_SMALL,
     ICON_SMALL2, SW_MINIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE, ULW_ALPHA, UPDATELAYEREDWINDOWINFO,
-    WINDOWPLACEMENT, WM_GETICON, WNDCLASSW, WPF_RESTORETOMAXIMIZED, WS_EX_LAYERED,
+    WINDOWPLACEMENT, WM_GETICON, WM_MOUSEACTIVATE, WM_NCHITTEST, WM_SETCURSOR, HTTRANSPARENT,
+    MA_NOACTIVATE, WNDCLASSW, WPF_RESTORETOMAXIMIZED, WS_DISABLED, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
@@ -209,7 +209,7 @@ fn resolve_physical_anchor_rect(
     app: &tauri::AppHandle,
     anchor: &DockAnchorRect,
 ) -> Option<(RECT, DockEdge)> {
-    let nav = app.get_webview_window("navbar")?;
+    let nav = crate::navbar_window::get_active_navbar_window(app)?;
     let outer_pos = nav.outer_position().ok()?;
     let sf = nav.scale_factor().ok()?.max(1.0);
 
@@ -866,7 +866,12 @@ unsafe extern "system" fn anim_host_wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    DefWindowProcW(hwnd, msg, wparam, lparam)
+    match msg {
+        WM_NCHITTEST => LRESULT(HTTRANSPARENT as i32 as isize),
+        WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        WM_SETCURSOR => LRESULT(1),
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
 }
 
 fn ensure_anim_host_class() -> bool {
@@ -910,7 +915,7 @@ impl AnimOverlaySurface {
                 WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
                 w!("GiliGenieAnimHost"),
                 w!(""),
-                WS_POPUP,
+                WS_POPUP | WS_DISABLED,
                 0,
                 0,
                 16,

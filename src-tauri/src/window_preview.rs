@@ -28,9 +28,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindowVisible, KillTimer, PostMessageW, RegisterClassW, SetLayeredWindowAttributes, SetTimer,
     SetWindowPos, ShowWindow, TranslateMessage, WindowFromPoint, GA_ROOT, GWL_EXSTYLE, GW_OWNER,
     HTTRANSPARENT, HWND_TOPMOST, LWA_ALPHA, MA_NOACTIVATE, MSG, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-    SW_HIDE, WINDOWPLACEMENT, WM_APP, WM_MOUSEACTIVATE, WM_NCHITTEST, WM_TIMER, WNDCLASSW,
-    WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP,
+    SW_HIDE, WINDOWPLACEMENT, WM_APP, WM_MOUSEACTIVATE, WM_NCHITTEST, WM_SETCURSOR, WM_TIMER,
+    WNDCLASSW, WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 extern "system" {
@@ -887,6 +887,7 @@ unsafe extern "system" fn overlay_wnd_proc(
     match msg {
         WM_NCHITTEST => LRESULT(HTTRANSPARENT as i32 as isize),
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        WM_SETCURSOR => LRESULT(1),
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
@@ -1106,7 +1107,7 @@ fn ensure_overlay_thread() {
                     WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                     cls_coord,
                     w!("GiliPreviewCoord"),
-                    WS_POPUP,
+                    WS_POPUP | WS_DISABLED,
                     0,
                     0,
                     0,
@@ -1128,7 +1129,7 @@ fn ensure_overlay_thread() {
                             | WS_EX_LAYERED,
                         cls_slot,
                         w!("GiliDwmPreview"),
-                        WS_POPUP | WS_CLIPSIBLINGS,
+                        WS_POPUP | WS_CLIPSIBLINGS | WS_DISABLED,
                         -32000 + (idx as i32 * 40),
                         -32000,
                         1,

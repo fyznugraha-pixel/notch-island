@@ -4,7 +4,6 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load } from "@tauri-apps/plugin-store";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, ShortcutActionId, ShortcutStatus, shortcutManager, formatShortcutForBadge, areShortcutMapsEqual } from "./services/shortcuts";
@@ -16,8 +15,13 @@ import {
   Gamepad2,
   BedDouble,
   UploadCloud,
+  Loader2,
 } from "lucide-react";
 import "./App.css";
+import {
+  subscribeAiBackgroundStreams,
+  isAnyAiStreamActive,
+} from "./services/aiBackgroundStreamService";
 
 import { MediaPayload, NotifPayload } from "./types";
 import { NotifIcon } from "./components/ui/NotifIcon";
@@ -69,6 +73,7 @@ import {
   normalizeTabsPreferences,
   getOrderedEnabledTabs,
   isTabEnabled,
+  resolvePreferredOpenTab,
 } from "./services/tabConfigService";
 import { createQuickNoteItem, deleteQuickNoteItem } from "./services/noteUtils";
 import { WaterNotchToast, WaterToastType } from "./components/ui/water/WaterNotchToast";
@@ -1874,27 +1879,16 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const isMusicActive = Boolean(
         hasMediaTrack && (isPlayingRef.current || ((variantRef.current === "media" || variantRef.current === "lyrics_idle") && !isPausedMediaCollapsedRef.current))
       );
-      const openBehavior = tabsPrefsRef.current.defaultOpenBehavior;
-      if (isMusicActive) {
-        target = "media_expanded";
-      } else if (openBehavior === "first_tab") {
-        target = (currentTabs[0] as ExpandedTab) || "quick_control";
-      } else if (openBehavior === "quick_control") {
-        target = "quick_control";
-      } else if (!tabExpired && lastActiveTabRef.current) {
-        target = lastActiveTabRef.current;
-      } else {
-        target = (currentTabs[0] as ExpandedTab) || "quick_control";
-      }
-
-      if (target === "media_expanded" && !hasMediaTrack) {
-        target = "quick_control";
-      }
-      if (!currentTabs.includes(target)) {
-        target = currentTabs.includes("quick_control")
-          ? "quick_control"
-          : (currentTabs[0] || "quick_control");
-      }
+      target = resolvePreferredOpenTab({
+        currentTabs,
+        openBehavior: tabsPrefsRef.current.defaultOpenBehavior,
+        preventAutoOpenMedia: tabsPrefsRef.current.preventAutoOpenMediaWhilePlaying !== false,
+        isMusicActive,
+        hasMediaTrack,
+        tabExpired,
+        lastActiveTab: lastActiveTabRef.current,
+        hasActiveAiStream: hasActiveAiStreamRef.current,
+      }) as ExpandedTab;
     }
 
     currentTabRef.current = null;
@@ -1902,6 +1896,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     return true;
   };
   openLastOrPreferredTabRef.current = openLastOrPreferredTab;
+
+  const openNotchFromMediaPill = () => {
+    if (tabsPrefsRef.current.preventAutoOpenMediaWhilePlaying !== false) {
+      openLastOrPreferredTabRef.current();
+    } else {
+      goToTabRef.current("media_expanded", 0);
+    }
+  };
 
   const handleCompactHoverTrigger = () => {
     if (!isCursorInsideNotchRef.current) return;
@@ -2176,7 +2178,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     if (variantRef.current === "compact") {
       startCompactHoverTimer(80);
     } else if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
-      goToTab("media_expanded", 0);
+      openNotchFromMediaPill();
     } else if (variantRef.current === "pomo_idle") {
       goToTab("pomodoro", 0);
     } else if (variantRef.current === "todo_idle_countdown") {
@@ -3156,26 +3158,18 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         
         const autostartInit = await s.get('autostart_initialized');
         if (!autostartInit) {
-          try {
-            if (!(await isEnabled())) await enable();
-            await s.set('autostart_initialized', true);
-            await s.set('opt_autostart', true);
-          } catch (e) {
-            console.error("Failed to initialize autostart", e);
-          }
+          await invoke<boolean>("sync_autostart_state", { enabled: true }).catch(() => false);
+          await s.set('autostart_initialized', true);
+          await s.set('opt_autostart', true);
+          setIsAutostart(true);
         } else {
           const savedAutostart = await s.get('opt_autostart');
-          if (typeof savedAutostart === 'boolean') {
-            try {
-              const currentEnabled = await isEnabled();
-              if (savedAutostart && !currentEnabled) await enable();
-              else if (!savedAutostart && currentEnabled) await disable();
-            } catch {}
-          }
+          const effectiveAuto = typeof savedAutostart === 'boolean'
+            ? savedAutostart
+            : await invoke<boolean>("get_autostart_state").catch(() => true);
+          setIsAutostart(effectiveAuto);
+          invoke("sync_autostart_state", { enabled: effectiveAuto }).catch(() => {});
         }
-
-        const auto = await isEnabled();
-        setIsAutostart(auto);
       } catch (e) {
         console.error("Failed to init store", e);
       }
@@ -3299,7 +3293,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               e.clientY <= rect.bottom + margin;
             if (isNearNotch) {
               if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
-                goToTabRef.current("media_expanded", 0);
+                if (tabsPrefsRef.current.preventAutoOpenMediaWhilePlaying !== false) {
+                  openLastOrPreferredTabRef.current();
+                } else {
+                  goToTabRef.current("media_expanded", 0);
+                }
               } else if (variantRef.current === "idle") {
                 openLastOrPreferredTabRef.current();
               }
@@ -3371,7 +3369,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             startCompactHoverTimer(80);
           } else if (!hasOpenPanel && !isClosingRef.current) {
             if (currentVariant === "media" || currentVariant === "lyrics_idle") {
-              goToTabRef.current("media_expanded", 0);
+              if (tabsPrefsRef.current.preventAutoOpenMediaWhilePlaying !== false) {
+                openLastOrPreferredTabRef.current();
+              } else {
+                goToTabRef.current("media_expanded", 0);
+              }
             } else if (currentVariant === "idle") {
               openLastOrPreferredTabRef.current();
             }
@@ -4114,6 +4116,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             setLanguage(value as Language, false);
             setOptLanguage(value as Language);
             break;
+          case "opt_autostart":
+            setIsAutostart(Boolean(value));
+            break;
           case "show_greeting":
             setShowGreeting(Boolean(value));
             try { localStorage.setItem("island_show_greeting", String(Boolean(value))); } catch {}
@@ -4292,6 +4297,19 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         handleCloseImmediate();
       } else if (act === "toggle_preview" || act.startsWith("preview_tab:") || act.startsWith("open_tab:")) {
         const rawTarget = act.includes(":") ? act.split(":")[1] : "quick_control";
+        if (rawTarget === "preferred") {
+          setIsHidden(false);
+          openLastOrPreferredTabRef.current();
+          isShortcutPinnedRef.current = true;
+          if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
+          shortcutPinnedTimerRef.current = window.setTimeout(() => {
+            if (!isCursorInsideNotchRef.current && isShortcutPinnedRef.current) {
+              isShortcutPinnedRef.current = false;
+              handleCloseImmediate();
+            }
+          }, 45000);
+          return;
+        }
         const currentAvailableTabs = availableTabsRef.current;
         const targetTab = (currentAvailableTabs.includes(rawTarget as any)
           ? rawTarget
@@ -4469,7 +4487,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
     try {
       const activated = await invoke<boolean>("activate_notification_app", {
-        appName: active.title,
+        appName: active.appName || active.title,
         aumid: active.aumid || null,
       });
       if (activated) return;
@@ -4477,7 +4495,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       console.error("Failed to activate notification app natively:", err);
     }
 
-    const title = active.title.toLowerCase();
+    const title = `${active.appName || ""} ${active.title}`.toLowerCase();
     
     let url = "";
     if (title.includes("whatsapp")) url = "whatsapp://";
@@ -4715,9 +4733,18 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   const statFont = optFontSize === "small" ? "bold 9px 'SF Pro Display', sans-serif" : optFontSize === "large" ? "bold 11.5px 'SF Pro Display', sans-serif" : "bold 10px 'SF Pro Display', sans-serif";
 
+  const hasActiveAiStream = React.useSyncExternalStore(
+    subscribeAiBackgroundStreams,
+    isAnyAiStreamActive,
+    () => false
+  );
+  const hasActiveAiStreamRef = useRef(hasActiveAiStream);
+  hasActiveAiStreamRef.current = hasActiveAiStream;
+
   const idleWidth = React.useMemo(() => {
-    return measureIdleLayoutWidth(idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize);
-  }, [idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize]);
+    const measured = measureIdleLayoutWidth(idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize);
+    return hasActiveAiStream && !isSideCenterNotchPosition(optPosition) ? measured + 22 : measured;
+  }, [idleLayout, idleRuntimeData, statFont, camActive, micActive, effectiveIdleSize, hasActiveAiStream, optPosition]);
 
   const mediaPillWidth = React.useMemo(() => {
     if (!media) return idleWidth;
@@ -4727,8 +4754,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const artistWidth = getTextWidth(media.artist || "", artistFont);
     const maxTextWidth = Math.max(titleWidth, artistWidth);
     const baseWidth = Math.min(300, Math.max(175, Math.ceil(108 + maxTextWidth)));
-    return Math.round(baseWidth * (effectiveIdleSize === "compact" ? 0.96 : effectiveIdleSize === "large" ? 1.08 : 1.0));
-  }, [media, optFontSize, effectiveIdleSize, idleWidth]);
+    return Math.round(baseWidth * (effectiveIdleSize === "compact" ? 0.96 : effectiveIdleSize === "large" ? 1.08 : 1.0)) + (hasActiveAiStream ? 22 : 0);
+  }, [media, optFontSize, effectiveIdleSize, idleWidth, hasActiveAiStream]);
 
   const lyricsIdleWidth = React.useMemo(() => {
     if (!media) return idleWidth;
@@ -4751,8 +4778,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const maxText = Math.max(currWidth, Math.min(currWidth + 24, nextWidth));
     // UI footprint: art (26-34px) + visualizer (24px) + padding (20px) + gaps (16px) + buffer
     const basePadding = isCompact ? 90 : 96;
-    return Math.min(560, Math.max(160, Math.ceil(maxText + basePadding)));
-  }, [media, activeIdleLyric, optFontSize, effectiveIdleSize, idleWidth]);
+    return Math.min(560, Math.max(160, Math.ceil(maxText + basePadding + (hasActiveAiStream ? 22 : 0))));
+  }, [media, activeIdleLyric, optFontSize, effectiveIdleSize, idleWidth, hasActiveAiStream]);
 
   const getDynamicWidth = () => {
     if (notif && (notif.type === "greeting" || notif.icon === "sun" || notif.icon === "moon")) {
@@ -5056,7 +5083,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     (idleLayout.left !== "none" ? 1 : 0) +
     (idleLayout.center !== "none" ? 1 : 0) +
     (idleLayout.right !== "none" ? 1 : 0) +
-    (camActive || micActive ? 1 : 0);
+    (camActive || micActive ? 1 : 0) +
+    (hasActiveAiStream ? 1 : 0);
   const isIdleEmpty =
     idleLayout.left === "none" &&
     idleLayout.center === "none" &&
@@ -5436,6 +5464,30 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const isIdleLightContrast = optIdleColorEnabled && isIdle && getPerceivedLuminance(optIdleColor) >= 0.55;
   const effectiveIsLight = isLightMode || isIdleLightContrast;
 
+  const renderAiThinkingBadge = (extraClassName = "") => {
+    if (!hasActiveAiStream) return null;
+    return (
+      <Tooltip
+        content={optLanguage === "id" ? "AI sedang memproses jawaban..." : "AI is generating a response..."}
+        side="bottom"
+      >
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            goToTab("ai_chat", 0);
+          }}
+          aria-label={optLanguage === "id" ? "Buka AI Chat" : "Open AI Chat"}
+          className={`flex items-center justify-center w-4 h-4 rounded-full shrink-0 cursor-pointer transition-colors ${
+            effectiveIsLight ? "text-[#0a84ff] hover:bg-black/10" : "text-[#38bdf8] hover:bg-white/10"
+          } ${extraClassName}`}
+        >
+          <Loader2 className="w-3 h-3 animate-spin" />
+        </button>
+      </Tooltip>
+    );
+  };
+
   return (
     <div
       className={`relative w-screen h-screen flex bg-transparent pointer-events-none ${
@@ -5525,7 +5577,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             return;
           }
           if (variant === "media" || variant === "lyrics_idle") {
-            goToTab("media_expanded", 0);
+            openNotchFromMediaPill();
             return;
           }
           if (variant === "pomo_idle") {
@@ -5557,7 +5609,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             cancelCompactHoverTimer();
             handleCompactHoverTrigger();
           } else if (variant === "media" || variant === "lyrics_idle") {
-            goToTab("media_expanded", 0);
+            openNotchFromMediaPill();
           } else if (variant === "pomo_idle") {
             goToTab("pomodoro", 0);
           } else if (variant === "todo_idle_countdown") {
@@ -5741,7 +5793,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 <div
                   className={`${
                     isSideCenter ? "w-[2px] h-6" : "w-6 h-[2px]"
-                  } rounded-full ${effectiveIsLight ? "bg-black/70 shadow-[0_0_3px_rgba(0,0,0,0.3)]" : "bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]"}`}
+                  } rounded-full transition-colors ${
+                    hasActiveAiStream
+                      ? "bg-[#38bdf8] animate-pulse"
+                      : effectiveIsLight
+                      ? "bg-black/70 shadow-[0_0_3px_rgba(0,0,0,0.3)]"
+                      : "bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]"
+                  }`}
                 />
               </motion.div>
             )}
@@ -5981,7 +6039,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 }`}
                 onClick={() => openLastOrPreferredTab()}
               >
-                {isIdleEmpty && !isSideCenter && !camActive && !micActive && (
+                {isIdleEmpty && !isSideCenter && !camActive && !micActive && !hasActiveAiStream && (
                   <React.Suspense fallback={null}>
                     <IdleMascot
                       idleHeight={idleHeight}
@@ -6013,6 +6071,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                     </motion.div>
                   )}
 
+                  {renderAiThinkingBadge()}
+
                   {(camActive || micActive) && (
                     <motion.div
                       key="privacy-indicators"
@@ -6043,7 +6103,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               <motion.div
                 key="media"
                 onClick={() => {
-                  goToTab("media_expanded", 0);
+                  openNotchFromMediaPill();
                 }}
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -6086,7 +6146,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                       }`}
                     />
                   </div>
-                  <div className="flex items-center shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {renderAiThinkingBadge()}
                     <AudioVisualizer isPlaying={isPlaying} onToggle={() => handleMediaControl("toggle")} optAccent={optAccent} />
                   </div>
                 </div>
@@ -6105,23 +6166,28 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 }}
                 className="absolute inset-0 flex items-center justify-between cursor-pointer"
               >
-                <IdleLyrics
-                  lyricsData={lyricsData}
-                  currentTime={mediaProgress.position}
-                  isPlaying={isPlaying}
-                  songTitle={media?.title}
-                  artist={media?.artist}
-                  media={media}
-                  optAccent={optAccent}
-                  optFontSize={optFontSize}
-                  optIdleSize={effectiveIdleSize}
-                  isLoading={isLyricsLoading}
-                  onActiveLineChange={handleActiveIdleLyricChange}
-                  onTogglePlay={() => handleMediaControl("toggle")}
-                  onClick={() => {
-                    goToTab("media_expanded", 0);
-                  }}
-                />
+                <div className="w-full h-full flex items-center min-w-0">
+                  <div className="flex-1 h-full min-w-0">
+                    <IdleLyrics
+                      lyricsData={lyricsData}
+                      currentTime={mediaProgress.position}
+                      isPlaying={isPlaying}
+                      songTitle={media?.title}
+                      artist={media?.artist}
+                      media={media}
+                      optAccent={optAccent}
+                      optFontSize={optFontSize}
+                      optIdleSize={effectiveIdleSize}
+                      isLoading={isLyricsLoading}
+                      onActiveLineChange={handleActiveIdleLyricChange}
+                      onTogglePlay={() => handleMediaControl("toggle")}
+                      onClick={() => {
+                        openNotchFromMediaPill();
+                      }}
+                    />
+                  </div>
+                  {renderAiThinkingBadge("mr-2.5")}
+                </div>
               </motion.div>
             )}
 
@@ -6552,16 +6618,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                                 }}
                             isAutostart={isAutostart}
                             onToggleAutostart={async () => {
-                              try {
-                                const next = !isAutostart;
-                                if (next) await enable();
-                                else await disable();
-                                setIsAutostart(next);
-                                if (store) {
-                                  await store.set("autostart_initialized", true);
-                                  await store.set("opt_autostart", next);
-                                }
-                              } catch {}
+                              const next = !isAutostart;
+                              await invoke("sync_autostart_state", { enabled: next }).catch(() => {});
+                              setIsAutostart(next);
+                              if (store) {
+                                await store.set("autostart_initialized", true);
+                                await store.set("opt_autostart", next);
+                              }
+                              broadcastSetting("opt_autostart", next);
                             }}
                             showGreeting={showGreeting}
                             onToggleGreeting={async () => {

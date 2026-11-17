@@ -364,8 +364,8 @@ export const NavbarBehaviorCard: React.FC<NavbarBehaviorCardProps> = ({
             {renderToggleRow(
               isId ? "6. Tray Tersembunyi" : "6. Hidden System Tray",
               isId
-                ? "Pakai jendela Gili (Board 89/93) untuk overflow ikon tray"
-                : "Use Gili flyout (Board 89/93) for hidden tray overflow",
+                ? "Aktif: pakai flyout Gili bertema. Nonaktif: buka tray overflow Windows (^) asli di dekat navbar."
+                : "On: use Gili-themed tray flyout. Off: open native Windows tray overflow (^) anchored near the navbar.",
               !!config.useGiliTray,
               () => onChange({ useGiliTray: !config.useGiliTray })
             )}

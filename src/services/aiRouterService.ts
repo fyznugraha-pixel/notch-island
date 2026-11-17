@@ -6,6 +6,11 @@ import type {
   RouterConfig,
 } from "../components/ui/aichat/AiChatTypes";
 import { getLanguage } from "./i18n";
+import {
+  compareModelsNewestFirst,
+  isModelUnavailable,
+  isSpecializedNonChatModel,
+} from "./aiModelRegistry";
 
 const ROUTER_CONFIG_KEY = "island_ai_router_config_v1";
 
@@ -366,7 +371,13 @@ export function resolveTierModel(
   const visionPool = requiresVision
     ? availableModels.filter(isVisionCapableModel)
     : availableModels;
-  const effectiveModels = visionPool.length > 0 ? visionPool : availableModels;
+  const visionSafe = visionPool.length > 0 ? visionPool : availableModels;
+
+  const healthyPool = visionSafe.filter((m) => !isModelUnavailable(m.provider, m.id));
+  const availablePool = healthyPool.length > 0 ? healthyPool : visionSafe;
+
+  const chatPool = availablePool.filter((m) => !isSpecializedNonChatModel(m.id));
+  const effectiveModels = chatPool.length > 0 ? chatPool : availablePool;
 
   // 1. Check user configured tierMapping against effectiveModels
   const mapping = routerConfig.tierMapping[tier];
@@ -383,29 +394,26 @@ export function resolveTierModel(
     }
   }
 
-  // 2. Smart fallback if mapping not in available models
+  const pickNewest = (pool: AiModelConfig[]): AiModelConfig | undefined =>
+    pool.length > 0 ? [...pool].sort(compareModelsNewestFirst)[0] : undefined;
+
+  const byTier = (targetTier: AiModelConfig["tier"]) =>
+    pickNewest(effectiveModels.filter((m) => m.tier === targetTier));
+
+  // 2. Smart fallback: pick newest-generation healthy model matching the requested tier
   if (tier === "T0") {
-    // Prefer Fast models (Mini, Flash, Haiku, V3)
     const fast =
-      effectiveModels.find((m) => m.tier === "Fast") ||
-      effectiveModels.find((m) => m.tier === "Medium") ||
-      effectiveModels[0];
+      byTier("Fast") || byTier("Medium") || pickNewest(effectiveModels) || effectiveModels[0];
     return { targetModel: fast, targetProvider: fast.provider };
-  } else if (tier === "T2") {
-    // Prefer Max models (Sonnet 3.7, R1, o3-mini, Opus)
-    const max =
-      effectiveModels.find((m) => m.tier === "Max") ||
-      effectiveModels.find((m) => m.tier === "Medium") ||
-      effectiveModels[0];
-    return { targetModel: max, targetProvider: max.provider };
-  } else {
-    // T1: Prefer Medium or balanced model
-    const medium =
-      effectiveModels.find((m) => m.tier === "Medium") ||
-      effectiveModels.find((m) => m.tier === "Fast") ||
-      effectiveModels[0];
-    return { targetModel: medium, targetProvider: medium.provider };
   }
+  if (tier === "T2") {
+    const max =
+      byTier("Max") || byTier("Medium") || byTier("Fast") || pickNewest(effectiveModels) || effectiveModels[0];
+    return { targetModel: max, targetProvider: max.provider };
+  }
+  const medium =
+    byTier("Medium") || byTier("Fast") || byTier("Max") || pickNewest(effectiveModels) || effectiveModels[0];
+  return { targetModel: medium, targetProvider: medium.provider };
 }
 
 /**

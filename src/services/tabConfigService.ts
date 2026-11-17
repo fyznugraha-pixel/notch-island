@@ -28,6 +28,7 @@ export interface NotchTabsPreferences {
   includeSettingsInDock: boolean;
   showPageDots: boolean;
   defaultOpenBehavior: DefaultTabBehavior;
+  preventAutoOpenMediaWhilePlaying: boolean;
 }
 
 const STORAGE_KEY = "island_tabs_preferences_v1";
@@ -54,6 +55,7 @@ export const DEFAULT_TABS_PREFERENCES: NotchTabsPreferences = {
   includeSettingsInDock: true,
   showPageDots: true,
   defaultOpenBehavior: "remember_last",
+  preventAutoOpenMediaWhilePlaying: true,
 };
 
 const ALL_VALID_TAB_IDS = new Set<ManageableTabId>(DEFAULT_TAB_ITEMS.map((t) => t.id));
@@ -119,11 +121,17 @@ export function normalizeTabsPreferences(raw: unknown): NotchTabsPreferences {
       ? obj.defaultOpenBehavior
       : DEFAULT_TABS_PREFERENCES.defaultOpenBehavior;
 
+  const preventAutoOpenMediaWhilePlaying =
+    typeof obj.preventAutoOpenMediaWhilePlaying === "boolean"
+      ? obj.preventAutoOpenMediaWhilePlaying
+      : DEFAULT_TABS_PREFERENCES.preventAutoOpenMediaWhilePlaying;
+
   return {
     items: normalizedItems,
     includeSettingsInDock,
     showPageDots,
     defaultOpenBehavior,
+    preventAutoOpenMediaWhilePlaying,
   };
 }
 
@@ -181,4 +189,72 @@ export function isTabEnabled(
   if (!prefs || !Array.isArray(prefs.items)) return true;
   const item = prefs.items.find((i) => i.id === tabId);
   return item ? item.enabled : true;
+}
+
+export interface ResolvePreferredOpenTabParams {
+  currentTabs: string[];
+  openBehavior: DefaultTabBehavior;
+  preventAutoOpenMedia: boolean;
+  isMusicActive: boolean;
+  hasMediaTrack: boolean;
+  tabExpired: boolean;
+  lastActiveTab: string | null;
+  hasActiveAiStream: boolean;
+}
+
+export function resolvePreferredOpenTab(
+  params: ResolvePreferredOpenTabParams
+): string {
+  const {
+    currentTabs,
+    openBehavior,
+    preventAutoOpenMedia,
+    isMusicActive,
+    hasMediaTrack,
+    tabExpired,
+    lastActiveTab,
+    hasActiveAiStream,
+  } = params;
+  const nonMediaFallbackTab =
+    currentTabs.find((t) => t !== "media_expanded") || "quick_control";
+  let target = "quick_control";
+  let explicitlyRememberedMedia = false;
+
+  if (!preventAutoOpenMedia && isMusicActive) {
+    target = "media_expanded";
+    explicitlyRememberedMedia = true;
+  } else if (openBehavior === "first_tab") {
+    target = currentTabs[0] || "quick_control";
+  } else if (openBehavior === "quick_control") {
+    target = "quick_control";
+  } else if (lastActiveTab && (preventAutoOpenMedia || !tabExpired)) {
+    target = lastActiveTab;
+    explicitlyRememberedMedia = target === "media_expanded";
+  } else if (hasActiveAiStream && currentTabs.includes("ai_chat")) {
+    target = "ai_chat";
+  } else {
+    target = currentTabs[0] || "quick_control";
+  }
+
+  if (
+    preventAutoOpenMedia &&
+    target === "media_expanded" &&
+    !explicitlyRememberedMedia
+  ) {
+    target = nonMediaFallbackTab;
+  }
+
+  if (target === "media_expanded" && !hasMediaTrack) {
+    target = nonMediaFallbackTab;
+  }
+
+  if (!currentTabs.includes(target)) {
+    target = preventAutoOpenMedia
+      ? nonMediaFallbackTab
+      : currentTabs.includes("quick_control")
+      ? "quick_control"
+      : currentTabs[0] || "quick_control";
+  }
+
+  return target;
 }

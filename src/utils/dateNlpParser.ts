@@ -152,8 +152,8 @@ export function parseDateNlp(
   // "besok pagi", "besok sore", "besok malam", "besok", "tomorrow"
   // "lusa", "akhir pekan", "weekend"
   // or days of week: "senin", "selasa", "rabu", "kamis", "jumat", "jum'at", "sabtu", "minggu", "monday", etc.
-  const relativeDayPattern = 
-    /\b(?:hari ini|today|malam ini|sore ini|siang ini|pagi ini|besok lusa|besok(?:\s+(?:pagi|siang|sore|malam))?|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|lusa|akhir pekan|weekend|senin|selasa|rabu|kamis|jumat|jum'at|sabtu|minggu|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
+  const relativeDayPattern =
+    /\b(?:hari ini|today|malam ini|sore ini|siang ini|pagi ini|besok lusa|besok(?:\s+(?:pagi|siang|sore|malam))?|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|lusa|akhir pekan|weekend|senin|selasa|rabu|kamis|jumat|jum'at|sabtu|minggu|ahad|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i;
 
   // Try matching combined: [Day] [Time] or [Time] [Day] or just [Day] or just [Time]
   // Pattern 1: Day phrase followed optionally by "jam / pukul / at" + time
@@ -198,6 +198,8 @@ export function parseDateNlp(
       resolvedHour = 20;
       resolvedMinute = 0;
       hasExplicitTime = true;
+    } else if (dayPart === "lusa" || dayPart === "besok lusa") {
+      targetDate.setDate(targetDate.getDate() + 2);
     } else if (dayPart.startsWith("besok") || dayPart.startsWith("tomorrow")) {
       targetDate.setDate(targetDate.getDate() + 1);
       if (dayPart.includes("pagi") || dayPart.includes("morning")) {
@@ -217,8 +219,6 @@ export function parseDateNlp(
         resolvedMinute = 0;
         hasExplicitTime = true;
       }
-    } else if (dayPart === "lusa" || dayPart === "besok lusa") {
-      targetDate.setDate(targetDate.getDate() + 2);
     } else if (dayPart === "akhir pekan" || dayPart === "weekend") {
       // Nearest coming Saturday
       const currentDay = targetDate.getDay();
@@ -325,8 +325,8 @@ function parseTimeSnippet(snippet: string, fallbackModifier: string = ""): { hou
   if (modifier === "sore" || modifier === "pm" || modifier === "afternoon" || modifier === "evening") {
     if (h < 12) h += 12;
   } else if (modifier === "malam" || modifier === "night") {
-    if (h < 12 && h >= 6) h += 12;
-    else if (h < 6) h += 12; // e.g. "jam 8 malam" -> 20
+    if (h === 12) h = 0;
+    else if (h >= 6 && h < 12) h += 12; // e.g. "jam 8 malam" -> 20, "jam 2 malam" -> 02
   } else if (modifier === "siang") {
     if (h < 12 && h >= 1 && h <= 3) h += 12; // "jam 1 siang" -> 13
   } else if (modifier === "pagi" || modifier === "am" || modifier === "morning") {

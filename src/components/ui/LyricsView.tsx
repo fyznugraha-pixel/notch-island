@@ -1,10 +1,17 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Music, RotateCw, ChevronDown, Check } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Music, RotateCw, ChevronDown, Check, Share2, X } from "lucide-react";
 import { LyricsData, LyricsProviderId, LYRICS_PROVIDERS_META } from "../../services/lyricsService";
 import { Tooltip } from "./Tooltip";
 import { t, getLanguage } from "../../services/i18n";
 import { getSongLyricsOffset, setSongLyricsOffset } from "../../services/mediaLyricsStore";
 import { WordFillLyricsLine, usePrefersReducedMotion } from "./WordFillLyricsLine";
+import {
+  MAX_SELECTED_LYRIC_LINES,
+  buildDefaultSelectedIndices,
+  extractShareableLyricLines,
+  openLyricsShareStudio,
+  toggleLyricSelection,
+} from "../../services/lyricsShareService";
 
 export interface LyricsViewProps {
   lyrics: LyricsData | null;
@@ -15,6 +22,9 @@ export interface LyricsViewProps {
   onRefreshLyrics?: () => void;
   songTitle?: string;
   artist?: string;
+  album?: string;
+  artworkUrl?: string | null;
+  sourceApp?: string;
   currentProvider?: LyricsProviderId;
   onChangeProvider?: (providerId: LyricsProviderId) => void;
 }
@@ -28,6 +38,9 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   onRefreshLyrics,
   songTitle,
   artist,
+  album,
+  artworkUrl,
+  sourceApp,
   currentProvider = "auto",
   onChangeProvider,
 }) => {
@@ -37,7 +50,11 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   const lastActiveIndexRef = useRef<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const shareableLines = useMemo(() => extractShareableLyricLines(lyrics), [lyrics]);
+  const canShareLyrics = !isLoading && !lyrics?.instrumental && shareableLines.some((l) => l.trim().length > 0);
 
   // Close dropdown on click outside or Escape
   useEffect(() => {
@@ -161,6 +178,8 @@ export const LyricsView = React.memo<LyricsViewProps>(({
   useEffect(() => {
     lastActiveIndexRef.current = -1;
     setActiveIndex(-1);
+    setIsSelectMode(false);
+    setSelectedIndices([]);
     if (containerRef.current) {
       containerRef.current.scrollTo({ top: 0 });
     }
@@ -196,6 +215,33 @@ export const LyricsView = React.memo<LyricsViewProps>(({
     setTimeout(() => setIsRefreshing(false), 600);
   };
 
+  const handleToggleShareSelect = () => {
+    if (isSelectMode) {
+      setIsSelectMode(false);
+      return;
+    }
+    setSelectedIndices(buildDefaultSelectedIndices(shareableLines, activeIndex));
+    setIsSelectMode(true);
+  };
+
+  const handleOpenShareStudio = async () => {
+    if (selectedIndices.length === 0) return;
+    try {
+      await openLyricsShareStudio({
+        title: songTitle || "",
+        artist: artist || "",
+        album,
+        artworkUrl,
+        lines: shareableLines,
+        selectedIndices,
+        sourceApp,
+      });
+      setIsSelectMode(false);
+    } catch (err) {
+      console.error("Failed to open lyrics share studio:", err);
+    }
+  };
+
   const cleanProviderName = lyrics?.providerName
     ? lyrics.providerName.replace(/ (?:Cloud )?Music$/i, "")
     : "";
@@ -208,46 +254,42 @@ export const LyricsView = React.memo<LyricsViewProps>(({
 
   return (
     <div className="relative w-full h-full flex flex-col select-none overflow-hidden">
-      <div className="flex items-center justify-between py-1.5 pl-2 pr-3.5 shrink-0 z-30 min-w-0 gap-1.5">
-        <div className="flex items-center gap-1.5 min-w-0 shrink-0">
-          <span className="text-[10.5px] font-bold text-white/80 uppercase tracking-wider leading-normal truncate">
-            {t("lyrics_title")}
-          </span>
-        </div>
+      <div className="flex items-center justify-between py-1.5 pl-1.5 pr-2 shrink-0 z-30 min-w-0 gap-1.5">
+        {lyrics?.synced ? (
+          <div className="flex items-center gap-0.5 bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 rounded-full px-1.5 py-0.5 text-[9.5px] text-white/70 transition-colors shrink-0">
+            <Tooltip content={t("lyrics_advance")} side="top">
+              <button
+                type="button"
+                onClick={() => handleOffsetChange(-0.2)}
+                className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
+              >
+                -
+              </button>
+            </Tooltip>
+            <Tooltip content={t("lyrics_reset_offset")} side="top">
+              <button
+                type="button"
+                onClick={handleResetOffset}
+                className="px-0.5 font-mono text-[9px] font-medium text-white/80 hover:text-blue-300 transition-colors cursor-pointer"
+              >
+                {offset === 0 ? "0.0s" : `${offset > 0 ? "+" : ""}${offset.toFixed(1)}s`}
+              </button>
+            </Tooltip>
+            <Tooltip content={t("lyrics_delay")} side="top">
+              <button
+                type="button"
+                onClick={() => handleOffsetChange(0.2)}
+                className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
+              >
+                +
+              </button>
+            </Tooltip>
+          </div>
+        ) : (
+          <div />
+        )}
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {lyrics?.synced && (
-            <div className="flex items-center gap-0.5 bg-white/[0.06] hover:bg-white/[0.09] border border-white/10 rounded-full px-1.5 py-0.5 text-[9.5px] text-white/70 transition-colors shrink-0">
-              <Tooltip content={t("lyrics_advance")} side="top">
-                <button
-                  type="button"
-                  onClick={() => handleOffsetChange(-0.2)}
-                  className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
-                >
-                  -
-                </button>
-              </Tooltip>
-              <Tooltip content={t("lyrics_reset_offset")} side="top">
-                <button
-                  type="button"
-                  onClick={handleResetOffset}
-                  className="px-0.5 font-mono text-[9px] font-medium text-white/80 hover:text-blue-300 transition-colors cursor-pointer"
-                >
-                  {offset === 0 ? "0.0s" : `${offset > 0 ? "+" : ""}${offset.toFixed(1)}s`}
-                </button>
-              </Tooltip>
-              <Tooltip content={t("lyrics_delay")} side="top">
-                <button
-                  type="button"
-                  onClick={() => handleOffsetChange(0.2)}
-                  className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-white/15 text-white/60 hover:text-white transition-colors font-mono font-bold leading-none cursor-pointer"
-                >
-                  +
-                </button>
-              </Tooltip>
-            </div>
-          )}
-
           {/* Lyrics Provider Selector Dropdown (to the left of refresh button) */}
           <div className="relative shrink-0" ref={dropdownRef}>
             <Tooltip content={isEn ? "Change lyrics library" : "Ganti library lirik"} side="top">
@@ -256,7 +298,7 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                 onClick={() => setIsProviderDropdownOpen((prev) => !prev)}
                 className="h-6 flex items-center gap-1 bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/[0.16] border border-white/10 rounded-full px-2 text-[10px] text-white/75 hover:text-white transition-all cursor-pointer font-medium select-none shrink-0"
               >
-              <span className="truncate max-w-[70px]">{activeProviderBadge}</span>
+              <span className="truncate max-w-[96px]">{activeProviderBadge}</span>
               <ChevronDown
                 size={10}
                 className={`text-white/50 transition-transform duration-200 shrink-0 ${
@@ -323,6 +365,24 @@ export const LyricsView = React.memo<LyricsViewProps>(({
             />
           </button>
           </Tooltip>
+
+          {canShareLyrics && (
+            <Tooltip content={isEn ? "Share lyrics card" : "Bagikan kartu lirik"} side="top">
+              <button
+                type="button"
+                aria-pressed={isSelectMode}
+                aria-label={isEn ? "Share lyrics card" : "Bagikan kartu lirik"}
+                onClick={handleToggleShareSelect}
+                className={`w-6 h-6 flex items-center justify-center border rounded-full transition-colors cursor-pointer shrink-0 ${
+                  isSelectMode
+                    ? "bg-[#3882F6] border-[#3882F6] text-white"
+                    : "bg-white/[0.06] hover:bg-white/[0.12] border-white/10 text-white/75 hover:text-white"
+                }`}
+              >
+                {isSelectMode ? <X size={11} /> : <Share2 size={11} />}
+              </button>
+            </Tooltip>
+          )}
         </div>
       </div>
 
@@ -367,6 +427,45 @@ export const LyricsView = React.memo<LyricsViewProps>(({
                 </button>
               ))}
             </div>
+          </div>
+        ) : isSelectMode ? (
+          <div className="flex flex-col space-y-1.5 pt-2 pb-14">
+            {shareableLines.map((lineText, index) => {
+              const trimmed = lineText.trim();
+              if (!trimmed) return null;
+              const isSelected = selectedIndices.includes(index);
+              const atLimit = !isSelected && selectedIndices.length >= MAX_SELECTED_LYRIC_LINES;
+              return (
+                <button
+                  key={`${index}-${trimmed.slice(0, 12)}`}
+                  type="button"
+                  disabled={atLimit}
+                  onClick={() =>
+                    setSelectedIndices((prev) =>
+                      toggleLyricSelection(prev, index, MAX_SELECTED_LYRIC_LINES)
+                    )
+                  }
+                  className={`w-full text-left px-2 py-1.5 rounded-lg flex items-center gap-2 text-[12px] leading-snug transition-colors ${
+                    isSelected
+                      ? "bg-[#3882F6]/25 border border-[#3882F6]/60 text-white font-semibold cursor-pointer"
+                      : atLimit
+                      ? "text-white/25 border border-transparent cursor-not-allowed"
+                      : "text-white/75 hover:bg-white/[0.08] border border-transparent cursor-pointer"
+                  }`}
+                >
+                  <span
+                    className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 border ${
+                      isSelected
+                        ? "bg-[#3882F6] border-[#3882F6] text-white"
+                        : "border-white/25 bg-white/[0.04]"
+                    }`}
+                  >
+                    {isSelected && <Check size={9.5} strokeWidth={3} />}
+                  </span>
+                  <span className="flex-1 break-words">{trimmed}</span>
+                </button>
+              );
+            })}
           </div>
         ) : lyrics.synced ? (
           <div className="flex flex-col space-y-3 py-6">
@@ -426,6 +525,33 @@ export const LyricsView = React.memo<LyricsViewProps>(({
           </div>
         )}
       </div>
+
+      {isSelectMode && (
+        <div className="absolute inset-x-2 bottom-1.5 z-30 h-8 px-2.5 rounded-xl bg-neutral-900/95 border border-white/15 backdrop-blur-xl flex items-center justify-between gap-2 shadow-lg">
+          <span className="text-[10.5px] font-medium text-white/80 tabular-nums">
+            {isEn
+              ? `${selectedIndices.length}/${MAX_SELECTED_LYRIC_LINES} selected`
+              : `${selectedIndices.length}/${MAX_SELECTED_LYRIC_LINES} dipilih`}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsSelectMode(false)}
+              className="h-6 px-2 rounded-md bg-white/[0.08] hover:bg-white/[0.15] text-[10.5px] font-medium text-white/80 cursor-pointer transition-colors"
+            >
+              {isEn ? "Cancel" : "Batal"}
+            </button>
+            <button
+              type="button"
+              disabled={selectedIndices.length === 0}
+              onClick={handleOpenShareStudio}
+              className="h-6 px-2.5 rounded-md bg-[#3882F6] hover:bg-[#2563eb] disabled:opacity-45 text-[10.5px] font-semibold text-white cursor-pointer transition-colors"
+            >
+              {isEn ? "Open Studio" : "Buka Studio"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

@@ -15,7 +15,11 @@ html, body, #root {
 html.settings-window,
 html.settings-window body,
 body.settings-window,
-html.settings-window #root {
+html.settings-window #root,
+html.lyrics-share-window,
+html.lyrics-share-window body,
+body.lyrics-share-window,
+html.lyrics-share-window #root {
   background-color: #0c0c10 !important;
   background: #0c0c10 !important;
 }
@@ -97,8 +101,16 @@ html.flyout-window #root {
 .navbar-surface-light .text-white\/30:not(.navbar-preview-dark *) {
   color: #52525b !important;
 }
-.navbar-surface-light .bg-white\/10:not(.navbar-preview-dark *) {
-  background-color: rgba(0, 0, 0, 0.12) !important;
+.navbar-surface-light .bg-white\/10:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.1\]:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.12\]:not(.navbar-preview-dark *) {
+  background-color: rgba(0, 0, 0, 0.13) !important;
+}
+.navbar-surface-light .bg-white\/15:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.15\]:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/20:not(.navbar-preview-dark *),
+.navbar-surface-light .bg-white\/\[0\.2\]:not(.navbar-preview-dark *) {
+  background-color: rgba(0, 0, 0, 0.17) !important;
 }
 .navbar-surface-light .bg-white\/\[0\.09\]:not(.navbar-preview-dark *),
 .navbar-surface-light .bg-white\/\[0\.08\]:not(.navbar-preview-dark *),
@@ -111,10 +123,15 @@ html.flyout-window #root {
 .navbar-surface-light .hover\:bg-white\/\[0\.09\]:hover:not(.navbar-preview-dark *),
 .navbar-surface-light .hover\:bg-white\/\[0\.08\]:hover:not(.navbar-preview-dark *),
 .navbar-surface-light .hover\:bg-white\/\[0\.1\]:hover:not(.navbar-preview-dark *),
-.navbar-surface-light .hover\:bg-white\/\[0\.11\]:hover:not(.navbar-preview-dark *),
-.navbar-surface-light .hover\:bg-white\/\[0\.14\]:hover:not(.navbar-preview-dark *),
-.navbar-surface-light .hover\:bg-white\/20:hover:not(.navbar-preview-dark *) {
+.navbar-surface-light .hover\:bg-white\/\[0\.11\]:hover:not(.navbar-preview-dark *) {
   background-color: rgba(0, 0, 0, 0.09) !important;
+}
+.navbar-surface-light .hover\:bg-white\/\[0\.12\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/\[0\.14\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/\[0\.15\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/\[0\.2\]:hover:not(.navbar-preview-dark *),
+.navbar-surface-light .hover\:bg-white\/20:hover:not(.navbar-preview-dark *) {
+  background-color: rgba(0, 0, 0, 0.13) !important;
 }
 .navbar-surface-light .hover\:text-white:hover:not(.navbar-preview-dark *) {
   color: #09090b !important;
@@ -161,6 +178,172 @@ html.flyout-window #root {
 .navbar-surface-light .text-\[\#f87171\]:not(.navbar-preview-dark *),
 .navbar-surface-light .text-\[\#f472b6\]:not(.navbar-preview-dark *),
 .navbar-surface-light .text-rose-300:not(.navbar-preview-dark *),
-.navbar-surface-light .text-rose-400:not(.navbar-preview-dark *) {
+.navbar-surface-light .text-rose-400:not(.navbar-preview-dark *),
+.navbar-surface-light .text-pink-300:not(.navbar-preview-dark *),
+.navbar-surface-light .text-pink-400:not(.navbar-preview-dark *) {
   color: #be123c !important;
+}
+.navbar-surface-light .bg-pink-400:not(.navbar-preview-dark *) {
+  background-color: #db2777 !important;
+}
+
+@layer components {
+  .gili-mod-compact {
+    width: var(--navbar-mod-size, 40px);
+    height: var(--navbar-mod-size, 40px);
+    max-width: calc(var(--navbar-dock-thickness, 48px) - 8px);
+    max-height: calc(var(--navbar-dock-thickness, 48px) - 8px);
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .gili-mod-compact.gili-mod-vertical {
+    width: 100%;
+    max-width: calc(var(--navbar-dock-thickness, 48px) - 8px);
+  }
+
+  .gili-mod-pill {
+    height: var(--navbar-mod-size, 40px);
+    max-height: calc(var(--navbar-dock-thickness, 48px) - 8px);
+    padding-left: var(--navbar-mod-px, 12px);
+    padding-right: var(--navbar-mod-px, 12px);
+    gap: var(--navbar-mod-gap, 8px);
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .gili-mod-tray-pill,
+  .gili-mod-tray-btn {
+    height: var(--navbar-mod-size, 40px);
+    max-height: calc(var(--navbar-dock-thickness, 48px) - 8px);
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .gili-mod-tray-clock {
+    max-height: calc(var(--navbar-dock-thickness, 48px) - 8px);
+    box-sizing: border-box;
+  }
+
+  .gili-mod-tray-vertical {
+    max-width: calc(var(--navbar-dock-thickness, 48px) - 8px);
+    box-sizing: border-box;
+  }
+}
+
+[data-gili-navbar-dock] .gili-mod-unified {
+  max-height: calc(var(--navbar-dock-thickness, 48px) - 8px);
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  align-items: center;
+}
+
+[data-gili-navbar-dock] .gili-mod-unified > * {
+  height: var(--navbar-mod-size, 40px) !important;
+  max-height: calc(var(--navbar-dock-thickness, 48px) - 8px) !important;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+[data-gili-navbar-dock].flex-col .gili-mod-unified > * {
+  max-width: calc(var(--navbar-dock-thickness, 48px) - 8px) !important;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill {
+  padding-left: var(--navbar-mod-px, 8px);
+  padding-right: var(--navbar-mod-px, 8px);
+  gap: var(--navbar-mod-gap, 6px);
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .text-\[12px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .text-\[11\.5px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .text-\[11px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .text-\[10\.5px\] {
+  font-size: var(--navbar-mod-title, 10px);
+  line-height: 1.08;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .text-\[10px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .text-\[9\.5px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .text-\[9px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .text-\[8\.5px\] {
+  font-size: var(--navbar-mod-sub, 8.5px);
+  line-height: 1.05;
+  margin-top: 0;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .mt-0\.5 {
+  margin-top: 0;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .py-\[1px\] {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .py-1,
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .py-0\.5 {
+  padding-top: 1px;
+  padding-bottom: 1px;
+  line-height: 1.1;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-pill .w-6.h-6 {
+  width: min(24px, calc(var(--navbar-mod-size, 40px) - 6px));
+  height: min(24px, calc(var(--navbar-mod-size, 40px) - 6px));
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact .mt-0\.5 {
+  margin-top: 0;
+  line-height: 1;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact .text-\[13px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact .text-\[12px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact .text-\[11px\] {
+  font-size: var(--navbar-mod-title, 10.5px);
+  line-height: 1;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact .text-\[9\.5px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact .text-\[10px\] {
+  font-size: var(--navbar-mod-sub, 8.5px);
+  line-height: 1;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact .text-\[8px\],
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact .text-\[8\.5px\] {
+  font-size: 7.5px;
+  line-height: 1;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-compact.flex-col svg {
+  width: 11px;
+  height: 11px;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-badge {
+  font-size: 6.5px;
+  line-height: 1;
+  padding: 1px 3px;
+  min-width: 11px;
+  height: 11px;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-tray-clock {
+  padding-top: 0;
+  padding-bottom: 0;
+  gap: 0;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-tray-clock > :first-child {
+  font-size: var(--navbar-mod-title, 10px);
+  line-height: 1.05;
+}
+
+[data-gili-navbar-dock][data-dock-dense="true"] .gili-mod-tray-clock > :nth-child(2) {
+  font-size: var(--navbar-mod-sub, 8.5px);
+  line-height: 1.05;
+  margin-top: 0;
 }

@@ -106,10 +106,8 @@ export const NetNavbarModule: React.FC<NavbarModuleProps> = ({
           )}
           className={`relative flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
-              : "h-10 px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
+              ? `gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
+              : "gili-mod-pill px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
           }`}
         >
           {isOnline ? (

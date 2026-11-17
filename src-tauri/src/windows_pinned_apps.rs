@@ -4,18 +4,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter};
-use windows::core::{w, Interface, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{ERROR_SUCCESS, FILETIME, HWND, MAX_PATH};
+use windows::core::{w, Interface, HSTRING, PCWSTR, PWSTR};
+use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, FILETIME, HWND, MAX_PATH};
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
-    IPersistFile, STGM_READ,
+    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, CLSCTX_INPROC_SERVER,
+    COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, COINIT_MULTITHREADED, IPersistFile,
+    STGM_READ,
+};
+use windows::Win32::System::ProcessStatus::EnumProcesses;
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::Shell::{
-    IShellLinkW, ShellLink, SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON,
+    ApplicationActivationManager, IApplicationActivationManager, IShellLinkW, ShellExecuteW,
+    ShellLink, SHGetFileInfoW, AO_NONE, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON,
     SHGFI_SYSICONINDEX,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyIcon, DrawIconEx, GetIconInfo, DI_NORMAL, HICON, ICONINFO,
+    AllowSetForegroundWindow, DestroyIcon, DrawIconEx, GetIconInfo, ASFW_ANY, DI_NORMAL, HICON,
+    ICONINFO, SW_SHOWNORMAL,
 };
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, GetDIBits, GetObjectW,
@@ -62,6 +70,49 @@ pub struct WindowsPinnedApp {
     pub lnk_path: String,
 }
 
+fn is_calculator_descriptor(lower_n: &str, lower_t: &str) -> bool {
+    lower_n.contains("calc")
+        || lower_n.contains("kalkulator")
+        || lower_t.contains("windowscalculator")
+        || lower_t.contains("calculatorapp")
+        || lower_t.ends_with("\\calc.exe")
+        || lower_t == "calc.exe"
+}
+
+fn is_vscode_descriptor(lower_n: &str, lower_t: &str) -> bool {
+    let has_code_word = |s: &str| {
+        s.split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|tok| tok == "code")
+    };
+    lower_n.contains("vscode")
+        || lower_n.contains("visual studio code")
+        || lower_n.contains("code - insiders")
+        || has_code_word(lower_n)
+        || lower_t.contains("vscode")
+        || lower_t.contains("visual studio code")
+        || lower_t.ends_with("\\code.exe")
+        || lower_t == "code.exe"
+        || lower_t.ends_with("\\code - insiders.exe")
+        || lower_t == "code - insiders.exe"
+}
+
+fn is_terminal_descriptor(lower_n: &str, lower_t: &str) -> bool {
+    lower_n.contains("terminal")
+        || lower_t.contains("windowsterminal")
+        || lower_t.ends_with("\\cmd.exe")
+        || lower_t == "cmd.exe"
+        || lower_t.contains("powershell")
+        || lower_t.ends_with("\\pwsh.exe")
+        || lower_t == "pwsh.exe"
+}
+
+fn is_settings_descriptor(lower_n: &str, lower_t: &str) -> bool {
+    lower_n.contains("settings")
+        || lower_n.contains("pengaturan")
+        || lower_n.contains("setelan")
+        || lower_t.contains("systemsettings")
+}
+
 /// Identifies well-known icon type for vector theme support
 pub(crate) fn detect_icon_type(name: &str, target: &str) -> Option<String> {
     let lower_n = name.to_lowercase();
@@ -72,15 +123,11 @@ pub(crate) fn detect_icon_type(name: &str, target: &str) -> Option<String> {
         Some("brave".into())
     } else if lower_n.contains("explorer") || lower_t.contains("explorer") {
         Some("folder".into())
-    } else if lower_n.contains("code") || lower_t.contains("code") {
+    } else if is_vscode_descriptor(&lower_n, &lower_t) {
         Some("code".into())
-    } else if lower_n.contains("terminal")
-        || lower_t.contains("windowsterminal")
-        || lower_t.contains("cmd.exe")
-        || lower_t.contains("powershell")
-    {
+    } else if is_terminal_descriptor(&lower_n, &lower_t) {
         Some("terminal".into())
-    } else if lower_n.contains("settings") || lower_t.contains("systemsettings") {
+    } else if is_settings_descriptor(&lower_n, &lower_t) {
         Some("settings".into())
     } else if lower_n.contains("spotify") || lower_t.contains("spotify") {
         Some("spotify".into())
@@ -88,6 +135,8 @@ pub(crate) fn detect_icon_type(name: &str, target: &str) -> Option<String> {
         Some("discord".into())
     } else if lower_n.contains("whatsapp") || lower_t.contains("whatsapp") {
         Some("whatsapp".into())
+    } else if is_calculator_descriptor(&lower_n, &lower_t) {
+        Some("calculator".into())
     } else {
         None
     }
@@ -103,11 +152,11 @@ pub(crate) fn detect_app_id(name: &str, target: &str) -> String {
         "brave".into()
     } else if lower_n.contains("explorer") || lower_t.contains("explorer") {
         "explorer".into()
-    } else if lower_n.contains("code") || lower_t.contains("code") {
+    } else if is_vscode_descriptor(&lower_n, &lower_t) {
         "vscode".into()
-    } else if lower_n.contains("terminal") || lower_t.contains("windowsterminal") {
+    } else if is_terminal_descriptor(&lower_n, &lower_t) {
         "terminal".into()
-    } else if lower_n.contains("settings") {
+    } else if is_settings_descriptor(&lower_n, &lower_t) {
         "settings".into()
     } else if lower_n.contains("spotify") || lower_t.contains("spotify") {
         "spotify".into()
@@ -117,17 +166,33 @@ pub(crate) fn detect_app_id(name: &str, target: &str) -> String {
         "discord".into()
     } else if lower_n.contains("whatsapp") || lower_t.contains("whatsapp") {
         "whatsapp".into()
+    } else if is_calculator_descriptor(&lower_n, &lower_t) {
+        "calculator".into()
     } else {
-        // Derive clean ID from filename
-        let base = Path::new(&lower_t)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(&lower_n);
+        // Avoid treating UWP PackageFamilyName dots (e.g. Microsoft.App_hash) as file extensions.
+        let is_file_path = lower_t.contains('\\')
+            || lower_t.contains('/')
+            || lower_t.ends_with(".exe")
+            || lower_t.ends_with(".lnk");
+        let base = if is_file_path {
+            Path::new(&lower_t)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&lower_n)
+        } else if !lower_n.trim().is_empty() {
+            lower_n.trim()
+        } else {
+            lower_t
+                .split('_')
+                .next()
+                .and_then(|prefix| prefix.split('.').last())
+                .unwrap_or(&lower_t)
+        };
         base.replace(' ', "_")
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum TaskbandEntry {
     LnkFileName(String),
     UwpAumid(String),
@@ -183,10 +248,25 @@ fn parse_taskband_favorites() -> Vec<TaskbandEntry> {
 
     found_with_pos.sort_by_key(|(pos, _)| *pos);
 
+    let pfns_with_full_aumid: std::collections::HashSet<String> = found_with_pos
+        .iter()
+        .filter_map(|(_, entry)| match entry {
+            TaskbandEntry::UwpAumid(aumid) => aumid
+                .split_once('!')
+                .map(|(pfn, _)| pfn.to_lowercase()),
+            _ => None,
+        })
+        .collect();
+
     let mut ordered = Vec::new();
     let mut seen_keys = std::collections::HashSet::new();
 
     for (_, entry) in found_with_pos {
+        if let TaskbandEntry::UwpAumid(ref aumid) = entry {
+            if !aumid.contains('!') && pfns_with_full_aumid.contains(&aumid.to_lowercase()) {
+                continue;
+            }
+        }
         let dedup_key = match &entry {
             TaskbandEntry::LnkFileName(name) => format!("lnk:{}", name.to_lowercase()),
             TaskbandEntry::UwpAumid(aumid) => format!("uwp:{}", aumid.to_lowercase()),
@@ -222,11 +302,15 @@ fn classify_taskband_token(
     }
 
     // 2. Check for UWP AUMID pattern: <PackageFamilyName>_<PublisherHash>!<AppId>
-    if trimmed.contains('_') && trimmed.contains('!') && !trimmed.contains('\\') && !trimmed.contains('/') {
-        for token in trimmed.split(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '_' && c != '-' && c != '!') {
+    // or bare <PackageName>_<PublisherHash> (e.g. hosted Store PWAs in Taskband)
+    if trimmed.contains('_') && !trimmed.contains('\\') && !trimmed.contains('/') {
+        for token in trimmed.split(|c: char| {
+            !c.is_ascii_alphanumeric() && c != '.' && c != '_' && c != '-' && c != '!'
+        }) {
             if let Some((pfn, app_id)) = token.split_once('!') {
                 if let Some((pkg_name, pub_id)) = pfn.rsplit_once('_') {
                     if !pkg_name.is_empty()
+                        && !pkg_name.contains('_')
                         && (10..=16).contains(&pub_id.len())
                         && pub_id.chars().all(|c| c.is_ascii_alphanumeric())
                         && !app_id.is_empty()
@@ -235,9 +319,144 @@ fn classify_taskband_token(
                         return;
                     }
                 }
+            } else if let Some((pkg_name, pub_id)) = token.rsplit_once('_') {
+                if !pkg_name.is_empty()
+                    && !pkg_name.contains('_')
+                    && pkg_name.contains('.')
+                    && !pkg_name.starts_with('.')
+                    && !pkg_name.ends_with('.')
+                    && !pkg_name.contains("..")
+                    && !pkg_name.chars().all(|c| c.is_ascii_digit() || c == '.')
+                    && pub_id.len() == 13
+                    && pub_id.chars().all(|c| c.is_ascii_alphanumeric())
+                {
+                    out.push((start_pos, TaskbandEntry::UwpAumid(token.to_string())));
+                    return;
+                }
             }
         }
     }
+}
+
+fn extract_xml_attr(tag: &str, attr_name: &str) -> Option<String> {
+    let lower_tag = tag.to_ascii_lowercase();
+    let needle = format!("{}=", attr_name.to_ascii_lowercase());
+    let mut search_from = 0;
+
+    while let Some(rel_idx) = lower_tag[search_from..].find(&needle) {
+        let idx = search_from + rel_idx;
+        let prev_is_ws = idx > 0
+            && tag.as_bytes()[idx - 1].is_ascii_whitespace();
+        if prev_is_ws {
+            let after_eq = tag[idx + needle.len()..].trim_start();
+            if let Some(quote) = after_eq.chars().next().filter(|c| *c == '"' || *c == '\'') {
+                let value_rest = &after_eq[1..];
+                if let Some(end_q) = value_rest.find(quote) {
+                    return Some(value_rest[..end_q].trim().to_string());
+                }
+            }
+        }
+        search_from = idx + needle.len();
+    }
+    None
+}
+
+fn parse_appx_manifest_xml(
+    xml: &str,
+    preferred_app_id: Option<&str>,
+    preferred_exe_name: Option<&str>,
+) -> Option<(String, Option<String>, bool)> {
+    let lower_xml = xml.to_ascii_lowercase();
+    let mut entries: Vec<(String, Option<String>, bool)> = Vec::new();
+    let mut cursor = 0;
+
+    while let Some(rel) = lower_xml[cursor..].find("<application") {
+        let start = cursor + rel;
+        let after_name = start + "<application".len();
+        let Some(&next_byte) = xml.as_bytes().get(after_name) else {
+            break;
+        };
+        if !next_byte.is_ascii_whitespace() {
+            cursor = after_name;
+            continue;
+        }
+
+        let mut in_quote: Option<u8> = None;
+        let mut tag_end = None;
+        for (off, &b) in xml.as_bytes()[after_name..].iter().enumerate() {
+            match in_quote {
+                Some(q) if b == q => in_quote = None,
+                Some(_) => {}
+                None if b == b'"' || b == b'\'' => in_quote = Some(b),
+                None if b == b'>' => {
+                    tag_end = Some(after_name + off + 1);
+                    break;
+                }
+                None => {}
+            }
+        }
+        let Some(end_idx) = tag_end else {
+            break;
+        };
+        let tag = &xml[start..end_idx];
+        cursor = end_idx;
+
+        let Some(app_id) = extract_xml_attr(tag, "Id").filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let executable = extract_xml_attr(tag, "Executable").filter(|s| !s.is_empty());
+        let entry_point = extract_xml_attr(tag, "EntryPoint");
+        let lower_tag = tag.to_ascii_lowercase();
+        let is_full_trust = entry_point
+            .as_deref()
+            .is_some_and(|e| e.eq_ignore_ascii_case("Windows.FullTrustApplication"))
+            || lower_tag.contains("trustlevel=\"mediumil\"")
+            || lower_tag.contains("runtimebehavior=\"win32app\"");
+
+        entries.push((app_id, executable, is_full_trust));
+    }
+
+    if entries.is_empty() {
+        return None;
+    }
+
+    if let Some(pref_id) = preferred_app_id.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(matched) = entries
+            .iter()
+            .find(|(id, _, _)| id.eq_ignore_ascii_case(pref_id))
+        {
+            return Some(matched.clone());
+        }
+    }
+
+    if let Some(pref_exe) = preferred_exe_name.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(matched) = entries.iter().find(|(_, exe_opt, _)| {
+            exe_opt
+                .as_deref()
+                .and_then(|e| e.rsplit(|c| c == '\\' || c == '/').next())
+                .is_some_and(|fname| fname.eq_ignore_ascii_case(pref_exe))
+        }) {
+            return Some(matched.clone());
+        }
+    }
+
+    entries.into_iter().next()
+}
+
+pub(crate) fn parse_appx_manifest_app_info(
+    package_root: &Path,
+    preferred_app_id: Option<&str>,
+    preferred_exe_name: Option<&str>,
+) -> Option<(String, Option<String>, bool)> {
+    let manifest_path = package_root.join("AppxManifest.xml");
+    let xml = std::fs::read_to_string(manifest_path).ok()?;
+    let (app_id, exe_rel, is_full_trust) =
+        parse_appx_manifest_xml(&xml, preferred_app_id, preferred_exe_name)?;
+    let resolved_exe = exe_rel.and_then(|rel| {
+        let full = package_root.join(rel);
+        full.is_file().then(|| full.to_string_lossy().to_string())
+    });
+    Some((app_id, resolved_exe, is_full_trust))
 }
 
 /// Resolves a UWP AppUserModelId (e.g. "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify")
@@ -246,7 +465,7 @@ fn resolve_uwp_pinned_app(aumid: &str) -> Option<WindowsPinnedApp> {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
 
-    let (pfn, app_suffix) = aumid.split_once('!')?;
+    let (pfn, app_suffix) = aumid.split_once('!').unwrap_or((aumid, ""));
     let (pkg_prefix, publisher_id) = pfn.rsplit_once('_')?;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -280,6 +499,27 @@ fn resolve_uwp_pinned_app(aumid: &str) -> Option<WindowsPinnedApp> {
         }
     }
 
+    let manifest_info = (!package_root.is_empty()).then(|| {
+        parse_appx_manifest_app_info(
+            Path::new(&package_root),
+            (!app_suffix.is_empty()).then_some(app_suffix),
+            None,
+        )
+    }).flatten();
+
+    let resolved_app_id = manifest_info
+        .as_ref()
+        .map(|(id, _, _)| id.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            if app_suffix.is_empty() {
+                "App".to_string()
+            } else {
+                app_suffix.to_string()
+            }
+        });
+    let full_aumid = format!("{}!{}", pfn, resolved_app_id);
+
     let friendly_name = if !display_name.is_empty() {
         display_name
     } else {
@@ -292,22 +532,51 @@ fn resolve_uwp_pinned_app(aumid: &str) -> Option<WindowsPinnedApp> {
             "WhatsApp".to_string()
         } else if lower_pfn.contains("windowsterminal") {
             "Terminal".to_string()
+        } else if lower_pfn.contains("calculator") {
+            "Calculator".to_string()
+        } else if lower_pfn.contains("windowsnotepad") {
+            "Notepad".to_string()
+        } else if lower_pfn.contains("windowsstore") {
+            "Microsoft Store".to_string()
+        } else if lower_pfn.contains("windowsalarms") {
+            "Clock".to_string()
+        } else if lower_pfn.contains("screensketch") {
+            "Snipping Tool".to_string()
+        } else if lower_pfn.contains("zunemusic") {
+            "Media Player".to_string()
+        } else if lower_pfn.contains("windows.photos") {
+            "Photos".to_string()
+        } else if lower_pfn.contains("mspaint") || lower_pfn.contains("microsoft.paint") {
+            "Paint".to_string()
         } else {
             pkg_prefix
                 .split('.')
                 .last()
-                .unwrap_or(app_suffix)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&resolved_app_id)
                 .to_string()
         }
     };
 
-    let id = detect_app_id(&friendly_name, pfn);
-    let icon_type = detect_icon_type(&friendly_name, pfn);
-    let shell_launch = format!("shell:AppsFolder\\{}", aumid);
+    let target_path = manifest_info
+        .and_then(|(_, exe_opt, _)| exe_opt)
+        .unwrap_or_else(|| package_root.clone());
+    let detect_hint = if target_path.to_lowercase().ends_with(".exe") {
+        target_path.as_str()
+    } else {
+        pfn
+    };
+    let id = detect_app_id(&friendly_name, detect_hint);
+    let icon_type = detect_icon_type(&friendly_name, detect_hint);
+    let shell_launch = format!("shell:AppsFolder\\{}", full_aumid);
 
     let icon_base64 = if !package_root.is_empty() {
-        let dummy_exe = Path::new(&package_root).join("app.exe");
-        get_cached_or_extract_icon(&dummy_exe.to_string_lossy())
+        let exe_for_icon = if target_path.to_lowercase().ends_with(".exe") {
+            PathBuf::from(&target_path)
+        } else {
+            Path::new(&package_root).join("app.exe")
+        };
+        get_cached_or_extract_icon(&exe_for_icon.to_string_lossy())
             .or_else(|| get_cached_or_extract_icon(&package_root))
     } else {
         None
@@ -316,7 +585,7 @@ fn resolve_uwp_pinned_app(aumid: &str) -> Option<WindowsPinnedApp> {
     Some(WindowsPinnedApp {
         id,
         name: friendly_name,
-        target_path: package_root,
+        target_path,
         arguments: String::new(),
         icon_base64,
         icon_type,
@@ -765,7 +1034,7 @@ pub unsafe fn extract_native_icon_from_path(path: &str) -> Option<String> {
 const MAX_PINNED_ICON_CACHE_ENTRIES: usize = 512;
 
 struct BoundedPinnedIconCache {
-    map: HashMap<String, String>,
+    map: HashMap<String, Option<String>>,
     order: VecDeque<String>,
 }
 
@@ -777,11 +1046,11 @@ impl BoundedPinnedIconCache {
         }
     }
 
-    fn get(&self, key: &str) -> Option<&String> {
+    fn get(&self, key: &str) -> Option<&Option<String>> {
         self.map.get(key)
     }
 
-    fn insert(&mut self, key: String, val: String) {
+    fn insert(&mut self, key: String, val: Option<String>) {
         if !self.map.contains_key(&key) {
             while self.order.len() >= MAX_PINNED_ICON_CACHE_ENTRIES {
                 if let Some(oldest) = self.order.pop_front() {
@@ -804,7 +1073,7 @@ pub(crate) fn get_cached_icon_only(path: &str) -> Option<String> {
         return None;
     }
     let cache = ICON_CACHE.get_or_init(|| Mutex::new(BoundedPinnedIconCache::new()));
-    cache.lock().ok()?.get(path).cloned()
+    cache.lock().ok()?.get(path).and_then(|v| v.clone())
 }
 
 /// Inserts a pre-extracted icon into the shared icon cache.
@@ -814,11 +1083,11 @@ pub(crate) fn insert_cached_icon(key: &str, b64: String) {
     }
     let cache = ICON_CACHE.get_or_init(|| Mutex::new(BoundedPinnedIconCache::new()));
     if let Ok(mut guard) = cache.lock() {
-        guard.insert(key.to_string(), b64);
+        guard.insert(key.to_string(), Some(b64));
     }
 }
 
-/// Cached helper to avoid redundant icon extraction on fast polling cycles
+/// Cached helper to avoid redundant icon extraction (including negative hits) on fast polling cycles
 pub fn get_cached_or_extract_icon(path: &str) -> Option<String> {
     if path.is_empty() {
         return None;
@@ -826,18 +1095,14 @@ pub fn get_cached_or_extract_icon(path: &str) -> Option<String> {
     let cache = ICON_CACHE.get_or_init(|| Mutex::new(BoundedPinnedIconCache::new()));
     if let Ok(guard) = cache.lock() {
         if let Some(cached) = guard.get(path) {
-            return Some(cached.clone());
+            return cached.clone();
         }
     }
-    unsafe {
-        if let Some(b64) = extract_native_icon_from_path(path) {
-            if let Ok(mut guard) = cache.lock() {
-                guard.insert(path.to_string(), b64.clone());
-            }
-            return Some(b64);
-        }
+    let extracted = unsafe { extract_native_icon_from_path(path) };
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(path.to_string(), extracted.clone());
     }
-    None
+    extracted
 }
 
 /// Fallback extractor that reads HICON directly from a running window HWND
@@ -1161,69 +1426,716 @@ pub async fn launch_pinned_app(
     .map_err(|e| format!("Launch task failed: {e}"))?
 }
 
+pub(crate) fn activate_aumid(aumid: &str) -> bool {
+    let trimmed = aumid.trim();
+    if trimmed.is_empty()
+        || !trimmed
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | '!' | ' '))
+    {
+        return false;
+    }
+    let _com = crate::ComGuard::init(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    unsafe {
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
+        let Ok(mgr) = CoCreateInstance::<_, IApplicationActivationManager>(
+            &ApplicationActivationManager,
+            None,
+            CLSCTX_ALL,
+        ) else {
+            return false;
+        };
+        let app_id = HSTRING::from(trimmed);
+        mgr.ActivateApplication(&app_id, PCWSTR::null(), AO_NONE)
+            .is_ok()
+    }
+}
+
+pub(crate) fn shell_execute_open(target: &str, args: &str, working_dir: Option<&str>) -> bool {
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let _com = crate::ComGuard::init(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    let op_wide: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+    let target_wide: Vec<u16> = trimmed.encode_utf16().chain(std::iter::once(0)).collect();
+    let args_wide: Vec<u16> = args.encode_utf16().chain(std::iter::once(0)).collect();
+    let dir_wide: Option<Vec<u16>> = working_dir
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.encode_utf16().chain(std::iter::once(0)).collect());
+    let args_ptr = if args.trim().is_empty() {
+        PCWSTR::null()
+    } else {
+        PCWSTR(args_wide.as_ptr())
+    };
+    let dir_ptr = match dir_wide.as_ref() {
+        Some(d) => PCWSTR(d.as_ptr()),
+        None => PCWSTR::null(),
+    };
+    unsafe {
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
+        let hinstance = ShellExecuteW(
+            HWND(std::ptr::null_mut()),
+            PCWSTR(op_wide.as_ptr()),
+            PCWSTR(target_wide.as_ptr()),
+            args_ptr,
+            dir_ptr,
+            SW_SHOWNORMAL,
+        );
+        hinstance.0 as usize > 32
+    }
+}
+
+pub(crate) fn resolve_protocol_for_app(app_name: &str, aumid: &str) -> Option<&'static str> {
+    let combined = format!("{} {}", app_name, aumid).to_lowercase();
+    let has_word = |needle: &str| {
+        combined
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|tok| tok == needle)
+    };
+
+    if combined.contains("whatsapp") {
+        Some("whatsapp://")
+    } else if combined.contains("telegram") || has_word("tg") {
+        Some("tg://")
+    } else if combined.contains("discord") {
+        Some("discord://")
+    } else if combined.contains("spotify") {
+        Some("spotify://")
+    } else if combined.contains("slack") {
+        Some("slack://")
+    } else if combined.contains("msteams") || combined.contains("microsoft teams") || has_word("teams") {
+        Some("msteams://")
+    } else if combined.contains("zoom") {
+        Some("zoommtg://")
+    } else if has_word("line") {
+        Some("line://")
+    } else if combined.contains("steam") {
+        Some("steam://")
+    } else if combined.contains("vscode") || combined.contains("visual studio code") {
+        Some("vscode://")
+    } else if combined.contains("outlook") {
+        Some("mailto:")
+    } else if combined.contains("windowscalculator")
+        || combined.contains("calculatorapp")
+        || has_word("calculator")
+        || has_word("kalkulator")
+        || has_word("calc")
+    {
+        Some("calculator:")
+    } else {
+        None
+    }
+}
+
+fn extract_pfn_from_pkg_dir_name(pkg_dir_name: &str) -> Option<String> {
+    if let Some((before_pub, pub_id)) = pkg_dir_name.rsplit_once("__") {
+        let (pkg_prefix, _) = before_pub.split_once('_')?;
+        if !pkg_prefix.is_empty() && !pub_id.is_empty() {
+            return Some(format!("{}_{}", pkg_prefix, pub_id));
+        }
+    }
+    if let Some((pkg_prefix, pub_id)) = pkg_dir_name.rsplit_once('_') {
+        if !pkg_prefix.is_empty()
+            && !pkg_prefix.contains('_')
+            && pub_id.len() == 13
+            && pub_id.chars().all(|c| c.is_ascii_alphanumeric())
+        {
+            return Some(format!("{}_{}", pkg_prefix, pub_id));
+        }
+    }
+    None
+}
+
+fn resolve_uwp_package_from_exe_path(path: &str) -> Option<(String, bool)> {
+    let path_obj = Path::new(path);
+    let exe_file_name = path_obj
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+        .then(|| path_obj.file_name().and_then(|s| s.to_str()))
+        .flatten();
+
+    let mut curr = if path_obj.is_dir() {
+        Some(path_obj)
+    } else {
+        path_obj.parent()
+    };
+    for _ in 0..4 {
+        let Some(dir) = curr else { break };
+        if dir.join("AppxManifest.xml").is_file() {
+            let pkg_dir_name = dir.file_name().and_then(|s| s.to_str())?;
+            if let Some(pfn) = extract_pfn_from_pkg_dir_name(pkg_dir_name) {
+                let manifest = parse_appx_manifest_app_info(dir, None, exe_file_name);
+                let (app_id, is_full_trust) = manifest
+                    .map(|(id, _, ft)| (id, ft))
+                    .unwrap_or_else(|| ("App".to_string(), false));
+                return Some((format!("{}!{}", pfn, app_id), is_full_trust));
+            }
+        }
+        curr = dir.parent();
+    }
+
+    let lower = path.to_lowercase();
+    for marker in ["\\windowsapps\\", "\\systemapps\\"] {
+        if let Some(idx) = lower.find(marker) {
+            let rest = path.get(idx + marker.len()..)?;
+            let pkg_dir_name = rest.split(|c| c == '\\' || c == '/').next()?.trim();
+            if let Some(pfn) = extract_pfn_from_pkg_dir_name(pkg_dir_name) {
+                return Some((format!("{}!App", pfn), false));
+            }
+        }
+    }
+    None
+}
+
+fn try_launch_squirrel_app(target_path: &str, arguments: &str) -> bool {
+    let path_obj = Path::new(target_path);
+    let Some(exe_name) = path_obj.file_name().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    for ancestor in path_obj.ancestors() {
+        let Some(dir_name) = ancestor.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if dir_name.to_ascii_lowercase().starts_with("app-") {
+            if let Some(base_dir) = ancestor.parent() {
+                let update_exe = base_dir.join("Update.exe");
+                if update_exe.is_file() {
+                    let mut cmd = std::process::Command::new(&update_exe);
+                    cmd.current_dir(base_dir)
+                        .args(["--processStart", exe_name]);
+                    if !arguments.trim().is_empty() {
+                        cmd.args(["--process-start-args", arguments]);
+                    }
+                    if cmd.spawn().is_ok() {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+pub(crate) fn find_running_user_app_exe(target_name: &str, target_aumid: &str) -> Option<String> {
+    let combined = format!("{} {}", target_name, target_aumid).to_lowercase();
+    let tokens: Vec<&str> = combined
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|tok| {
+            tok.len() >= 4
+                && !matches!(
+                    *tok,
+                    "windows" | "microsoft" | "desktop" | "system" | "application" | "apps"
+                )
+        })
+        .collect();
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let mut pids = vec![0u32; 1024];
+    let mut bytes_returned = 0u32;
+    let _ = unsafe {
+        EnumProcesses(
+            pids.as_mut_ptr(),
+            (pids.len() * std::mem::size_of::<u32>()) as u32,
+            &mut bytes_returned,
+        )
+    };
+    let count = (bytes_returned as usize / std::mem::size_of::<u32>()).min(pids.len());
+
+    for &pid in &pids[..count] {
+        if pid <= 4 {
+            continue;
+        }
+        let Ok(handle) =
+            (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) })
+        else {
+            continue;
+        };
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = unsafe {
+            QueryFullProcessImageNameW(
+                handle,
+                PROCESS_NAME_FORMAT(0),
+                PWSTR(buf.as_mut_ptr()),
+                &mut len,
+            )
+        }
+        .is_ok();
+        let _ = unsafe { CloseHandle(handle) };
+        if !ok || len == 0 {
+            continue;
+        }
+
+        let full_path = String::from_utf16_lossy(&buf[..len as usize]);
+        let lower_path = full_path.to_lowercase();
+        if lower_path.contains("\\windows\\") || lower_path.contains("\\windowsapps\\") {
+            continue;
+        }
+
+        let Some(stem) = Path::new(&lower_path).file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if stem.len() < 4
+            || matches!(
+                stem,
+                "explorer"
+                    | "svchost"
+                    | "applicationframehost"
+                    | "msedgewebview2"
+                    | "gili"
+                    | "notch"
+                    | "runtimebroker"
+            )
+        {
+            continue;
+        }
+        if tokens.iter().any(|tok| stem == *tok || stem.contains(tok) || tok.contains(stem)) {
+            return Some(full_path);
+        }
+    }
+    None
+}
+
 fn launch_pinned_app_sync(
     lnk_path: String,
     target_path: String,
     arguments: String,
 ) -> Result<(), String> {
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let _com = crate::ComGuard::init(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
-    let op_wide: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-
-    if !lnk_path.is_empty() {
-        let lnk_wide: Vec<u16> = lnk_path.encode_utf16().chain(std::iter::once(0)).collect();
-        let hinstance = unsafe {
-            ShellExecuteW(
-                HWND(std::ptr::null_mut()),
-                PCWSTR(op_wide.as_ptr()),
-                PCWSTR(lnk_wide.as_ptr()),
-                PCWSTR(std::ptr::null()),
-                PCWSTR(std::ptr::null()),
-                SW_SHOWNORMAL,
-            )
-        };
-        if hinstance.0 as usize > 32 {
-            return Ok(());
-        }
-
-        // UWP shell:AppsFolder\... sometimes launches more reliably via explorer.exe
-        if lnk_path.starts_with("shell:") {
-            if std::process::Command::new("explorer.exe").arg(&lnk_path).spawn().is_ok() {
+    let trimmed_lnk = lnk_path.trim();
+    if !trimmed_lnk.is_empty() {
+        let lower_lnk = trimmed_lnk.to_lowercase();
+        if let Some(aumid) = lower_lnk
+            .strip_prefix("shell:appsfolder\\")
+            .and_then(|_| trimmed_lnk.get("shell:AppsFolder\\".len()..))
+        {
+            if activate_aumid(aumid) {
                 return Ok(());
             }
+            if let Some(proto) = resolve_protocol_for_app("", aumid) {
+                if shell_execute_open(proto, "", None) {
+                    return Ok(());
+                }
+            }
+        } else if shell_execute_open(trimmed_lnk, "", None) {
+            return Ok(());
         }
     }
 
-    if !target_path.is_empty() {
-        let target_wide: Vec<u16> = target_path.encode_utf16().chain(std::iter::once(0)).collect();
-        let args_wide: Vec<u16> = arguments.encode_utf16().chain(std::iter::once(0)).collect();
-        let args_ptr = if arguments.is_empty() {
-            PCWSTR(std::ptr::null())
-        } else {
-            PCWSTR(args_wide.as_ptr())
-        };
-        let hinstance = unsafe {
-            ShellExecuteW(
-                HWND(std::ptr::null_mut()),
-                PCWSTR(op_wide.as_ptr()),
-                PCWSTR(target_wide.as_ptr()),
-                args_ptr,
-                PCWSTR(std::ptr::null()),
-                SW_SHOWNORMAL,
-            )
-        };
-        if hinstance.0 as usize > 32 {
-            return Ok(());
+    let trimmed_target = target_path.trim();
+    if !trimmed_target.is_empty() {
+        let lower_target = trimmed_target.to_lowercase();
+        if lower_target.contains("\\windowsapps\\") || lower_target.contains("\\systemapps\\") {
+            if let Some((derived_aumid, is_full_trust)) =
+                resolve_uwp_package_from_exe_path(trimmed_target)
+            {
+                if activate_aumid(&derived_aumid) {
+                    return Ok(());
+                }
+                if let Some(proto) = resolve_protocol_for_app(trimmed_target, &derived_aumid) {
+                    if shell_execute_open(proto, "", None) {
+                        return Ok(());
+                    }
+                }
+                if !is_full_trust {
+                    if derived_aumid.contains('!')
+                        && std::process::Command::new("explorer.exe")
+                            .arg(format!("shell:AppsFolder\\{}", derived_aumid))
+                            .spawn()
+                            .is_ok()
+                    {
+                        return Ok(());
+                    }
+                    return Err("Gagal membuka aplikasi UWP".into());
+                }
+            } else if let Some(proto) = resolve_protocol_for_app(trimmed_target, trimmed_lnk) {
+                if shell_execute_open(proto, "", None) {
+                    return Ok(());
+                }
+            }
         }
 
-        let mut cmd = std::process::Command::new(&target_path);
-        if !arguments.is_empty() {
-            cmd.arg(&arguments);
+        if Path::new(trimmed_target).is_file() {
+            let parent_dir = Path::new(trimmed_target).parent().and_then(|p| p.to_str());
+            if shell_execute_open(trimmed_target, &arguments, parent_dir) {
+                return Ok(());
+            }
+
+            let mut cmd = std::process::Command::new(trimmed_target);
+            if let Some(dir) = parent_dir.filter(|s| !s.is_empty()) {
+                cmd.current_dir(dir);
+            }
+            if !arguments.trim().is_empty() {
+                cmd.arg(&arguments);
+            }
+            if cmd.spawn().is_ok() {
+                return Ok(());
+            }
+        } else if lower_target.contains("\\app-")
+            && try_launch_squirrel_app(trimmed_target, &arguments)
+        {
+            return Ok(());
         }
-        cmd.spawn().map_err(|e| e.to_string())?;
-        return Ok(());
+    }
+
+    if let Some(proto) = resolve_protocol_for_app(&target_path, trimmed_lnk) {
+        if shell_execute_open(proto, "", None) {
+            return Ok(());
+        }
     }
 
     Err("Gagal membuka aplikasi".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        classify_taskband_token, detect_app_id, detect_icon_type, extract_pfn_from_pkg_dir_name,
+        parse_appx_manifest_xml, resolve_protocol_for_app, resolve_uwp_package_from_exe_path,
+        try_launch_squirrel_app, TaskbandEntry,
+    };
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(label: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "gili_pinned_apps_test_{}_{}_{}",
+            label,
+            std::process::id(),
+            nanos
+        ))
+    }
+
+    #[test]
+    fn test_resolve_protocol_for_app_variants() {
+        assert_eq!(
+            resolve_protocol_for_app("Telegram Desktop", ""),
+            Some("tg://")
+        );
+        assert_eq!(
+            resolve_protocol_for_app(
+                "",
+                "TelegramMessengerLLP.TelegramDesktop_t4vj0pshhgkwm!Telegram.TelegramDesktop.Store"
+            ),
+            Some("tg://")
+        );
+        assert_eq!(resolve_protocol_for_app("tg", ""), Some("tg://"));
+        assert_eq!(
+            resolve_protocol_for_app("Discord", "com.squirrel.Discord.Discord"),
+            Some("discord://")
+        );
+        assert_eq!(resolve_protocol_for_app("Settings", ""), None);
+        assert_eq!(resolve_protocol_for_app("Google Chrome", "Chrome._crx_abc"), None);
+    }
+
+    #[test]
+    fn test_calculator_detection_and_uwp_aumid_derivation() {
+        assert_eq!(
+            detect_app_id("Calculator", "Microsoft.WindowsCalculator_8wekyb3d8bbwe"),
+            "calculator"
+        );
+        assert_eq!(
+            detect_app_id("WindowsCalculator", "Microsoft.WindowsCalculator_8wekyb3d8bbwe"),
+            "calculator"
+        );
+        assert_eq!(
+            detect_icon_type("WindowsCalculator", "Microsoft.WindowsCalculator_8wekyb3d8bbwe"),
+            Some("calculator".to_string())
+        );
+        assert_eq!(
+            detect_app_id("Calculator", "C:\\Windows\\System32\\calc.exe"),
+            "calculator"
+        );
+        assert_eq!(
+            detect_icon_type("Calculator", "C:\\Windows\\System32\\calc.exe"),
+            Some("calculator".to_string())
+        );
+        assert_eq!(
+            resolve_protocol_for_app(
+                "C:\\Program Files\\WindowsApps\\Microsoft.WindowsCalculator_11.2607.0.0_x64__8wekyb3d8bbwe\\CalculatorApp.exe",
+                ""
+            ),
+            Some("calculator:")
+        );
+        assert_eq!(
+            resolve_protocol_for_app("", "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"),
+            Some("calculator:")
+        );
+        assert_eq!(
+            resolve_uwp_package_from_exe_path(
+                "C:\\Program Files\\WindowsApps\\Microsoft.WindowsCalculator_11.2607.0.0_x64__8wekyb3d8bbwe\\CalculatorApp.exe"
+            ),
+            Some(("Microsoft.WindowsCalculator_8wekyb3d8bbwe!App".to_string(), false))
+        );
+        assert_eq!(
+            detect_app_id("Photos", "Microsoft.Windows.Photos_8wekyb3d8bbwe"),
+            "photos"
+        );
+    }
+
+    #[test]
+    fn test_parse_appx_manifest_xml_variants() {
+        let calc_xml = r#"
+            <Package>
+              <Applications>
+                <Application Id="App" Executable="CalculatorApp.exe" EntryPoint="Calculator.App" />
+              </Applications>
+            </Package>
+        "#;
+        assert_eq!(
+            parse_appx_manifest_xml(calc_xml, None, Some("CalculatorApp.exe")),
+            Some(("App".to_string(), Some("CalculatorApp.exe".to_string()), false))
+        );
+
+        let zunemusic_xml = r#"
+            <Package>
+              <Applications>
+                <Application Id="Microsoft.ZuneMusic" Executable="Microsoft.Media.Player.exe" EntryPoint="Microsoft.Entertainment.Music.App" />
+              </Applications>
+            </Package>
+        "#;
+        assert_eq!(
+            parse_appx_manifest_xml(zunemusic_xml, None, Some("Microsoft.Media.Player.exe")),
+            Some((
+                "Microsoft.ZuneMusic".to_string(),
+                Some("Microsoft.Media.Player.exe".to_string()),
+                false
+            ))
+        );
+
+        let notepad_xml = r#"
+            <Package>
+              <Applications>
+                <Application Id="App" Executable="Notepad\Notepad.exe" EntryPoint="Windows.FullTrustApplication" />
+              </Applications>
+            </Package>
+        "#;
+        assert_eq!(
+            parse_appx_manifest_xml(notepad_xml, None, Some("Notepad.exe")),
+            Some((
+                "App".to_string(),
+                Some("Notepad\\Notepad.exe".to_string()),
+                true
+            ))
+        );
+
+        let store_xml = r#"
+            <Package>
+              <Applications>
+                <Application Id="App" Executable="WinStore.App.exe" EntryPoint="WinStore.App" />
+                <Application Id="StoreDesktopExtension" Executable="StoreDesktopExtension.exe" EntryPoint="Windows.FullTrustApplication" />
+                <Application Id="StoreCLI" Executable="store.exe" EntryPoint="Windows.FullTrustApplication" />
+              </Applications>
+            </Package>
+        "#;
+        assert_eq!(
+            parse_appx_manifest_xml(store_xml, None, Some("WinStore.App.exe")),
+            Some(("App".to_string(), Some("WinStore.App.exe".to_string()), false))
+        );
+        assert_eq!(
+            parse_appx_manifest_xml(store_xml, Some("StoreCLI"), None),
+            Some(("StoreCLI".to_string(), Some("store.exe".to_string()), true))
+        );
+
+        let netflix_xml = r#"
+            <Package>
+              <Applications>
+                <Application Id="Netflix.App" uap10:HostId="PWA" uap10:Parameters="--app-id=abc" />
+              </Applications>
+            </Package>
+        "#;
+        assert_eq!(
+            parse_appx_manifest_xml(netflix_xml, None, None),
+            Some(("Netflix.App".to_string(), None, false))
+        );
+    }
+
+    #[test]
+    fn test_detect_app_id_and_icon_type_coverage() {
+        assert_eq!(detect_icon_type("Google Chrome", r"C:\Program Files\Google\Chrome\chrome.exe"), Some("browser".into()));
+        assert_eq!(detect_icon_type("Brave", r"C:\Program Files\Brave\brave.exe"), Some("brave".into()));
+        assert_eq!(detect_icon_type("File Explorer", r"C:\Windows\explorer.exe"), Some("folder".into()));
+        assert_eq!(detect_icon_type("Visual Studio Code", r"C:\Users\u\AppData\Local\Programs\Microsoft VS Code\Code.exe"), Some("code".into()));
+        assert_eq!(detect_icon_type("Codec Pro", r"C:\Users\coder\App\MyTool.exe"), None);
+        assert_eq!(detect_icon_type("Windows Terminal", ""), Some("terminal".into()));
+        assert_eq!(detect_icon_type("Command Prompt", r"C:\Windows\System32\cmd.exe"), Some("terminal".into()));
+        assert_eq!(detect_icon_type("PowerShell", r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"), Some("terminal".into()));
+        assert_eq!(detect_icon_type("Settings", ""), Some("settings".into()));
+        assert_eq!(detect_icon_type("Pengaturan", "SystemSettings.exe"), Some("settings".into()));
+        assert_eq!(detect_icon_type("Spotify", ""), Some("spotify".into()));
+        assert_eq!(detect_icon_type("Discord", ""), Some("discord".into()));
+        assert_eq!(detect_icon_type("WhatsApp", ""), Some("whatsapp".into()));
+        assert_eq!(detect_icon_type("Kalkulator", ""), Some("calculator".into()));
+        assert_eq!(detect_icon_type("Notepad", r"C:\Windows\System32\notepad.exe"), None);
+
+        assert_eq!(detect_app_id("Google Chrome", ""), "chrome");
+        assert_eq!(detect_app_id("Brave", ""), "brave");
+        assert_eq!(detect_app_id("File Explorer", ""), "explorer");
+        assert_eq!(detect_app_id("Visual Studio Code", ""), "vscode");
+        assert_eq!(detect_app_id("Codec Pro", r"C:\Users\coder\App\MyTool.exe"), "mytool");
+        assert_eq!(detect_app_id("Terminal", "Microsoft.WindowsTerminal_8wekyb3d8bbwe"), "terminal");
+        assert_eq!(detect_app_id("Command Prompt", r"C:\Windows\System32\cmd.exe"), "terminal");
+        assert_eq!(detect_app_id("PowerShell", r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"), "terminal");
+        assert_eq!(detect_app_id("Settings", "SystemSettings.exe"), "settings");
+        assert_eq!(detect_app_id("Spotify", ""), "spotify");
+        assert_eq!(detect_app_id("Netflix", "4DF9E0F8.Netflix_mcm4njqhnhss8"), "netflix");
+        assert_eq!(detect_app_id("Discord", ""), "discord");
+        assert_eq!(detect_app_id("WhatsApp", ""), "whatsapp");
+        assert_eq!(detect_app_id("Kalkulator", ""), "calculator");
+        assert_eq!(detect_app_id("My Custom Tool", r"C:\Tools\Custom Tool.exe"), "custom_tool");
+        assert_eq!(detect_app_id("My Store App", "Publisher.MyStoreApp_1234567890abc"), "my_store_app");
+        assert_eq!(detect_app_id("", "Microsoft.WindowsNotepad_8wekyb3d8bbwe"), "windowsnotepad");
+        assert_eq!(detect_app_id("", r"C:\Program Files\Vendor\My App.lnk"), "my_app");
+    }
+
+    #[test]
+    fn test_extract_pfn_from_pkg_dir_name() {
+        assert_eq!(
+            extract_pfn_from_pkg_dir_name("Microsoft.WindowsCalculator_11.2607.0.0_x64__8wekyb3d8bbwe"),
+            Some("Microsoft.WindowsCalculator_8wekyb3d8bbwe".to_string())
+        );
+        assert_eq!(
+            extract_pfn_from_pkg_dir_name("4DF9E0F8.Netflix_7.0.0.0_neutral__mcm4njqhnhss8"),
+            Some("4DF9E0F8.Netflix_mcm4njqhnhss8".to_string())
+        );
+        assert_eq!(
+            extract_pfn_from_pkg_dir_name("Microsoft.Windows.Search_cw5n1h2txyewy"),
+            Some("Microsoft.Windows.Search_cw5n1h2txyewy".to_string())
+        );
+        assert_eq!(
+            extract_pfn_from_pkg_dir_name("Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy"),
+            Some("Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy".to_string())
+        );
+
+        assert_eq!(extract_pfn_from_pkg_dir_name(""), None);
+        assert_eq!(extract_pfn_from_pkg_dir_name("plainname"), None);
+        assert_eq!(extract_pfn_from_pkg_dir_name("_1.0_x64__8wekyb3d8bbwe"), None);
+        assert_eq!(extract_pfn_from_pkg_dir_name("Pkg_1.0_x64__"), None);
+        assert_eq!(extract_pfn_from_pkg_dir_name("Foo_Bar_cw5n1h2txyewy"), None);
+        assert_eq!(extract_pfn_from_pkg_dir_name("Microsoft.Foo_short"), None);
+    }
+
+    #[test]
+    fn test_classify_taskband_token_variants() {
+        let mut out = Vec::new();
+        classify_taskband_token(
+            12,
+            r"C:\Users\demo\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Visual Studio Code.lnk",
+            &mut out,
+        );
+        assert_eq!(
+            out,
+            vec![(12, TaskbandEntry::LnkFileName("Visual Studio Code.lnk".to_string()))]
+        );
+
+        let mut lnk_case = Vec::new();
+        classify_taskband_token(24, "  Spotify.LNK  ", &mut lnk_case);
+        assert_eq!(
+            lnk_case,
+            vec![(24, TaskbandEntry::LnkFileName("Spotify.LNK".to_string()))]
+        );
+
+        // 8.3 DOS short names and bare ".lnk" must be excluded
+        let mut short_names = Vec::new();
+        classify_taskband_token(0, r"C:\Users\demo\TASKBA~1\GOOGLE~1.LNK", &mut short_names);
+        classify_taskband_token(4, ".lnk", &mut short_names);
+        assert!(short_names.is_empty());
+
+        // Full PFN!AppId and bare PFN (hosted Store PWAs)
+        let mut uwp = Vec::new();
+        classify_taskband_token(40, "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", &mut uwp);
+        classify_taskband_token(80, "4DF9E0F8.Netflix_mcm4njqhnhss8", &mut uwp);
+        assert_eq!(
+            uwp,
+            vec![
+                (40, TaskbandEntry::UwpAumid("Microsoft.WindowsTerminal_8wekyb3d8bbwe!App".to_string())),
+                (80, TaskbandEntry::UwpAumid("4DF9E0F8.Netflix_mcm4njqhnhss8".to_string())),
+            ]
+        );
+
+        // PackageFullName (_neutral__ / _x64__), paths, numeric-only prefixes, and invalid dot patterns must be rejected
+        let mut rejected = Vec::new();
+        for bad in [
+            "4DF9E0F8.Netflix_7.0.0.0_neutral__mcm4njqhnhss8",
+            "Microsoft.WindowsCalculator_11.2607.0.0_x64__8wekyb3d8bbwe",
+            "Microsoft.WindowsCalculator_11.2607.0.0_x64__8wekyb3d8bbwe!App",
+            r"C:\Program Files\4DF9E0F8.Netflix_mcm4njqhnhss8",
+            "1.2.3.4_abcdefghijklm",
+            "NoDot_abcdefghijklm",
+            ".LeadingDot_abcdefghijklm",
+            "TrailingDot._abcdefghijklm",
+            "Two..Dots_abcdefghijklm",
+        ] {
+            classify_taskband_token(0, bad, &mut rejected);
+        }
+        assert!(rejected.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_uwp_package_from_exe_path_systemapps_windowsapps_and_manifest() {
+        assert_eq!(
+            resolve_uwp_package_from_exe_path(
+                r"C:\Windows\SystemApps\Microsoft.Windows.Search_cw5n1h2txyewy\SearchApp.exe"
+            ),
+            Some(("Microsoft.Windows.Search_cw5n1h2txyewy!App".to_string(), false))
+        );
+        assert_eq!(
+            resolve_uwp_package_from_exe_path(
+                r"C:\Program Files\WindowsApps\4DF9E0F8.Netflix_7.0.0.0_neutral__mcm4njqhnhss8\Netflix.exe"
+            ),
+            Some(("4DF9E0F8.Netflix_mcm4njqhnhss8!App".to_string(), false))
+        );
+        assert_eq!(
+            resolve_uwp_package_from_exe_path(r"C:\Program Files\Mozilla Firefox\firefox.exe"),
+            None
+        );
+
+        let sandbox = unique_temp_dir("uwp_manifest");
+        let pkg_dir = sandbox.join("Microsoft.WindowsNotepad_11.2400.0.0_x64__8wekyb3d8bbwe");
+        let exe_dir = pkg_dir.join("Notepad");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let exe_path = exe_dir.join("Notepad.exe");
+        std::fs::write(&exe_path, b"").unwrap();
+        std::fs::write(
+            pkg_dir.join("AppxManifest.xml"),
+            r#"<Package><Applications><Application Id="App" Executable="Notepad\Notepad.exe" EntryPoint="Windows.FullTrustApplication" /></Applications></Package>"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_uwp_package_from_exe_path(exe_path.to_str().unwrap()),
+            Some(("Microsoft.WindowsNotepad_8wekyb3d8bbwe!App".to_string(), true))
+        );
+
+        let _ = std::fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn test_try_launch_squirrel_app_non_matching_returns_false() {
+        assert!(!try_launch_squirrel_app("", ""));
+        assert!(!try_launch_squirrel_app(r"C:\Program Files\Notepad++\notepad++.exe", ""));
+        assert!(!try_launch_squirrel_app(
+            r"C:\Users\nobody\AppData\Local\Discord\app-1.0.9999\Discord.exe",
+            "--minimized"
+        ));
+
+        let sandbox = unique_temp_dir("squirrel");
+        let exe_dir = sandbox.join("app-1.0.0");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let fake_exe = exe_dir.join("Demo.exe");
+        std::fs::write(&fake_exe, b"").unwrap();
+
+        // Missing Update.exe must return false cleanly without spawning
+        assert!(!try_launch_squirrel_app(fake_exe.to_str().unwrap(), ""));
+
+        let _ = std::fs::remove_dir_all(&sandbox);
+    }
 }

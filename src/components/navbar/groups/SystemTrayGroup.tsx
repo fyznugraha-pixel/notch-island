@@ -246,8 +246,8 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
 
   const pillContainerClass = `${
     isVertical
-      ? "w-10 max-w-full min-w-0 py-1.5 px-0.5 flex-col gap-1"
-      : "h-10 px-1.5 flex-row gap-0.5"
+      ? "gili-mod-tray-vertical w-full min-w-0 py-1.5 px-0.5 flex-col gap-1 overflow-hidden"
+      : "gili-mod-tray-pill px-1.5 flex-row gap-0.5"
   } rounded-[12px] bg-transparent flex items-center justify-center text-white/70 hover:bg-white/[0.06] transition-colors shrink-0`;
 
   const subTriggerClass =
@@ -275,14 +275,17 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
           <button
             type="button"
             data-flyout-trigger="tray"
-            onClick={onTrayClick}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onTrayClick?.();
+            }}
             aria-label={trayLabel}
             style={{
               transition:
                 "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, color 180ms ease",
             }}
             className={`${
-              isVertical ? "w-10 h-7" : "w-7 h-10"
+              isVertical ? "gili-mod-tray-vertical w-full h-7" : "w-7 gili-mod-tray-btn"
             } rounded-[10px] bg-transparent text-white/65 hover:text-white hover:bg-white/[0.09] ${trayLiftHoverClass} hover:scale-[1.06] active:scale-95 flex items-center justify-center p-0 cursor-pointer shrink-0`}
           >
             <TrayChevronIcon size={15} strokeWidth={2.1} />
@@ -428,7 +431,7 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
                 "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, color 180ms ease",
             }}
             className={`relative ${
-              isVertical ? "w-10 h-9" : "w-9 h-10"
+              isVertical ? "gili-mod-tray-vertical w-full h-9" : "w-9 gili-mod-tray-btn"
             } rounded-[12px] bg-transparent text-white/65 hover:text-white hover:bg-white/[0.09] ${trayLiftHoverClass} hover:scale-[1.06] active:scale-95 flex items-center justify-center p-0 cursor-pointer shrink-0`}
           >
             <Bell size={17} strokeWidth={1.8} />
@@ -461,10 +464,10 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
               transition:
                 "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease",
             }}
-            className={`rounded-[12px] bg-transparent text-white flex flex-col ${
+            className={`rounded-[12px] bg-transparent text-white flex flex-col justify-center ${
               isVertical
-                ? "w-full max-w-full min-w-0 items-center px-0.5 py-1.5 overflow-hidden"
-                : "items-end px-2 py-1"
+                ? "w-full max-w-full min-w-0 items-center px-0.5 py-1 overflow-hidden"
+                : "gili-mod-tray-clock items-end px-2 py-0.5 overflow-hidden"
             } cursor-pointer hover:bg-white/[0.09] ${trayLiftHoverClass} active:scale-95 shrink-0`}
           >
             <span

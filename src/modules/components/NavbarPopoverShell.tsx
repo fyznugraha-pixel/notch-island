@@ -559,16 +559,15 @@ export const CircularRingSvg: React.FC<{
   const clamped = Math.max(0, Math.min(100, rawPct));
   const offset = circ - (clamped / 100) * circ;
 
+  const clampedSize = `min(${size}px, calc(var(--navbar-mod-size, 40px) - 6px))`;
   return (
     <div
-      style={{ width: `${size}px`, height: `${size}px` }}
+      style={{ width: clampedSize, height: clampedSize }}
       className="relative shrink-0 flex items-center justify-center"
     >
       <svg
-        width={size}
-        height={size}
         viewBox="0 0 26 26"
-        className="-rotate-90"
+        className="w-full h-full -rotate-90"
         aria-hidden="true"
       >
         <circle

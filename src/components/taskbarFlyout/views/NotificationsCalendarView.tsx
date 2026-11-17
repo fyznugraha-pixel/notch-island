@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bell,
   ChevronLeft,
@@ -256,6 +257,22 @@ export const NotificationsCalendarView: React.FC<NotificationsCalendarViewProps>
       isToday: isViewingCurrentMonth && day === todayDateNum,
     });
   }
+  const handleNotificationItemClick = async (item: NotificationHistoryItem) => {
+    onClose?.();
+    try {
+      const activated = await invoke<boolean>("activate_notification_app", {
+        appName: item.appName || item.title,
+        aumid: item.aumid ?? null,
+      });
+      if (activated) return;
+    } catch {}
+
+    const urlMatch = `${item.body || ""} ${item.title || ""}`.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) {
+      openUrl(urlMatch[0]).catch(() => {});
+    }
+  };
+
   // Next month leading days (fill to multiple of 7)
   const remaining = (7 - (calendarCells.length % 7)) % 7;
   for (let i = 1; i <= remaining; i++) {
@@ -376,20 +393,12 @@ export const NotificationsCalendarView: React.FC<NotificationsCalendarViewProps>
                 role="button"
                 tabIndex={0}
                 onClick={() => {
-                  invoke("activate_notification_app", {
-                    appName: item.appName,
-                    aumid: item.aumid ?? null,
-                  }).catch(() => {});
-                  onClose?.();
+                  void handleNotificationItemClick(item);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    invoke("activate_notification_app", {
-                      appName: item.appName,
-                      aumid: item.aumid ?? null,
-                    }).catch(() => {});
-                    onClose?.();
+                    void handleNotificationItemClick(item);
                   }
                 }}
                 className="gili-flyout-card p-2.5 flex flex-col gap-1 relative group cursor-pointer transition-colors hover:bg-[var(--taskbar-item-hover)]"

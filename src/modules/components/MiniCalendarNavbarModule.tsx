@@ -144,10 +144,8 @@ export const MiniCalendarNavbarModule: React.FC<NavbarModuleProps> = ({
           )}
           className={`flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
-              : "h-10 px-3 gap-2 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
+              ? `gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
+              : "gili-mod-pill px-3 gap-2 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
           }`}
         >
           {isCompact ? (
@@ -168,7 +166,7 @@ export const MiniCalendarNavbarModule: React.FC<NavbarModuleProps> = ({
               {weekStrip.map((item, idx) => (
                 <div
                   key={idx}
-                  className={`w-[19px] h-[24px] rounded-[6px] flex flex-col items-center justify-center leading-none ${
+                  className={`w-[19px] h-[min(24px,calc(var(--navbar-mod-size,40px)-6px))] overflow-hidden rounded-[6px] flex flex-col items-center justify-center leading-none ${
                     item.isToday
                       ? "bg-[#3882F6] text-[#ffffff] font-bold"
                       : item.isWeekend

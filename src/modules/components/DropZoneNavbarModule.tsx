@@ -116,15 +116,15 @@ export const DropZoneNavbarModule: React.FC<NavbarModuleProps> = ({
           className={`relative flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
               ? isVertical
-                ? "w-full max-w-full h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]"
-                : "w-10 h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]"
-              : "h-10 px-3 gap-2.5 rounded-[12px] border border-dashed border-[#3882F6]/50 bg-[#3882F6]/10 hover:bg-[#3882F6]/15"
+                ? "gili-mod-compact gili-mod-vertical justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]"
+                : "gili-mod-compact justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]"
+              : "gili-mod-pill px-3 gap-2.5 rounded-[12px] border border-dashed border-[#3882F6]/50 bg-[#3882F6]/10 hover:bg-[#3882F6]/15"
           }`}
         >
           <FolderDown size={15} className="text-[#60a5fa] shrink-0" />
           {isCompact ? (
             files.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-[16px] h-[16px] rounded-full bg-[#3882F6] text-[10px] font-bold text-[#ffffff] flex items-center justify-center tabular-nums">
+              <span className="gili-mod-badge absolute top-[1px] right-[1px] min-w-[14px] h-[14px] px-1 rounded-full bg-[#3882F6] text-[9px] font-bold text-[#ffffff] flex items-center justify-center tabular-nums pointer-events-none">
                 {files.length}
               </span>
             )

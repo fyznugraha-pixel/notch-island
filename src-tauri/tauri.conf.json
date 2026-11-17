@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Gili",
-  "version": "5.0.1",
+  "version": "5.1.1",
   "identifier": "com.faiz.notch",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -23,7 +23,7 @@
         "skipTaskbar": true,
         "visible": true,
         "resizable": false,
-        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64"
+        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required"
       }
     ],
     "security": {

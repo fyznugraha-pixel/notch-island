@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { readText as tauriReadText } from "@tauri-apps/plugin-clipboard-manager";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -15,7 +15,7 @@ import {
 import { Tooltip } from "../Tooltip";
 import { AiBrandLogo } from "./AiBrandLogos";
 import { AiChatConnectModelSection } from "./AiChatConnectModelSection";
-import { t } from "../../../services/i18n";
+import { getLanguage, t } from "../../../services/i18n";
 import {
   AI_MODELS,
   isApiKeyFormatValid,
@@ -37,8 +37,15 @@ import {
 import {
   getRegisteredModels,
   clearRegisteredModels,
+  registerCustomModel,
+  saveActiveModel,
   verifyAndRegisterModels,
 } from "../../../services/aiModelRegistry";
+import {
+  getGeminiApiMode,
+  setGeminiApiMode,
+  type GeminiApiMode,
+} from "../../../services/geminiApi";
 import {
   loadRouterConfig,
   saveRouterConfig,
@@ -51,7 +58,12 @@ interface AiChatConnectViewProps {
   initialModel: AiModelConfig;
   onKeyChanged?: () => void;
   onBack: () => void;
-  onSave: (provider: AiProviderId, key: string, model: AiModelConfig) => void;
+  onSave: (
+    provider: AiProviderId,
+    key: string,
+    model: AiModelConfig,
+    explicitModelSelection?: boolean
+  ) => void;
   accentColor?: string;
 }
 
@@ -115,6 +127,8 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
 }) => {
   const [selectedProvider, setSelectedProvider] = useState<AiProviderId>(initialProvider);
   const [selectedModel, setSelectedModel] = useState<AiModelConfig>(initialModel);
+  const explicitModelSelectionRef = useRef(false);
+  const [geminiApiMode, setGeminiApiModeState] = useState<GeminiApiMode>(() => getGeminiApiMode());
   const [defaultLength, setDefaultLength] = useState<ResponseLengthMode>(
     () => loadRouterConfig().defaultLength || "normal"
   );
@@ -123,6 +137,11 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
     setDefaultLength(mode);
     const cfg = loadRouterConfig();
     saveRouterConfig({ ...cfg, defaultLength: mode });
+  };
+
+  const handleGeminiApiModeChange = (mode: GeminiApiMode) => {
+    setGeminiApiModeState(mode);
+    setGeminiApiMode(mode);
   };
 
   const [isModelCustomKey, setIsModelCustomKey] = useState<boolean>(() => {
@@ -198,6 +217,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
   };
 
   const handleProviderChange = (prov: AiProviderId) => {
+    explicitModelSelectionRef.current = false;
     setSelectedProvider(prov);
     const models = getRegisteredModels(prov);
     setAvailableModels(models);
@@ -222,11 +242,14 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
       setApiKey(provDraftKey || provSavedKey);
     }
     setTestResult(null);
+    setTestFailReason("");
     setSavedNotice(null);
   };
 
   const handleModelChange = (model: AiModelConfig) => {
+    explicitModelSelectionRef.current = true;
     setSelectedModel(model);
+    saveActiveModel(selectedProvider, model.id);
 
     // If this specific model has a custom key saved or drafted, load it
     const modelKeys = loadSavedModelKeys();
@@ -234,14 +257,45 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
       setIsModelCustomKey(true);
       const draft = getDraftKey(selectedProvider, model.id);
       setApiKey(draft || modelKeys[model.id]);
-    } else if (isModelCustomKey) {
-      setApiKey("");
     } else {
+      setIsModelCustomKey(false);
       const provDraftKey = getDraftKey(selectedProvider);
       const provSavedKey = loadSavedApiKeys()[selectedProvider] || "";
       setApiKey(provDraftKey || provSavedKey);
     }
     setTestResult(null);
+    setTestFailReason("");
+  };
+
+  const handleApplyManualModel = (rawModelId: string) => {
+    const cleanId = rawModelId.trim();
+    if (!cleanId) return;
+    const registered = registerCustomModel(selectedProvider, cleanId);
+    setAvailableModels(getRegisteredModels(selectedProvider));
+    setSelectedModel(registered);
+    explicitModelSelectionRef.current = true;
+
+    const modelKeys = loadSavedModelKeys();
+    if (modelKeys[registered.id]) {
+      setIsModelCustomKey(true);
+      const draft = getDraftKey(selectedProvider, registered.id);
+      setApiKey(draft || modelKeys[registered.id]);
+    } else {
+      setIsModelCustomKey(false);
+      const provDraftKey = getDraftKey(selectedProvider);
+      const provSavedKey = loadSavedApiKeys()[selectedProvider] || "";
+      setApiKey(provDraftKey || provSavedKey);
+    }
+
+    setTestResult(null);
+    setTestFailReason("");
+    setSavedNotice(
+      getLanguage() === "en"
+        ? `Selected ${registered.name}`
+        : `Model ${registered.name} dipilih`
+    );
+    setTimeout(() => setSavedNotice(null), 2200);
+    onKeyChanged?.();
   };
 
   const handleToggleModelCustomKey = (enabled: boolean) => {
@@ -336,11 +390,14 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
 
     setTestResult("success");
     setAvailableModels(result.models);
-    const modelToUse = result.models.find((m) => m.id === selectedModel.id) || result.models[0];
+    const normalizeId = (id: string) => id.trim().replace(/^models\//i, "").toLowerCase();
+    const modelToUse =
+      result.models.find((m) => normalizeId(m.id) === normalizeId(selectedModel.id)) ||
+      (explicitModelSelectionRef.current ? selectedModel : result.models[0]);
     setSelectedModel(modelToUse);
     persistKey(clean);
     saveBaseUrl(selectedProvider, baseUrl.trim());
-    onSave(selectedProvider, clean, modelToUse);
+    onSave(selectedProvider, clean, modelToUse, explicitModelSelectionRef.current);
   };
 
   const activeProviderMeta = PROVIDERS.find((p) => p.id === selectedProvider) || PROVIDERS[0];
@@ -604,6 +661,46 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
             )}
           </div>
 
+          {selectedProvider === "gemini" && !baseUrl.toLowerCase().includes("/openai") && (
+            <div className="flex flex-col gap-1 mt-0.5 shrink-0">
+              <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa] pl-1">
+                {getLanguage() === "en" ? "GEMINI API MODE" : "MODE API GEMINI"}
+              </span>
+              <div
+                role="radiogroup"
+                aria-label={getLanguage() === "en" ? "Gemini API mode" : "Mode API Gemini"}
+                className="grid grid-cols-3 gap-1.5 p-1 rounded-[14px] bg-white/[0.04] border border-white/[0.08]"
+              >
+                {(
+                  [
+                    { id: "auto", label: "Auto", sub: "Interactions API" },
+                    { id: "interactions", label: "Interactions API", sub: "/v1beta/interactions" },
+                    { id: "generateContent", label: "Legacy", sub: "generateContent" },
+                  ] as const
+                ).map((opt) => {
+                  const isSelected = geminiApiMode === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      onClick={() => handleGeminiApiModeChange(opt.id)}
+                      className={`flex flex-col items-center justify-center py-1 px-1.5 rounded-[10px] text-center transition-all cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 ${
+                        isSelected
+                          ? "bg-blue-600/30 border border-blue-500/50 text-white shadow-sm"
+                          : "bg-transparent hover:bg-white/[0.05] text-[#c4c4cc] border border-transparent"
+                      }`}
+                    >
+                      <span className="text-[11px] font-semibold truncate max-w-full">{opt.label}</span>
+                      <span className="text-[9.5px] text-[#a1a1aa] truncate max-w-full">{opt.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Default Response Length Setting (Protocol A4) */}
           <div className="flex flex-col gap-1 mt-0.5 shrink-0">
             <span className="text-[11px] font-semibold tracking-[0.06em] text-[#a1a1aa] pl-1">
@@ -644,6 +741,7 @@ export const AiChatConnectView: React.FC<AiChatConnectViewProps> = ({
               models={availableModels}
               selectedModel={selectedModel}
               onSelectModel={handleModelChange}
+              onApplyManualModel={handleApplyManualModel}
               isModelCustomKey={isModelCustomKey}
               onToggleModelCustomKey={handleToggleModelCustomKey}
               isVerifying={isTesting}

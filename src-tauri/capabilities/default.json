@@ -6,12 +6,18 @@
     "main",
     "settings",
     "miniplayer",
+    "lyrics_share",
     "notch_secondary_*",
     "notch_secondary_1",
     "notch_secondary_2",
     "notch_secondary_3",
     "notch_secondary_4",
     "navbar",
+    "navbar_secondary_*",
+    "navbar_secondary_1",
+    "navbar_secondary_2",
+    "navbar_secondary_3",
+    "navbar_secondary_4",
     "taskbar_flyout"
   ],
   "permissions": [

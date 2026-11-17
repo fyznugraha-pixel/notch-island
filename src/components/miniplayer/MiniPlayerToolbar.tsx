@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { RotateCw } from "lucide-react";
+import { RotateCw, Share2 } from "lucide-react";
 import { MediaPayload, LyricsPayload, requestLyricsRefresh } from "../../services/mediaLyricsStore";
+import { extractShareableLyricLines } from "../../services/lyricsShareService";
 import { LyricsProviderId } from "../../services/lyrics/types";
 import { useTaskbarLang, tx } from "../../services/taskbarI18n";
 import { Tooltip } from "../ui/Tooltip";
@@ -14,6 +15,7 @@ export interface MiniPlayerToolbarProps {
   isPinned: boolean;
   onTogglePin: () => void;
   onReturnToNotch: () => void;
+  onShareLyrics?: () => void;
   media: MediaPayload | null;
   lyrics: LyricsPayload | null;
 }
@@ -36,10 +38,15 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
   isPinned,
   onTogglePin,
   onReturnToNotch,
+  onShareLyrics,
   media,
-  lyrics: _lyrics,
+  lyrics,
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const canShare =
+    Boolean(onShareLyrics) &&
+    lyrics?.state !== "instrumental" &&
+    extractShareableLyricLines(lyrics).some((l) => l.trim().length > 0);
 
   const [currentProvider, setCurrentProvider] = useState<LyricsProviderId>(() => {
     try {
@@ -262,6 +269,26 @@ export const MiniPlayerToolbar: React.FC<MiniPlayerToolbarProps> = ({
 
         {/* Action Icon Buttons */}
         <div className="flex items-center gap-0.5">
+          {canShare && (
+            <Tooltip
+              content={tx(lang, "Share lyrics card", "Bagikan kartu lirik")}
+              allowFlip
+              wrapperClassName="shrink-0"
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShareLyrics?.();
+                }}
+                className="w-7 h-7 rounded-[9px] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
+                aria-label={tx(lang, "Share lyrics card", "Bagikan kartu lirik")}
+              >
+                <Share2 size={13} />
+              </button>
+            </Tooltip>
+          )}
+
           {/* Pin Button */}
           <Tooltip
             content={

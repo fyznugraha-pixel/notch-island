@@ -27,17 +27,13 @@ import type {
   AiMessageContext,
 } from "./AiChatTypes";
 import {
-  streamChatCompletion,
-  recordTokenUsage,
   loadUsageStats,
-  estimateTextTokens,
   loadActiveProvider,
   getEffectiveApiKey,
   loadSavedBaseUrls,
   AI_MODELS,
 } from "../../../services/aiChatService";
 import { initCredentials } from "../../../services/aiCredentialService";
-import { isAbortError } from "../../../services/aiHttp";
 import { formatIdrCostInCurrency } from "../../../services/aiCurrencyService";
 import {
   getRegisteredModels,
@@ -50,23 +46,28 @@ import {
   evaluateBudgetPolicy,
   isVisionCapableModel,
 } from "../../../services/aiRouterService";
-import {
-  parseAndExecuteGiliActions,
-  stripActionBlocksForDisplay,
-  type GiliActionResult,
-} from "../../../services/aiNotchTools";
+import type { GiliActionResult } from "../../../services/aiNotchTools";
 import {
   createConversation,
-  updateConversationMessages,
+  getConversationById,
   setActiveConversationId,
   generateTitleFromPrompt,
 } from "../../../services/aiConversationService";
 import {
+  startBackgroundAiChatStream,
+  stopBackgroundAiStream,
+  subscribeAiBackgroundStreams,
+  getLiveConversationStreamState,
+  getCompletedConversationMessages,
+  consumeCompletedTokenDelta,
+} from "../../../services/aiBackgroundStreamService";
+import {
   getGiliFreeModel,
   isGiliFreeEnabled,
-  describeGiliFreeError,
 } from "../../../services/giliFreeService";
 import { t, type Language } from "../../../services/i18n";
+
+const QUICK_AI_CONV_STORAGE_KEY = "gili_quick_ai_conv_id";
 
 export interface QuickAiChatNotchCardProps {
   isLightMode?: boolean;
@@ -120,20 +121,95 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeConvIdRef = useRef<string | null>(null);
   const responseScrollRef = useRef<HTMLDivElement>(null);
   const isMountedRef = useRef(true);
   const isSendingRef = useRef(false);
 
+  const syncFromBackgroundConversation = useCallback((convId: string) => {
+    const live = getLiveConversationStreamState(convId);
+    const savedConv = getConversationById(convId);
+    const msgs =
+      live?.messages || getCompletedConversationMessages(convId) || savedConv?.messages;
+    if (!msgs || msgs.length === 0) return false;
+
+    const lastUser = [...msgs].reverse().find((m) => m.role === "user");
+    const lastAst = [...msgs].reverse().find((m) => m.role === "assistant");
+    if (lastUser) {
+      setSubmittedPrompt(lastUser.content || "");
+      const imgUrl = lastUser.context?.imageDataUrl;
+      if (imgUrl) {
+        setSubmittedImage({
+          dataUrl: imgUrl,
+          title: lastUser.context?.title || "Image",
+          sizeKb: lastUser.context?.characterCount || 1,
+        });
+      }
+    }
+
+    const prov = lastAst?.provider || savedConv?.providerId;
+    const modId = lastAst?.modelId || savedConv?.modelId;
+    if (prov) setRoutedProvider(prov);
+    if (modId) {
+      const reg = prov ? getRegisteredModels(prov) : [];
+      const foundModel =
+        reg.find((m) => m.id === modId) || AI_MODELS.find((m) => m.id === modId);
+      if (foundModel) {
+        setRoutedModel(foundModel);
+      } else if (lastAst?.modelName && prov) {
+        setRoutedModel({
+          id: modId,
+          name: lastAst.modelName,
+          provider: prov,
+          description: "",
+          tier: lastAst.tier === "T2" ? "Max" : "Fast",
+          inputCostPer1M: 0,
+          outputCostPer1M: 0,
+        });
+      }
+    }
+
+    const content = lastAst?.content || "";
+    setResponseContent(content);
+    setExecutedActions((lastAst?.notchActions as GiliActionResult[] | undefined) || []);
+    setErrorMessage(lastAst?.error || null);
+
+    if (live) {
+      isSendingRef.current = true;
+      setIsThinking(content.length === 0);
+      setIsStreaming(content.length > 0);
+    } else {
+      consumeCompletedTokenDelta(convId);
+      isSendingRef.current = false;
+      setIsThinking(false);
+      setIsStreaming(false);
+    }
+    return true;
+  }, []);
+
   useEffect(() => {
     isMountedRef.current = true;
     initCredentials().catch(() => {});
+
+    try {
+      const savedId = sessionStorage.getItem(QUICK_AI_CONV_STORAGE_KEY);
+      if (savedId) {
+        activeConvIdRef.current = savedId;
+        syncFromBackgroundConversation(savedId);
+      }
+    } catch {}
+
+    const unsub = subscribeAiBackgroundStreams(() => {
+      if (!isMountedRef.current || !activeConvIdRef.current) return;
+      syncFromBackgroundConversation(activeConvIdRef.current);
+    });
+
+    // Keep background streams alive when Quick AI unmounts on Island collapse
     return () => {
       isMountedRef.current = false;
-      abortControllerRef.current?.abort();
-      abortControllerRef.current = null;
+      unsub();
     };
-  }, []);
+  }, [syncFromBackgroundConversation]);
 
   // Focus input automatically on mount
   useEffect(() => {
@@ -297,9 +373,10 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        if ((isStreaming || isThinking) && abortControllerRef.current) {
-          abortControllerRef.current.abort();
-          abortControllerRef.current = null;
+        if (isStreaming || isThinking) {
+          if (activeConvIdRef.current) {
+            stopBackgroundAiStream(activeConvIdRef.current);
+          }
           isSendingRef.current = false;
           setIsStreaming(false);
           setIsThinking(false);
@@ -329,6 +406,28 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
 
     const activeProvider = loadActiveProvider();
     const registered = getRegisteredModels(activeProvider);
+
+    if (
+      routerConfig.selectedMode !== "auto" &&
+      routerConfig.selectedMode !== "gili-free"
+    ) {
+      const explicitModel =
+        registered.find((m) => m.id === routerConfig.selectedMode) ||
+        AI_MODELS.find((m) => m.id === routerConfig.selectedMode);
+      if (explicitModel) {
+        const explicitKey =
+          getEffectiveApiKey(explicitModel.provider, explicitModel.id) ||
+          getEffectiveApiKey(explicitModel.provider);
+        if (explicitKey && (!hasImage || isVisionCapableModel(explicitModel))) {
+          return {
+            modelToUse: explicitModel,
+            providerToUse: explicitModel.provider,
+            keyToUse: explicitKey,
+          };
+        }
+      }
+    }
+
     let candidateModels: AiModelConfig[] = [];
 
     if (
@@ -422,8 +521,6 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     if ((!textToSend && !imgToSend) || isStreaming || isThinking || isSendingRef.current) return;
 
     isSendingRef.current = true;
-    const myController = new AbortController();
-    abortControllerRef.current = myController;
 
     setSubmittedPrompt(textToSend);
     setSubmittedImage(imgToSend);
@@ -434,21 +531,23 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
     setExecutedActions([]);
     setIsThinking(true);
 
+    let useGiliFree = false;
     try {
       const resolvedRoute = await resolveAutoModel(textToSend, Boolean(imgToSend));
-      if (!isMountedRef.current || myController.signal.aborted) return;
+      if (!isMountedRef.current) return;
 
       const isExplicitFree = resolvedRoute.modelToUse.id === "gili-free";
-      let useGiliFree = (isExplicitFree || !resolvedRoute.keyToUse) && isGiliFreeEnabled();
+      useGiliFree = (isExplicitFree || !resolvedRoute.keyToUse) && isGiliFreeEnabled();
       const giliFreeModel = getGiliFreeModel();
       let modelToUse = useGiliFree ? giliFreeModel : resolvedRoute.modelToUse;
       let providerToUse = useGiliFree ? giliFreeModel.provider : resolvedRoute.providerToUse;
       let keyToUse = useGiliFree ? "" : resolvedRoute.keyToUse;
+      const routerCfg = loadRouterConfig();
 
       if (!useGiliFree && modelToUse.id !== "gili-free") {
-        const routerCfg = loadRouterConfig();
         const budgetEval = evaluateBudgetPolicy(routerCfg, loadUsageStats());
         if (budgetEval.isExceeded && budgetEval.action === "block") {
+          isSendingRef.current = false;
           setIsThinking(false);
           setErrorMessage(
             `${t("aichat_usage_limit_reached")} (${formatIdrCostInCurrency(budgetEval.spentIdr)} / ${formatIdrCostInCurrency(budgetEval.limitIdr)})`
@@ -480,12 +579,11 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       setRoutedProvider(providerToUse);
 
       if (!keyToUse && !useGiliFree) {
+        isSendingRef.current = false;
         setIsThinking(false);
         setErrorMessage(t("quick_ai_no_key_error"));
         return;
       }
-
-      let accumulated = "";
 
       const userMsg: AiChatMessage = {
         id: `usr-${Date.now()}`,
@@ -503,73 +601,55 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
           : undefined,
       };
 
-      const result = await streamChatCompletion({
+      const conv = createConversation(
+        providerToUse,
+        modelToUse.id,
+        generateTitleFromPrompt(textToSend)
+      );
+      activeConvIdRef.current = conv.id;
+      try {
+        sessionStorage.setItem(QUICK_AI_CONV_STORAGE_KEY, conv.id);
+      } catch {}
+
+      const targetTier = evaluatePromptHeuristics(textToSend).tier;
+      startBackgroundAiChatStream({
+        conversationId: conv.id,
+        source: "quick_card",
         provider: providerToUse,
         apiKey: keyToUse,
         model: modelToUse,
-        messages: [userMsg],
-        lengthMode: "compact", // Fast, hemat & ringkas
+        updatedMessages: [userMsg],
+        assistantMsgId: `ast-${Date.now()}`,
+        lengthMode: "compact",
+        historyWindowSize: routerCfg.historyWindowSize,
         useGiliFree,
-        signal: myController.signal,
-        onChunk: (chunk: string) => {
-          if (myController?.signal.aborted || !isMountedRef.current) return;
-          setIsThinking(false);
-          setIsStreaming(true);
-          accumulated += chunk;
-          setResponseContent(stripActionBlocksForDisplay(accumulated));
-        },
+        targetTier,
+        isAutoRouted: routerCfg.selectedMode === "auto",
       });
-
-      if (myController.signal.aborted || !isMountedRef.current) {
-        return;
-      }
-
-      recordTokenUsage(modelToUse, result.inputTokens, result.outputTokens);
-
-      setIsStreaming(false);
-      setIsThinking(false);
-
-      // Execute embedded Gili notch actions
-      const { cleanText, results } = await parseAndExecuteGiliActions(accumulated);
-      if (myController.signal.aborted || !isMountedRef.current) {
-        return;
-      }
-      if (results.length > 0) {
-        setExecutedActions(results);
-        setResponseContent(cleanText);
-      }
     } catch (err: unknown) {
+      isSendingRef.current = false;
       if (!isMountedRef.current) return;
-      if (!isAbortError(err) && !myController?.signal.aborted) {
-        const errorText = err instanceof Error ? err.message : String(err);
-        setErrorMessage(
-          describeGiliFreeError(errorText) || t("quick_ai_failed_error")
-        );
-      }
-    } finally {
-      if (abortControllerRef.current === myController) {
-        abortControllerRef.current = null;
-        isSendingRef.current = false;
-        if (isMountedRef.current) {
-          setIsThinking(false);
-          setIsStreaming(false);
-        }
-      }
+      setIsThinking(false);
+      setIsStreaming(false);
+      setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   };
 
   const handleStopStreaming = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-      isSendingRef.current = false;
-      setIsStreaming(false);
-      setIsThinking(false);
+    if (activeConvIdRef.current) {
+      stopBackgroundAiStream(activeConvIdRef.current);
     }
+    isSendingRef.current = false;
+    setIsStreaming(false);
+    setIsThinking(false);
   };
 
   const handleResetPrompt = () => {
     handleStopStreaming();
+    activeConvIdRef.current = null;
+    try {
+      sessionStorage.removeItem(QUICK_AI_CONV_STORAGE_KEY);
+    } catch {}
     setSubmittedPrompt(null);
     setSubmittedImage(null);
     setAttachedImage(null);
@@ -610,54 +690,25 @@ export const QuickAiChatNotchCard: React.FC<QuickAiChatNotchCardProps> = ({
       return;
     }
 
-    try {
-      const activeProv = routedProvider || loadActiveProvider();
-      const modelId = routedModel?.id || "auto";
-      const conv = createConversation(
-        activeProv,
-        modelId,
-        generateTitleFromPrompt(submittedPrompt)
-      );
-
-      const msgs: AiChatMessage[] = [
-        {
-          id: `usr-${Date.now() - 1000}`,
-          role: "user",
-          content: submittedPrompt,
-          timestamp: Date.now() - 1000,
-          context: submittedImage
-            ? {
-                type: "image",
-                title: submittedImage.title,
-                characterCount: submittedImage.sizeKb,
-                previewText: submittedImage.title,
-                imageDataUrl: submittedImage.dataUrl,
-              }
-            : undefined,
-        },
-        {
-          id: `ast-${Date.now()}`,
-          role: "assistant",
-          content: responseContent,
-          timestamp: Date.now(),
-          tokens: estimateTextTokens(responseContent),
-          provider: activeProv,
-          modelId: modelId,
-          modelName: routedModel?.name,
-          notchActions: executedActions.length > 0 ? executedActions : undefined,
-          error: errorMessage || undefined,
-        },
-      ];
-
-      updateConversationMessages(conv.id, msgs);
-      setActiveConversationId(conv.id);
-      window.dispatchEvent(
-        new CustomEvent("gili_ai_conversation_switch", { detail: { conversationId: conv.id } })
-      );
-      onOpenFullChat(undefined, msgs, conv.id);
-    } catch {
-      onOpenFullChat(submittedPrompt);
+    const existingConvId = activeConvIdRef.current;
+    if (existingConvId) {
+      const live = getLiveConversationStreamState(existingConvId);
+      const msgs =
+        live?.messages ||
+        getCompletedConversationMessages(existingConvId) ||
+        getConversationById(existingConvId)?.messages;
+      if (msgs && msgs.length > 0) {
+        setActiveConversationId(existingConvId);
+        window.dispatchEvent(
+          new CustomEvent("gili_ai_conversation_switch", {
+            detail: { conversationId: existingConvId },
+          })
+        );
+        onOpenFullChat(undefined, msgs, existingConvId);
+        return;
+      }
     }
+    onOpenFullChat(submittedPrompt);
   };
 
   const brandKey = routedModel

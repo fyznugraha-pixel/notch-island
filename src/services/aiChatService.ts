@@ -1,4 +1,5 @@
 import { streamAiRequest } from "./aiHttp";
+import { streamGeminiChat } from "./geminiApi";
 import {
   saveSecureApiKey,
   getEffectiveApiKeySync,
@@ -96,6 +97,33 @@ export const AI_MODELS: AiModelConfig[] = [
   },
 
   // Gemini
+  {
+    id: "gemini-3.8-flash",
+    name: "Gemini 3.8 Flash",
+    provider: "gemini",
+    description: "Latest high-speed Gemini Flash via Interactions API",
+    tier: "Fast",
+    inputCostPer1M: 0.15,
+    outputCostPer1M: 0.6,
+  },
+  {
+    id: "gemini-3.5-flash",
+    name: "Gemini 3.5 Flash",
+    provider: "gemini",
+    description: "Fast & capable Gemini 3.5 multimodal model",
+    tier: "Fast",
+    inputCostPer1M: 0.15,
+    outputCostPer1M: 0.6,
+  },
+  {
+    id: "gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    provider: "gemini",
+    description: "Deep reasoning and complex coding with Gemini 2.5 Pro",
+    tier: "Max",
+    inputCostPer1M: 1.25,
+    outputCostPer1M: 10.0,
+  },
   {
     id: "gemini-2.0-flash",
     name: "Gemini 2.0 Flash",
@@ -957,114 +985,36 @@ ${notchInstruction}`;
     return { inputTokens, outputTokens };
   }
 
+  const isGeminiOpenAiCompat = Boolean(customBase && /\/openai(\/|$)/i.test(customBase));
   const isGeminiNative =
     !useGiliFree &&
     provider === "gemini" &&
+    !isGeminiOpenAiCompat &&
     (!customBase || customBase.includes("googleapis.com") || /\/v1beta(\/|$)/i.test(customBase));
 
   if (isGeminiNative) {
-    const cleanGeminiBase = customBase
-      ? customBase.replace(/\/+$/, "").replace(/\/models$/, "")
-      : "https://generativelanguage.googleapis.com/v1beta";
-    const geminiVersionedBase = cleanGeminiBase.endsWith("/v1beta")
-      ? cleanGeminiBase
-      : `${cleanGeminiBase}/v1beta`;
-    endpoint = `${geminiVersionedBase}/models/${encodeURIComponent(model.id)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
-    const isEn = getLanguage() === "en";
-    const geminiContents = windowedMessages.map((m) => {
-      const parts: any[] = [];
-      if (m.context?.imageDataUrl) {
-        const match = m.context.imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
-        if (match) {
-          parts.push({
-            inline_data: {
-              mime_type: match[1],
-              data: match[2],
-            },
-          });
-        }
-      }
-      let text = m.content;
-      if (m.context?.previewText) {
-        text = formatWindowContextPrompt(
-          m.context.previewText,
-          m.context.title || m.context.type,
-          text
-        );
-      }
-      parts.push({ text: text || (isEn ? "Explain this image." : "Jelaskan gambar ini.") });
-      return {
-        role: m.role === "assistant" ? "model" : "user",
-        parts,
-      };
-    });
-
-    let apiInputTokens = 0;
-    let apiOutputTokens = 0;
-    let rawOutputText = "";
-    let rawReasoningText = "";
-
-    await streamAiRequest({
-      url: endpoint,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: geminiContents,
-        system_instruction: {
-          parts: [{ text: systemInstruction }],
-        },
-        generationConfig: {
-          maxOutputTokens: safetyMaxTokens,
-        },
-      }),
+    const geminiRes = await streamGeminiChat({
+      apiKey,
+      model,
+      messages: windowedMessages,
+      systemInstruction,
+      safetyMaxTokens,
+      customBase,
       signal,
-      onChunk: (line) => {
-        const dataStr = extractSseData(line);
-        if (dataStr !== null) {
-          if (dataStr === "[DONE]") return;
-          try {
-            const parsed = JSON.parse(dataStr);
-            if (parsed.usageMetadata) {
-              const promptTok = Number(parsed.usageMetadata.promptTokenCount) || 0;
-              const candTok =
-                (Number(parsed.usageMetadata.candidatesTokenCount) || 0) +
-                (Number(parsed.usageMetadata.thoughtsTokenCount) || 0);
-              if (promptTok > 0) apiInputTokens = promptTok;
-              if (candTok > 0) apiOutputTokens = candTok;
-            }
-            const parts = parsed.candidates?.[0]?.content?.parts;
-            if (Array.isArray(parts)) {
-              for (const part of parts) {
-                if (!part?.text) continue;
-                if (part.thought) {
-                  rawReasoningText += part.text;
-                  filter.handleReasoning(part.text);
-                } else {
-                  rawOutputText += part.text;
-                  filter.handleContent(part.text);
-                }
-              }
-            }
-            const finishReason =
-              parsed.candidates?.[0]?.finishReason ||
-              parsed.candidates?.[0]?.finish_reason;
-            if (finishReason === "MAX_TOKENS" && onTruncated) {
-              onTruncated();
-            }
-          } catch {}
-        }
-      },
+      onText: (text) => filter.handleContent(text),
+      onReasoning: (thought) => filter.handleReasoning(thought),
+      onTruncated,
     });
     filter.flush();
 
     const inputTokens =
-      apiInputTokens > 0
-        ? apiInputTokens
+      geminiRes.apiInputTokens > 0
+        ? geminiRes.apiInputTokens
         : estimateMessagesInputTokens(systemInstruction, windowedMessages);
     const outputTokens =
-      apiOutputTokens > 0
-        ? apiOutputTokens
-        : estimateTextTokens(rawOutputText + rawReasoningText);
+      geminiRes.apiOutputTokens > 0
+        ? geminiRes.apiOutputTokens
+        : estimateTextTokens(geminiRes.rawOutputText + geminiRes.rawReasoningText);
     return { inputTokens, outputTokens };
   }
 
@@ -1081,8 +1031,11 @@ ${notchInstruction}`;
       endpoint = clean;
     } else if (clean.endsWith("/models")) {
       clean = clean.replace(/\/models$/, "");
-      endpoint = clean.endsWith("/v1") ? `${clean}/chat/completions` : `${clean}/v1/chat/completions`;
-    } else if (clean.endsWith("/v1")) {
+      endpoint =
+        clean.endsWith("/v1") || /\/openai$/i.test(clean)
+          ? `${clean}/chat/completions`
+          : `${clean}/v1/chat/completions`;
+    } else if (clean.endsWith("/v1") || /\/openai$/i.test(clean)) {
       endpoint = `${clean}/chat/completions`;
     } else {
       endpoint = `${clean}/v1/chat/completions`;

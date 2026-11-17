@@ -4,7 +4,7 @@ use std::sync::{
 };
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewWindow};
 
-const MINIPLAYER_IDLE_DESTROY_SECS: u64 = 10;
+const MINIPLAYER_IDLE_DESTROY_SECS: u64 = 300;
 
 static IS_MINIPLAYER_OPEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
 static WAS_OPEN_BEFORE_FULLSCREEN: OnceLock<Arc<Mutex<bool>>> = OnceLock::new();
@@ -37,7 +37,6 @@ fn schedule_miniplayer_idle_destroy(app: &AppHandle) {
         if let Some(w) = app_clone.get_webview_window("miniplayer") {
             if !w.is_visible().unwrap_or(false) {
                 let _ = w.destroy();
-                crate::memory_optimizer::schedule_working_set_trim(800);
             }
         }
     });
@@ -45,7 +44,7 @@ fn schedule_miniplayer_idle_destroy(app: &AppHandle) {
 
 fn apply_ignore_cursor(win: &WebviewWindow, ignore: bool) {
     MINIPLAYER_IGNORE_CURSOR.store(ignore, Ordering::Release);
-    let _ = win.set_ignore_cursor_events(ignore);
+    crate::navbar_window::set_overlay_click_through(win, ignore);
 }
 
 fn get_open_state() -> &'static Arc<Mutex<bool>> {
@@ -525,12 +524,14 @@ fn apply_no_activate_style(win: &WebviewWindow) {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
             GetWindowLongW, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
-            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
+            WS_EX_TOOLWINDOW,
         };
         unsafe {
             let h = HWND(hwnd.0);
             let ex_style = GetWindowLongW(h, GWL_EXSTYLE);
-            let new_ex_style = ex_style | (WS_EX_NOACTIVATE.0 as i32) | (WS_EX_TOOLWINDOW.0 as i32);
+            let new_ex_style = (ex_style | (WS_EX_NOACTIVATE.0 as i32) | (WS_EX_TOOLWINDOW.0 as i32))
+                & !(WS_EX_APPWINDOW.0 as i32);
             SetWindowLongW(h, GWL_EXSTYLE, new_ex_style);
             let _ = SetWindowPos(
                 h,
@@ -630,7 +631,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         .visible(true)
         .focused(false)
         .initialization_script("window.__IS_MINIPLAYER_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required")
         .build();
 
         match win {

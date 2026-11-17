@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { MediaPayload } from "../../types";
-import { MediaThumbnail } from "./MediaThumbnail";
+import { MediaThumbnail, useResolvedThumbnail } from "./MediaThumbnail";
 import { AudioVisualizer } from "./AudioVisualizer";
 import { ScrollingText } from "./ScrollingText";
 import { Tooltip } from "./Tooltip";
@@ -89,6 +89,7 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
   const displayArtist = hasMedia
     ? media!.artist
     : t("media_idle_subtitle");
+  const resolvedArtworkUrl = useResolvedThumbnail(media);
 
   const currentMediaPosition = !hasMedia
     ? 0
@@ -501,6 +502,9 @@ export const MediaExpandedPanel: React.FC<MediaExpandedPanelProps> = ({
                     onRefreshLyrics={onRefreshLyrics}
                     songTitle={media?.title || ""}
                     artist={media?.artist || ""}
+                    album={media?.album || undefined}
+                    artworkUrl={resolvedArtworkUrl || media?.thumbnail || null}
+                    sourceApp={media?.app_id || undefined}
                     currentProvider={currentLyricsProvider}
                     onChangeProvider={onChangeLyricsProvider}
                   />

@@ -44,9 +44,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongW, GetWindowRect, IsWindow, IsWindowVisible, PeekMessageW, RegisterClassW,
     SetWindowPos, ShowWindow, TranslateMessage, GWL_STYLE, HTTRANSPARENT, MA_NOACTIVATE, MSG,
     PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSENDCHANGING,
-    SWP_SHOWWINDOW, SW_HIDE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_NCHITTEST, WM_PAINT, WNDCLASSW,
-    WS_CHILD, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP,
+    SWP_SHOWWINDOW, SW_HIDE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_NCHITTEST, WM_PAINT,
+    WM_SETCURSOR, WNDCLASSW, WS_CHILD, WS_DISABLED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 const DWMWA_NCRENDERING_POLICY: u32 = 2;
@@ -576,6 +576,7 @@ unsafe extern "system" fn underlay_wnd_proc(
         WM_ERASEBKGND => LRESULT(1),
         WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        WM_SETCURSOR => LRESULT(1),
         WM_PAINT => {
             let mut ps = PAINTSTRUCT::default();
             let _ = BeginPaint(hwnd, &mut ps);
@@ -860,7 +861,7 @@ unsafe fn create_underlay_window(
         ex_style,
         PCWSTR(class_name.as_ptr()),
         PCWSTR::null(),
-        WS_POPUP,
+        WS_POPUP | WS_DISABLED,
         0,
         0,
         1,

@@ -82,16 +82,14 @@ export const SystemNavbarModule: React.FC<NavbarModuleProps> = ({
           )}
           className={`relative flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
-              : "h-10 px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
+              ? `relative gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
+              : "gili-mod-pill px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
           }`}
         >
           {isCompact ? (
             <>
               <Cpu size={15} className="text-zinc-200" />
-              <span className="absolute -top-1 -right-1 px-1 h-[15px] rounded-full bg-[#10b981] text-[9px] font-bold text-[#052e16] flex items-center justify-center shadow tabular-nums">
+              <span className="gili-mod-badge absolute top-[1px] right-[1px] px-1 h-[14px] rounded-full bg-[#10b981] text-[8.5px] font-bold text-[#052e16] flex items-center justify-center shadow tabular-nums pointer-events-none">
                 {cpuLabel}
               </span>
             </>

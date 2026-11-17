@@ -50,7 +50,7 @@ export const NavbarModuleUnifiedPreview: React.FC<NavbarModuleUnifiedPreviewProp
       if (!item) {
         return (
           <div
-            className={`w-10 h-10 rounded-[12px] bg-white/10 flex items-center justify-center text-zinc-400 text-xs ${className}`}
+            className={`gili-mod-compact rounded-[12px] bg-white/10 flex items-center justify-center text-zinc-400 text-xs ${className}`}
             style={style}
             onClick={onClick}
           >
@@ -74,7 +74,7 @@ export const NavbarModuleUnifiedPreview: React.FC<NavbarModuleUnifiedPreviewProp
 
       return (
         <div
-          className={`inline-flex shrink-0 select-none ${
+          className={`gili-mod-unified inline-flex shrink-0 select-none ${
             variant === "full" ? "w-full" : ""
           } ${className}`}
           style={style}

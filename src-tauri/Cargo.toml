@@ -1,6 +1,6 @@
 [package]
 name = "gili"
-version = "5.0.1"
+version = "5.1.1"
 description = "Gili Island for Windows"
 authors = ["Faiz Anak Telkom University"]
 edition = "2021"
@@ -43,6 +43,7 @@ tiny_http = "0.12"
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.dev]
 opt-level = 2
+incremental = false
 
 [profile.release]
 codegen-units = 1

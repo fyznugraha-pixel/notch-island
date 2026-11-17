@@ -2,6 +2,7 @@ import React from "react";
 import { NavbarIconTheme } from "../../../types/navbar";
 import { NavbarAppItem, normalizeIconUrl } from "./macosIconMap";
 import { renderMacOSAppIcon } from "./MacOSAppIcons";
+import { isStyledIconVariant, StyledAppIconFrame } from "./StyledAppIcons";
 
 export type { NavbarAppItem } from "./macosIconMap";
 export { normalizeIconUrl } from "./macosIconMap";
@@ -94,6 +95,20 @@ export const FluentSettingsIcon: React.FC<{ size?: number }> = ({ size = 22 }) =
   </svg>
 );
 
+export const FluentCalculatorIcon: React.FC<{ size?: number }> = ({ size = 22 }) => (
+  <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+    <rect x="8" y="4" width="32" height="40" rx="6" fill="#2B2D33" stroke="#525660" strokeWidth="1.5" />
+    <rect x="13" y="9" width="22" height="9" rx="2.5" fill="#4FC3F7" />
+    <rect x="13" y="22" width="6" height="5" rx="1.5" fill="#E5E7EB" />
+    <rect x="21" y="22" width="6" height="5" rx="1.5" fill="#E5E7EB" />
+    <rect x="29" y="22" width="6" height="5" rx="1.5" fill="#E5E7EB" />
+    <rect x="13" y="29" width="6" height="5" rx="1.5" fill="#E5E7EB" />
+    <rect x="21" y="29" width="6" height="5" rx="1.5" fill="#E5E7EB" />
+    <rect x="29" y="29" width="6" height="11" rx="1.5" fill="#0078D4" />
+    <rect x="13" y="36" width="14" height="4" rx="1.5" fill="#E5E7EB" />
+  </svg>
+);
+
 // ==========================================
 // 2. THEME: ASLI WINDOWS (Native Windows 11 Taskbar)
 // ==========================================
@@ -161,6 +176,90 @@ export const WindowsTerminalIcon: React.FC<{ size?: number }> = ({ size = 22 }) 
   </svg>
 );
 
+const BRAND_LOGO_MAP: Record<string, string> = {
+  browser: "/logo/chrome.png",
+  chrome: "/logo/chrome.png",
+  gili: "/gili-icons/app-icon/gili-app-icon.svg",
+  spotify: "/logo/spotify.png",
+  discord: "/logo/discord.webp",
+  whatsapp: "/logo/whatsapp.svg",
+  brave: "/logo/brave.png",
+};
+
+function renderAppImg(src: string, alt: string, sizePx: number, extraShadow = "drop-shadow") {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      draggable={false}
+      style={{ width: `${sizePx}px`, height: `${sizePx}px` }}
+      className={`object-contain select-none pointer-events-none ${extraShadow}`}
+    />
+  );
+}
+
+function renderResolvedGlyph(
+  app: NavbarAppItem,
+  glyphSize: number,
+  preferNativeAppIcon: boolean,
+  useWindowsBuiltins: boolean,
+  maxGlyphSize?: number
+): React.ReactNode {
+  if (preferNativeAppIcon && app.icon) {
+    return renderAppImg(
+      normalizeIconUrl(app.icon)!,
+      app.name,
+      glyphSize,
+      "drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
+    );
+  }
+
+  const brandSrc = app.iconType ? BRAND_LOGO_MAP[app.iconType] : undefined;
+  if (brandSrc) {
+    const rawSized = app.iconType === "gili" ? Math.round(glyphSize * 1.06) : glyphSize;
+    const sized = maxGlyphSize ? Math.min(maxGlyphSize, rawSized) : rawSized;
+    return renderAppImg(brandSrc, app.name, sized);
+  }
+
+  switch (app.iconType) {
+    case "folder":
+      return useWindowsBuiltins ? (
+        <WindowsExplorerIcon size={glyphSize} />
+      ) : (
+        <FluentExplorerIcon size={glyphSize} />
+      );
+    case "code":
+    case "vscode":
+      return <FluentVSCodeIcon size={glyphSize} />;
+    case "terminal":
+      return useWindowsBuiltins ? (
+        <WindowsTerminalIcon size={glyphSize} />
+      ) : (
+        <FluentTerminalIcon size={glyphSize} />
+      );
+    case "settings":
+      return useWindowsBuiltins ? (
+        <WindowsSettingsIcon size={glyphSize} />
+      ) : (
+        <FluentSettingsIcon size={glyphSize} />
+      );
+    case "calculator":
+      if (app.icon) {
+        return renderAppImg(normalizeIconUrl(app.icon)!, app.name, glyphSize);
+      }
+      return <FluentCalculatorIcon size={glyphSize} />;
+    default:
+      if (app.icon) {
+        return renderAppImg(normalizeIconUrl(app.icon)!, app.name, glyphSize);
+      }
+      return useWindowsBuiltins ? (
+        <WindowsExplorerIcon size={glyphSize} />
+      ) : (
+        <FluentExplorerIcon size={glyphSize} />
+      );
+  }
+}
+
 // ==========================================
 // MASTER DISPATCHER: AppIcon & renderAppIcon
 // ==========================================
@@ -168,190 +267,64 @@ export const AppIcon: React.FC<{
   app: NavbarAppItem;
   theme?: NavbarIconTheme;
   iconSize?: number;
-}> = ({ app, theme = "fluent", iconSize = 40 }) => {
-  const innerSize = Math.max(20, Math.round(iconSize * 0.55));
-  const squircleSize = Math.max(24, Math.round(iconSize * 0.7));
+  accentColor?: string;
+  isLightSurface?: boolean;
+  maxSize?: number;
+}> = ({
+  app,
+  theme = "fluent",
+  iconSize = 40,
+  accentColor = "#3882F6",
+  isLightSurface = false,
+  maxSize,
+}) => {
+  const clampArtwork = (rawPx: number) =>
+    maxSize ? Math.min(maxSize, rawPx) : rawPx;
+
+  const innerSize = clampArtwork(Math.max(13, Math.round(iconSize * 0.55)));
+  const squircleSize = clampArtwork(Math.max(17, Math.round(iconSize * 0.7)));
 
   if (theme === "ios") {
     return <>{renderMacOSAppIcon(app, squircleSize)}</>;
   }
 
-  // 2. Windows Native Theme (100% Authentic Laptop .exe / .lnk / UWP 256x256 Icons)
-  const nativePx = Math.max(20, Math.round(iconSize * 0.6));
-  if (theme === "windows") {
-    if (app.icon) {
-      return (
-        <img
-          src={normalizeIconUrl(app.icon)}
-          alt={app.name}
-          draggable={false}
-          style={{ width: `${nativePx}px`, height: `${nativePx}px` }}
-          className="object-contain select-none pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
-        />
-      );
-    }
-    switch (app.iconType) {
-      case "folder":
-        return <WindowsExplorerIcon size={nativePx} />;
-      case "browser":
-      case "chrome":
-        return (
-          <img
-            src="/logo/chrome.png"
-            alt={app.name}
-            draggable={false}
-            style={{ width: `${nativePx}px`, height: `${nativePx}px` }}
-            className="object-contain select-none pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
-          />
-        );
-      case "code":
-      case "vscode":
-        return <FluentVSCodeIcon size={nativePx} />;
-      case "terminal":
-        return <FluentTerminalIcon size={nativePx} />;
-      case "settings":
-        return <WindowsSettingsIcon size={nativePx} />;
-      case "gili":
-        return (
-          <img
-            src="/gili-icons/app-icon/gili-app-icon.svg"
-            alt={app.name}
-            draggable={false}
-            style={{ width: `${nativePx}px`, height: `${nativePx}px` }}
-            className="object-contain select-none pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
-          />
-        );
-      case "spotify":
-        return (
-          <img
-            src="/logo/spotify.png"
-            alt={app.name}
-            draggable={false}
-            style={{ width: `${nativePx}px`, height: `${nativePx}px` }}
-            className="object-contain select-none pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
-          />
-        );
-      case "discord":
-        return (
-          <img
-            src="/logo/discord.webp"
-            alt={app.name}
-            draggable={false}
-            style={{ width: `${nativePx}px`, height: `${nativePx}px` }}
-            className="object-contain select-none pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
-          />
-        );
-      case "whatsapp":
-        return (
-          <img
-            src="/logo/whatsapp.svg"
-            alt={app.name}
-            draggable={false}
-            style={{ width: `${nativePx}px`, height: `${nativePx}px` }}
-            className="object-contain select-none pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
-          />
-        );
-      case "brave":
-        return (
-          <img
-            src="/logo/brave.png"
-            alt={app.name}
-            draggable={false}
-            style={{ width: `${nativePx}px`, height: `${nativePx}px` }}
-            className="object-contain select-none pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.28)]"
-          />
-        );
-      default:
-        return <WindowsExplorerIcon size={nativePx} />;
-    }
+  if (isStyledIconVariant(theme)) {
+    const innerGlyph = Math.max(11, Math.round(squircleSize * (theme === "circle" ? 0.58 : 0.64)));
+    return (
+      <StyledAppIconFrame
+        variant={theme}
+        tileSize={squircleSize}
+        accentColor={accentColor}
+        isLightSurface={isLightSurface}
+      >
+        {renderResolvedGlyph(app, innerGlyph, true, theme === "retro")}
+      </StyledAppIconFrame>
+    );
   }
 
-  // 3. Default Fluent Theme
-  switch (app.iconType) {
-    case "folder":
-      return <FluentExplorerIcon size={innerSize} />;
-    case "browser":
-    case "chrome":
-      return (
-        <img
-          src="/logo/chrome.png"
-          alt={app.name}
-          draggable={false}
-          className="w-[22px] h-[22px] object-contain drop-shadow pointer-events-none select-none"
-        />
-      );
-    case "code":
-    case "vscode":
-      return <FluentVSCodeIcon size={innerSize} />;
-    case "terminal":
-      return <FluentTerminalIcon size={innerSize} />;
-    case "settings":
-      return <FluentSettingsIcon size={innerSize} />;
-    case "gili":
-      return (
-        <img
-          src="/gili-icons/app-icon/gili-app-icon.svg"
-          alt={app.name}
-          draggable={false}
-          className="w-[24px] h-[24px] object-contain drop-shadow pointer-events-none select-none"
-        />
-      );
-    case "spotify":
-      return (
-        <img
-          src="/logo/spotify.png"
-          alt={app.name}
-          draggable={false}
-          className="w-[22px] h-[22px] object-contain drop-shadow pointer-events-none select-none"
-        />
-      );
-    case "discord":
-      return (
-        <img
-          src="/logo/discord.webp"
-          alt={app.name}
-          draggable={false}
-          className="w-[22px] h-[22px] object-contain drop-shadow pointer-events-none select-none"
-        />
-      );
-    case "whatsapp":
-      return (
-        <img
-          src="/logo/whatsapp.svg"
-          alt={app.name}
-          draggable={false}
-          className="w-[22px] h-[22px] object-contain drop-shadow pointer-events-none select-none"
-        />
-      );
-    case "brave":
-      return (
-        <img
-          src="/logo/brave.png"
-          alt={app.name}
-          draggable={false}
-          className="w-[22px] h-[22px] object-contain drop-shadow pointer-events-none select-none"
-        />
-      );
-    default:
-      if (app.icon) {
-        return (
-          <img
-            src={normalizeIconUrl(app.icon)}
-            alt={app.name}
-            draggable={false}
-            className="w-[22px] h-[22px] object-contain drop-shadow pointer-events-none select-none"
-          />
-        );
-      }
-      return <FluentExplorerIcon size={innerSize} />;
+  if (theme === "windows") {
+    const nativePx = clampArtwork(Math.max(14, Math.round(iconSize * 0.6)));
+    return <>{renderResolvedGlyph(app, nativePx, true, true, maxSize)}</>;
   }
+
+  return <>{renderResolvedGlyph(app, innerSize, false, false, maxSize)}</>;
 };
 
 export const renderAppIcon = (
   app: NavbarAppItem,
   theme: NavbarIconTheme = "fluent",
-  iconSize = 40
+  iconSize = 40,
+  accentColor = "#3882F6",
+  isLightSurface = false,
+  maxSize?: number
 ): React.ReactNode => (
-  <AppIcon app={app} theme={theme} iconSize={iconSize} />
+  <AppIcon
+    app={app}
+    theme={theme}
+    iconSize={iconSize}
+    accentColor={accentColor}
+    isLightSurface={isLightSurface}
+    maxSize={maxSize}
+  />
 );
 

@@ -90,6 +90,7 @@ export const NavbarPresetsModal: React.FC<NavbarPresetsModalProps> = ({
         shape: config.shape,
         cornerRadius: config.cornerRadius,
         distanceFromEdge: config.distanceFromEdge,
+        taskbarHeight: config.taskbarHeight,
         iconSize: config.iconSize,
         style: config.style,
         background: config.background,

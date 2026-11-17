@@ -664,6 +664,40 @@ export const TabsManagerView: React.FC<TabsManagerViewProps> = ({
 
         <div className={`h-[1px] w-full ${isLightMode ? "bg-black/[0.06]" : "bg-white/[0.06]"}`} />
 
+        {/* Prevent Media Auto-Open While Music Plays */}
+        <div className="flex items-center justify-between px-2 py-2">
+          <div className="flex items-center gap-3 min-w-0 pr-3">
+            <div className="w-8 h-8 rounded-[10px] bg-[#ff375f] text-white flex items-center justify-center shrink-0">
+              <Music2 size={16} />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className={`text-[13px] font-semibold ${isLightMode ? "text-neutral-900" : "text-zinc-100"}`}>
+                {isId
+                  ? "Jangan buka tab Media otomatis saat musik diputar"
+                  : "Don't open the Media page automatically while music is playing"}
+              </span>
+              <span className={`text-[11px] ${isLightMode ? "text-neutral-500" : "text-zinc-400"}`}>
+                {isId
+                  ? "Tetap ikuti perilaku tab default (seperti Terakhir) meski musik sedang diputar di latar belakang"
+                  : "Keep following your default tab behavior (such as Last Used) instead of forcing the Media tab when music plays in the background"}
+              </span>
+            </div>
+          </div>
+
+          <IosSwitch
+            checked={prefs.preventAutoOpenMediaWhilePlaying !== false}
+            onChange={() =>
+              onChangePrefs({
+                ...prefs,
+                preventAutoOpenMediaWhilePlaying: !(prefs.preventAutoOpenMediaWhilePlaying !== false),
+              })
+            }
+            activeColor="green"
+          />
+        </div>
+
+        <div className={`h-[1px] w-full ${isLightMode ? "bg-black/[0.06]" : "bg-white/[0.06]"}`} />
+
         {/* Show Bottom Page Dots */}
         <div className="flex items-center justify-between px-2 py-2">
           <div className="flex items-center gap-3 min-w-0 pr-3">

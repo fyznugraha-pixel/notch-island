@@ -25,6 +25,13 @@ export interface TrayBackgroundAppEntry {
   is_minimized: boolean;
   is_background_tray: boolean;
   icon_base64?: string | null;
+  can_close?: boolean;
+}
+
+export interface CloseTrayAppResult {
+  closed: boolean;
+  requires_admin: boolean;
+  message?: string | null;
 }
 
 export interface QuickTogglesState {

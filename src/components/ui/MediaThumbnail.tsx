@@ -27,13 +27,13 @@ export function useResolvedThumbnail(media: MediaPayload | null | undefined): st
   return getResolvedArtworkUrl(media, false);
 }
 
-function renderPlayerFallback(media: MediaPayload, iconSize: number) {
+function renderPlayerFallback(media: MediaPayload, iconSize: number, compact = false) {
   const branding = getMediaBranding(media);
 
   if (branding.imageSrc) {
     return (
       <div
-        className="w-full h-full flex items-center justify-center p-2 select-none"
+        className={`w-full h-full flex items-center justify-center ${compact ? "p-1" : "p-2"} select-none`}
         style={{ backgroundColor: branding.color }}
       >
         <img
@@ -47,15 +47,15 @@ function renderPlayerFallback(media: MediaPayload, iconSize: number) {
 
   if (media.playback_type === 2) {
     return (
-      <div className="w-full h-full bg-neutral-900 flex items-center justify-center select-none">
-        <Film size={iconSize} className="text-blue-400" />
+      <div className="w-full h-full bg-neutral-900 [html.light_&]:bg-black/[0.06] [.navbar-surface-light_&]:bg-black/[0.06] flex items-center justify-center select-none">
+        <Film size={iconSize} className="text-blue-400 [html.light_&]:text-blue-700 [.navbar-surface-light_&]:text-blue-700" />
       </div>
     );
   }
 
   return (
-    <div className="w-full h-full bg-neutral-800/80 flex items-center justify-center select-none">
-      <Music size={iconSize} className="text-sky-400 [html.light_&]:text-sky-600" />
+    <div className="w-full h-full bg-neutral-800/80 [html.light_&]:bg-black/[0.06] [.navbar-surface-light_&]:bg-black/[0.06] flex items-center justify-center select-none">
+      <Music size={iconSize} className="text-sky-400 [html.light_&]:text-sky-700 [.navbar-surface-light_&]:text-sky-700" />
     </div>
   );
 }
@@ -65,12 +65,13 @@ export const MediaThumbnail = ({
   size = "normal",
 }: {
   media: MediaPayload;
-  size?: "normal" | "large";
+  size?: "compact" | "normal" | "large";
 }) => {
   const [thumbError, setThumbError] = useState(false);
   const [, setTick] = useState(0);
+  const isCompact = size === "compact";
   const isLarge = size === "large";
-  const iconSize = isLarge ? 28 : 20;
+  const iconSize = isLarge ? 28 : isCompact ? 14 : 20;
 
   useEffect(() => {
     setThumbError(false);
@@ -92,7 +93,11 @@ export const MediaThumbnail = ({
   const brandedType = getBrandedMediaType(media);
 
   if (brandedType === "whatsapp") {
-    return <WhatsAppIcon size={iconSize} />;
+    return (
+      <div className="w-full h-full bg-[#0b141a] flex items-center justify-center">
+        <WhatsAppIcon size={iconSize} />
+      </div>
+    );
   }
 
   if (brandedType === "netflix") {
@@ -168,6 +173,7 @@ export const MediaThumbnail = ({
               markArtworkUrlFailed(currentThumb);
               const key = getArtworkCacheKey(media);
               invalidateCachedArtwork(key);
+              fetchHighResArtwork(media).catch(() => {});
             }
           }}
         />
@@ -175,5 +181,5 @@ export const MediaThumbnail = ({
     );
   }
 
-  return renderPlayerFallback(media, iconSize);
+  return renderPlayerFallback(media, iconSize, isCompact);
 };

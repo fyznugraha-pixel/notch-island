@@ -156,17 +156,15 @@ export const TodoNavbarModule: React.FC<NavbarModuleProps> = ({
           )}
           className={`relative flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
-              : "h-10 px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
+              ? `gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]`
+              : "gili-mod-pill px-3 gap-2.5 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
           }`}
         >
           {isCompact ? (
             <>
               <Check size={16} className="text-zinc-100" strokeWidth={2.2} />
               {pendingTodos.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-[16px] h-[16px] rounded-full bg-[#ef4444] text-[10px] font-bold text-[#ffffff] flex items-center justify-center shadow tabular-nums">
+                <span className="gili-mod-badge absolute top-[1px] right-[1px] min-w-[14px] h-[14px] px-1 rounded-full bg-[#ef4444] text-[9px] font-bold text-[#ffffff] flex items-center justify-center shadow tabular-nums pointer-events-none">
                   {pendingTodos.length}
                 </span>
               )}

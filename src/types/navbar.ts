@@ -3,7 +3,21 @@ export type NavbarPosition = "bottom" | "top" | "left" | "right";
 export type NavbarStyle = "solid" | "liquid" | "followNotch";
 export type NavbarBackground = "followNotch" | "black" | "custom";
 export type NavbarIconSpacing = "tight" | "normal" | "roomy";
-export type NavbarIconTheme = "fluent" | "windows" | "ios";
+export type NavbarIconTheme =
+  | "fluent"
+  | "windows"
+  | "ios"
+  | "glass"
+  | "monochrome"
+  | "tinted"
+  | "circle"
+  | "retro"
+  | "neon"
+  | "clay"
+  | "outline"
+  | "pastel"
+  | "sticker"
+  | "contrast";
 export type NavbarAutoHideMode = "normal" | "maxsize";
 export type NavbarWindowAnimation = "genie" | "normal";
 export type NavbarModuleView = "compact" | "full";
@@ -23,6 +37,7 @@ export interface NavbarConfig {
   monitorId: string;
   cornerRadius: number;
   distanceFromEdge: number;
+  taskbarHeight: number;
   iconSize: number;
   iconSpacing: NavbarIconSpacing;
   iconTheme: NavbarIconTheme;
@@ -75,9 +90,10 @@ export const DEFAULT_NAVBAR_CONFIG: NavbarConfig = {
   enabled: false,
   shape: "floating",
   position: "bottom",
-  monitorId: "primary",
+  monitorId: "all",
   cornerRadius: 15,
   distanceFromEdge: 14,
+  taskbarHeight: 48,
   iconSize: 40,
   iconSpacing: "tight",
   iconTheme: "fluent",

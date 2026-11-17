@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::Duration;
@@ -67,8 +67,50 @@ fn wait_for_startup_sync_briefly() {
     let (lock, cvar) = startup_wait_pair();
     if let Ok(guard) = lock.lock() {
         if !*guard {
-            let _ = cvar.wait_timeout(guard, Duration::from_millis(2500));
+            let _ = cvar.wait_timeout(guard, Duration::from_millis(350));
         }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoreProCache {
+    cached_store_pro_active: bool,
+}
+
+fn store_pro_cache_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|base| std::path::PathBuf::from(base).join("Gili").join("store_pro_cache.json"))
+}
+
+fn write_cached_license_to_disk(active: bool) {
+    let Some(path) = store_pro_cache_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(&StoreProCache {
+        cached_store_pro_active: active,
+    }) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+pub fn init_cached_license_from_disk() {
+    if !is_packaged_msix() {
+        return;
+    }
+    let Some(path) = store_pro_cache_path() else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(parsed) = serde_json::from_str::<StoreProCache>(&raw) else {
+        return;
+    };
+    if parsed.cached_store_pro_active {
+        STORE_PRO_ACTIVE.store(true, Ordering::SeqCst);
     }
 }
 
@@ -159,51 +201,69 @@ fn matches_taskbar_pro_token(candidate: &str) -> bool {
 }
 
 #[cfg(windows)]
-fn query_store_snapshot_blocking() -> Result<(bool, StoreProductMeta), String> {
+struct RoGuard(bool);
+
+#[cfg(windows)]
+impl Drop for RoGuard {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe { windows::Win32::System::WinRT::RoUninitialize() };
+        }
+    }
+}
+
+#[cfg(windows)]
+fn enter_winrt_mta() -> RoGuard {
+    use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
+    let ro_ok = unsafe { RoInitialize(RO_INIT_MULTITHREADED).is_ok() };
+    RoGuard(ro_ok)
+}
+
+#[cfg(windows)]
+fn query_license_active_blocking() -> Result<bool, String> {
+    use windows::Services::Store::StoreContext;
+
+    let _ro_guard = enter_winrt_mta();
+    let ctx = StoreContext::GetDefault().map_err(|e| format!("StoreContext::GetDefault: {e}"))?;
+    let app_license = ctx
+        .GetAppLicenseAsync()
+        .and_then(|op| op.get())
+        .map_err(|e| format!("GetAppLicenseAsync: {e}"))?;
+
+    if let Ok(addons) = app_license.AddOnLicenses() {
+        for pair in &addons {
+            let Ok(license) = pair.Value() else {
+                continue;
+            };
+            let offer_match = license
+                .InAppOfferToken()
+                .map(|t| matches_taskbar_pro_token(&t.to_string()))
+                .unwrap_or(false);
+            let is_active = license.IsActive().unwrap_or(false);
+            if offer_match && is_active {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(not(windows))]
+fn query_license_active_blocking() -> Result<bool, String> {
+    Ok(false)
+}
+
+#[cfg(windows)]
+fn query_product_meta_blocking() -> StoreProductMeta {
     use windows::core::HSTRING;
     use windows::Foundation::Collections::IIterable;
     use windows::Services::Store::StoreContext;
-    use windows::Win32::System::WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED};
 
-    struct RoGuard(bool);
-    impl Drop for RoGuard {
-        fn drop(&mut self) {
-            if self.0 {
-                unsafe { RoUninitialize() };
-            }
-        }
-    }
-
-    let ro_ok = unsafe { RoInitialize(RO_INIT_MULTITHREADED).is_ok() };
-    let _ro_guard = RoGuard(ro_ok);
-
-    let ctx = StoreContext::GetDefault().map_err(|e| format!("StoreContext::GetDefault: {e}"))?;
+    let _ro_guard = enter_winrt_mta();
     let mut meta = StoreProductMeta::default();
-    let mut active_license = false;
-
-    match ctx.GetAppLicenseAsync().and_then(|op| op.get()) {
-        Ok(app_license) => {
-            if let Ok(addons) = app_license.AddOnLicenses() {
-                for pair in &addons {
-                    let Ok(license) = pair.Value() else {
-                        continue;
-                    };
-                    let offer_match = license
-                        .InAppOfferToken()
-                        .map(|t| matches_taskbar_pro_token(&t.to_string()))
-                        .unwrap_or(false);
-                    let is_active = license.IsActive().unwrap_or(false);
-                    if offer_match && is_active {
-                        active_license = true;
-                        break;
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            meta.last_error = Some(format!("GetAppLicenseAsync: {e}"));
-        }
-    }
+    let Ok(ctx) = StoreContext::GetDefault() else {
+        return meta;
+    };
 
     let mut matched_product = None;
 
@@ -246,7 +306,7 @@ fn query_store_snapshot_blocking() -> Result<(bool, StoreProductMeta), String> {
                             }
                         }
                     }
-                    if matched_product.is_none() && meta.last_error.is_none() {
+                    if matched_product.is_none() {
                         if let Ok(ext) = query.ExtendedError() {
                             if ext.is_err() {
                                 meta.last_error =
@@ -278,41 +338,56 @@ fn query_store_snapshot_blocking() -> Result<(bool, StoreProductMeta), String> {
             .filter(|s| !s.is_empty());
     }
 
-    Ok((active_license, meta))
+    meta
 }
 
 #[cfg(not(windows))]
-fn query_store_snapshot_blocking() -> Result<(bool, StoreProductMeta), String> {
-    Ok((false, StoreProductMeta::default()))
+fn query_product_meta_blocking() -> StoreProductMeta {
+    StoreProductMeta::default()
 }
 
-fn apply_store_snapshot(res: Result<(bool, StoreProductMeta), String>) {
-    match res {
-        Ok((has_pro, meta)) => {
-            STORE_PRO_ACTIVE.store(has_pro, Ordering::SeqCst);
+fn apply_license_result(lic_res: &Result<bool, String>) {
+    match lic_res {
+        Ok(has_pro) => {
+            STORE_PRO_ACTIVE.store(*has_pro, Ordering::SeqCst);
+            write_cached_license_to_disk(*has_pro);
             if let Ok(mut guard) = meta_store().lock() {
-                *guard = meta;
+                guard.last_error = None;
             }
         }
         Err(err) => {
             if let Ok(mut guard) = meta_store().lock() {
-                guard.last_error = Some(err);
+                guard.last_error = Some(err.clone());
             }
         }
     }
 }
 
-fn read_disk_navbar_flags() -> (bool, bool) {
-    let Some(appdata) = std::env::var_os("APPDATA") else {
-        return (false, false);
+fn apply_product_meta(meta: StoreProductMeta) -> bool {
+    let Ok(mut guard) = meta_store().lock() else {
+        return false;
     };
-    let settings_path = std::path::PathBuf::from(appdata)
-        .join("com.faiz.notch")
-        .join("settings.json");
-    let Ok(raw) = std::fs::read_to_string(&settings_path) else {
-        return (false, false);
+    let last_error = if guard.last_error.is_some() {
+        guard.last_error.clone()
+    } else {
+        meta.last_error
     };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+    let updated = StoreProductMeta {
+        store_id: meta.store_id,
+        product_title: meta.product_title,
+        formatted_price: meta.formatted_price,
+        last_error,
+    };
+    let changed = guard.store_id != updated.store_id
+        || guard.product_title != updated.product_title
+        || guard.formatted_price != updated.formatted_price
+        || guard.last_error != updated.last_error;
+    *guard = updated;
+    changed
+}
+
+fn parse_disk_navbar_flags_json(raw: &str) -> (bool, bool) {
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw) else {
         return (false, false);
     };
     let default_off_migrated = parsed
@@ -336,6 +411,36 @@ fn read_disk_navbar_flags() -> (bool, bool) {
     (enabled, hide_taskbar)
 }
 
+pub fn read_disk_navbar_flags() -> (bool, bool) {
+    let Some(appdata) = std::env::var_os("APPDATA") else {
+        return (false, false);
+    };
+    let settings_path = std::path::PathBuf::from(appdata)
+        .join("com.faiz.notch")
+        .join("settings.json");
+    let Ok(raw) = std::fs::read_to_string(&settings_path) else {
+        return (false, false);
+    };
+    parse_disk_navbar_flags_json(&raw)
+}
+
+fn reconcile_taskbar_after_license_check(app: &AppHandle) {
+    if can_use_taskbar() {
+        crate::taskbar_safety::init_taskbar_switches_from_disk();
+        let (enabled, hide_taskbar) = read_disk_navbar_flags();
+        if enabled {
+            crate::navbar_window::show_or_create_navbar_window(app);
+            if hide_taskbar {
+                crate::taskbar_manager::set_taskbar_visible(false);
+            }
+        }
+    } else {
+        crate::taskbar_manager::set_taskbar_visible(true);
+        crate::navbar_window::hide_navbar_window(app);
+        crate::taskbar_safety::init_taskbar_switches_from_disk();
+    }
+}
+
 /// Starts non-blocking license resolution on MSIX builds and reconciles persisted dock state once resolved.
 pub fn start_startup_license_sync(app: AppHandle) {
     if !is_packaged_msix() {
@@ -344,26 +449,21 @@ pub fn start_startup_license_sync(app: AppHandle) {
     }
 
     std::thread::spawn(move || {
-        let res = query_store_snapshot_blocking();
-        apply_store_snapshot(res);
+        let was_entitled = can_use_taskbar();
+        let lic_res = query_license_active_blocking();
+        apply_license_result(&lic_res);
         mark_startup_sync_done();
 
-        if can_use_taskbar() {
-            crate::taskbar_safety::init_taskbar_switches_from_disk();
-            let (enabled, hide_taskbar) = read_disk_navbar_flags();
-            if enabled {
-                crate::navbar_window::show_or_create_navbar_window(&app);
-                if hide_taskbar {
-                    crate::taskbar_manager::set_taskbar_visible(false);
-                }
-            }
-        } else {
-            crate::taskbar_manager::set_taskbar_visible(true);
-            crate::navbar_window::hide_navbar_window(&app);
-            crate::taskbar_safety::init_taskbar_switches_from_disk();
+        let is_entitled = can_use_taskbar();
+        if !is_entitled || !was_entitled {
+            reconcile_taskbar_after_license_check(&app);
         }
-
         emit_status_changed(&app);
+
+        let meta = query_product_meta_blocking();
+        if apply_product_meta(meta) {
+            emit_status_changed(&app);
+        }
     });
 }
 
@@ -373,8 +473,10 @@ fn refresh_blocking(app: &AppHandle) -> TaskbarProStatus {
         return current_status_snapshot();
     }
 
-    let res = query_store_snapshot_blocking();
-    apply_store_snapshot(res);
+    let lic_res = query_license_active_blocking();
+    apply_license_result(&lic_res);
+    let meta = query_product_meta_blocking();
+    let _ = apply_product_meta(meta);
     mark_startup_sync_done();
 
     if !can_use_taskbar() {
@@ -558,6 +660,7 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
                         .unwrap_or_else(|_| current_status_snapshot());
                 if !final_status.has_pro {
                     STORE_PRO_ACTIVE.store(true, Ordering::SeqCst);
+                    write_cached_license_to_disk(true);
                     emit_status_changed(&app);
                     final_status = current_status_snapshot();
                 }
@@ -575,6 +678,7 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
                         .unwrap_or_else(|_| current_status_snapshot());
                 if !final_status.has_pro {
                     STORE_PRO_ACTIVE.store(true, Ordering::SeqCst);
+                    write_cached_license_to_disk(true);
                     emit_status_changed(&app);
                     final_status = current_status_snapshot();
                 }
@@ -635,5 +739,100 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
             message: "Microsoft Store IAP hanya didukung di Windows.".to_string(),
             license_status: current_status_snapshot(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_matches_taskbar_pro_token() {
+        assert!(matches_taskbar_pro_token("gili_taskbar_pro"));
+        assert!(matches_taskbar_pro_token("  GILI_TASKBAR_PRO\n"));
+        assert!(!matches_taskbar_pro_token("gili_pro"));
+        assert!(!matches_taskbar_pro_token("gili_taskbar_pro_2"));
+        assert!(!matches_taskbar_pro_token(""));
+    }
+
+    #[test]
+    fn test_parse_disk_navbar_flags_json() {
+        assert_eq!(parse_disk_navbar_flags_json("not json"), (false, false));
+        assert_eq!(
+            parse_disk_navbar_flags_json(
+                r#"{"opt_navbar_config":{"enabled":true,"hideWindowsTaskbar":true}}"#
+            ),
+            (false, false)
+        );
+        assert_eq!(
+            parse_disk_navbar_flags_json(
+                r#"{"opt_navbar_default_off_v5":false,"opt_navbar_config":{"enabled":true,"hideWindowsTaskbar":true}}"#
+            ),
+            (false, false)
+        );
+        assert_eq!(
+            parse_disk_navbar_flags_json(r#"{"opt_navbar_default_off_v5":true}"#),
+            (false, false)
+        );
+        assert_eq!(
+            parse_disk_navbar_flags_json(
+                r#"{"opt_navbar_default_off_v5":true,"opt_navbar_config":{"enabled":true,"hideWindowsTaskbar":false}}"#
+            ),
+            (true, false)
+        );
+        assert_eq!(
+            parse_disk_navbar_flags_json(
+                r#"{"opt_navbar_default_off_v5":true,"opt_navbar_config":{"enabled":true,"hideWindowsTaskbar":true}}"#
+            ),
+            (true, true)
+        );
+    }
+
+    #[test]
+    fn test_store_license_serialization_and_unpackaged_snapshot() {
+        let cache: StoreProCache =
+            serde_json::from_str(r#"{"cached_store_pro_active":true}"#).unwrap();
+        assert!(cache.cached_store_pro_active);
+        assert!(serde_json::from_str::<StoreProCache>("{}").is_err());
+
+        // Test binary runs unpackaged (non-MSIX), so taskbar entitlement is open.
+        if !is_packaged_msix() {
+            assert!(can_use_taskbar());
+            let snap = current_status_snapshot();
+            assert!(!snap.is_packaged_msix);
+            assert!(snap.has_pro);
+            assert!(!snap.is_locked);
+            assert_eq!(snap.source, "nsis_free");
+            assert_eq!(snap.offer_token, TASKBAR_PRO_PRODUCT_ID);
+
+            let serialized = serde_json::to_value(&snap).unwrap();
+            assert_eq!(serialized.get("isPackagedMsix"), Some(&serde_json::json!(false)));
+            assert_eq!(serialized.get("hasPro"), Some(&serde_json::json!(true)));
+            assert_eq!(serialized.get("isLocked"), Some(&serde_json::json!(false)));
+            assert_eq!(serialized.get("offerToken"), Some(&serde_json::json!("gili_taskbar_pro")));
+        }
+
+        let outcome = TaskbarProPurchaseOutcome {
+            status: "cancelled".to_string(),
+            message: "cancelled".to_string(),
+            license_status: TaskbarProStatus {
+                is_packaged_msix: true,
+                has_pro: false,
+                is_locked: true,
+                source: "ms_store_locked".to_string(),
+                offer_token: TASKBAR_PRO_PRODUCT_ID.to_string(),
+                store_id: Some("9NBLGGH".to_string()),
+                product_title: Some("Taskbar Pro".to_string()),
+                formatted_price: Some("$1.99".to_string()),
+                checking: false,
+                last_error: None,
+            },
+        };
+        let outcome_json = serde_json::to_value(&outcome).unwrap();
+        assert!(outcome_json.get("licenseStatus").is_some());
+        assert_eq!(
+            outcome_json["licenseStatus"]["formattedPrice"],
+            serde_json::json!("$1.99")
+        );
     }
 }

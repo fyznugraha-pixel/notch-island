@@ -105,9 +105,9 @@ function isHexLightColor(hex?: string): boolean {
   const full =
     cleaned.length === 3
       ? cleaned
-          .split("")
-          .map((ch) => ch + ch)
-          .join("")
+        .split("")
+        .map((ch) => ch + ch)
+        .join("")
       : cleaned;
   const r = parseInt(full.slice(0, 2), 16);
   const g = parseInt(full.slice(2, 4), 16);
@@ -157,6 +157,8 @@ export const TaskbarFlyoutApp: React.FC = () => {
   const flyoutContainerRef = useRef<HTMLDivElement>(null);
   const flyoutAnimRef = useRef<Animation | null>(null);
   const lastAnimatedSeqRef = useRef<number>(0);
+  const lastLuminanceCheckAtRef = useRef<number>(0);
+  const lastStoreSyncAtRef = useRef<number>(0);
   const anchorInfoRef = useRef<FlyoutAnchorInfo | null>(null);
   const posRef = useRef<string>(navbarConfig.position || "bottom");
   const windowAnimGenieRef = useRef<boolean>(navbarConfig.windowAnimation !== "normal");
@@ -164,7 +166,12 @@ export const TaskbarFlyoutApp: React.FC = () => {
   posRef.current = anchorInfo?.position || navbarConfig.position || "bottom";
   windowAnimGenieRef.current = navbarConfig.windowAnimation !== "normal";
 
-  const syncThemeFromStore = useCallback(async () => {
+  const syncThemeFromStore = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastStoreSyncAtRef.current < 10000) {
+      return;
+    }
+    lastStoreSyncAtRef.current = now;
     try {
       const store = await load("settings.json");
       const savedTheme = await store.get<string>("opt_theme");
@@ -176,7 +183,12 @@ export const TaskbarFlyoutApp: React.FC = () => {
     }
   }, []);
 
-  const refreshAutoLuminance = useCallback(async () => {
+  const refreshAutoLuminance = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastLuminanceCheckAtRef.current < 5000) {
+      return;
+    }
+    lastLuminanceCheckAtRef.current = now;
     try {
       const lum = await invoke<number>("get_desktop_luminance");
       if (typeof lum === "number" && Number.isFinite(lum)) {
@@ -217,13 +229,22 @@ export const TaskbarFlyoutApp: React.FC = () => {
   }, [isLight]);
 
   useEffect(() => {
-    void syncThemeFromStore();
+    void syncThemeFromStore(true);
     void loadNavbarConfig().then((cfg) => {
       setNavbarConfig(cfg);
       if (cfg.style === "liquid" || cfg.style === "solid") {
         setTheme(cfg.style);
       }
     });
+    const preloadTimer = window.setTimeout(() => {
+      void import("./views/SoundOutputMixerView");
+      void import("./views/QuickSettingsView");
+      void import("./views/NotificationsCalendarView");
+      void import("./views/TrayFlyoutView");
+    }, 250);
+    const trayPrewarmTimer = window.setTimeout(() => {
+      void import("./views/TrayFlyoutView").then((m) => m.prewarmTrayAppsCache?.());
+    }, 600);
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: light)");
     const handleMediaChange = (e: MediaQueryListEvent) => {
@@ -249,12 +270,14 @@ export const TaskbarFlyoutApp: React.FC = () => {
             setThemePref(val);
           }
         } else {
-          void syncThemeFromStore();
+          void syncThemeFromStore(true);
         }
       }
     );
 
     return () => {
+      window.clearTimeout(preloadTimer);
+      window.clearTimeout(trayPrewarmTimer);
       mediaQuery.removeEventListener?.("change", handleMediaChange);
       window.removeEventListener("storage", handleStorage);
       unlistenSettingsSync.then((fn) => fn());
@@ -262,12 +285,14 @@ export const TaskbarFlyoutApp: React.FC = () => {
   }, [syncThemeFromStore]);
 
   useEffect(() => {
-    if (isOpen && themePref === "auto") {
-      void refreshAutoLuminance();
-    }
-    if (isOpen) {
-      void syncThemeFromStore();
-    }
+    if (!isOpen) return;
+    const rafId = window.requestAnimationFrame(() => {
+      if (themePref === "auto") {
+        void refreshAutoLuminance(false);
+      }
+      void syncThemeFromStore(false);
+    });
+    return () => window.cancelAnimationFrame(rafId);
   }, [isOpen, themePref, refreshAutoLuminance, syncThemeFromStore]);
 
   useEffect(() => {
@@ -331,10 +356,10 @@ export const TaskbarFlyoutApp: React.FC = () => {
         const oy = curAnchor
           ? `${Math.round(curAnchor.originY)}px`
           : curPos === "top"
-          ? "0%"
-          : curPos === "left" || curPos === "right"
-          ? "50%"
-          : "100%";
+            ? "0%"
+            : curPos === "left" || curPos === "right"
+              ? "50%"
+              : "100%";
         el.style.transformOrigin = `${ox} ${oy}`;
       } else {
         el.style.transformOrigin = "50% 50%";
@@ -365,20 +390,19 @@ export const TaskbarFlyoutApp: React.FC = () => {
       }
     }
 
-    if (!hasLiveStateUpdate) {
-      invoke<Partial<FlyoutStatePayload>>("get_taskbar_flyout_state")
-        .then((state) => {
-          if (cancelled || hasLiveStateUpdate || !state?.isOpen || !state.target) return;
-          applyFlyoutOpen(state.target, state.theme, state.isLight, state.anchor);
-        })
-        .catch(() => {});
-    }
+    // Always notify Rust on mount so FLYOUT_READY flips true even when __PENDING_TASKBAR_FLYOUT__ was injected
+    invoke<Partial<FlyoutStatePayload>>("get_taskbar_flyout_state")
+      .then((state) => {
+        if (cancelled || hasLiveStateUpdate || !state?.isOpen || !state.target) return;
+        applyFlyoutOpen(state.target, state.theme, state.isLight, state.anchor);
+      })
+      .catch(() => { });
 
     // 2. Esc key dismiss & Start-to-Search typeahead handler
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        invoke("close_taskbar_flyout").catch(() => {});
+        invoke("close_taskbar_flyout").catch(() => { });
         return;
       }
 
@@ -395,7 +419,7 @@ export const TaskbarFlyoutApp: React.FC = () => {
         setSearchInitialQuery((prev) => prev + e.key);
         targetRef.current = "search";
         setTarget("search");
-        switchFlyoutTarget("search").catch(() => {});
+        switchFlyoutTarget("search").catch(() => { });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -444,7 +468,7 @@ export const TaskbarFlyoutApp: React.FC = () => {
   }, []);
 
   const handleClose = () => {
-    invoke("close_taskbar_flyout").catch(() => {});
+    invoke("close_taskbar_flyout").catch(() => { });
   };
 
   const consumeInitialQuery = useCallback(() => {
@@ -466,7 +490,7 @@ export const TaskbarFlyoutApp: React.FC = () => {
     }
     targetRef.current = nextTarget;
     setTarget(nextTarget);
-    switchFlyoutTarget(nextTarget).catch(() => {});
+    switchFlyoutTarget(nextTarget).catch(() => { });
   };
 
   useLayoutEffect(() => {
@@ -485,12 +509,12 @@ export const TaskbarFlyoutApp: React.FC = () => {
       const oy = anchorInfo
         ? `${Math.round(anchorInfo.originY)}px`
         : pos === "top"
-        ? "0%"
-        : pos === "left"
-        ? "50%"
-        : pos === "right"
-        ? "50%"
-        : "100%";
+          ? "0%"
+          : pos === "left"
+            ? "50%"
+            : pos === "right"
+              ? "50%"
+              : "100%";
       el.style.transformOrigin = `${ox} ${oy}`;
     } else {
       el.style.transformOrigin = "50% 50%";

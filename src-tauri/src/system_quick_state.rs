@@ -1,15 +1,12 @@
 use std::ffi::c_void;
 
 use serde::Serialize;
-use windows::core::{s, w, IUnknown, Interface, GUID, HRESULT, PCWSTR};
-use windows::Win32::Foundation::HWND;
+use windows::core::{s, w, IUnknown, Interface, GUID, HRESULT};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 const CLOUDSTORE_NIGHT_LIGHT_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\CloudStore\\Store\\DefaultAccount\\Current\\default$windows.data.bluelightreduction.bluelightreductionstate\\windows.data.bluelightreduction.bluelightreductionstate";
 const WNF_PO_ENERGY_SAVER_SETTING: u64 = 0x41c6_013d_a3bc_2875;
@@ -258,19 +255,29 @@ pub fn open_windows_uri(target: &str) {
     if trimmed.is_empty() {
         return;
     }
-    let op_wide: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-    let target_wide: Vec<u16> = trimmed.encode_utf16().chain(std::iter::once(0)).collect();
-    let res = unsafe {
-        ShellExecuteW(
-            HWND(std::ptr::null_mut()),
-            PCWSTR(op_wide.as_ptr()),
-            PCWSTR(target_wide.as_ptr()),
-            PCWSTR(std::ptr::null()),
-            PCWSTR(std::ptr::null()),
-            SW_SHOWNORMAL,
-        )
-    };
-    if res.0 as usize <= 32 {
+    let lower = trimmed.to_lowercase();
+    if matches!(
+        lower.as_str(),
+        "calculator" | "calculator:" | "calculatorapp" | "calc"
+    ) {
+        if crate::windows_pinned_apps::shell_execute_open("calculator:", "", None)
+            || crate::windows_pinned_apps::shell_execute_open("calc.exe", "", None)
+        {
+            return;
+        }
+    } else if let Some(proto) = crate::windows_pinned_apps::resolve_protocol_for_app(trimmed, "") {
+        if crate::windows_pinned_apps::shell_execute_open(proto, "", None) {
+            return;
+        }
+    }
+    if crate::windows_pinned_apps::shell_execute_open(trimmed, "", None) {
+        return;
+    }
+    let target_path = std::path::Path::new(trimmed);
+    let is_windowsapps_dir = lower.contains("\\windowsapps") && target_path.is_dir();
+    if (target_path.exists() && !is_windowsapps_dir)
+        || (lower.starts_with("shell:") && !lower.starts_with("shell:appsfolder\\"))
+    {
         let _ = std::process::Command::new("explorer.exe").arg(trimmed).spawn();
     }
 }
@@ -418,22 +425,28 @@ pub async fn toggle_night_light(enable: Option<bool>) -> Result<bool, String> {
         .map_err(|e| format!("Night Light task failed: {e}"))?
 }
 
-#[tauri::command]
-pub fn open_accessibility_feature(feature: String) {
-    let uri = match feature.as_str() {
+fn accessibility_feature_uri(feature: &str) -> &'static str {
+    match feature {
         "magnifier" => "ms-settings:easeofaccess-magnifier",
         "narrator" => "ms-settings:easeofaccess-narrator",
         "colorfilter" => "ms-settings:easeofaccess-colorfilter",
         "audio" => "ms-settings:easeofaccess-audio",
         "captions" => "ms-settings:easeofaccess-closedcaptioning",
         _ => "ms-settings:easeofaccess-display",
-    };
-    open_windows_uri(uri);
+    }
+}
+
+#[tauri::command]
+pub fn open_accessibility_feature(feature: String) {
+    open_windows_uri(accessibility_feature_uri(&feature));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_night_light_bytes, transform_night_light_cloudstore_bytes};
+    use super::{
+        accessibility_feature_uri, bump_cloudstore_timestamp, parse_night_light_bytes,
+        transform_night_light_cloudstore_bytes,
+    };
 
     #[test]
     fn parses_cloudstore_night_light_off_and_on() {
@@ -471,5 +484,117 @@ mod tests {
         assert!(!parse_night_light_bytes(&turned_off));
 
         assert!(transform_night_light_cloudstore_bytes(&[0x43, 0x42], true).is_none());
+    }
+
+    #[test]
+    fn parses_night_light_length_boundary_and_pattern_fallback() {
+        let mut exact_20 = vec![0u8; 20];
+        exact_20[18] = 0x15;
+        assert!(!parse_night_light_bytes(&exact_20));
+
+        let mut len_21 = vec![0u8; 21];
+        len_21[18] = 0x15;
+        assert!(parse_night_light_bytes(&len_21));
+
+        let pattern_only = [0x01, 0x02, 0x15, 0x10, 0x00, 0x43, 0x99];
+        assert!(parse_night_light_bytes(&pattern_only));
+    }
+
+    #[test]
+    fn bumps_cloudstore_leb128_timestamp_and_handles_rollover() {
+        let mut short = [1u8; 14];
+        bump_cloudstore_timestamp(&mut short);
+        assert_eq!(short, [1u8; 14]);
+
+        let mut normal = vec![0u8; 16];
+        normal[10] = 0x2A;
+        bump_cloudstore_timestamp(&mut normal);
+        assert_eq!(normal[10], 0x2B);
+
+        // Low 7 bits full (0x7F) with continuation bit 7 set -> resets to 0x80 and carries into byte 11
+        let mut carry = vec![0u8; 16];
+        carry[10] = 0xFF;
+        carry[11] = 0x81;
+        bump_cloudstore_timestamp(&mut carry);
+        assert_eq!(carry[10], 0x80);
+        assert_eq!(carry[11], 0x82);
+    }
+
+    #[test]
+    fn transforms_night_light_idempotent_alternate_layout_and_invalid_inputs() {
+        let mut off_alt = vec![0u8; 24];
+        off_alt[10] = 0x10;
+        off_alt[18] = 0x13;
+        off_alt[19..23].copy_from_slice(&[0x01, 0x02, 0x03, 0x04]);
+
+        // Already disabled -> returns exact clone without timestamp bump
+        assert_eq!(
+            transform_night_light_cloudstore_bytes(&off_alt, false),
+            Some(off_alt.clone())
+        );
+
+        let on_alt = transform_night_light_cloudstore_bytes(&off_alt, true).unwrap();
+        assert_eq!(on_alt.len(), off_alt.len() + 2);
+        assert_eq!(on_alt[18], 0x15);
+        assert_eq!(&on_alt[19..21], &[0x10, 0x00]);
+        assert_eq!(on_alt[10], 0x11);
+
+        // Already enabled -> returns exact clone
+        assert_eq!(
+            transform_night_light_cloudstore_bytes(&on_alt, true),
+            Some(on_alt.clone())
+        );
+
+        let off_again = transform_night_light_cloudstore_bytes(&on_alt, false).unwrap();
+        assert_eq!(off_again.len(), off_alt.len());
+        assert_eq!(off_again[18], 0x13);
+        assert_eq!(&off_again[19..23], &[0x01, 0x02, 0x03, 0x04]);
+        assert_eq!(off_again[10], 0x12);
+
+        // Invalid marker byte
+        let mut bad_marker = vec![0u8; 26];
+        bad_marker[18] = 0x14;
+        assert!(transform_night_light_cloudstore_bytes(&bad_marker, true).is_none());
+
+        // Disabling payload shorter than 25 bytes or missing [0x10, 0x00] marker
+        let mut short_on = vec![0u8; 24];
+        short_on[18] = 0x15;
+        assert!(transform_night_light_cloudstore_bytes(&short_on, false).is_none());
+
+        let mut missing_flag_on = vec![0u8; 26];
+        missing_flag_on[18] = 0x15;
+        assert!(transform_night_light_cloudstore_bytes(&missing_flag_on, false).is_none());
+    }
+
+    #[test]
+    fn maps_accessibility_features_to_ms_settings_uris() {
+        assert_eq!(
+            accessibility_feature_uri("magnifier"),
+            "ms-settings:easeofaccess-magnifier"
+        );
+        assert_eq!(
+            accessibility_feature_uri("narrator"),
+            "ms-settings:easeofaccess-narrator"
+        );
+        assert_eq!(
+            accessibility_feature_uri("colorfilter"),
+            "ms-settings:easeofaccess-colorfilter"
+        );
+        assert_eq!(
+            accessibility_feature_uri("audio"),
+            "ms-settings:easeofaccess-audio"
+        );
+        assert_eq!(
+            accessibility_feature_uri("captions"),
+            "ms-settings:easeofaccess-closedcaptioning"
+        );
+        assert_eq!(
+            accessibility_feature_uri("display"),
+            "ms-settings:easeofaccess-display"
+        );
+        assert_eq!(
+            accessibility_feature_uri("unknown"),
+            "ms-settings:easeofaccess-display"
+        );
     }
 }

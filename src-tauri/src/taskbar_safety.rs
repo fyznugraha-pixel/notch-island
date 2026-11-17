@@ -181,8 +181,10 @@ pub fn set_taskbar_window_switches(switches: TaskbarWindowSwitches) {
     }
 }
 
-pub fn sync_switches_from_navbar_config_value(cfg: &serde_json::Value) {
-    let entitled = cfg!(test) || crate::store_license::can_use_taskbar();
+fn switches_from_navbar_config_value(
+    cfg: &serde_json::Value,
+    entitled: bool,
+) -> (TaskbarWindowSwitches, bool) {
     let enabled = entitled
         && cfg
             .get("enabled")
@@ -202,17 +204,45 @@ pub fn sync_switches_from_navbar_config_value(cfg: &serde_json::Value) {
         use_gili_tray: flag("useGiliTray"),
     };
 
-    set_taskbar_window_switches(switches);
-
     let genie_enabled = cfg
         .get("windowAnimation")
         .and_then(|v| v.as_str())
         .map(|s| s != "normal")
         .unwrap_or(true);
+
+    (switches, genie_enabled)
+}
+
+fn parse_navbar_config_from_settings_json(raw: &str) -> Option<serde_json::Value> {
+    let parsed = serde_json::from_str::<serde_json::Value>(raw).ok()?;
+    let default_off_migrated = parsed
+        .get("opt_navbar_default_off_v5")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !default_off_migrated {
+        return None;
+    }
+    parsed.get("opt_navbar_config").cloned()
+}
+
+pub fn sync_switches_from_navbar_config_value(cfg: &serde_json::Value) {
+    let entitled = cfg!(test) || crate::store_license::can_use_taskbar();
+    let (switches, genie_enabled) = switches_from_navbar_config_value(cfg, entitled);
+
+    set_taskbar_window_switches(switches);
     crate::window_dock_anim::set_genie_animation_enabled(genie_enabled);
 
     if !cfg!(test) {
-        let hide_windows_taskbar = flag("hideWindowsTaskbar");
+        let enabled = entitled
+            && cfg
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        let hide_windows_taskbar = enabled
+            && cfg
+                .get("hideWindowsTaskbar")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
         crate::taskbar_manager::set_taskbar_visible(!hide_windows_taskbar);
     }
 }
@@ -227,18 +257,8 @@ pub fn init_taskbar_switches_from_disk() {
     let Ok(raw) = std::fs::read_to_string(&settings_path) else {
         return;
     };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return;
-    };
-    let default_off_migrated = parsed
-        .get("opt_navbar_default_off_v5")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    if !default_off_migrated {
-        return;
-    }
-    if let Some(navbar_cfg) = parsed.get("opt_navbar_config") {
-        sync_switches_from_navbar_config_value(navbar_cfg);
+    if let Some(navbar_cfg) = parse_navbar_config_from_settings_json(&raw) {
+        sync_switches_from_navbar_config_value(&navbar_cfg);
     }
 }
 
@@ -260,11 +280,18 @@ pub fn trigger_taskbar_kill_switch(app: AppHandle) {
 }
 
 #[cfg(test)]
+pub(crate) static SWITCHES_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_taskbar_window_switches_defaults_and_toggle() {
+        let _lock = SWITCHES_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
         // Defaults must be false (native Windows) as per Rule 3
         let initial = get_taskbar_window_switches();
         assert!(!initial.use_gili_start);
@@ -323,5 +350,65 @@ mod tests {
         let reset = get_taskbar_window_switches();
         assert!(!reset.use_gili_start);
         assert!(!reset.use_gili_volume_output);
+    }
+
+    #[test]
+    fn test_switches_from_navbar_config_value_and_entitlement() {
+        let full_cfg = serde_json::json!({
+            "enabled": true,
+            "useGiliStart": true,
+            "useGiliSearch": true,
+            "useGiliQuickSettings": true,
+            "useGiliVolumeOutput": true,
+            "useGiliNotificationsCalendar": true,
+            "useGiliTray": true,
+            "windowAnimation": "normal"
+        });
+
+        let (switches, genie) = switches_from_navbar_config_value(&full_cfg, true);
+        assert!(switches.use_gili_start);
+        assert!(switches.use_gili_search);
+        assert!(switches.use_gili_quick_settings);
+        assert!(switches.use_gili_volume_output);
+        assert!(switches.use_gili_notif_cal);
+        assert!(switches.use_gili_tray);
+        assert!(!genie);
+
+        // Unentitled forces all switches false while keeping windowAnimation preference parsing pure
+        let (locked, genie_locked) = switches_from_navbar_config_value(&full_cfg, false);
+        assert!(!locked.use_gili_start);
+        assert!(!locked.use_gili_search);
+        assert!(!locked.use_gili_quick_settings);
+        assert!(!locked.use_gili_volume_output);
+        assert!(!locked.use_gili_notif_cal);
+        assert!(!locked.use_gili_tray);
+        assert!(!genie_locked);
+
+        // Non-boolean values safely default false and missing windowAnimation defaults genie=true
+        let malformed = serde_json::json!({
+            "enabled": "true",
+            "useGiliStart": true
+        });
+        let (mal_switches, mal_genie) = switches_from_navbar_config_value(&malformed, true);
+        assert!(!mal_switches.use_gili_start);
+        assert!(mal_genie);
+    }
+
+    #[test]
+    fn test_parse_navbar_config_from_settings_json() {
+        assert!(parse_navbar_config_from_settings_json("not json").is_none());
+        assert!(parse_navbar_config_from_settings_json(r#"{"opt_navbar_config":{"enabled":true}}"#).is_none());
+        assert!(parse_navbar_config_from_settings_json(
+            r#"{"opt_navbar_default_off_v5":false,"opt_navbar_config":{"enabled":true}}"#
+        )
+        .is_none());
+        assert!(parse_navbar_config_from_settings_json(r#"{"opt_navbar_default_off_v5":true}"#).is_none());
+
+        let cfg = parse_navbar_config_from_settings_json(
+            r#"{"opt_navbar_default_off_v5":true,"opt_navbar_config":{"enabled":true,"useGiliTray":true}}"#,
+        )
+        .expect("migrated config should parse");
+        assert_eq!(cfg.get("enabled"), Some(&serde_json::json!(true)));
+        assert_eq!(cfg.get("useGiliTray"), Some(&serde_json::json!(true)));
     }
 }

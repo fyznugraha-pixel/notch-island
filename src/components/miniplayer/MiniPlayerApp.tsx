@@ -18,6 +18,11 @@ import { MiniPlayerBackground } from "./MiniPlayerBackground";
 import { extractDominantColor } from "./colorExtractor";
 import { useResolvedThumbnail } from "../ui/MediaThumbnail";
 import { prefetchArtwork } from "../../services/artworkService";
+import {
+  buildDefaultSelectedIndices,
+  extractShareableLyricLines,
+  openLyricsShareStudio,
+} from "../../services/lyricsShareService";
 import { useSystemTextScale } from "../../hooks/useSystemTextScale";
 import { getLanguage, setLanguage, Language } from "../../services/i18n";
 import { setSoundEffectsEnabled } from "../../services/soundService";
@@ -641,6 +646,34 @@ export const MiniPlayerApp: React.FC = () => {
       ? lyrics.offset
       : parseFloat(localStorage.getItem("notch_lyrics_offset") || "0") || 0;
 
+  const handleShareLyrics = useCallback(async () => {
+    const shareLines = extractShareableLyricLines(lyrics);
+    if (shareLines.length === 0) return;
+    let activeIdx = -1;
+    if (lyrics?.synced && lyrics.lines.length > 0) {
+      const effectiveTime = (media?.position || 0) + currentOffset + 0.2;
+      activeIdx = lyrics.lines.findIndex(
+        (line, i) =>
+          effectiveTime >= line.time &&
+          (i === lyrics.lines.length - 1 || effectiveTime < lyrics.lines[i + 1].time)
+      );
+    }
+    const selectedIndices = buildDefaultSelectedIndices(shareLines, activeIdx);
+    try {
+      await openLyricsShareStudio({
+        title: media?.title || lyrics?.title || "",
+        artist: media?.artist || lyrics?.artist || "",
+        album: media?.album || undefined,
+        artworkUrl: effectiveThumbnail || null,
+        lines: shareLines,
+        selectedIndices,
+        sourceApp: media?.app_id || undefined,
+      });
+    } catch (err) {
+      console.error("Failed to open lyrics share studio:", err);
+    }
+  }, [lyrics, media, currentOffset, effectiveThumbnail]);
+
   const toolbarNode = (
     <MiniPlayerToolbar
       mode={mode}
@@ -651,6 +684,7 @@ export const MiniPlayerApp: React.FC = () => {
       isPinned={isPinned}
       onTogglePin={handleTogglePin}
       onReturnToNotch={handleReturnToNotch}
+      onShareLyrics={handleShareLyrics}
       media={media}
       lyrics={lyrics}
     />

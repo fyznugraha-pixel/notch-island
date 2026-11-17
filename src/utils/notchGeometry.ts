@@ -76,7 +76,8 @@ export interface NotchSurfaceMetrics {
  * on high-DPI displays (100%, 125%, 150%, 200%).
  */
 export function snapToPhysicalPixel(value: number, dpr = 1): number {
-  return Math.round(value * dpr) / dpr;
+  const snapped = Math.round(value * dpr) / dpr;
+  return snapped === 0 ? 0 : snapped;
 }
 
 export function getNotchSurfaceMetrics(params: NotchPathParams): NotchSurfaceMetrics {

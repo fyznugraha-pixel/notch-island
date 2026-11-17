@@ -26,6 +26,7 @@ import { AddModuleDialog } from "./AddModuleDialog";
 import { NavbarPresetsModal } from "./NavbarPresetsModal";
 import { TaskbarProBanner, ProPurchaseFeedback } from "./TaskbarProBanner";
 import { getNavbarModuleById } from "../../../modules/registry";
+import { MODULE_ID_ALIASES } from "../../../modules/moduleComponents";
 import { LayoutTemplate, RotateCcw } from "lucide-react";
 import { Language, getLanguage } from "../../../services/i18n";
 
@@ -88,7 +89,10 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
     moduleId: string,
     preferredView?: "compact" | "full"
   ) => {
-    const existingIndex = config.modules.findIndex((m) => m.id === moduleId);
+    const targetCanonical = MODULE_ID_ALIASES[moduleId] || moduleId;
+    const existingIndex = config.modules.findIndex(
+      (m) => (MODULE_ID_ALIASES[m.id] || m.id) === targetCanonical
+    );
     if (existingIndex !== -1) {
       if (preferredView) {
         const updated = config.modules.map((m, idx) =>
@@ -100,7 +104,7 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
     }
     const def = getNavbarModuleById(moduleId);
     const newModule = {
-      id: moduleId,
+      id: def?.id || moduleId,
       group: def?.group || (2 as const),
       enabled: true,
       view: preferredView || def?.defaultView || ("full" as const),

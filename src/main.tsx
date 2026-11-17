@@ -30,17 +30,29 @@ const MiniPlayerApp = lazy(() =>
     default: m.MiniPlayerApp,
   }))
 );
+const LyricsShareWindowApp = lazy(() =>
+  import("./components/lyricsShare/LyricsShareWindowApp").then((m) => ({
+    default: m.LyricsShareWindowApp,
+  }))
+);
 
 const isNavbarWindow = (() => {
   if (typeof window === "undefined") return false;
   let result = false;
-  if ((window as any).__IS_NAVBAR_WINDOW__ === true) {
+  const winLabel = String(
+    (window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label || ""
+  );
+  if (
+    (window as any).__IS_NAVBAR_WINDOW__ === true ||
+    (window as any).__IS_SECONDARY_NAVBAR_WINDOW__ === true
+  ) {
     result = true;
-  } else if ((window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "navbar") {
+  } else if (winLabel === "navbar" || winLabel.startsWith("navbar_secondary_")) {
     result = true;
   } else {
     try {
-      if (getCurrentWindow().label === "navbar") {
+      const lbl = getCurrentWindow().label;
+      if (lbl === "navbar" || lbl.startsWith("navbar_secondary_")) {
         result = true;
       }
     } catch {}
@@ -125,13 +137,13 @@ const isTaskbarFlyoutWindow = (() => {
 
   if (result) {
     const flyoutWin = window as unknown as {
-      __setTaskbarFlyoutState?: (target: string, theme?: "solid" | "liquid") => void;
+      __setTaskbarFlyoutState?: (target: string, theme?: "solid" | "liquid", anchor?: unknown) => void;
       __resetTaskbarFlyoutState?: () => void;
-      __PENDING_TASKBAR_FLYOUT__?: { target?: string; theme?: "solid" | "liquid" };
+      __PENDING_TASKBAR_FLYOUT__?: { target?: string; theme?: "solid" | "liquid"; anchor?: unknown };
     };
     if (!flyoutWin.__setTaskbarFlyoutState) {
-      flyoutWin.__setTaskbarFlyoutState = (target, theme) => {
-        flyoutWin.__PENDING_TASKBAR_FLYOUT__ = { target, theme };
+      flyoutWin.__setTaskbarFlyoutState = (target, theme, anchor) => {
+        flyoutWin.__PENDING_TASKBAR_FLYOUT__ = { target, theme, anchor };
       };
     }
     if (!flyoutWin.__resetTaskbarFlyoutState) {
@@ -187,6 +199,41 @@ const isMiniPlayerWindow = (() => {
   );
 })();
 
+const isLyricsShareWindow = (() => {
+  if (typeof window === "undefined") return false;
+  let result = false;
+  if ((window as any).__IS_LYRICS_SHARE_WINDOW__ === true) {
+    result = true;
+  } else if (
+    (window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "lyrics_share"
+  ) {
+    result = true;
+  } else {
+    try {
+      if (getCurrentWindow().label === "lyrics_share") {
+        result = true;
+      }
+    } catch {}
+    if (!result) {
+      result =
+        new URLSearchParams(window.location.search).get("window") === "lyrics_share" ||
+        window.location.search.includes("window=lyrics_share") ||
+        window.location.href.includes("window=lyrics_share");
+    }
+  }
+  if (result) {
+    document.documentElement.classList.add("lyrics-share-window");
+    if (document.body) {
+      document.body.classList.add("lyrics-share-window");
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add("lyrics-share-window");
+      });
+    }
+  }
+  return result;
+})();
+
 interface Props {
   children: ReactNode;
 }
@@ -234,6 +281,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         <TaskbarFlyoutApp />
       ) : isMiniPlayerWindow ? (
         <MiniPlayerApp />
+      ) : isLyricsShareWindow ? (
+        <LyricsShareWindowApp />
       ) : (
         <App isSecondaryWindow={isSecondaryWindow} />
       )}

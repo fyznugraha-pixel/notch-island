@@ -4,6 +4,8 @@ import type { AiProviderId, AiModelConfig } from "../components/ui/aichat/AiChat
 
 // v1 stored a hardcoded fallback list even for unverified keys; v2 holds only verified models.
 const REGISTERED_MODELS_STORAGE = "island_ai_registered_models_v2";
+const CUSTOM_MODELS_STORAGE = "island_ai_custom_models_v1";
+const UNAVAILABLE_MODELS_STORAGE = "island_ai_unavailable_models_v1";
 const ACTIVE_MODEL_STORAGE = "island_ai_active_model_v1";
 
 export type ModelVerifyResult =
@@ -16,6 +18,175 @@ interface RemoteModel {
   description?: string;
   inputCostPer1M?: number;
   outputCostPer1M?: number;
+}
+
+let unavailableCache: Set<string> | null = null;
+
+function normalizeModelId(id: string): string {
+  return id.trim().replace(/^models\//i, "");
+}
+
+function unavailableEntryKey(provider: AiProviderId, modelId: string): string {
+  return `${provider}:${normalizeModelId(modelId).toLowerCase()}`;
+}
+
+function getUnavailableSet(): Set<string> {
+  if (unavailableCache) return unavailableCache;
+  const loaded = new Set<string>();
+  try {
+    const raw = localStorage.getItem(UNAVAILABLE_MODELS_STORAGE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (typeof item === "string" && item) loaded.add(item);
+        }
+      }
+    }
+  } catch {}
+  unavailableCache = loaded;
+  return unavailableCache;
+}
+
+function persistUnavailableSet(set: Set<string>): void {
+  try {
+    localStorage.setItem(UNAVAILABLE_MODELS_STORAGE, JSON.stringify([...set]));
+  } catch {}
+}
+
+export function markModelUnavailable(provider: AiProviderId, modelId: string): void {
+  const clean = normalizeModelId(modelId);
+  if (!clean) return;
+  const set = getUnavailableSet();
+  const key = unavailableEntryKey(provider, clean);
+  if (!set.has(key)) {
+    set.add(key);
+    persistUnavailableSet(set);
+  }
+}
+
+export function isModelUnavailable(provider: AiProviderId, modelId: string): boolean {
+  const clean = normalizeModelId(modelId);
+  if (!clean) return false;
+  return getUnavailableSet().has(unavailableEntryKey(provider, clean));
+}
+
+export function clearModelUnavailable(provider: AiProviderId, modelId?: string): void {
+  const set = getUnavailableSet();
+  if (modelId) {
+    if (set.delete(unavailableEntryKey(provider, modelId))) {
+      persistUnavailableSet(set);
+    }
+    return;
+  }
+  const prefix = `${provider}:`;
+  let changed = false;
+  for (const key of [...set]) {
+    if (key.startsWith(prefix)) {
+      set.delete(key);
+      changed = true;
+    }
+  }
+  if (changed) persistUnavailableSet(set);
+}
+
+function parseModelVersionScore(id: string): number {
+  const lower = normalizeModelId(id).toLowerCase();
+  const geminiMatch = lower.match(/gemini-(\d+)(?:\.(\d+))?/);
+  if (geminiMatch) {
+    return Number(geminiMatch[1]) * 100 + Number(geminiMatch[2] || 0);
+  }
+  const claudeRoleMatch = lower.match(/claude-(?:sonnet|opus|haiku)-(\d+)(?:-(\d+))?/);
+  if (claudeRoleMatch) {
+    const minor = claudeRoleMatch[2] && claudeRoleMatch[2].length <= 2 ? Number(claudeRoleMatch[2]) : 0;
+    return Number(claudeRoleMatch[1]) * 100 + minor;
+  }
+  const claudeVerMatch = lower.match(/claude-(\d+)(?:[.-](\d+))?/);
+  if (claudeVerMatch) {
+    const minor = claudeVerMatch[2] && claudeVerMatch[2].length <= 2 ? Number(claudeVerMatch[2]) : 0;
+    return Number(claudeVerMatch[1]) * 100 + minor;
+  }
+  const gptMatch = lower.match(/gpt-(\d+)(?:\.(\d+))?(o)?/);
+  if (gptMatch) {
+    const base = Number(gptMatch[1]) * 100 + Number(gptMatch[2] || 0);
+    return gptMatch[3] ? base + 0.5 : base;
+  }
+  const oMatch = lower.match(/(?:^|\/)o(\d+)(?:-|$)/);
+  if (oMatch) {
+    return Number(oMatch[1]) * 100;
+  }
+  const grokMatch = lower.match(/grok-(\d+)(?:\.(\d+))?/);
+  if (grokMatch) {
+    return Number(grokMatch[1]) * 100 + Number(grokMatch[2] || 0);
+  }
+  if (lower.includes("deepseek-r1") || lower.includes("deepseek-reasoner")) return 310;
+  if (lower.includes("deepseek-v3") || lower.includes("deepseek-chat")) return 300;
+  if (lower.includes("flash-latest") || lower.includes("pro-latest")) return 190;
+  return 0;
+}
+
+function getModelStabilityScore(id: string): number {
+  const lower = id.toLowerCase();
+  if (/(?:^|[-_])(exp|experimental)(?:$|[-_])/.test(lower)) return 1;
+  if (/preview/.test(lower)) return 2;
+  if (/-\d{3,4}(?:-\d{2})?$|-latest$/.test(lower)) return 3;
+  return 4;
+}
+
+export function isSpecializedNonChatModel(id: string): boolean {
+  return /(tts|native-audio|image-generation|embedding|robotics|aqa|realtime|transcribe)/i.test(id);
+}
+
+function getVariantOrderRank(id: string): number {
+  const lower = id.toLowerCase();
+  if (lower.includes("flash-lite") || lower.includes("flash-8b") || lower.includes("nano")) return 1;
+  if (lower.includes("flash")) return 4;
+  if (lower.includes("pro")) return 3;
+  if (lower.includes("ultra")) return 2;
+  return 2;
+}
+
+export function compareModelsNewestFirst(a: { id: string }, b: { id: string }): number {
+  const specDiff = Number(isSpecializedNonChatModel(a.id)) - Number(isSpecializedNonChatModel(b.id));
+  if (specDiff !== 0) return specDiff;
+
+  const verDiff = parseModelVersionScore(b.id) - parseModelVersionScore(a.id);
+  if (verDiff !== 0) return verDiff;
+
+  const stabDiff = getModelStabilityScore(b.id) - getModelStabilityScore(a.id);
+  if (stabDiff !== 0) return stabDiff;
+
+  const roleDiff = getVariantOrderRank(b.id) - getVariantOrderRank(a.id);
+  if (roleDiff !== 0) return roleDiff;
+
+  return a.id.length - b.id.length || a.id.localeCompare(b.id);
+}
+
+function getAllCustomModelsMap(): Record<string, AiModelConfig[]> {
+  try {
+    const raw = localStorage.getItem(CUSTOM_MODELS_STORAGE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return {};
+}
+
+function getSavedCustomModels(provider: AiProviderId): AiModelConfig[] {
+  const map = getAllCustomModelsMap();
+  const list = map[provider];
+  return Array.isArray(list) ? list : [];
+}
+
+function saveCustomModels(provider: AiProviderId, models: AiModelConfig[]): void {
+  try {
+    const map = getAllCustomModelsMap();
+    map[provider] = models;
+    localStorage.setItem(CUSTOM_MODELS_STORAGE, JSON.stringify(map));
+  } catch {}
 }
 
 function storageKey(provider: AiProviderId): string {
@@ -35,6 +206,39 @@ export function getRegisteredModels(provider: AiProviderId): AiModelConfig[] {
 
 export function clearRegisteredModels(provider: AiProviderId): void {
   localStorage.removeItem(storageKey(provider));
+  clearModelUnavailable(provider);
+}
+
+export function registerCustomModel(
+  provider: AiProviderId,
+  modelId: string,
+  displayName?: string
+): AiModelConfig {
+  const normalizedId = normalizeModelId(modelId);
+  if (!normalizedId) {
+    throw new Error("Model ID cannot be empty");
+  }
+
+  const config = toModelConfig(provider, {
+    id: normalizedId,
+    displayName: displayName?.trim() || undefined,
+  });
+
+  const customModels = getSavedCustomModels(provider).filter(
+    (m) => normalizeModelId(m.id).toLowerCase() !== normalizedId.toLowerCase()
+  );
+  customModels.unshift(config);
+  saveCustomModels(provider, customModels);
+
+  clearModelUnavailable(provider, normalizedId);
+
+  const existing = getRegisteredModels(provider).filter(
+    (m) => normalizeModelId(m.id).toLowerCase() !== normalizedId.toLowerCase()
+  );
+  const merged = provider === "gemini" ? [config, ...existing].sort(compareModelsNewestFirst) : [config, ...existing];
+  localStorage.setItem(storageKey(provider), JSON.stringify(merged));
+  saveActiveModel(provider, config.id);
+  return config;
 }
 
 // Before any key is verified there is no registered model, so the first catalog entry
@@ -42,9 +246,16 @@ export function clearRegisteredModels(provider: AiProviderId): void {
 export function loadActiveModel(provider: AiProviderId): AiModelConfig {
   const registered = getRegisteredModels(provider);
   const savedId = localStorage.getItem(`${ACTIVE_MODEL_STORAGE}_${provider}`);
-  const savedMatch = registered.find((m) => m.id === savedId);
+  const normalizedSaved = savedId ? normalizeModelId(savedId).toLowerCase() : "";
+  const savedMatch = normalizedSaved
+    ? registered.find((m) => normalizeModelId(m.id).toLowerCase() === normalizedSaved)
+    : undefined;
+  const firstHealthy = registered.find(
+    (m) => !isModelUnavailable(provider, m.id) && !isSpecializedNonChatModel(m.id)
+  );
   return (
     savedMatch ||
+    firstHealthy ||
     registered[0] ||
     AI_MODELS.find((m) => m.provider === provider) ||
     AI_MODELS[0]
@@ -216,7 +427,7 @@ export function resolveModelsEndpoint(baseUrl: string): string {
   if (clean.endsWith("/chat/completions")) {
     clean = clean.replace(/\/chat\/completions$/, "");
   }
-  if (clean.endsWith("/v1")) {
+  if (clean.endsWith("/v1") || /\/openai$/i.test(clean)) {
     return `${clean}/models`;
   }
   return `${clean}/v1/models`;
@@ -324,12 +535,72 @@ function normalizeGeminiModelsUrl(baseUrl: string): string {
   return `${clean}/v1beta/models`;
 }
 
+function mergeGeminiBaselineModels(items: RemoteModel[]): RemoteModel[] {
+  const seen = new Set<string>();
+  const merged: RemoteModel[] = [];
+
+  for (const item of items) {
+    const id = normalizeModelId(item.id);
+    const key = id.toLowerCase();
+    if (!id || seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ ...item, id });
+  }
+
+  for (const m of AI_MODELS) {
+    if (m.provider !== "gemini" || !/gemini-3\.(5|8)/i.test(m.id)) continue;
+    const id = normalizeModelId(m.id);
+    const key = id.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push({
+        id,
+        displayName: m.name,
+        description: m.description,
+        inputCostPer1M: m.inputCostPer1M,
+        outputCostPer1M: m.outputCostPer1M,
+      });
+    }
+  }
+
+  const healthy = merged.filter((m) => !isModelUnavailable("gemini", m.id));
+  const finalPool = healthy.length > 0 ? healthy : merged;
+  return finalPool.sort(compareModelsNewestFirst);
+}
+
+function mapNativeGeminiModels(models: unknown): RemoteModel[] {
+  if (!Array.isArray(models)) return [];
+  const seen = new Set<string>();
+  const mapped: RemoteModel[] = [];
+
+  for (const item of models as Array<{ name?: string; displayName?: string; description?: string; supportedGenerationMethods?: string[] }>) {
+    if (!item?.name || !item.name.toLowerCase().includes("gemini")) continue;
+    const methods = item.supportedGenerationMethods;
+    if (methods && !methods.includes("generateContent") && !methods.includes("streamGenerateContent")) {
+      continue;
+    }
+    const id = normalizeModelId(item.name);
+    const key = id.toLowerCase();
+    if (!id || seen.has(key)) continue;
+    seen.add(key);
+    mapped.push({
+      id,
+      displayName: item.displayName,
+      description: item.description,
+    });
+  }
+
+  return mapped.sort(compareModelsNewestFirst);
+}
+
 async function listGeminiModels(key: string, customBaseUrl?: string): Promise<RemoteModel[]> {
   const baseUrl = customBaseUrl?.trim();
   if (baseUrl) {
     const clean = baseUrl.replace(/\/+$/, "");
+    const isOpenAiCompat = /\/openai(\/|$)/i.test(clean);
     const isNativeGeminiBase =
-      baseUrl.includes("googleapis.com") || /\/v1beta(\/models)?$/i.test(clean);
+      !isOpenAiCompat &&
+      (clean.includes("googleapis.com") || /\/v1beta(\/models)?$/i.test(clean));
     if (!isNativeGeminiBase) {
       const modelsUrl = resolveModelsEndpoint(baseUrl);
       const geminiFilter = (id: string) => id.toLowerCase().includes("gemini");
@@ -338,9 +609,10 @@ async function listGeminiModels(key: string, customBaseUrl?: string): Promise<Re
         if (items.length === 0) {
           items = await listOpenAiCompatibleModels(modelsUrl, key);
         }
-        if (items.length > 0) return items;
+        if (items.length > 0) return items.sort(compareModelsNewestFirst);
+        if (isOpenAiCompat) return [];
       } catch (err: any) {
-        if (err?.status === 401 || err?.status === 403 || err?.message?.includes("menolak key")) {
+        if (isOpenAiCompat || err?.status === 401 || err?.status === 403 || err?.message?.includes("menolak key")) {
           throw err;
         }
       }
@@ -351,46 +623,28 @@ async function listGeminiModels(key: string, customBaseUrl?: string): Promise<Re
       { "x-goog-api-key": key }
     );
     if (Array.isArray(json?.models)) {
-      return json.models
-        .filter(
-          (m: { name: string; supportedGenerationMethods?: string[] }) =>
-            m.name.includes("gemini") &&
-            (!m.supportedGenerationMethods ||
-              m.supportedGenerationMethods.includes("generateContent"))
-        )
-        .map((m: { name: string; displayName?: string; description?: string }) => ({
-          id: m.name.replace(/^models\//, ""),
-          displayName: m.displayName,
-          description: m.description,
-        }));
+      const native = mapNativeGeminiModels(json.models);
+      return isNativeGeminiBase ? mergeGeminiBaselineModels(native) : native;
     }
     if (Array.isArray(json?.data)) {
-      return json.data
+      const dataModels = json.data
         .filter((m: { id?: string }) => m && typeof m.id === "string")
         .map((m: { id: string; name?: string; description?: string }) => ({
-          id: m.id,
+          id: normalizeModelId(m.id),
           displayName: m.name,
           description: m.description,
-        }));
+        }))
+        .sort(compareModelsNewestFirst);
+      return isNativeGeminiBase ? mergeGeminiBaselineModels(dataModels) : dataModels;
     }
-    return [];
+    return isNativeGeminiBase ? mergeGeminiBaselineModels([]) : [];
   }
 
   const json = await requestJson(
     `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
-    {}
+    { "x-goog-api-key": key }
   );
-  return (json.models || [])
-    .filter(
-      (m: { name: string; supportedGenerationMethods?: string[] }) =>
-        m.name.includes("gemini") &&
-        (m.supportedGenerationMethods || []).includes("generateContent")
-    )
-    .map((m: { name: string; displayName?: string; description?: string }) => ({
-      id: m.name.replace(/^models\//, ""),
-      displayName: m.displayName,
-      description: m.description,
-    }));
+  return mergeGeminiBaselineModels(mapNativeGeminiModels(json?.models));
 }
 
 async function listOpenAiCompatibleModels(
@@ -519,11 +773,41 @@ export async function verifyAndRegisterModels(
   if (!key) return { ok: false, reason: "API key masih kosong" };
 
   try {
-    const remote = await listRemoteModels(provider, key, customBaseUrl);
-    if (remote.length === 0) {
+    const customModels = getSavedCustomModels(provider);
+    let remote: RemoteModel[] = [];
+    try {
+      remote = await listRemoteModels(provider, key, customBaseUrl);
+    } catch (err: any) {
+      const status = err?.status;
+      const msg = err instanceof Error ? err.message : String(err || "");
+      const isAuthOrBadKey =
+        status === 400 ||
+        status === 401 ||
+        status === 403 ||
+        /api key|menolak key|ditolak|invalid|unauthorized|permission/i.test(msg);
+      if (isAuthOrBadKey || customModels.length === 0) {
+        throw err;
+      }
+    }
+
+    if (remote.length === 0 && customModels.length === 0) {
       return { ok: false, reason: "Key valid, tapi tidak ada model yang bisa dipakai" };
     }
-    const models = remote.map((m) => toModelConfig(provider, m));
+
+    const dedup = new Map<string, AiModelConfig>();
+    for (const m of remote) {
+      const cfg = toModelConfig(provider, m);
+      dedup.set(normalizeModelId(cfg.id).toLowerCase(), cfg);
+    }
+    for (const custom of customModels) {
+      const k = normalizeModelId(custom.id).toLowerCase();
+      if (!dedup.has(k)) dedup.set(k, custom);
+    }
+
+    const models = [...dedup.values()];
+    if (provider === "gemini") {
+      models.sort(compareModelsNewestFirst);
+    }
     localStorage.setItem(storageKey(provider), JSON.stringify(models));
     return { ok: true, models };
   } catch (err) {

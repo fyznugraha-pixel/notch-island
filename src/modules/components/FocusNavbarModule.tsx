@@ -84,14 +84,12 @@ export const FocusNavbarModule: React.FC<NavbarModuleProps> = ({
           )}
           className={`flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] ${
+              ? `gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] ${
                   dnd
                     ? "bg-purple-500/20 border border-purple-500/40"
                     : "bg-white/[0.06] hover:bg-white/[0.11]"
                 }`
-              : `h-10 px-3 gap-2.5 rounded-[12px] border ${
+              : `gili-mod-pill px-3 gap-2.5 rounded-[12px] border ${
                   dnd
                     ? "bg-purple-500/20 border-purple-500/40"
                     : "bg-white/[0.06] hover:bg-white/[0.11] border-white/[0.07]"

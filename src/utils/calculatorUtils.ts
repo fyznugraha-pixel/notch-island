@@ -148,9 +148,10 @@ export function evaluateCalcExpression(rawInput: string): string {
       consume();
       val = parseExpression();
       if (val === null) return null;
-      if (peek()?.type === "op" && peek()?.value === ")") {
-        consume();
+      if (peek()?.type !== "op" || peek()?.value !== ")") {
+        return null;
       }
+      consume();
     } else {
       return null;
     }

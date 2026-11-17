@@ -539,6 +539,7 @@ export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date
   // - If streak hasn't started (currentStreak === 0): follow standard Windows system calendar week (Senin - Minggu)
   const dayLabels = getDayLabels();
   const sevenDayHistory = [];
+  const safeTargetMl = data.settings.dailyTargetMl;
 
   if (currentStreak > 0) {
     // Follow the start of the active streak cycle
@@ -550,7 +551,7 @@ export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date
       d.setDate(d.getDate() + i);
       const k = formatLocalDateKey(d);
       const amount = dateTotals[k] || 0;
-      const percent = Math.min(100, Math.round((amount / data.settings.dailyTargetMl) * 100));
+      const percent = safeTargetMl > 0 ? Math.min(100, Math.round((amount / safeTargetMl) * 100)) : 0;
       const isToday = k === todayKey;
       const achieved =
         i <= streakOffset &&
@@ -578,7 +579,7 @@ export function getStreakInfo(dataOverride?: WaterData, refDate: Date = new Date
       d.setDate(d.getDate() + i);
       const k = formatLocalDateKey(d);
       const amount = dateTotals[k] || 0;
-      const percent = Math.min(100, Math.round((amount / data.settings.dailyTargetMl) * 100));
+      const percent = safeTargetMl > 0 ? Math.min(100, Math.round((amount / safeTargetMl) * 100)) : 0;
       const isToday = k === todayKey;
       const achieved = amount >= thresholdMl || effectiveFrozenDates.has(k);
 
@@ -821,7 +822,10 @@ export function getMonthlyHistory(
       isTargetAchieved: daily.isTargetAchieved,
       isStreakMaintained: daily.isStreakMaintained,
       isToday: daily.dateKey === todayKey,
-      percent: Math.min(100, Math.round((daily.totalMl / data.settings.dailyTargetMl) * 100)),
+      percent:
+        data.settings.dailyTargetMl > 0
+          ? Math.min(100, Math.round((daily.totalMl / data.settings.dailyTargetMl) * 100))
+          : 0,
     });
   }
 

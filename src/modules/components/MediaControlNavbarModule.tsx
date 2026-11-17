@@ -5,8 +5,13 @@ import { listen } from "@tauri-apps/api/event";
 import { MediaPayload } from "../../types";
 import { NavbarModuleProps } from "../registry";
 import { NavbarPopoverShell, useNavbarIsLightSurface } from "./NavbarPopoverShell";
+import { MediaThumbnail } from "../../components/ui/MediaThumbnail";
 import { ScrollingText } from "../../components/ui/ScrollingText";
 import { Tooltip } from "../../components/ui/Tooltip";
+import {
+  mergeMediaPayloadPreservingThumbnail,
+  prefetchArtwork,
+} from "../../services/artworkService";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
 
@@ -22,41 +27,70 @@ export const MediaControlNavbarModule: React.FC<NavbarModuleProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [suppressOuterTip, setSuppressOuterTip] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTitle, setCurrentTitle] = useState("");
-  const [currentArtist, setCurrentArtist] = useState("");
+  const [media, setMedia] = useState<MediaPayload | null>(null);
+  const mediaRef = useRef<MediaPayload | null>(null);
 
   useEffect(() => {
-    invoke<MediaPayload | null>("get_current_media_state")
-      .then((initial) => {
-        if (!initial) return;
-        setIsPlaying(Boolean(initial.is_playing));
-        if (initial.title) setCurrentTitle(initial.title);
-        if (initial.artist) setCurrentArtist(initial.artist);
+    let cancelled = false;
+    let receivedLiveUpdate = false;
+
+    const unlisten = listen<MediaPayload>("media-update", (ev) => {
+      if (cancelled) return;
+      receivedLiveUpdate = true;
+      const payload = ev.payload;
+      if (payload?.title || payload?.artist) {
+        const merged = mergeMediaPayloadPreservingThumbnail(mediaRef.current, payload);
+        mediaRef.current = merged;
+        setMedia(merged);
+        prefetchArtwork(merged);
+      } else {
+        mediaRef.current = null;
+        setMedia(null);
+      }
+    });
+
+    unlisten
+      .then(() => {
+        if (!cancelled) {
+          invoke("request_media_resync").catch(() => {});
+        }
       })
       .catch(() => {});
 
-    const unlisten = listen<MediaPayload>("media-update", (ev) => {
-      if (typeof ev.payload?.is_playing === "boolean") {
-        setIsPlaying(ev.payload.is_playing);
-      }
-      if (ev.payload?.title) {
-        setCurrentTitle(ev.payload.title);
-      }
-      if (ev.payload?.artist) {
-        setCurrentArtist(ev.payload.artist);
-      }
-    });
+    invoke<MediaPayload | null>("get_current_media_state")
+      .then((initial) => {
+        if (cancelled || receivedLiveUpdate) return;
+        if (!initial) {
+          mediaRef.current = null;
+          setMedia(null);
+          return;
+        }
+        const merged = mergeMediaPayloadPreservingThumbnail(mediaRef.current, initial);
+        mediaRef.current = merged;
+        setMedia(merged);
+        prefetchArtwork(merged);
+      })
+      .catch(() => {});
+
     return () => {
-      unlisten.then((fn) => fn());
+      cancelled = true;
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, []);
+
+  const isPlaying = Boolean(media?.is_playing);
+  const currentTitle = media?.title?.trim() || "";
+  const currentArtist = media?.artist?.trim() || "";
 
   const sendSmtc = (action: "prev" | "toggle" | "next", e?: React.MouseEvent) => {
     e?.stopPropagation();
     invoke("smtc_action", { action }).catch(() => {});
     if (action === "toggle") {
-      setIsPlaying((p) => !p);
+      setMedia((prev) => {
+        const next = prev ? { ...prev, is_playing: !prev.is_playing } : null;
+        mediaRef.current = next;
+        return next;
+      });
     }
   };
 
@@ -111,10 +145,8 @@ export const MediaControlNavbarModule: React.FC<NavbarModuleProps> = ({
           )}
           className={`flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08]`
-              : "h-10 px-3 gap-3 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] shadow-sm"
+              ? `gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08]`
+              : "gili-mod-pill px-3 gap-3 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] shadow-sm"
           }`}
         >
           {isCompact ? (
@@ -142,7 +174,7 @@ export const MediaControlNavbarModule: React.FC<NavbarModuleProps> = ({
                 <button
                   type="button"
                   onClick={(e) => sendSmtc("toggle", e)}
-                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-sm active:scale-95 ${TRIGGER_FOCUS_RING} ${
+                  className={`w-[min(28px,calc(var(--navbar-mod-size,40px)-6px))] h-[min(28px,calc(var(--navbar-mod-size,40px)-6px))] rounded-full flex items-center justify-center transition-all cursor-pointer shadow-sm active:scale-95 ${TRIGGER_FOCUS_RING} ${
                     isLight
                       ? "bg-zinc-900 text-[#ffffff] hover:bg-zinc-800"
                       : "bg-white text-neutral-900 hover:bg-neutral-100"
@@ -180,9 +212,11 @@ export const MediaControlNavbarModule: React.FC<NavbarModuleProps> = ({
         width={256}
       >
         <div className="flex flex-col gap-3">
-          {currentTitle ? (
-            <div className="w-full min-w-0 px-2.5 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] overflow-hidden flex items-center gap-2">
-              <Music2 size={13} className="text-pink-400 shrink-0" />
+          {currentTitle && media ? (
+            <div className="w-full min-w-0 px-2.5 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] overflow-hidden flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+                <MediaThumbnail media={media} size="compact" />
+              </div>
               <div className="min-w-0 flex-1 overflow-hidden">
                 <ScrollingText
                   text={currentTitle}
@@ -197,8 +231,9 @@ export const MediaControlNavbarModule: React.FC<NavbarModuleProps> = ({
               </div>
             </div>
           ) : (
-            <div className="text-[11px] text-zinc-400 text-center py-1">
-              {tx(lang, "No active media player.", "Belum ada pemutar media aktif.")}
+            <div className="text-[11px] text-zinc-400 text-center py-2 flex items-center justify-center gap-1.5">
+              <Music2 size={13} className="text-pink-400 shrink-0" />
+              <span>{tx(lang, "No active media player.", "Belum ada pemutar media aktif.")}</span>
             </div>
           )}
 

@@ -4,7 +4,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { Minus, X, Clock, Volume2, Send, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2 } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
@@ -136,7 +135,7 @@ export const SettingsWindowApp: React.FC = () => {
   }, []);
 
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("5.0.1");
+  const [currentAppVersion, setCurrentAppVersion] = useState("5.1.1");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
@@ -512,8 +511,12 @@ export const SettingsWindowApp: React.FC = () => {
         const savedShortcutsEnabled = await s.get("shortcuts_enabled");
         if (typeof savedShortcutsEnabled === "boolean") setShortcutsEnabled(savedShortcutsEnabled);
 
-        const auto = await isEnabled();
-        setIsAutostart(auto);
+        const savedAuto = await s.get("opt_autostart");
+        const effectiveAuto = typeof savedAuto === "boolean"
+          ? savedAuto
+          : await invoke<boolean>("get_autostart_state").catch(() => false);
+        setIsAutostart(effectiveAuto);
+        invoke("sync_autostart_state", { enabled: effectiveAuto }).catch(() => {});
       } catch (e) {
         console.error("Failed to load settings store in SettingsWindow:", e);
       }
@@ -580,6 +583,9 @@ export const SettingsWindowApp: React.FC = () => {
           case "opt_language":
             setLanguage(value as Language, false);
             setOptLanguage(value as Language);
+            break;
+          case "opt_autostart":
+            setIsAutostart(Boolean(value));
             break;
           case "show_greeting":
             setShowGreeting(Boolean(value));
@@ -721,17 +727,14 @@ export const SettingsWindowApp: React.FC = () => {
   };
 
   const handleToggleAutostart = async () => {
-    try {
-      const next = !isAutostart;
-      if (next) await enable();
-      else await disable();
-      setIsAutostart(next);
-      if (store) {
-        await store.set("autostart_initialized", true);
-        await store.set("opt_autostart", next);
-      }
-      broadcastSetting("opt_autostart", next);
-    } catch {}
+    const next = !isAutostart;
+    await invoke("sync_autostart_state", { enabled: next }).catch(() => {});
+    setIsAutostart(next);
+    if (store) {
+      await store.set("autostart_initialized", true);
+      await store.set("opt_autostart", next);
+    }
+    broadcastSetting("opt_autostart", next);
   };
 
   const handleToggleGreeting = async () => {

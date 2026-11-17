@@ -29,11 +29,69 @@ static EPOCH: OnceLock<Instant> = OnceLock::new();
 static LAST_SEEN_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_SEEN_KIND: AtomicU8 = AtomicU8::new(0);
 static LAST_OPENED_KIND: AtomicU8 = AtomicU8::new(0);
-static LAST_OPENED_MS: AtomicU64 = AtomicU64::new(0);
 static WATCHER: Once = Once::new();
 
 fn now_ms() -> u64 {
     EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+fn classify_foreground_surface(
+    path_lower: &str,
+    class_name: &str,
+    title_lower: &str,
+    last_opened: u8,
+) -> Option<Surface> {
+    if path_lower.ends_with("startmenuexperiencehost.exe") {
+        return Some(Surface::Start);
+    }
+    if path_lower.ends_with("searchhost.exe") || path_lower.ends_with("searchapp.exe") {
+        return Some(Surface::Search);
+    }
+    if path_lower.ends_with("shellexperiencehost.exe") {
+        if title_lower.contains("quick")
+            || title_lower.contains("cepat")
+            || title_lower.contains("control")
+            || class_name == "ControlCenterWindow"
+        {
+            return Some(Surface::QuickSettings);
+        }
+        if title_lower.contains("notif")
+            || title_lower.contains("calendar")
+            || title_lower.contains("kalender")
+        {
+            return Some(Surface::Notifications);
+        }
+        if last_opened == Surface::QuickSettings as u8 {
+            return Some(Surface::QuickSettings);
+        }
+        if last_opened == Surface::Notifications as u8 {
+            return Some(Surface::Notifications);
+        }
+        return Some(Surface::ShellFlyout);
+    }
+
+    if path_lower.ends_with("explorer.exe")
+        && matches!(
+            class_name,
+            "ControlCenterWindow"
+                | "XamlExplorerHostIslandWindow"
+                | "TopLevelWindowForOverflowXamlIsland"
+                | "Windows.UI.Core.CoreWindow"
+        )
+    {
+        if class_name == "ControlCenterWindow" {
+            return Some(Surface::QuickSettings);
+        }
+        if last_opened == Surface::QuickSettings as u8 {
+            return Some(Surface::QuickSettings);
+        }
+        if last_opened == Surface::Notifications as u8 {
+            return Some(Surface::Notifications);
+        }
+        return Some(Surface::ShellFlyout);
+    }
+
+    None
 }
 
 fn foreground_surface_for(hwnd: HWND) -> Option<Surface> {
@@ -82,53 +140,12 @@ fn foreground_surface_for(hwnd: HWND) -> Option<Surface> {
             let _ = windows::Win32::Foundation::CloseHandle(handle);
         }
 
-        if path.ends_with("startmenuexperiencehost.exe") {
-            return Some(Surface::Start);
-        }
-        if path.ends_with("searchhost.exe") || path.ends_with("searchapp.exe") {
-            return Some(Surface::Search);
-        }
-        if path.ends_with("shellexperiencehost.exe") {
-            if title.contains("quick")
-                || title.contains("cepat")
-                || title.contains("control")
-                || class_name == "ControlCenterWindow"
-            {
-                return Some(Surface::QuickSettings);
-            }
-            if title.contains("notif") || title.contains("calendar") || title.contains("kalender") {
-                return Some(Surface::Notifications);
-            }
-            let last_opened = LAST_OPENED_KIND.load(Ordering::SeqCst);
-            if last_opened == Surface::QuickSettings as u8 {
-                return Some(Surface::QuickSettings);
-            }
-            if last_opened == Surface::Notifications as u8 {
-                return Some(Surface::Notifications);
-            }
-            return Some(Surface::ShellFlyout);
-        }
-
-        if path.ends_with("explorer.exe")
-            && matches!(
-                class_name.as_str(),
-                "ControlCenterWindow"
-                    | "XamlExplorerHostIslandWindow"
-                    | "TopLevelWindowForOverflowXamlIsland"
-                    | "Windows.UI.Core.CoreWindow"
-            )
-        {
-            let last_opened = LAST_OPENED_KIND.load(Ordering::SeqCst);
-            if last_opened == Surface::QuickSettings as u8 {
-                return Some(Surface::QuickSettings);
-            }
-            if last_opened == Surface::Notifications as u8 {
-                return Some(Surface::Notifications);
-            }
-            return Some(Surface::ShellFlyout);
-        }
-
-        None
+        classify_foreground_surface(
+            &path,
+            &class_name,
+            &title,
+            LAST_OPENED_KIND.load(Ordering::SeqCst),
+        )
     }
 }
 
@@ -214,7 +231,15 @@ pub fn ensure_watcher() {
 
 pub fn record_surface_opened(kind: Surface) {
     LAST_OPENED_KIND.store(kind as u8, Ordering::SeqCst);
-    LAST_OPENED_MS.store(now_ms(), Ordering::SeqCst);
+}
+
+fn dismiss_surface_state() {
+    LAST_SEEN_MS.store(0, Ordering::SeqCst);
+    LAST_OPENED_KIND.store(0, Ordering::SeqCst);
+    unsafe {
+        keybd_event(VK_ESCAPE.0 as u8, 0, Default::default(), 0);
+        keybd_event(VK_ESCAPE.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+    }
 }
 
 /// Returns true if clicking the button just now should CLOSE the surface (or already closed it
@@ -225,13 +250,7 @@ pub fn was_just_open(kind: Surface) -> bool {
     // Case 1: Surface is STILL the foreground window right now (because navbar has WS_EX_NOACTIVATE)
     if let Some(fg_kind) = foreground_surface() {
         if is_matching_surface(fg_kind as u8, kind) {
-            LAST_SEEN_MS.store(0, Ordering::SeqCst);
-            LAST_OPENED_KIND.store(0, Ordering::SeqCst);
-            LAST_OPENED_MS.store(0, Ordering::SeqCst);
-            unsafe {
-                keybd_event(VK_ESCAPE.0 as u8, 0, Default::default(), 0);
-                keybd_event(VK_ESCAPE.0 as u8, 0, KEYEVENTF_KEYUP, 0);
-            }
+            dismiss_surface_state();
             return true;
         }
     }
@@ -243,33 +262,252 @@ pub fn was_just_open(kind: Surface) -> bool {
         && is_matching_surface(seen_kind, kind)
         && now_ms().saturating_sub(seen_ms) < RECENT_DISMISS_WINDOW_MS
     {
-        LAST_SEEN_MS.store(0, Ordering::SeqCst);
-        LAST_OPENED_KIND.store(0, Ordering::SeqCst);
-        LAST_OPENED_MS.store(0, Ordering::SeqCst);
-        unsafe {
-            keybd_event(VK_ESCAPE.0 as u8, 0, Default::default(), 0);
-            keybd_event(VK_ESCAPE.0 as u8, 0, KEYEVENTF_KEYUP, 0);
-        }
+        dismiss_surface_state();
         return true;
     }
 
-    // Case 3: Surface was triggered open by this exact button recently (within 8 seconds),
-    // and the user is clicking the same button again to close it.
-    let last_opened_kind = LAST_OPENED_KIND.load(Ordering::SeqCst);
-    let last_opened_ms = LAST_OPENED_MS.load(Ordering::SeqCst);
-    if last_opened_kind == kind as u8 {
-        let elapsed = now_ms().saturating_sub(last_opened_ms);
-        if elapsed >= 180 && elapsed < 8000 {
-            LAST_SEEN_MS.store(0, Ordering::SeqCst);
-            LAST_OPENED_KIND.store(0, Ordering::SeqCst);
-            LAST_OPENED_MS.store(0, Ordering::SeqCst);
-            unsafe {
-                keybd_event(VK_ESCAPE.0 as u8, 0, Default::default(), 0);
-                keybd_event(VK_ESCAPE.0 as u8, 0, KEYEVENTF_KEYUP, 0);
-            }
-            return true;
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct LastOpenedGuard(u8);
+    impl Drop for LastOpenedGuard {
+        fn drop(&mut self) {
+            LAST_OPENED_KIND.store(self.0, Ordering::SeqCst);
         }
     }
 
-    false
+    #[test]
+    fn test_is_matching_surface_across_surfaces_and_focus_delegation() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _restore = LastOpenedGuard(LAST_OPENED_KIND.load(Ordering::SeqCst));
+
+        LAST_OPENED_KIND.store(0, Ordering::SeqCst);
+        assert!(is_matching_surface(Surface::Start as u8, Surface::Start));
+        assert!(is_matching_surface(Surface::Search as u8, Surface::Search));
+        assert!(is_matching_surface(
+            Surface::QuickSettings as u8,
+            Surface::QuickSettings
+        ));
+        assert!(is_matching_surface(
+            Surface::Notifications as u8,
+            Surface::Notifications
+        ));
+        assert!(is_matching_surface(
+            Surface::ShellFlyout as u8,
+            Surface::ShellFlyout
+        ));
+        assert!(!is_matching_surface(0, Surface::Start));
+        assert!(!is_matching_surface(Surface::Search as u8, Surface::Start));
+        assert!(!is_matching_surface(
+            Surface::Start as u8,
+            Surface::ShellFlyout
+        ));
+        assert!(!is_matching_surface(
+            Surface::QuickSettings as u8,
+            Surface::ShellFlyout
+        ));
+        assert!(!is_matching_surface(
+            Surface::Notifications as u8,
+            Surface::ShellFlyout
+        ));
+
+        // Start Menu SearchHost.exe focus delegation only matches when Start was opened last.
+        record_surface_opened(Surface::Start);
+        assert!(is_matching_surface(Surface::Search as u8, Surface::Start));
+        assert!(!is_matching_surface(
+            Surface::QuickSettings as u8,
+            Surface::Start
+        ));
+
+        record_surface_opened(Surface::Search);
+        assert!(!is_matching_surface(Surface::Search as u8, Surface::Start));
+
+        // QuickSettings and Notifications share ShellFlyout and disambiguate via LAST_OPENED_KIND.
+        LAST_OPENED_KIND.store(0, Ordering::SeqCst);
+        assert!(is_matching_surface(
+            Surface::ShellFlyout as u8,
+            Surface::QuickSettings
+        ));
+        assert!(is_matching_surface(
+            Surface::ShellFlyout as u8,
+            Surface::Notifications
+        ));
+        assert!(!is_matching_surface(
+            Surface::Notifications as u8,
+            Surface::QuickSettings
+        ));
+        assert!(!is_matching_surface(
+            Surface::QuickSettings as u8,
+            Surface::Notifications
+        ));
+
+        record_surface_opened(Surface::QuickSettings);
+        assert!(is_matching_surface(
+            Surface::Notifications as u8,
+            Surface::QuickSettings
+        ));
+        assert!(!is_matching_surface(
+            Surface::QuickSettings as u8,
+            Surface::Notifications
+        ));
+
+        record_surface_opened(Surface::Notifications);
+        assert!(is_matching_surface(
+            Surface::QuickSettings as u8,
+            Surface::Notifications
+        ));
+        assert!(!is_matching_surface(
+            Surface::Notifications as u8,
+            Surface::QuickSettings
+        ));
+    }
+
+    #[test]
+    fn test_classify_foreground_surface_variants() {
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\microsoft.windows.startmenuexperiencehost_cw5n1h2txyewy\startmenuexperiencehost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "start",
+                0,
+            ),
+            Some(Surface::Start)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\microsoftwindows.client.cbs_cw5n1h2txyewy\searchhost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "search",
+                0,
+            ),
+            Some(Surface::Search)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\microsoft.windows.search_cw5n1h2txyewy\searchapp.exe",
+                "Windows.UI.Core.CoreWindow",
+                "",
+                0,
+            ),
+            Some(Surface::Search)
+        );
+
+        // ShellExperienceHost classifies by title/class first, then falls back to last_opened
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\shellexperiencehost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "quick settings",
+                0,
+            ),
+            Some(Surface::QuickSettings)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\shellexperiencehost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "pengaturan cepat",
+                0,
+            ),
+            Some(Surface::QuickSettings)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\shellexperiencehost.exe",
+                "ControlCenterWindow",
+                "",
+                0,
+            ),
+            Some(Surface::QuickSettings)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\shellexperiencehost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "notification center",
+                0,
+            ),
+            Some(Surface::Notifications)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\shellexperiencehost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "kalender",
+                0,
+            ),
+            Some(Surface::Notifications)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\shellexperiencehost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "",
+                Surface::QuickSettings as u8,
+            ),
+            Some(Surface::QuickSettings)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\shellexperiencehost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "",
+                Surface::Notifications as u8,
+            ),
+            Some(Surface::Notifications)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\systemapps\shellexperiencehost_cw5n1h2txyewy\shellexperiencehost.exe",
+                "Windows.UI.Core.CoreWindow",
+                "",
+                0,
+            ),
+            Some(Surface::ShellFlyout)
+        );
+
+        // explorer.exe only matches known XAML/CoreWindow flyout host classes, never File Explorer windows
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\explorer.exe",
+                "ControlCenterWindow",
+                "",
+                0,
+            ),
+            Some(Surface::QuickSettings)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\explorer.exe",
+                "XamlExplorerHostIslandWindow",
+                "",
+                Surface::Notifications as u8,
+            ),
+            Some(Surface::Notifications)
+        );
+        assert_eq!(
+            classify_foreground_surface(
+                r"c:\windows\explorer.exe",
+                "TopLevelWindowForOverflowXamlIsland",
+                "",
+                0,
+            ),
+            Some(Surface::ShellFlyout)
+        );
+        assert_eq!(
+            classify_foreground_surface(r"c:\windows\explorer.exe", "CabinetWClass", "downloads", 0),
+            None
+        );
+        assert_eq!(
+            classify_foreground_surface(r"c:\windows\system32\notepad.exe", "Notepad", "untitled", 0),
+            None
+        );
+    }
 }

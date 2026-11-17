@@ -35,7 +35,8 @@ export interface NavbarAppItem {
     | "spotify"
     | "discord"
     | "whatsapp"
-    | "brave";
+    | "brave"
+    | "calculator";
   isRunning: boolean;
   isActive: boolean;
   hwnd?: number;
@@ -49,6 +50,7 @@ interface RunningWindowInfo {
   hwnd: number;
   title: string;
   process_name: string;
+  exe_path?: string;
   is_active: boolean;
   is_minimized: boolean;
   icon_base64?: string;
@@ -67,6 +69,7 @@ function areRunningWindowsEqual(
       a.hwnd !== b.hwnd ||
       a.title !== b.title ||
       a.process_name !== b.process_name ||
+      a.exe_path !== b.exe_path ||
       a.is_active !== b.is_active ||
       a.is_minimized !== b.is_minimized ||
       a.icon_base64 !== b.icon_base64
@@ -79,6 +82,7 @@ function areRunningWindowsEqual(
 
 interface PinnedAppsGroupProps {
   apps?: NavbarAppItem[];
+  slotSize?: number;
   iconSize?: number;
   iconTheme?: NavbarIconTheme;
   position?: NavbarPosition;
@@ -86,6 +90,7 @@ interface PinnedAppsGroupProps {
   windowPreviews?: boolean;
   showAppLabels?: boolean;
   accentColor?: string;
+  isLightSurface?: boolean;
   isPreview?: boolean;
   isHidden?: boolean;
   showPinnedApps?: boolean;
@@ -109,6 +114,24 @@ export interface DockAnchorRect {
 const APP_ORDER_KEY = "gili_navbar_app_order_v1";
 const APP_UNPINNED_KEY = "gili_navbar_unpinned_ids_v1";
 const APP_EXTRA_PINNED_KEY = "gili_navbar_extra_pinned_v1";
+
+function normalizeSavedPinnedApp(app: NavbarAppItem): NavbarAppItem {
+  const lowerId = (app.id || "").toLowerCase();
+  const combinedPath = `${app.targetPath || ""} ${app.lnkPath || ""}`.toLowerCase();
+  if (
+    lowerId === "calculatorapp" ||
+    lowerId === "calculator" ||
+    combinedPath.includes("calculatorapp.exe") ||
+    combinedPath.includes("windowscalculator")
+  ) {
+    return {
+      ...app,
+      id: "calculator",
+      iconType: app.iconType || "calculator",
+    };
+  }
+  return app;
+}
 
 const DEFAULT_PINNED_APPS: NavbarAppItem[] = [
   {
@@ -143,6 +166,7 @@ const DEFAULT_PINNED_APPS: NavbarAppItem[] = [
 
 export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   apps = DEFAULT_PINNED_APPS,
+  slotSize,
   iconSize = 40,
   iconTheme = "fluent",
   position = "bottom",
@@ -150,6 +174,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   windowPreviews = true,
   showAppLabels = false,
   accentColor = "#0a84ff",
+  isLightSurface = false,
   isPreview = false,
   isHidden = false,
   showPinnedApps = true,
@@ -188,7 +213,8 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
   const [extraPinnedApps, setExtraPinnedApps] = useState<NavbarAppItem[]>(() => {
     try {
       const raw = localStorage.getItem(APP_EXTRA_PINNED_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.map(normalizeSavedPinnedApp) : [];
     } catch {
       return [];
     }
@@ -241,6 +267,8 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     isVertical: false,
   });
 
+  const effectiveSlotSize = Math.max(24, slotSize ?? iconSize);
+  const maxArtworkPx = Math.max(16, effectiveSlotSize - 6);
   const isVertical = position === "left" || position === "right";
   const { pinnedApps: windowsPinnedApps } = useWindowsPinnedApps(true);
 
@@ -252,7 +280,9 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     }>("gili-navbar-apps-sync", (ev) => {
       if (ev.payload.order) setCustomOrder(ev.payload.order);
       if (ev.payload.unpinned) setUnpinnedIds(ev.payload.unpinned);
-      if (ev.payload.extra) setExtraPinnedApps(ev.payload.extra);
+      if (ev.payload.extra) {
+        setExtraPinnedApps(ev.payload.extra.map(normalizeSavedPinnedApp));
+      }
     });
     return () => {
       unlistenPromise.then((u) => u());
@@ -351,8 +381,9 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     if (!unpinnedIds.includes(a.id)) mergedPinnedMap.set(a.id, a);
   });
   extraPinnedApps.forEach((a) => {
-    if (!unpinnedIds.includes(a.id) && !mergedPinnedMap.has(a.id)) {
-      mergedPinnedMap.set(a.id, a);
+    const normalized = normalizeSavedPinnedApp(a);
+    if (!unpinnedIds.includes(normalized.id) && !mergedPinnedMap.has(normalized.id)) {
+      mergedPinnedMap.set(normalized.id, normalized);
     }
   });
   const basePinnedApps = Array.from(mergedPinnedMap.values());
@@ -463,6 +494,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
         activeTitle: activeWin?.title || windows[0]?.title || meta.name,
         icon: appIcon,
         iconType: meta.iconType,
+        targetPath: orderedWindows.find((w) => w.exe_path)?.exe_path || undefined,
         isRunning: true,
         isActive,
         hwnd,
@@ -590,8 +622,8 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
         if (fromIdx === -1) return;
 
         const dragSlotEl = slotRefs.current.get(drag.id);
-        const dragW = dragSlotEl ? dragSlotEl.offsetWidth : iconSize;
-        const dragH = dragSlotEl ? dragSlotEl.offsetHeight : iconSize;
+        const dragW = dragSlotEl ? dragSlotEl.offsetWidth : effectiveSlotSize;
+        const dragH = dragSlotEl ? dragSlotEl.offsetHeight : effectiveSlotSize;
 
         for (let i = 0; i < curApps.length; i++) {
           if (i === fromIdx) continue;
@@ -660,7 +692,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
       window.removeEventListener("pointercancel", handleWinPointerUp);
       void unregisterNavbarPopup("drag:pinned");
     };
-  }, [onAppClick, iconSize]);
+  }, [onAppClick, effectiveSlotSize]);
 
   const handlePointerDown = (e: React.PointerEvent, app: NavbarAppItem) => {
     if (isPreview || e.button !== 0) return;
@@ -786,8 +818,8 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
         const showLabelPill =
           showAppLabels && !isVertical && (app.isRunning || app.isActive);
         const btnStyle: React.CSSProperties = {
-          height: `${iconSize}px`,
-          width: showLabelPill ? "auto" : `${iconSize}px`,
+          height: `${effectiveSlotSize}px`,
+          width: showLabelPill ? "auto" : `${effectiveSlotSize}px`,
           paddingLeft: showLabelPill ? "8px" : undefined,
           paddingRight: showLabelPill ? "10px" : undefined,
         };
@@ -832,8 +864,8 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
             }
             animate={
               isVertical
-                ? { height: iconSize, opacity: 1, scale: 1 }
-                : { width: showLabelPill ? "auto" : iconSize, opacity: 1, scale: 1 }
+                ? { height: effectiveSlotSize, opacity: 1, scale: 1 }
+                : { width: showLabelPill ? "auto" : effectiveSlotSize, opacity: 1, scale: 1 }
             }
             exit={
               isVertical
@@ -1017,7 +1049,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
                     : "text-white/65 hover:text-white"
                 } ${isDraggingThis ? "opacity-95 shadow-xl" : ""}`}
               >
-                {renderAppIcon(app, iconTheme, iconSize)}
+                {renderAppIcon(app, iconTheme, iconSize, accentColor, isLightSurface, maxArtworkPx)}
 
                 {showLabelPill && (
                   <span className="text-[11px] font-medium text-white/90 truncate max-w-[68px] pointer-events-none select-none">

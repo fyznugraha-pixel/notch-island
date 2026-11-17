@@ -32,10 +32,12 @@ pub mod windows_start_search;
 pub mod system_quick_state;
 pub mod accessibility_toggles;
 pub mod tray_apps;
+pub mod windows_tray_overflow;
 pub mod system_hardware;
 pub mod gpu_telemetry;
 pub mod memory_optimizer;
 pub mod store_license;
+pub mod lyrics_share;
 
 pub(crate) struct ComGuard(bool);
 
@@ -259,11 +261,8 @@ fn get_current_media_state() -> Option<media_lyrics_store::MediaPayload> {
 }
 
 #[tauri::command]
-fn set_pill_hover(window: tauri::Window, hovered: bool) {
-    // Toggles ignore_cursor_events.
-    // When hovered == true, we DO NOT ignore cursor (we want to click).
-    // When hovered == false, we IGNORE cursor (click-through).
-    let _ = window.set_ignore_cursor_events(!hovered);
+fn set_pill_hover(window: tauri::WebviewWindow, hovered: bool) {
+    navbar_window::set_overlay_click_through(&window, !hovered);
 }
 
 
@@ -676,6 +675,34 @@ async fn extract_clipboard_text(app: tauri::AppHandle) -> Result<String, String>
 static LAST_ACTIVE_SMTC: std::sync::Mutex<(String, String)> = std::sync::Mutex::new((String::new(), String::new()));
 static LAST_SMTC_SEEK: std::sync::Mutex<Option<(std::time::Instant, f64)>> = std::sync::Mutex::new(None);
 static MEDIA_RESYNC_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn cache_get_thumbnail(
+    cache: &mut std::collections::HashMap<String, (u64, String)>,
+    seq: &mut u64,
+    key: &str,
+) -> Option<String> {
+    if let Some((entry_seq, uri)) = cache.get_mut(key) {
+        *seq = seq.saturating_add(1);
+        *entry_seq = *seq;
+        return Some(uri.clone());
+    }
+    None
+}
+
+fn cache_insert_thumbnail(
+    cache: &mut std::collections::HashMap<String, (u64, String)>,
+    seq: &mut u64,
+    key: &str,
+    uri: String,
+) {
+    *seq = seq.saturating_add(1);
+    if cache.len() >= 8 && !cache.contains_key(key) {
+        if let Some(lru_key) = cache.iter().min_by_key(|(_, (s, _))| *s).map(|(k, _)| k.clone()) {
+            cache.remove(&lru_key);
+        }
+    }
+    cache.insert(key.to_string(), (*seq, uri));
+}
 
 #[tauri::command]
 fn request_media_resync() {
@@ -2042,12 +2069,12 @@ fn sync_all_displays_windows_inner(
                 .visible(true)
                 .focused(false)
                 .initialization_script("window.__IS_SECONDARY_NOTCH_WINDOW__ = true;")
-                .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64");
+                .additional_browser_args("--autoplay-policy=no-user-gesture-required");
 
                 match builder.build() {
                     Ok(sec_win) => {
                         let _ = sec_win.set_decorations(false);
-                        let _ = sec_win.set_ignore_cursor_events(true);
+                        navbar_window::set_overlay_click_through(&sec_win, true);
                         let _ = sec_win.set_shadow(false);
                         position_notch_window_on_monitor(&sec_win, &mon, pos, phys_offset);
                         ensure_window_topmost(&sec_win);
@@ -2312,10 +2339,12 @@ fn calculate_notch_hit(
 
 #[cfg(windows)]
 fn is_window_click_through(window: &tauri::WebviewWindow) -> Option<bool> {
-    use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TRANSPARENT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+    };
     let hwnd = windows::Win32::Foundation::HWND(window.hwnd().ok()?.0);
     let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
-    Some(ex_style & WS_EX_TRANSPARENT.0 != 0)
+    Some((ex_style & (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0)) == (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0))
 }
 
 // After click-through is lifted, WebView2 ignores a resting cursor until the next WM_MOUSEMOVE,
@@ -2342,7 +2371,7 @@ static IS_SHELF_DRAGGING: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 fn set_shelf_drag(active: bool, window: tauri::WebviewWindow) {
     IS_SHELF_DRAGGING.store(active, std::sync::atomic::Ordering::SeqCst);
     if active {
-        let _ = window.set_ignore_cursor_events(true);
+        navbar_window::set_overlay_click_through(&window, true);
     } else {
         ensure_window_topmost(&window);
     }
@@ -2425,15 +2454,19 @@ fn enforce_always_on_top(window: tauri::WebviewWindow) {
 fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        use std::process::Command;
+        use std::path::Path;
         use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, MAX_PATH};
         use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
-        use windows::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_MENU};
+        use windows::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+        };
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            keybd_event, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_MENU,
+        };
         use windows::Win32::UI::WindowsAndMessaging::{
-            EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-            SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+            AllowSetForegroundWindow, EnumWindows, GetWindowTextW, GetWindowThreadProcessId,
+            IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, ASFW_ANY, SW_RESTORE,
+            SW_SHOW,
         };
 
         let target_name = app_name.trim().to_lowercase();
@@ -2470,12 +2503,14 @@ fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
             GetWindowThreadProcessId(hwnd, Some(&mut pid));
             let mut exe_stem = String::new();
             if pid != 0 {
-                if let Ok(handle) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
+                if let Ok(handle) =
+                    OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
+                {
                     let mut path_buf = [0u16; MAX_PATH as usize];
                     let len = GetModuleFileNameExW(handle, None, &mut path_buf);
                     if len > 0 {
                         let full = String::from_utf16_lossy(&path_buf[..len as usize]);
-                        if let Some(stem) = std::path::Path::new(&full).file_stem() {
+                        if let Some(stem) = Path::new(&full).file_stem() {
                             exe_stem = stem.to_string_lossy().to_lowercase();
                         }
                     }
@@ -2485,7 +2520,13 @@ fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
 
             let is_generic_host = matches!(
                 exe_stem.as_str(),
-                "" | "applicationframehost" | "explorer" | "svchost" | "system" | "msedgewebview2" | "notch" | "gili"
+                "" | "applicationframehost"
+                    | "explorer"
+                    | "svchost"
+                    | "system"
+                    | "msedgewebview2"
+                    | "notch"
+                    | "gili"
             );
 
             let mut matched = false;
@@ -2496,12 +2537,26 @@ fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
                 {
                     matched = true;
                 }
-                if !matched && !is_generic_host && exe_stem.len() >= 3 && (ctx.target_name.contains(&exe_stem) || exe_stem.contains(&ctx.target_name)) {
-                    matched = true;
+                if !matched && !is_generic_host && exe_stem.len() >= 3 {
+                    let alias_match = (exe_stem == "msedge" && ctx.target_name.contains("edge"))
+                        || (exe_stem == "code"
+                            && (ctx.target_name.contains("vscode")
+                                || ctx.target_name.contains("visual studio code")));
+                    if alias_match
+                        || ctx.target_name.contains(&exe_stem)
+                        || exe_stem.contains(&ctx.target_name)
+                    {
+                        matched = true;
+                    }
                 }
             }
 
-            if !matched && !ctx.target_aumid.is_empty() && !is_generic_host && exe_stem.len() >= 3 && ctx.target_aumid.contains(&exe_stem) {
+            if !matched
+                && !ctx.target_aumid.is_empty()
+                && !is_generic_host
+                && exe_stem.len() >= 3
+                && ctx.target_aumid.contains(&exe_stem)
+            {
                 matched = true;
             }
 
@@ -2514,13 +2569,17 @@ fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
 
         let mut ctx = SearchCtx {
             target_name: target_name.clone(),
-            target_aumid,
+            target_aumid: target_aumid.clone(),
             found_hwnd: None,
         };
 
         unsafe {
-            let _ = EnumWindows(Some(enum_windows_proc), LPARAM(&mut ctx as *mut SearchCtx as isize));
+            let _ = EnumWindows(
+                Some(enum_windows_proc),
+                LPARAM(&mut ctx as *mut SearchCtx as isize),
+            );
             if let Some(hwnd) = ctx.found_hwnd {
+                let _ = AllowSetForegroundWindow(ASFW_ANY);
                 if IsIconic(hwnd).as_bool() {
                     let _ = ShowWindow(hwnd, SW_RESTORE);
                 } else {
@@ -2533,42 +2592,25 @@ fn activate_notification_app(app_name: String, aumid: Option<String>) -> bool {
             }
         }
 
-        if let Some(raw_aumid) = aumid {
-            let trimmed = raw_aumid.trim();
-            if !trimmed.is_empty()
-                && trimmed.chars().all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | '!' | ' '))
-                && Command::new("explorer.exe")
-                    .creation_flags(0x08000000)
-                    .arg(format!("shell:AppsFolder\\{}", trimmed))
-                    .spawn()
-                    .is_ok()
-            {
+        // Activate registered UWP/MSIX/Start Menu AUMID via IApplicationActivationManager.
+        // Never pass unknown Win32 AUMIDs to `explorer.exe shell:AppsFolder\...`, which
+        // opens the Documents folder instead when the AUMID is not an AppsFolder item.
+        if let Some(raw_aumid) = aumid.as_deref() {
+            if windows_pinned_apps::activate_aumid(raw_aumid) {
                 return true;
             }
         }
 
-        let proto = match target_name.as_str() {
-            "whatsapp" => Some("whatsapp://"),
-            "telegram" | "tg" => Some("tg://"),
-            "discord" => Some("discord://"),
-            "spotify" => Some("spotify://"),
-            "slack" => Some("slack://"),
-            "teams" | "msteams" | "microsoft teams" => Some("msteams://"),
-            "zoom" => Some("zoommtg://"),
-            "line" => Some("line://"),
-            "steam" => Some("steam://"),
-            "vscode" | "code" | "visual studio code" => Some("vscode://"),
-            "outlook" | "mail" => Some("mailto:"),
-            _ => None,
-        };
+        // Re-activate background/tray-resident desktop apps via running executable
+        if let Some(exe_path) = windows_pinned_apps::find_running_user_app_exe(&target_name, &target_aumid) {
+            let parent_dir = Path::new(&exe_path).parent().and_then(|p| p.to_str());
+            if windows_pinned_apps::shell_execute_open(&exe_path, "", parent_dir) {
+                return true;
+            }
+        }
 
-        if let Some(p) = proto {
-            if Command::new("cmd.exe")
-                .creation_flags(0x08000000)
-                .args(["/c", "start", "", p])
-                .spawn()
-                .is_ok()
-            {
+        if let Some(proto) = windows_pinned_apps::resolve_protocol_for_app(&target_name, &target_aumid) {
+            if windows_pinned_apps::shell_execute_open(proto, "", None) {
                 return true;
             }
         }
@@ -3999,7 +4041,7 @@ fn set_interactive_mode(active: bool, window: tauri::WebviewWindow) {
     }
     IS_INTERACTIVE_MODE.store(active, std::sync::atomic::Ordering::SeqCst);
     if active {
-        let _ = window.set_ignore_cursor_events(false);
+        navbar_window::set_overlay_click_through(&window, false);
     }
 }
 
@@ -4027,7 +4069,7 @@ fn focus_notch_window(window: tauri::WebviewWindow) {
             }
         }
     }
-    let _ = window.set_ignore_cursor_events(false);
+    navbar_window::set_overlay_click_through(&window, false);
     let _ = window.set_focus();
 }
 
@@ -4248,7 +4290,7 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         .focused(true)
         .skip_taskbar(false)
         .initialization_script("window.__IS_SETTINGS_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64")
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required")
         .build()
         {
             Ok(win) => {
@@ -4369,8 +4411,6 @@ pub fn run() {
         return;
     }
 
-    taskbar_manager::check_and_recover_on_startup();
-
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         taskbar_manager::restore_taskbar_on_exit();
@@ -4380,9 +4420,6 @@ pub fn run() {
 
     #[cfg(windows)]
     {
-        // Migrate and clean up any legacy Notch artifacts before checking mutex
-        migration::run_legacy_migration();
-
         use windows::Win32::System::Threading::CreateMutexW;
         use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
         use windows::core::w;
@@ -4392,19 +4429,12 @@ pub fn run() {
         unsafe {
             let mutex = CreateMutexW(None, true, w!("com_faiz_gili_single_instance_mutex"));
             if GetLastError() == ERROR_ALREADY_EXISTS {
-                use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE};
                 let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
                 install_repair::append_startup_log(&format!(
                     "second instance v{} from '{}' exited: another Gili is already running",
                     env!("CARGO_PKG_VERSION"),
                     exe
                 ));
-                if let Ok(hwnd) = FindWindowW(None, w!("Gili")) {
-                    if !hwnd.0.is_null() {
-                        let _ = ShowWindow(hwnd, SW_RESTORE);
-                        let _ = SetForegroundWindow(hwnd);
-                    }
-                }
                 std::process::exit(0);
             }
             if let Ok(m) = mutex {
@@ -4413,6 +4443,8 @@ pub fn run() {
         }
         install_repair::spawn_install_repair();
     }
+
+    taskbar_manager::check_and_recover_on_startup();
 
     tauri::Builder::default()
         .on_permission_request(|_webview, _kind| {
@@ -4521,6 +4553,11 @@ pub fn run() {
             media_lyrics_store::store_lyrics_result,
             media_lyrics_store::broadcast_lyrics_loading,
             media_lyrics_store::clear_lyrics_disk_cache,
+            lyrics_share::open_lyrics_share_window,
+            lyrics_share::get_pending_lyrics_share,
+            lyrics_share::fetch_artwork_data_url,
+            lyrics_share::save_temp_lyrics_card_png,
+            lyrics_share::save_lyrics_card_to_pictures,
             miniplayer_window::toggle_miniplayer,
             miniplayer_window::close_miniplayer,
             miniplayer_window::reset_miniplayer_position,
@@ -4592,6 +4629,10 @@ pub fn run() {
             windows_start_search::get_start_app_icons,
             windows_start_search::get_recent_files,
             tray_apps::get_tray_background_apps,
+            tray_apps::close_tray_background_app,
+            windows_tray_overflow::invoke_system_tray_item,
+            windows_tray_overflow::open_system_tray_item_menu,
+            windows_tray_overflow::open_windows_tray_overflow_from_flyout,
             system_quick_state::get_quick_toggles_state,
             system_quick_state::toggle_airplane_mode,
             system_quick_state::toggle_battery_saver,
@@ -4612,10 +4653,11 @@ pub fn run() {
             gpu_telemetry::get_gpu_telemetry,
             store_license::get_taskbar_pro_status,
             store_license::refresh_taskbar_pro_license,
-            store_license::purchase_taskbar_pro
+            store_license::purchase_taskbar_pro,
+            install_repair::get_autostart_state,
+            install_repair::sync_autostart_state
         ])
         .setup(|app| {
-            let _ = compute_windows_screen_time();
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
             use tauri::tray::TrayIconBuilder;
@@ -4679,12 +4721,12 @@ pub fn run() {
 
             let app_h = app.handle().clone();
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(250));
                 windows_pinned_apps::start_pinned_apps_watcher(app_h.clone());
                 window_preview::start_preview_prewarmer();
                 memory_optimizer::start_memory_optimizer();
-                std::thread::sleep(std::time::Duration::from_millis(1200));
+                std::thread::sleep(std::time::Duration::from_millis(900));
                 windows_start_search::warm_start_apps_index();
+                let _ = compute_windows_screen_time();
             });
 
             let window = match app.get_webview_window("main") {
@@ -4693,7 +4735,7 @@ pub fn run() {
             };
             
             // 1. Awalnya buat window tembus klik & paksa matikan DWM shadow bawaan Windows
-            let _ = window.set_ignore_cursor_events(true);
+            navbar_window::set_overlay_click_through(&window, true);
             let _ = window.set_shadow(false);
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(820.0, 460.0)));
 
@@ -4906,6 +4948,7 @@ pub fn run() {
                         }
 
                         let is_dragging = IS_SHELF_DRAGGING.load(std::sync::atomic::Ordering::Relaxed);
+                        let snipping_active = navbar_window::is_snipping_shortcut_or_overlay_active();
                         let need_mouse_buttons = !sec_hit_map.is_empty()
                             || is_window_interactive("main")
                             || pill.height >= 120.0;
@@ -4922,10 +4965,15 @@ pub fn run() {
                         for (sec_label, sec_state) in sec_hit_map.iter_mut() {
                             if let Some(sec_win) = app_handle_poll.get_webview_window(sec_label) {
                                 if is_dragging {
-                                    let _ = sec_win.set_ignore_cursor_events(true);
+                                    navbar_window::sync_overlay_click_through(&sec_win, true);
                                     sec_state.was_in = false;
                                     sec_state.click_outside_emitted = false;
                                     sec_state.time_since_left = std::time::Instant::now();
+                                    continue;
+                                }
+                                if snipping_active {
+                                    navbar_window::sync_overlay_click_through(&sec_win, true);
+                                    sec_state.was_in = false;
                                     continue;
                                 }
                                 if need_geom_refresh || sec_state.cached_geom.is_none() {
@@ -4953,7 +5001,7 @@ pub fn run() {
 
                                     let is_sec_interactive = is_window_interactive(sec_label);
                                     if is_sec_interactive {
-                                        let _ = sec_win.set_ignore_cursor_events(false);
+                                        navbar_window::sync_overlay_click_through(&sec_win, false);
                                         sec_state.was_in = in_sec;
                                         if !in_sec && (l_down || r_down) {
                                             if !sec_state.click_outside_emitted {
@@ -4965,12 +5013,9 @@ pub fn run() {
                                             sec_state.click_outside_emitted = false;
                                         }
                                     } else {
-                                        if is_window_click_through(&sec_win) == Some(in_sec) {
-                                            let _ = sec_win.set_ignore_cursor_events(!in_sec);
-                                        }
                                         if in_sec != sec_state.was_in {
                                             sec_state.was_in = in_sec;
-                                            let _ = sec_win.set_ignore_cursor_events(!in_sec);
+                                            navbar_window::set_overlay_click_through(&sec_win, !in_sec);
                                             use tauri::Emitter;
                                             if in_sec {
                                                 nudge_cursor();
@@ -4979,6 +5024,8 @@ pub fn run() {
                                                 sec_state.time_since_left = std::time::Instant::now();
                                                 let _ = app_handle_poll.emit_to(sec_label, "notch-mouse-leave", serde_json::json!({ "target": sec_label }));
                                             }
+                                        } else {
+                                            navbar_window::sync_overlay_click_through(&sec_win, !in_sec);
                                         }
 
                                         if in_sec {
@@ -5003,19 +5050,24 @@ pub fn run() {
                         }
 
                         if let Some((win_pos, win_size, sf)) = cached_geom {
-                            let in_main = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
-
                             if is_dragging {
-                                let _ = win_clone.set_ignore_cursor_events(true);
+                                navbar_window::sync_overlay_click_through(&win_clone, true);
                                 was_in_main = false;
                                 click_outside_main_emitted = false;
                                 time_since_left_main = std::time::Instant::now();
                                 continue;
                             }
+                            if snipping_active {
+                                navbar_window::sync_overlay_click_through(&win_clone, true);
+                                was_in_main = false;
+                                continue;
+                            }
+
+                            let in_main = calculate_notch_hit(pt, win_pos, win_size, sf, &pill);
 
                             let is_main_interactive = is_window_interactive("main");
                             if is_main_interactive {
-                                let _ = win_clone.set_ignore_cursor_events(false);
+                                navbar_window::sync_overlay_click_through(&win_clone, false);
                                 was_in_main = true;
                                 if !in_main {
                                     if l_down || r_down {
@@ -5033,11 +5085,8 @@ pub fn run() {
                                 continue;
                             }
 
-                            if is_window_click_through(&win_clone) == Some(in_main) {
-                                let _ = win_clone.set_ignore_cursor_events(!in_main);
-                                if in_main {
-                                    pending_cursor_nudge = true;
-                                }
+                            if in_main && is_window_click_through(&win_clone) == Some(true) {
+                                pending_cursor_nudge = true;
                             }
 
                             if in_main != was_in_main {
@@ -5045,7 +5094,7 @@ pub fn run() {
                                 if in_main {
                                     pending_cursor_nudge = true;
                                 }
-                                let _ = win_clone.set_ignore_cursor_events(!in_main);
+                                navbar_window::set_overlay_click_through(&win_clone, !in_main);
                                 use tauri::Emitter;
                                 if !in_main {
                                     time_since_left_main = std::time::Instant::now();
@@ -5053,6 +5102,8 @@ pub fn run() {
                                 } else {
                                     let _ = app_handle_poll.emit_to("main", "notch-mouse-enter", serde_json::json!({ "target": "main" }));
                                 }
+                            } else {
+                                navbar_window::sync_overlay_click_through(&win_clone, !in_main);
                             }
 
                             if pending_cursor_nudge && is_window_click_through(&win_clone) == Some(false) {
@@ -5163,7 +5214,8 @@ pub fn run() {
                 let mut last_emitted_thumbnail: Option<String> = None;
                 let mut prev_track_thumbnail: Option<String> = None;
                 let mut track_change_ticks: u32 = 0;
-                let mut thumbnail_cache = std::collections::HashMap::<String, String>::new();
+                let mut thumbnail_cache = std::collections::HashMap::<String, (u64, String)>::new();
+                let mut thumbnail_cache_seq: u64 = 0;
                 let mut last_is_charging = false;
                 let mut last_battery_percent = 255;
                 let mut last_volume = -1.0;
@@ -5850,20 +5902,25 @@ pub fn run() {
                                 }
                                 
                                 let cache_key = format!("{} - {}", artist.trim().to_lowercase(), title.trim().to_lowercase());
+                                // Each SMTC iteration runs every 500ms (counter % 5 == 0 on 100ms sleep)
+                                const SMTC_STALE_COVER_GUARD_TICKS: u32 = 2; // ~1.0s
+                                const SMTC_CACHE_COMMIT_TICKS: u32 = 3;      // ~1.5s
+                                const SMTC_FAST_RETRY_TICKS: u32 = 12;       // ~6.0s
+                                const SMTC_TRANSITION_WINDOW_TICKS: u32 = 6; // ~3.0s
                                 
                                 if title != last_title || artist != last_artist {
-                                    if last_emitted_thumbnail.is_some() {
+                                    if !last_title.is_empty() && last_emitted_thumbnail.is_some() {
                                         prev_track_thumbnail = last_emitted_thumbnail.clone();
                                     }
                                     track_change_ticks = 0;
                                     thumbnail_retries = 0;
-                                    last_thumbnail = thumbnail_cache.get(&cache_key).cloned();
+                                    last_thumbnail = cache_get_thumbnail(&mut thumbnail_cache, &mut thumbnail_cache_seq, &cache_key);
                                 } else {
                                     track_change_ticks = track_change_ticks.saturating_add(1);
                                 }
                                 
-                                let needs_thumbnail = last_thumbnail.is_none() && (thumbnail_retries < 50 || thumbnail_retries.is_multiple_of(10));
-                                let in_transition_window = track_change_ticks <= 30 && (track_change_ticks <= 10 || track_change_ticks.is_multiple_of(3));
+                                let needs_thumbnail = last_thumbnail.is_none() && (thumbnail_retries < SMTC_FAST_RETRY_TICKS || thumbnail_retries.is_multiple_of(10));
+                                let in_transition_window = track_change_ticks <= SMTC_TRANSITION_WINDOW_TICKS && (track_change_ticks <= 4 || track_change_ticks.is_multiple_of(2));
                                 if (title != last_title || artist != last_artist || needs_thumbnail || in_transition_window) && !title.is_empty() {
                                     if let Ok(thumb_ref) = info.Thumbnail() {
                                         if let Ok(stream) = thumb_ref.OpenReadAsync().and_then(|r| r.get()) {
@@ -5893,15 +5950,10 @@ pub fn run() {
                                                                     let b64 = STANDARD.encode(&bytes);
                                                                     let uri = format!("data:{};base64,{}", detected_mime, b64);
                                                                     let is_same_as_prev = prev_track_thumbnail.as_deref() == Some(uri.as_str());
-                                                                    // Ignore stale cover carried over from the previous track during the first ~800ms of transition
-                                                                    if !is_same_as_prev || track_change_ticks >= 8 {
-                                                                        if !is_same_as_prev || track_change_ticks >= 15 {
-                                                                            if thumbnail_cache.len() >= 8 && !thumbnail_cache.contains_key(&cache_key) {
-                                                                                if let Some(first_key) = thumbnail_cache.keys().next().cloned() {
-                                                                                    thumbnail_cache.remove(&first_key);
-                                                                                }
-                                                                            }
-                                                                            thumbnail_cache.insert(cache_key.clone(), uri.clone());
+                                                                    // Ignore stale cover carried over from the previous track during the first ~1.0s of transition
+                                                                    if !is_same_as_prev || track_change_ticks >= SMTC_STALE_COVER_GUARD_TICKS {
+                                                                        if !is_same_as_prev || track_change_ticks >= SMTC_CACHE_COMMIT_TICKS {
+                                                                            cache_insert_thumbnail(&mut thumbnail_cache, &mut thumbnail_cache_seq, &cache_key, uri.clone());
                                                                         }
                                                                         thumbnail_b64 = Some(uri);
                                                                     }
@@ -5970,17 +6022,24 @@ pub fn run() {
                                 duration_sec = dur;
                             }
                             
-                            // If thumbnail was freshly read or found in cache, preserve it
+                            // If thumbnail was freshly read or found in cache, preserve it; clear when track is empty
                             let cache_key = format!("{} - {}", artist.trim().to_lowercase(), title.trim().to_lowercase());
-                            if let Some(tb64) = thumbnail_b64 {
+                            if title.is_empty() {
+                                last_thumbnail = None;
+                            } else if let Some(tb64) = thumbnail_b64 {
                                 last_thumbnail = Some(tb64);
                             } else if last_thumbnail.is_none() {
-                                if let Some(cached) = thumbnail_cache.get(&cache_key) {
-                                    last_thumbnail = Some(cached.clone());
-                                } else if !title.is_empty() {
+                                if let Some(cached) = cache_get_thumbnail(&mut thumbnail_cache, &mut thumbnail_cache_seq, &cache_key) {
+                                    last_thumbnail = Some(cached);
+                                } else {
                                     thumbnail_retries = thumbnail_retries.saturating_add(1);
                                 }
                             }
+                        } else {
+                            last_thumbnail = None;
+                            prev_track_thumbnail = None;
+                            track_change_ticks = 0;
+                            thumbnail_retries = 0;
                         }
                     }
 
@@ -6054,11 +6113,29 @@ pub fn run() {
                 }
             });
 
-            store_license::start_startup_license_sync(app.handle().clone());
+            store_license::init_cached_license_from_disk();
             taskbar_flyout::init_flyout_manager(app.handle());
             taskbar_safety::init_taskbar_switches_from_disk();
             taskbar_hotkey::init_taskbar_hotkey_layer();
             taskbar_safety::ensure_taskbar_watchdog_spawned();
+
+            if store_license::can_use_taskbar() {
+                let (navbar_enabled, hide_taskbar) = store_license::read_disk_navbar_flags();
+                if navbar_enabled {
+                    let app_nav = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        if store_license::can_use_taskbar() {
+                            navbar_window::show_or_create_navbar_window(&app_nav);
+                            if hide_taskbar {
+                                taskbar_manager::set_taskbar_visible(false);
+                            }
+                        }
+                    });
+                }
+            }
+
+            store_license::start_startup_license_sync(app.handle().clone());
 
             Ok(())
         })

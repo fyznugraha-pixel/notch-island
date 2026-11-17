@@ -4,24 +4,27 @@ use std::sync::{Mutex, Once, OnceLock};
 use tauri::{Emitter, Manager};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, IntersectRect, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, IntersectRect, MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     keybd_event, GetAsyncKeyState, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
-    VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_LWIN, VK_RBUTTON, VK_RETURN, VK_SHIFT,
+    VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_LWIN, VK_RBUTTON, VK_RWIN, VK_SHIFT,
+    VK_SNAPSHOT,
 };
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_REMOVE, APPBARDATA};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetLayeredWindowAttributes,
     GetTopWindow, GetWindow, GetWindowLongW, GetWindowPlacement, GetWindowRect, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, SetWindowLongW,
-    SetWindowPos, ShowWindow, ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE, GW_HWNDNEXT, GW_OWNER,
-    HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_MINIMIZE, SW_RESTORE,
-    SW_SHOWNOACTIVATE, WINDOWPLACEMENT, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_THICKFRAME,
+    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow,
+    SetWindowLongW, SetWindowPos, ShowWindow, ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE, GW_HWNDNEXT,
+    GW_OWNER, HWND_TOPMOST, LWA_ALPHA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SWP_SHOWWINDOW, SW_MINIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE, WINDOWPLACEMENT,
+    WS_CAPTION, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TRANSPARENT, WS_THICKFRAME,
 };
 
 static NAVBAR_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -108,24 +111,135 @@ impl Default for NavbarHitGeometry {
     }
 }
 
-static NAVBAR_HIT_GEOM: OnceLock<Mutex<NavbarHitGeometry>> = OnceLock::new();
-static POPUP_REGIONS: OnceLock<Mutex<HashMap<String, Option<PopupHitRect>>>> = OnceLock::new();
-static LAST_SYNCED_NAV_RECT: OnceLock<Mutex<(i32, i32, i32, i32)>> = OnceLock::new();
+static NAVBAR_HIT_GEOMS: OnceLock<Mutex<HashMap<String, NavbarHitGeometry>>> = OnceLock::new();
+static POPUP_REGIONS_BY_WIN: OnceLock<Mutex<HashMap<String, HashMap<String, Option<PopupHitRect>>>>> =
+    OnceLock::new();
+static LAST_SYNCED_NAV_RECTS: OnceLock<Mutex<HashMap<String, (i32, i32, i32, i32)>>> =
+    OnceLock::new();
+static NAVBAR_MONITOR_MODE: OnceLock<Mutex<String>> = OnceLock::new();
+static SYNC_SEC_NAVBAR_QUEUE: Mutex<(bool, Option<bool>)> = Mutex::new((false, None));
 
-fn hit_geom() -> &'static Mutex<NavbarHitGeometry> {
-    NAVBAR_HIT_GEOM.get_or_init(|| Mutex::new(NavbarHitGeometry::default()))
+fn hit_geoms() -> &'static Mutex<HashMap<String, NavbarHitGeometry>> {
+    NAVBAR_HIT_GEOMS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn popup_regions_map() -> &'static Mutex<HashMap<String, HashMap<String, Option<PopupHitRect>>>> {
+    POPUP_REGIONS_BY_WIN.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn last_nav_rects() -> &'static Mutex<HashMap<String, (i32, i32, i32, i32)>> {
+    LAST_SYNCED_NAV_RECTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn monitor_mode_lock() -> &'static Mutex<String> {
+    NAVBAR_MONITOR_MODE.get_or_init(|| Mutex::new("all".to_string()))
+}
+
+pub fn get_monitor_mode() -> String {
+    monitor_mode_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+pub fn is_navbar_window_label(label: &str) -> bool {
+    label == "navbar" || label.starts_with("navbar_secondary_")
+}
+
+pub fn get_window_hit_geom(label: &str) -> NavbarHitGeometry {
+    hit_geoms()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(label)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn get_window_last_rect(label: &str) -> (i32, i32, i32, i32) {
+    last_nav_rects()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(label)
+        .copied()
+        .unwrap_or((0, 0, 0, 0))
+}
+
+fn set_window_last_rect(label: &str, rect: (i32, i32, i32, i32)) {
+    last_nav_rects()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(label.to_string(), rect);
+}
+
+fn clear_window_nav_state(label: &str) {
+    hit_geoms()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(label);
+    popup_regions_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(label);
+    last_nav_rects()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(label);
+}
+
+pub fn get_primary_navbar_mon_rect() -> Option<(i32, i32, i32, i32)> {
+    let g = get_window_hit_geom("navbar");
+    if g.mon_rect.2 > g.mon_rect.0 && g.mon_rect.3 > g.mon_rect.1 {
+        Some(g.mon_rect)
+    } else {
+        None
+    }
+}
+
+fn point_in_mon_rect(pt: POINT, r: (i32, i32, i32, i32)) -> bool {
+    r.2 > r.0 && r.3 > r.1 && pt.x >= r.0 && pt.x < r.2 && pt.y >= r.1 && pt.y < r.3
+}
+
+pub fn get_active_navbar_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    let mut pt = POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+        let matched_label = {
+            let map = hit_geoms().lock().unwrap_or_else(|e| e.into_inner());
+            map.iter()
+                .find(|(_, geom)| point_in_mon_rect(pt, geom.mon_rect))
+                .map(|(label, _)| label.clone())
+        };
+        if let Some(label) = matched_label {
+            if let Some(win) = app.get_webview_window(&label) {
+                return Some(win);
+            }
+        }
+
+        let cursor_mon = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+        for (label, win) in app.webview_windows() {
+            if !is_navbar_window_label(&label) {
+                continue;
+            }
+            if let Ok(raw_hwnd) = win.hwnd() {
+                let win_mon =
+                    unsafe { MonitorFromWindow(HWND(raw_hwnd.0), MONITOR_DEFAULTTONEAREST) };
+                if win_mon == cursor_mon {
+                    return Some(win);
+                }
+            }
+        }
+    }
+    app.get_webview_window("navbar")
 }
 
 pub fn get_navbar_dock_geometry() -> NavbarHitGeometry {
-    hit_geom().lock().unwrap_or_else(|e| e.into_inner()).clone()
-}
-
-fn popup_regions() -> &'static Mutex<HashMap<String, Option<PopupHitRect>>> {
-    POPUP_REGIONS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn last_nav_rect() -> &'static Mutex<(i32, i32, i32, i32)> {
-    LAST_SYNCED_NAV_RECT.get_or_init(|| Mutex::new((0, 0, 0, 0)))
+    let mut pt = POINT { x: 0, y: 0 };
+    let map = hit_geoms().lock().unwrap_or_else(|e| e.into_inner());
+    if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+        if let Some((_, geom)) = map.iter().find(|(_, g)| point_in_mon_rect(pt, g.mon_rect)) {
+            return geom.clone();
+        }
+    }
+    map.get("navbar").cloned().unwrap_or_default()
 }
 
 /// Deregisters any registered AppBar so the navbar purely overlays on top of windows ("menimpa saja").
@@ -145,7 +259,7 @@ pub fn remove_appbar_if_registered(hwnd: HWND) {
 fn apply_navbar_exstyle(hwnd: HWND, allow_activate: bool) {
     unsafe {
         let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-        let mut new_ex = ex | WS_EX_TOOLWINDOW.0;
+        let mut new_ex = (ex | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
         if allow_activate {
             new_ex &= !WS_EX_NOACTIVATE.0;
         } else {
@@ -157,13 +271,177 @@ fn apply_navbar_exstyle(hwnd: HWND, allow_activate: bool) {
     }
 }
 
-fn is_window_click_through(win: &tauri::WebviewWindow) -> Option<bool> {
-    if let Ok(raw_hwnd) = win.hwnd() {
-        let ex = unsafe { GetWindowLongW(HWND(raw_hwnd.0), GWL_EXSTYLE) as u32 };
-        Some((ex & WS_EX_TRANSPARENT.0) != 0)
-    } else {
-        None
+fn desired_click_through_map() -> &'static Mutex<HashMap<isize, bool>> {
+    static MAP: OnceLock<Mutex<HashMap<isize, bool>>> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn should_disable_click_through_hwnd(hwnd: HWND) -> bool {
+    // Only disable the HWND when it does not hold active foreground focus, or while Snipping Tool is active.
+    unsafe { GetForegroundWindow() != hwnd || is_snipping_shortcut_or_overlay_active() }
+}
+
+/// Applies WS_EX_LAYERED | WS_EX_TRANSPARENT (+ SWP_FRAMECHANGED) BEFORE setting WS_DISABLED so Windows
+/// hit-testing skips the overlay cleanly instead of delivering clicks to a disabled HWND (which beeps).
+pub fn set_overlay_hwnd_click_through(hwnd: HWND, ignore: bool) {
+    if hwnd.0.is_null() || unsafe { !IsWindow(hwnd).as_bool() } {
+        return;
     }
+    unsafe {
+        if ignore {
+            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+            let new_ex =
+                (ex | WS_EX_TOOLWINDOW.0 | WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0)
+                    & !WS_EX_APPWINDOW.0;
+            if new_ex != ex {
+                let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex as i32);
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+            }
+
+            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            let new_style = if should_disable_click_through_hwnd(hwnd) {
+                style | WS_DISABLED.0
+            } else {
+                style & !WS_DISABLED.0
+            };
+            if new_style != style {
+                let _ = SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+            }
+        } else {
+            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            let new_style = style & !WS_DISABLED.0;
+            if new_style != style {
+                let _ = SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
+            }
+
+            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+            let new_ex = (ex | WS_EX_TOOLWINDOW.0)
+                & !(WS_EX_APPWINDOW.0 | WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0);
+            if new_ex != ex {
+                let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex as i32);
+            }
+
+            if new_style != style || new_ex != ex {
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+            }
+        }
+    }
+}
+
+pub fn set_overlay_click_through(win: &tauri::WebviewWindow, ignore: bool) {
+    #[cfg(windows)]
+    if let Ok(raw_hwnd) = win.hwnd() {
+        let hwnd_raw = raw_hwnd.0 as isize;
+        let hwnd = HWND(raw_hwnd.0);
+        if let Ok(mut map) = desired_click_through_map().lock() {
+            map.insert(hwnd_raw, ignore);
+        }
+        set_overlay_hwnd_click_through(hwnd, ignore);
+        let _ = win.set_ignore_cursor_events(ignore);
+        let win_clone = win.clone();
+        let _ = win.run_on_main_thread(move || {
+            let latest = desired_click_through_map()
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&hwnd_raw).copied())
+                .unwrap_or(ignore);
+            if let Ok(h) = win_clone.hwnd() {
+                set_overlay_hwnd_click_through(HWND(h.0), latest);
+            }
+        });
+        return;
+    }
+    let _ = win.set_ignore_cursor_events(ignore);
+}
+
+pub fn sync_overlay_click_through(win: &tauri::WebviewWindow, ignore: bool) {
+    #[cfg(windows)]
+    if let Ok(raw_hwnd) = win.hwnd() {
+        let hwnd_raw = raw_hwnd.0 as isize;
+        let hwnd = HWND(raw_hwnd.0);
+        if let Ok(mut map) = desired_click_through_map().lock() {
+            map.insert(hwnd_raw, ignore);
+        }
+        unsafe {
+            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            let cur_transparent = (ex & WS_EX_TRANSPARENT.0) != 0;
+            let cur_layered = (ex & WS_EX_LAYERED.0) != 0;
+            let want_disabled = ignore && should_disable_click_through_hwnd(hwnd);
+            let cur_disabled = (style & WS_DISABLED.0) != 0;
+            let needs_tool_fix =
+                (ex & WS_EX_TOOLWINDOW.0) == 0 || (ex & WS_EX_APPWINDOW.0) != 0;
+            if cur_transparent != ignore
+                || cur_layered != ignore
+                || cur_disabled != want_disabled
+                || needs_tool_fix
+            {
+                set_overlay_click_through(win, ignore);
+            }
+        }
+        return;
+    }
+    let _ = win.set_ignore_cursor_events(ignore);
+}
+
+pub fn is_snipping_shortcut_or_overlay_active() -> bool {
+    unsafe {
+        let win_down = ((GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0)
+            || ((GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0);
+        let shift_down = (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
+        let prt_down = (GetAsyncKeyState(VK_SNAPSHOT.0 as i32) as u16 & 0x8000) != 0;
+        if (win_down && shift_down) || prt_down {
+            return true;
+        }
+
+        let fg = GetForegroundWindow();
+        if !fg.0.is_null() {
+            let mut class_buf = [0u16; 64];
+            let clen = GetClassNameW(fg, &mut class_buf);
+            if clen > 0 {
+                let cls = String::from_utf16_lossy(&class_buf[..clen as usize]);
+                if cls == "ScreenClippingWindowClass" {
+                    return true;
+                }
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(fg, Some(&mut pid));
+            if pid != 0 {
+                let (proc_name, _) = query_process_image(pid);
+                if proc_name.eq_ignore_ascii_case("ScreenClippingHost.exe")
+                    || proc_name.eq_ignore_ascii_case("SnippingTool.exe")
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn is_external_user_window(hwnd: HWND) -> bool {
@@ -533,26 +811,23 @@ unsafe fn window_covers_dock(
 
 /// Checks whether any non-minimized user window on the same monitor is maximized
 /// or overlaps the visual navbar dock rect (Intellihide / Auto-Hide Normal condition).
-fn is_any_window_covering_dock(
+fn is_any_window_covering_dock_for_geom(
     nav_hwnd: HWND,
-    nav_mon: windows::Win32::Graphics::Gdi::HMONITOR,
+    nav_mon: HMONITOR,
+    geom: &NavbarHitGeometry,
 ) -> bool {
     let mut raw_nav_rect = RECT::default();
     if unsafe { GetWindowRect(nav_hwnd, &mut raw_nav_rect) }.is_err() {
         return false;
     }
 
-    let geom = hit_geom()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
     let dock_rect = compute_dock_visual_phys_rect(
         raw_nav_rect.left,
         raw_nav_rect.top,
         raw_nav_rect.right,
         raw_nav_rect.bottom,
         geom.scale_factor.max(1.0),
-        &geom,
+        geom,
         false,
     );
 
@@ -731,40 +1006,49 @@ fn is_cursor_near_navbar_edge(pt: POINT, sf: f64, geom: &NavbarHitGeometry) -> b
     }
 }
 
+#[derive(Default)]
+struct NavWinWatchState {
+    was_in_dock: bool,
+    was_fullscreen: bool,
+    was_window_covered: bool,
+    was_auto_hide_enabled: bool,
+    was_mouse_down: bool,
+    last_fs_fg_hwnd: isize,
+    last_overlap_fg_hwnd: isize,
+}
+
 fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
     crate::shell_surface_toggle::ensure_watcher();
     NAVBAR_WATCHER_STARTED.call_once(|| {
         std::thread::spawn(move || {
-            let mut was_in_dock = false;
-            let mut was_fullscreen = false;
-            let mut was_window_covered = false;
-            let mut was_auto_hide_enabled = false;
-            let mut was_mouse_down = false;
+            let mut watch_states: HashMap<String, NavWinWatchState> = HashMap::new();
             let mut tick: u32 = 0;
             let mut last_polled_fg_hwnd: isize = 0;
-            let mut last_fs_fg_hwnd: isize = 0;
-            let mut last_overlap_fg_hwnd: isize = 0;
 
             loop {
                 if !NAVBAR_ENABLED.load(Ordering::Relaxed) {
                     last_polled_fg_hwnd = 0;
-                    last_fs_fg_hwnd = 0;
-                    last_overlap_fg_hwnd = 0;
-                    was_in_dock = false;
-                    was_fullscreen = false;
-                    was_window_covered = false;
-                    was_auto_hide_enabled = false;
-                    was_mouse_down = false;
+                    watch_states.clear();
                     std::thread::sleep(std::time::Duration::from_millis(250));
                     continue;
                 }
 
-                let Some(win) = app.get_webview_window("navbar") else {
+                let nav_windows: Vec<(String, tauri::WebviewWindow)> = app
+                    .webview_windows()
+                    .into_iter()
+                    .filter(|(label, _)| is_navbar_window_label(label))
+                    .collect();
+
+                if nav_windows.is_empty() {
                     last_polled_fg_hwnd = 0;
-                    was_in_dock = false;
+                    watch_states.clear();
                     std::thread::sleep(std::time::Duration::from_millis(250));
                     continue;
-                };
+                }
+
+                watch_states.retain(|label, _| {
+                    nav_windows.iter().any(|(wlabel, _)| wlabel == label)
+                });
 
                 std::thread::sleep(std::time::Duration::from_millis(25));
                 tick = tick.wrapping_add(1);
@@ -788,123 +1072,375 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                     crate::backdrop_blur::invalidate_all_backdrops();
                 }
 
-                if !win.is_visible().unwrap_or(false) {
-                    continue;
-                }
-
                 let mut pt = POINT { x: 0, y: 0 };
                 if unsafe { GetCursorPos(&mut pt) }.is_err() {
                     continue;
                 }
 
-                let (Ok(win_pos), Ok(win_size), Ok(sf)) =
-                    (win.outer_position(), win.outer_size(), win.scale_factor())
-                else {
-                    continue;
-                };
+                let overlap_recheck_due = OVERLAP_RECHECK_NEEDED.swap(false, Ordering::AcqRel);
+                let snipping_active = is_snipping_shortcut_or_overlay_active();
 
-                let geom = hit_geom()
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone();
-
-                let active_popups: Vec<Option<PopupHitRect>> = popup_regions()
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .values()
-                    .cloned()
-                    .collect();
-
-                let near_edge = was_in_dock
-                    || !active_popups.is_empty()
-                    || is_cursor_near_navbar_edge(pt, sf, &geom);
-
-                let fs_due = fg_raw != last_fs_fg_hwnd
-                    || (near_edge && tick.is_multiple_of(16))
-                    || tick.is_multiple_of(60);
-                if fs_due {
-                    last_fs_fg_hwnd = fg_raw;
-                    let is_fs = is_fullscreen_app_covering_navbar(&win);
-                    if is_fs != was_fullscreen {
-                        was_fullscreen = is_fs;
-                        let _ = win.emit("navbar-fullscreen-state", is_fs);
-                        crate::backdrop_blur::set_window_acrylic_hidden("navbar", is_fs);
-                        if !is_fs {
-                            crate::backdrop_blur::invalidate_all_backdrops();
-                            request_overlap_recheck();
-                        }
-                        if is_fs {
-                            let _ = win.set_ignore_cursor_events(true);
-                            was_in_dock = false;
-                            continue;
-                        }
+                for (label, win) in nav_windows {
+                    if !win.is_visible().unwrap_or(false) {
+                        continue;
                     }
-                }
 
-                if was_fullscreen {
-                    continue;
-                }
+                    let (Ok(win_pos), Ok(win_size), Ok(sf)) =
+                        (win.outer_position(), win.outer_size(), win.scale_factor())
+                    else {
+                        continue;
+                    };
 
-                if !geom.auto_hide_enabled {
-                    if was_auto_hide_enabled || was_window_covered {
-                        was_auto_hide_enabled = false;
-                        was_window_covered = false;
-                        let _ = win.emit("navbar-window-overlap-state", false);
-                    }
-                } else {
-                    let just_enabled = !was_auto_hide_enabled;
-                    was_auto_hide_enabled = true;
-                    let overlap_fg_changed = fg_raw != last_overlap_fg_hwnd;
-                    let force_overlap = just_enabled
-                        || overlap_fg_changed
-                        || OVERLAP_RECHECK_NEEDED.swap(false, Ordering::AcqRel);
-                    if force_overlap
-                        || (near_edge && tick.is_multiple_of(12))
-                        || tick.is_multiple_of(40)
-                    {
-                        last_overlap_fg_hwnd = fg_raw;
-                        #[cfg(windows)]
-                        if let Ok(raw_hwnd) = win.hwnd() {
-                            let nav_hwnd = HWND(raw_hwnd.0);
-                            let nav_mon =
-                                unsafe { MonitorFromWindow(nav_hwnd, MONITOR_DEFAULTTONEAREST) };
-                            let is_covered = is_any_window_covering_dock(nav_hwnd, nav_mon);
-                            if is_covered != was_window_covered || just_enabled {
-                                was_window_covered = is_covered;
-                                let _ = win.emit("navbar-window-overlap-state", is_covered);
+                    let geom = get_window_hit_geom(&label);
+                    let active_popups: Vec<Option<PopupHitRect>> = popup_regions_map()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(&label)
+                        .map(|m| m.values().cloned().collect())
+                        .unwrap_or_default();
+
+                    let state = watch_states.entry(label.clone()).or_default();
+                    let near_edge = state.was_in_dock
+                        || !active_popups.is_empty()
+                        || is_cursor_near_navbar_edge(pt, sf, &geom);
+
+                    let fs_due = fg_raw != state.last_fs_fg_hwnd
+                        || (near_edge && tick.is_multiple_of(16))
+                        || tick.is_multiple_of(60);
+                    if fs_due {
+                        state.last_fs_fg_hwnd = fg_raw;
+                        let is_fs = is_fullscreen_app_covering_navbar(&win);
+                        if is_fs != state.was_fullscreen {
+                            state.was_fullscreen = is_fs;
+                            let _ = app.emit_to(&label, "navbar-fullscreen-state", is_fs);
+                            crate::backdrop_blur::set_window_acrylic_hidden(&label, is_fs);
+                            if !is_fs {
                                 crate::backdrop_blur::invalidate_all_backdrops();
+                                request_overlap_recheck();
+                            }
+                            if is_fs {
+                                set_overlay_click_through(&win, true);
+                                state.was_in_dock = false;
+                                continue;
                             }
                         }
                     }
-                }
 
-                let in_dock =
-                    calculate_navbar_hit(pt, win_pos, win_size, sf, &geom, &active_popups);
-
-                if !active_popups.is_empty() {
-                    let mouse_down = unsafe {
-                        (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0
-                            || (GetAsyncKeyState(VK_RBUTTON.0 as i32) as u16 & 0x8000) != 0
-                    };
-                    let mouse_just_pressed = mouse_down && !was_mouse_down;
-                    was_mouse_down = mouse_down;
-                    if !in_dock && mouse_just_pressed {
-                        let _ = win.emit("navbar-dismiss-popovers", ());
+                    if state.was_fullscreen {
+                        continue;
                     }
-                } else {
-                    was_mouse_down = false;
-                }
 
-                if in_dock != was_in_dock {
-                    was_in_dock = in_dock;
-                    let _ = win.set_ignore_cursor_events(!in_dock);
-                    let _ = win.emit("navbar-cursor-hit", in_dock);
-                } else if is_window_click_through(&win) == Some(in_dock) {
-                    let _ = win.set_ignore_cursor_events(!in_dock);
+                    if !geom.auto_hide_enabled {
+                        if state.was_auto_hide_enabled || state.was_window_covered {
+                            state.was_auto_hide_enabled = false;
+                            state.was_window_covered = false;
+                            let _ = app.emit_to(&label, "navbar-window-overlap-state", false);
+                        }
+                    } else {
+                        let just_enabled = !state.was_auto_hide_enabled;
+                        state.was_auto_hide_enabled = true;
+                        let overlap_fg_changed = fg_raw != state.last_overlap_fg_hwnd;
+                        let force_overlap =
+                            just_enabled || overlap_fg_changed || overlap_recheck_due;
+                        if force_overlap
+                            || (near_edge && tick.is_multiple_of(12))
+                            || tick.is_multiple_of(40)
+                        {
+                            state.last_overlap_fg_hwnd = fg_raw;
+                            #[cfg(windows)]
+                            if let Ok(raw_hwnd) = win.hwnd() {
+                                let nav_hwnd = HWND(raw_hwnd.0);
+                                let nav_mon =
+                                    unsafe { MonitorFromWindow(nav_hwnd, MONITOR_DEFAULTTONEAREST) };
+                                let is_covered =
+                                    is_any_window_covering_dock_for_geom(nav_hwnd, nav_mon, &geom);
+                                if is_covered != state.was_window_covered || just_enabled {
+                                    state.was_window_covered = is_covered;
+                                    let _ = app.emit_to(
+                                        &label,
+                                        "navbar-window-overlap-state",
+                                        is_covered,
+                                    );
+                                    crate::backdrop_blur::invalidate_all_backdrops();
+                                }
+                            }
+                        }
+                    }
+
+                    let in_dock = if snipping_active {
+                        false
+                    } else {
+                        calculate_navbar_hit(pt, win_pos, win_size, sf, &geom, &active_popups)
+                    };
+
+                    if !active_popups.is_empty() && !snipping_active {
+                        let mouse_down = unsafe {
+                            (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0
+                                || (GetAsyncKeyState(VK_RBUTTON.0 as i32) as u16 & 0x8000) != 0
+                        };
+                        let mouse_just_pressed = mouse_down && !state.was_mouse_down;
+                        state.was_mouse_down = mouse_down;
+                        if !in_dock && mouse_just_pressed {
+                            let _ = app.emit_to(&label, "navbar-dismiss-popovers", ());
+                        }
+                    } else {
+                        state.was_mouse_down = false;
+                    }
+
+                    if in_dock != state.was_in_dock {
+                        state.was_in_dock = in_dock;
+                        set_overlay_click_through(&win, !in_dock);
+                        let _ = app.emit_to(&label, "navbar-cursor-hit", in_dock);
+                    } else {
+                        sync_overlay_click_through(&win, !in_dock);
+                    }
                 }
             }
         });
     });
+}
+
+fn split_primary_and_secondary_monitors(
+    ref_win: &tauri::WebviewWindow,
+) -> (Option<tauri::Monitor>, Vec<tauri::Monitor>) {
+    let monitors = ref_win.available_monitors().unwrap_or_default();
+    let primary = ref_win
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| {
+            monitors
+                .iter()
+                .find(|m| m.position().x == 0 && m.position().y == 0)
+                .cloned()
+        })
+        .or_else(|| monitors.first().cloned());
+
+    let secondary = monitors
+        .into_iter()
+        .filter(|m| {
+            if let Some(ref p) = primary {
+                if m.position() == p.position() && m.size() == p.size() {
+                    return false;
+                }
+                if let (Some(m_name), Some(p_name)) = (m.name(), p.name()) {
+                    if m_name == p_name {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .collect();
+
+    (primary, secondary)
+}
+
+fn build_navbar_webview_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    url: &str,
+    title: &str,
+    init_script: &str,
+) -> Result<tauri::WebviewWindow, tauri::Error> {
+    let win = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(url.into()))
+        .title(title)
+        .inner_size(1440.0, 260.0)
+        .position(-10000.0, -10000.0)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .focused(false)
+        .visible(false)
+        .initialization_script(init_script)
+        .additional_browser_args("--autoplay-policy=no-user-gesture-required")
+        .build()?;
+
+    if !NAVBAR_ENABLED.load(Ordering::SeqCst) {
+        let _ = win.destroy();
+        return Err(tauri::Error::WindowNotFound);
+    }
+    let _ = win.set_focusable(false);
+    set_overlay_click_through(&win, true);
+    #[cfg(windows)]
+    let raw_hwnd_key: isize = win.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+    #[cfg(not(windows))]
+    let raw_hwnd_key: isize = 0;
+    #[cfg(windows)]
+    if let Ok(raw_hwnd) = win.hwnd() {
+        let hwnd = HWND(raw_hwnd.0);
+        remove_appbar_if_registered(hwnd);
+        apply_navbar_exstyle(hwnd, false);
+    }
+
+    let nw = win.clone();
+    let app_for_ev = app.clone();
+    let label_for_ev = label.to_string();
+    win.on_window_event(move |event| match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            #[cfg(windows)]
+            if let Ok(raw_hwnd) = nw.hwnd() {
+                remove_appbar_if_registered(HWND(raw_hwnd.0));
+            }
+            popup_regions_map()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&label_for_ev);
+            crate::backdrop_blur::set_window_acrylic_hidden(&label_for_ev, true);
+            let _ = nw.hide();
+        }
+        tauri::WindowEvent::Destroyed => {
+            if raw_hwnd_key != 0 {
+                if let Ok(mut map) = desired_click_through_map().lock() {
+                    map.remove(&raw_hwnd_key);
+                }
+            }
+        }
+        tauri::WindowEvent::ScaleFactorChanged { .. } => {
+            let _ = app_for_ev.emit_to(&label_for_ev, "navbar-request-sync-bounds", ());
+        }
+        _ => {}
+    });
+
+    Ok(win)
+}
+
+fn destroy_secondary_navbar_windows(app: &tauri::AppHandle) {
+    for (label, win) in app.webview_windows() {
+        if label.starts_with("navbar_secondary_") {
+            #[cfg(windows)]
+            if let Ok(raw_hwnd) = win.hwnd() {
+                remove_appbar_if_registered(HWND(raw_hwnd.0));
+            }
+            crate::backdrop_blur::set_window_acrylic_hidden(&label, true);
+            clear_window_nav_state(&label);
+            let _ = win.hide();
+            let _ = win.destroy();
+        }
+    }
+}
+
+pub fn sync_secondary_navbar_windows(app: &tauri::AppHandle, is_all: bool) {
+    {
+        let mut state = match SYNC_SEC_NAVBAR_QUEUE.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        state.1 = Some(is_all);
+        if state.0 {
+            return;
+        }
+        state.0 = true;
+    }
+
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        struct SyncGuard;
+        impl Drop for SyncGuard {
+            fn drop(&mut self) {
+                if let Ok(mut state) = SYNC_SEC_NAVBAR_QUEUE.lock() {
+                    state.0 = false;
+                }
+            }
+        }
+        let _guard = SyncGuard;
+
+        loop {
+            let next_is_all = {
+                let mut state = match SYNC_SEC_NAVBAR_QUEUE.lock() {
+                    Ok(g) => g,
+                    Err(p) => p.into_inner(),
+                };
+                match state.1.take() {
+                    Some(val) => val,
+                    None => {
+                        state.0 = false;
+                        return;
+                    }
+                }
+            };
+            sync_secondary_navbar_windows_inner(&app_handle, next_is_all);
+        }
+    });
+}
+
+fn sync_secondary_navbar_windows_inner(app: &tauri::AppHandle, is_all: bool) {
+    if !is_all || !NAVBAR_ENABLED.load(Ordering::SeqCst) {
+        destroy_secondary_navbar_windows(app);
+        return;
+    }
+
+    let Some(main_nav) = app.get_webview_window("navbar") else {
+        return;
+    };
+
+    let (_, secondary_monitors) = split_primary_and_secondary_monitors(&main_nav);
+    if secondary_monitors.is_empty() {
+        destroy_secondary_navbar_windows(app);
+        return;
+    }
+
+    let sec_count = secondary_monitors.len();
+    for (label, win) in app.webview_windows() {
+        if label.starts_with("navbar_secondary_") {
+            let invalid_idx = label
+                .trim_start_matches("navbar_secondary_")
+                .parse::<usize>()
+                .map(|idx| idx == 0 || idx > sec_count)
+                .unwrap_or(true);
+            if invalid_idx {
+                #[cfg(windows)]
+                if let Ok(raw_hwnd) = win.hwnd() {
+                    remove_appbar_if_registered(HWND(raw_hwnd.0));
+                }
+                crate::backdrop_blur::set_window_acrylic_hidden(&label, true);
+                clear_window_nav_state(&label);
+                let _ = win.hide();
+                let _ = win.destroy();
+            }
+        }
+    }
+
+    for (i, _mon) in secondary_monitors.into_iter().enumerate() {
+        if !NAVBAR_ENABLED.load(Ordering::SeqCst) {
+            return;
+        }
+        let sec_idx = i + 1;
+        let label = format!("navbar_secondary_{}", sec_idx);
+
+        if let Some(sec_win) = app.get_webview_window(&label) {
+            let _ = sec_win.show();
+            let _ = sec_win.unminimize();
+            let _ = sec_win.set_always_on_top(true);
+            crate::backdrop_blur::set_window_acrylic_hidden(&label, false);
+            crate::window_preview::reassert_overlay_zorder();
+            set_window_last_rect(&label, (0, 0, 0, 0));
+            let _ = app.emit_to(&label, "navbar-request-sync-bounds", ());
+            #[cfg(windows)]
+            if let Ok(raw_hwnd) = sec_win.hwnd() {
+                let hwnd = HWND(raw_hwnd.0);
+                remove_appbar_if_registered(hwnd);
+                apply_navbar_exstyle(hwnd, false);
+                unsafe {
+                    let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                }
+            }
+        } else {
+            let url = format!("index.html?window=navbar&monitor={}", sec_idx);
+            let title = format!("Gili Secondary Navbar {}", sec_idx);
+            let init_script = format!(
+                "window.__IS_NAVBAR_WINDOW__ = true; window.__IS_SECONDARY_NAVBAR_WINDOW__ = true; window.__NAVBAR_SECONDARY_INDEX__ = {};",
+                sec_idx
+            );
+            if let Err(e) = build_navbar_webview_window(app, &label, &url, &title, &init_script) {
+                eprintln!("Failed to create secondary navbar window {}: {:?}", label, e);
+            }
+        }
+    }
 }
 
 pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
@@ -919,14 +1455,16 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
     start_navbar_cursor_watcher(app.clone());
     crate::window_preview::start_preview_prewarmer();
 
+    let is_all = get_monitor_mode().eq_ignore_ascii_case("all");
+
     if let Some(w) = app.get_webview_window("navbar") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_always_on_top(true);
         crate::backdrop_blur::set_window_acrylic_hidden("navbar", false);
         crate::window_preview::reassert_overlay_zorder();
-        *last_nav_rect().lock().unwrap_or_else(|e| e.into_inner()) = (0, 0, 0, 0);
-        let _ = w.emit("navbar-request-sync-bounds", ());
+        set_window_last_rect("navbar", (0, 0, 0, 0));
+        let _ = app.emit_to("navbar", "navbar-request-sync-bounds", ());
         #[cfg(windows)]
         if let Ok(raw_hwnd) = w.hwnd() {
             let hwnd = HWND(raw_hwnd.0);
@@ -936,6 +1474,7 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             }
         }
+        sync_secondary_navbar_windows(app, is_all);
         return;
     }
 
@@ -946,56 +1485,22 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
 
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        match tauri::WebviewWindowBuilder::new(
+        match build_navbar_webview_window(
             &app_clone,
             "navbar",
-            tauri::WebviewUrl::App("index.html?window=navbar".into()),
-        )
-        .title("Gili Navbar")
-        .inner_size(1440.0, 260.0)
-        .position(-10000.0, -10000.0)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .focused(false)
-        .visible(false)
-        .initialization_script("window.__IS_NAVBAR_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=1 --force-gpu-mem-available-mb=32 --gpu-program-cache-size-kb=2048 --disable-gpu-shader-disk-cache --js-flags=--max-old-space-size=64")
-        .build()
-        {
-            Ok(win) => {
-                if !NAVBAR_ENABLED.load(Ordering::SeqCst) {
-                    let _ = win.destroy();
-                    NAVBAR_CREATING.store(false, Ordering::SeqCst);
-                    return;
+            "index.html?window=navbar",
+            "Gili Navbar",
+            "window.__IS_NAVBAR_WINDOW__ = true;",
+        ) {
+            Ok(_win) => {
+                if get_monitor_mode().eq_ignore_ascii_case("all") {
+                    sync_secondary_navbar_windows(&app_clone, true);
                 }
-                let _ = win.set_ignore_cursor_events(true);
-                #[cfg(windows)]
-                if let Ok(raw_hwnd) = win.hwnd() {
-                    let hwnd = HWND(raw_hwnd.0);
-                    remove_appbar_if_registered(hwnd);
-                    apply_navbar_exstyle(hwnd, false);
-                }
-
-                let nw = win.clone();
-                win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        #[cfg(windows)]
-                        if let Ok(raw_hwnd) = nw.hwnd() {
-                            remove_appbar_if_registered(HWND(raw_hwnd.0));
-                        }
-                        popup_regions().lock().unwrap_or_else(|e| e.into_inner()).clear();
-                        crate::backdrop_blur::set_window_acrylic_hidden("navbar", true);
-                        let _ = nw.hide();
-                    }
-                });
             }
             Err(e) => {
-                eprintln!("Failed to create navbar window: {:?}", e);
+                if !matches!(e, tauri::Error::WindowNotFound) {
+                    eprintln!("Failed to create navbar window: {:?}", e);
+                }
             }
         }
         NAVBAR_CREATING.store(false, Ordering::SeqCst);
@@ -1005,30 +1510,36 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
 pub fn hide_navbar_window(app: &tauri::AppHandle) {
     let gen = NAVBAR_LIFECYCLE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     NAVBAR_ENABLED.store(false, Ordering::SeqCst);
-    crate::backdrop_blur::set_window_acrylic_hidden("navbar", true);
     crate::window_preview::clear_window_previews();
-    popup_regions().lock().unwrap_or_else(|e| e.into_inner()).clear();
-    *last_nav_rect().lock().unwrap_or_else(|e| e.into_inner()) = (0, 0, 0, 0);
-    if let Some(w) = app.get_webview_window("navbar") {
+
+    for (label, w) in app.webview_windows() {
+        if !is_navbar_window_label(&label) {
+            continue;
+        }
+        crate::backdrop_blur::set_window_acrylic_hidden(&label, true);
+        clear_window_nav_state(&label);
         #[cfg(windows)]
         if let Ok(raw_hwnd) = w.hwnd() {
             remove_appbar_if_registered(HWND(raw_hwnd.0));
         }
         let _ = w.hide();
-        // Destroy on a brief background delay so an in-flight IPC call from NavbarApp finishes cleanly.
-        let app_clone = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(40));
-            if NAVBAR_LIFECYCLE_GEN.load(Ordering::SeqCst) != gen
-                || NAVBAR_ENABLED.load(Ordering::SeqCst)
-            {
-                return;
-            }
-            if let Some(win) = app_clone.get_webview_window("navbar") {
+    }
+
+    // Destroy on a brief background delay so an in-flight IPC call from NavbarApp finishes cleanly.
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        if NAVBAR_LIFECYCLE_GEN.load(Ordering::SeqCst) != gen
+            || NAVBAR_ENABLED.load(Ordering::SeqCst)
+        {
+            return;
+        }
+        for (label, win) in app_clone.webview_windows() {
+            if is_navbar_window_label(&label) {
                 let _ = win.destroy();
             }
-        });
-    }
+        }
+    });
 }
 
 #[tauri::command]
@@ -1057,71 +1568,86 @@ pub fn close_navbar_window(app: tauri::AppHandle) {
     crate::taskbar_manager::set_taskbar_visible(true);
 }
 
-#[tauri::command]
-pub fn set_navbar_ignore_cursor_events(app: tauri::AppHandle, ignore: bool) {
-    if let Some(w) = app.get_webview_window("navbar") {
-        let _ = w.set_ignore_cursor_events(ignore);
-    }
-}
-
-#[tauri::command]
-pub fn register_navbar_popup(id: String, rect: Option<PopupHitRect>) {
-    popup_regions()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(id, rect);
-}
-
-#[tauri::command]
-pub fn unregister_navbar_popup(id: String) {
-    popup_regions()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .remove(&id);
-}
-
-#[tauri::command]
-pub fn set_navbar_popup_open(open: bool) {
-    let mut map = popup_regions().lock().unwrap_or_else(|e| e.into_inner());
-    if open {
-        map.insert("__legacy__".to_string(), None);
-    } else {
-        map.remove("__legacy__");
-    }
-}
-
-#[tauri::command]
-pub fn set_navbar_backdrop_hidden(hidden: bool) {
-    crate::backdrop_blur::set_window_acrylic_hidden("navbar", hidden);
-}
-
-#[tauri::command]
-pub fn set_navbar_auto_hide_state(
+fn set_window_auto_hide_state(
+    label: &str,
     auto_hide: bool,
     is_hidden: bool,
     auto_hide_enabled: Option<bool>,
 ) {
     let enabled = auto_hide_enabled.unwrap_or(auto_hide);
     {
-        let mut g = hit_geom().lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = hit_geoms().lock().unwrap_or_else(|e| e.into_inner());
+        let g = map.entry(label.to_string()).or_default();
         g.auto_hide = auto_hide;
         g.auto_hide_enabled = enabled;
         g.is_dock_hidden = is_hidden;
     }
     request_overlap_recheck();
-    crate::backdrop_blur::set_window_acrylic_hidden("navbar", auto_hide && is_hidden);
+    crate::backdrop_blur::set_window_acrylic_hidden(label, auto_hide && is_hidden);
 }
 
 #[tauri::command]
-pub fn set_navbar_focusable(app: tauri::AppHandle, focusable: bool) {
-    if let Some(w) = app.get_webview_window("navbar") {
-        #[cfg(windows)]
-        if let Ok(raw_hwnd) = w.hwnd() {
-            let hwnd = HWND(raw_hwnd.0);
-            apply_navbar_exstyle(hwnd, focusable);
-            if focusable {
-                let _ = w.set_focus();
-            }
+pub fn set_navbar_ignore_cursor_events(window: tauri::WebviewWindow, ignore: bool) {
+    set_overlay_click_through(&window, ignore);
+}
+
+#[tauri::command]
+pub fn register_navbar_popup(
+    window: tauri::WebviewWindow,
+    id: String,
+    rect: Option<PopupHitRect>,
+) {
+    popup_regions_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(window.label().to_string())
+        .or_default()
+        .insert(id, rect);
+}
+
+#[tauri::command]
+pub fn unregister_navbar_popup(window: tauri::WebviewWindow, id: String) {
+    let mut map = popup_regions_map().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(win_map) = map.get_mut(window.label()) {
+        win_map.remove(&id);
+    }
+}
+
+#[tauri::command]
+pub fn set_navbar_popup_open(window: tauri::WebviewWindow, open: bool) {
+    let mut map = popup_regions_map().lock().unwrap_or_else(|e| e.into_inner());
+    let win_map = map.entry(window.label().to_string()).or_default();
+    if open {
+        win_map.insert("__legacy__".to_string(), None);
+    } else {
+        win_map.remove("__legacy__");
+    }
+}
+
+#[tauri::command]
+pub fn set_navbar_backdrop_hidden(window: tauri::WebviewWindow, hidden: bool) {
+    crate::backdrop_blur::set_window_acrylic_hidden(window.label(), hidden);
+}
+
+#[tauri::command]
+pub fn set_navbar_auto_hide_state(
+    window: tauri::WebviewWindow,
+    auto_hide: bool,
+    is_hidden: bool,
+    auto_hide_enabled: Option<bool>,
+) {
+    set_window_auto_hide_state(window.label(), auto_hide, is_hidden, auto_hide_enabled);
+}
+
+#[tauri::command]
+pub fn set_navbar_focusable(window: tauri::WebviewWindow, focusable: bool) {
+    let _ = window.set_focusable(focusable);
+    #[cfg(windows)]
+    if let Ok(raw_hwnd) = window.hwnd() {
+        let hwnd = HWND(raw_hwnd.0);
+        apply_navbar_exstyle(hwnd, focusable);
+        if focusable {
+            let _ = window.set_focus();
         }
     }
 }
@@ -1129,27 +1655,67 @@ pub fn set_navbar_focusable(app: tauri::AppHandle, focusable: bool) {
 #[tauri::command]
 pub fn broadcast_navbar_config_update(app: tauri::AppHandle, config: serde_json::Value) {
     crate::taskbar_safety::sync_switches_from_navbar_config_value(&config);
+    if let Some(mon_id) = config.get("monitorId").and_then(|v| v.as_str()) {
+        let trimmed = mon_id.trim();
+        if !trimmed.is_empty() {
+            let prev = {
+                let mut m = monitor_mode_lock().lock().unwrap_or_else(|e| e.into_inner());
+                let old = m.clone();
+                *m = trimmed.to_string();
+                old
+            };
+            let is_all = trimmed.eq_ignore_ascii_case("all");
+            if NAVBAR_ENABLED.load(Ordering::SeqCst) {
+                sync_secondary_navbar_windows(&app, is_all);
+                if !prev.eq_ignore_ascii_case(trimmed)
+                    && crate::taskbar_manager::get_windows_taskbar_hidden()
+                {
+                    crate::taskbar_manager::refresh_taskbar_visibility();
+                }
+            }
+        }
+    }
     let _ = app.emit("navbar_config_updated", &config);
     let _ = app.emit("gili-navbar-config-sync", &config);
-    if let Some(win) = app.get_webview_window("navbar") {
-        let _ = win.emit("navbar_config_updated", &config);
-        let _ = win.emit("gili-navbar-config-sync", &config);
+    for (label, _) in app.webview_windows() {
+        if is_navbar_window_label(&label) {
+            let _ = app.emit_to(&label, "navbar_config_updated", &config);
+            let _ = app.emit_to(&label, "gili-navbar-config-sync", &config);
+        }
     }
 }
 
-fn resolve_target_monitor(
+fn resolve_target_monitor_for_window(
     win: &tauri::WebviewWindow,
     monitor_id: Option<&str>,
 ) -> Option<tauri::Monitor> {
+    let label = win.label();
+    if label.starts_with("navbar_secondary_") {
+        let sec_idx = label
+            .trim_start_matches("navbar_secondary_")
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n >= 1)?;
+        let (_, secondary) = split_primary_and_secondary_monitors(win);
+        return secondary.into_iter().nth(sec_idx - 1);
+    }
+
     if let Some(target_id) = monitor_id {
-        if !target_id.is_empty() && target_id != "primary" {
+        let trimmed = target_id.trim();
+        if !trimmed.is_empty()
+            && !trimmed.eq_ignore_ascii_case("primary")
+            && !trimmed.eq_ignore_ascii_case("all")
+        {
             if let Ok(monitors) = win.available_monitors() {
                 for (idx, m) in monitors.iter().enumerate() {
                     let name = m.name().map(|s| s.as_str()).unwrap_or("");
-                    if name == target_id
-                        || format!("monitor-{}", idx) == target_id
-                        || format!("DISPLAY{}", idx + 1) == target_id
-                        || name.ends_with(target_id)
+                    let clean_m = name.trim_start_matches(r"\\.\");
+                    let clean_t = trimmed.trim_start_matches(r"\\.\");
+                    if name == trimmed
+                        || clean_m.eq_ignore_ascii_case(clean_t)
+                        || format!("monitor-{}", idx) == trimmed
+                        || format!("DISPLAY{}", idx + 1) == trimmed
+                        || name.ends_with(trimmed)
                     {
                         return Some(m.clone());
                     }
@@ -1157,9 +1723,18 @@ fn resolve_target_monitor(
             }
         }
     }
+
     win.primary_monitor()
         .ok()
         .flatten()
+        .or_else(|| {
+            win.available_monitors().ok().and_then(|mons| {
+                mons.iter()
+                    .find(|m| m.position().x == 0 && m.position().y == 0)
+                    .cloned()
+                    .or_else(|| mons.into_iter().next())
+            })
+        })
         .or_else(|| win.current_monitor().ok().flatten())
 }
 
@@ -1167,6 +1742,7 @@ fn resolve_target_monitor(
 #[allow(clippy::too_many_arguments)]
 pub fn sync_navbar_bounds(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     width: f64,
     height: f64,
     position: String,
@@ -1183,163 +1759,219 @@ pub fn sync_navbar_bounds(
     if !NAVBAR_ENABLED.load(Ordering::SeqCst) {
         return;
     }
-    if let Some(win) = app.get_webview_window("navbar") {
-        if let Some(monitor) = resolve_target_monitor(&win, monitor_id.as_deref()) {
-            let scale_factor = monitor.scale_factor();
-            let mon_pos = monitor.position();
-            let mon_size = monitor.size();
 
-            let mon_x = mon_pos.x as f64 / scale_factor;
-            let mon_y = mon_pos.y as f64 / scale_factor;
-            let mon_width = mon_size.width as f64 / scale_factor;
-            let mon_height = mon_size.height as f64 / scale_factor;
+    let label = window.label().to_string();
+    let mut mode_changed = false;
+    if label == "navbar" {
+        let mode = monitor_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("all");
+        let prev_mode = {
+            let mut m = monitor_mode_lock().lock().unwrap_or_else(|e| e.into_inner());
+            let prev = m.clone();
+            *m = mode.to_string();
+            prev
+        };
+        let is_all = mode.eq_ignore_ascii_case("all");
+        let has_secondary = app
+            .webview_windows()
+            .keys()
+            .any(|k| k.starts_with("navbar_secondary_"));
+        mode_changed = !prev_mode.eq_ignore_ascii_case(mode);
+        if mode_changed || (is_all && !has_secondary) || (!is_all && has_secondary) {
+            sync_secondary_navbar_windows(&app, is_all);
+        }
+    }
 
-            let overhead_space = overhead.unwrap_or(380.0);
-            let _ = extra_width;
-            let is_anchored_bool = is_anchored.unwrap_or(distance_from_edge == 0.0);
-            let is_vertical = position == "left" || position == "right";
-            let edge_reserve = 32.0f64;
+    if let Some(monitor) = resolve_target_monitor_for_window(&window, monitor_id.as_deref()) {
+        let scale_factor = monitor.scale_factor();
+        let mon_pos = monitor.position();
+        let mon_size = monitor.size();
 
-            let (clamped_dock_w, clamped_dock_h, window_w, window_h, target_x, target_y) =
-                if is_vertical {
-                    let dock_w = width.clamp(40.0, 120.0);
-                    let safe_h = height.clamp(80.0, mon_height);
-                    let total_w = (dock_w + edge_reserve + overhead_space).clamp(dock_w, mon_width);
-                    let total_h = mon_height;
+        let mon_x = mon_pos.x as f64 / scale_factor;
+        let mon_y = mon_pos.y as f64 / scale_factor;
+        let mon_width = mon_size.width as f64 / scale_factor;
+        let mon_height = mon_size.height as f64 / scale_factor;
 
-                    let x = if position == "left" {
-                        mon_x
-                    } else {
-                        mon_x + mon_width - total_w
-                    };
-                    let y = mon_y;
-                    (dock_w, safe_h, total_w, total_h, x, y)
+        let overhead_space = overhead.unwrap_or(380.0);
+        let _ = extra_width;
+        let is_anchored_bool = is_anchored.unwrap_or(distance_from_edge == 0.0);
+        let is_vertical = position == "left" || position == "right";
+        let edge_reserve = 32.0f64;
+
+        let (clamped_dock_w, clamped_dock_h, window_w, window_h, target_x, target_y) =
+            if is_vertical {
+                let dock_w = width.clamp(24.0, 120.0);
+                let safe_h = height.clamp(80.0, mon_height);
+                let total_w = (dock_w + edge_reserve + overhead_space).clamp(dock_w, mon_width);
+                let total_h = mon_height;
+
+                let x = if position == "left" {
+                    mon_x
                 } else {
-                    let safe_w = width.clamp(80.0, mon_width);
-                    let dock_h = height.clamp(40.0, 110.0);
-                    let total_w = mon_width;
-                    let total_h =
-                        (dock_h + edge_reserve + overhead_space).clamp(dock_h, mon_height);
-
-                    let x = mon_x;
-                    let y = if position == "top" {
-                        mon_y
-                    } else {
-                        mon_y + (mon_height - total_h).max(0.0)
-                    };
-                    (safe_w, dock_h, total_w, total_h, x, y)
+                    mon_x + mon_width - total_w
                 };
+                let y = mon_y;
+                (dock_w, safe_h, total_w, total_h, x, y)
+            } else {
+                let safe_w = width.clamp(80.0, mon_width);
+                let dock_h = height.clamp(24.0, 110.0);
+                let total_w = mon_width;
+                let total_h =
+                    (dock_h + edge_reserve + overhead_space).clamp(dock_h, mon_height);
 
-            let geom_snapshot = {
-                let mut g = hit_geom().lock().unwrap_or_else(|e| e.into_inner());
-                g.dock_width = clamped_dock_w;
-                g.dock_height = clamped_dock_h;
-                g.position = position.clone();
-                g.distance_from_edge = distance_from_edge;
-                g.is_anchored = is_anchored_bool;
-                g.scale_factor = scale_factor;
-                g.mon_rect = (
-                    mon_pos.x,
-                    mon_pos.y,
-                    mon_pos.x + mon_size.width as i32,
-                    mon_pos.y + mon_size.height as i32,
-                );
-                g.clone()
+                let x = mon_x;
+                let y = if position == "top" {
+                    mon_y
+                } else {
+                    mon_y + (mon_height - total_h).max(0.0)
+                };
+                (safe_w, dock_h, total_w, total_h, x, y)
             };
 
-            let phys_w = (window_w * scale_factor).round() as i32;
-            let phys_h = (window_h * scale_factor).round() as i32;
-            let mon_right_phys = mon_pos.x + mon_size.width as i32;
-            let mon_bottom_phys = mon_pos.y + mon_size.height as i32;
-            let phys_x = match position.as_str() {
-                "left" => mon_pos.x,
-                "right" => mon_right_phys - phys_w,
-                _ => (target_x * scale_factor).round() as i32,
-            };
-            let phys_y = match position.as_str() {
-                "top" => mon_pos.y,
-                "bottom" => mon_bottom_phys - phys_h,
-                _ => (target_y * scale_factor).round() as i32,
-            };
+        let new_mon_rect = (
+            mon_pos.x,
+            mon_pos.y,
+            mon_pos.x + mon_size.width as i32,
+            mon_pos.y + mon_size.height as i32,
+        );
+        let (prev_mon_rect, geom_snapshot) = {
+            let mut map = hit_geoms().lock().unwrap_or_else(|e| e.into_inner());
+            let g = map.entry(label.clone()).or_default();
+            let old_mon = g.mon_rect;
+            g.dock_width = clamped_dock_w;
+            g.dock_height = clamped_dock_h;
+            g.position = position.clone();
+            g.distance_from_edge = distance_from_edge;
+            g.is_anchored = is_anchored_bool;
+            g.scale_factor = scale_factor;
+            g.mon_rect = new_mon_rect;
+            (old_mon, g.clone())
+        };
 
-            #[cfg(windows)]
-            if let Ok(raw_hwnd) = win.hwnd() {
-                let hwnd = HWND(raw_hwnd.0);
-                let mut need_move = true;
-                {
-                    let lr = last_nav_rect().lock().unwrap_or_else(|e| e.into_inner());
-                    if *lr == (phys_x, phys_y, phys_w, phys_h) && win.is_visible().unwrap_or(false)
-                    {
-                        need_move = false;
-                    }
-                }
-                if need_move {
-                    unsafe {
+        let phys_w = if is_vertical {
+            (window_w * scale_factor).round() as i32
+        } else {
+            mon_size.width as i32
+        };
+        let phys_h = if is_vertical {
+            mon_size.height as i32
+        } else {
+            (window_h * scale_factor).round() as i32
+        };
+        let mon_right_phys = mon_pos.x + mon_size.width as i32;
+        let mon_bottom_phys = mon_pos.y + mon_size.height as i32;
+        let phys_x = match position.as_str() {
+            "left" => mon_pos.x,
+            "right" => mon_right_phys - phys_w,
+            _ => mon_pos.x,
+        };
+        let phys_y = match position.as_str() {
+            "top" => mon_pos.y,
+            "bottom" => mon_bottom_phys - phys_h,
+            _ => {
+                let _ = (target_x, target_y);
+                mon_pos.y
+            }
+        };
+
+        #[cfg(windows)]
+        if let Ok(raw_hwnd) = window.hwnd() {
+            let hwnd = HWND(raw_hwnd.0);
+            let mut need_move = true;
+            if get_window_last_rect(&label) == (phys_x, phys_y, phys_w, phys_h)
+                && window.is_visible().unwrap_or(false)
+            {
+                need_move = false;
+            }
+            if need_move {
+                unsafe {
+                    let target_center = POINT {
+                        x: mon_pos.x + (mon_size.width as i32) / 2,
+                        y: mon_pos.y + (mon_size.height as i32) / 2,
+                    };
+                    let cur_mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                    let target_mon = MonitorFromPoint(target_center, MONITOR_DEFAULTTONEAREST);
+                    if cur_mon != target_mon {
                         let _ = SetWindowPos(
                             hwnd,
                             HWND_TOPMOST,
-                            phys_x,
-                            phys_y,
+                            mon_pos.x,
+                            mon_pos.y,
                             phys_w,
                             phys_h,
                             SWP_NOACTIVATE | SWP_SHOWWINDOW,
                         );
                     }
-                    crate::window_preview::reassert_overlay_zorder();
-                    *last_nav_rect().lock().unwrap_or_else(|e| e.into_inner()) =
-                        (phys_x, phys_y, phys_w, phys_h);
-                    request_overlap_recheck();
+                    let _ = SetWindowPos(
+                        hwnd,
+                        HWND_TOPMOST,
+                        phys_x,
+                        phys_y,
+                        phys_w,
+                        phys_h,
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                    );
                 }
-                remove_appbar_if_registered(hwnd);
-
-                let dock_rect = compute_dock_visual_phys_rect(
-                    phys_x,
-                    phys_y,
-                    phys_x + phys_w,
-                    phys_y + phys_h,
-                    scale_factor,
-                    &geom_snapshot,
-                    false,
-                );
-                let is_liquid = style.as_deref() == Some("liquid");
-                let _ = opacity;
-                let is_light = is_light_surface.unwrap_or(false);
-                let raw_radius = corner_radius.unwrap_or(15.0);
-                let effective_radius_css = if is_anchored_bool {
-                    if raw_radius <= 1.0 {
-                        0.0
-                    } else {
-                        raw_radius.min(8.0)
-                    }
-                } else {
-                    raw_radius
-                };
-                let radius_phys = (effective_radius_css * scale_factor).round() as i32;
-                let backdrop_enabled = NAVBAR_ENABLED.load(Ordering::SeqCst)
-                    && !(geom_snapshot.auto_hide && geom_snapshot.is_dock_hidden);
-                crate::window_backdrop::sync_navbar_backdrop(
-                    backdrop_enabled,
-                    is_liquid,
-                    is_light,
-                    raw_hwnd.0 as isize,
-                    dock_rect.left,
-                    dock_rect.top,
-                    (dock_rect.right - dock_rect.left).max(1),
-                    (dock_rect.bottom - dock_rect.top).max(1),
-                    radius_phys,
-                );
-                crate::window_backdrop::keep_backdrop_below_navbar(raw_hwnd.0 as isize);
+                crate::window_preview::reassert_overlay_zorder();
+                set_window_last_rect(&label, (phys_x, phys_y, phys_w, phys_h));
+                request_overlap_recheck();
             }
+            remove_appbar_if_registered(hwnd);
+
+            let dock_rect = compute_dock_visual_phys_rect(
+                phys_x,
+                phys_y,
+                phys_x + phys_w,
+                phys_y + phys_h,
+                scale_factor,
+                &geom_snapshot,
+                false,
+            );
+            let is_liquid = style.as_deref() == Some("liquid");
+            let _ = opacity;
+            let is_light = is_light_surface.unwrap_or(false);
+            let raw_radius = corner_radius.unwrap_or(15.0);
+            let effective_radius_css = if is_anchored_bool {
+                if raw_radius <= 1.0 {
+                    0.0
+                } else {
+                    raw_radius.min(8.0)
+                }
+            } else {
+                raw_radius
+            };
+            let radius_phys = (effective_radius_css * scale_factor).round() as i32;
+            let backdrop_enabled = NAVBAR_ENABLED.load(Ordering::SeqCst)
+                && !(geom_snapshot.auto_hide && geom_snapshot.is_dock_hidden);
+            crate::window_backdrop::sync_navbar_backdrop(
+                backdrop_enabled,
+                is_liquid,
+                is_light,
+                raw_hwnd.0 as isize,
+                dock_rect.left,
+                dock_rect.top,
+                (dock_rect.right - dock_rect.left).max(1),
+                (dock_rect.bottom - dock_rect.top).max(1),
+                radius_phys,
+            );
+            crate::backdrop_blur::keep_acrylic_below_window(&label, raw_hwnd.0 as isize);
+        }
+
+        if label == "navbar"
+            && (mode_changed || prev_mon_rect != new_mon_rect)
+            && crate::taskbar_manager::get_windows_taskbar_hidden()
+        {
+            crate::taskbar_manager::refresh_taskbar_visibility();
         }
     }
 }
 
 #[tauri::command]
-pub fn get_desktop_luminance() -> f32 {
-    let geom = hit_geom()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
+pub fn get_desktop_luminance(window: tauri::WebviewWindow) -> f32 {
+    let geom = get_window_hit_geom(window.label());
     unsafe {
         use windows::Win32::Graphics::Gdi::{
             GetDC, GetMonitorInfoW, GetPixel, MonitorFromWindow, ReleaseDC, MONITORINFO,
@@ -1508,6 +2140,7 @@ pub struct RunningAppInfo {
     pub hwnd: isize,
     pub title: String,
     pub process_name: String,
+    pub exe_path: String,
     pub is_active: bool,
     pub is_minimized: bool,
     pub icon_base64: Option<String>,
@@ -1811,6 +2444,7 @@ pub fn enumerate_running_windows(
             hwnd: hwnd_val,
             title,
             process_name,
+            exe_path: full_path,
             is_active,
             is_minimized,
             icon_base64,
@@ -1913,7 +2547,11 @@ fn toggle_hwnd_with_optional_dock_anchor(
     app: &tauri::AppHandle,
     hwnd: isize,
     anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
-) {
+) -> bool {
+    let target = HWND(hwnd as *mut _);
+    if hwnd == 0 || unsafe { !IsWindow(target).as_bool() || !IsWindowVisible(target).as_bool() } {
+        return false;
+    }
     let effective_anchor = anchor_rect.or_else(|| {
         crate::window_dock_anim::get_recent_dock_anchor(std::time::Duration::from_secs(12))
     });
@@ -1933,6 +2571,11 @@ fn toggle_hwnd_with_optional_dock_anchor(
     } else {
         activate_or_toggle_window_sync(hwnd);
     }
+    true
+}
+
+pub(crate) fn activate_window_from_tray_fallback(app: &tauri::AppHandle, hwnd: isize) -> bool {
+    toggle_hwnd_with_optional_dock_anchor(app, hwnd, None)
 }
 
 pub(crate) fn restore_hwnd_with_dock_anchor(
@@ -1965,11 +2608,12 @@ pub async fn activate_or_toggle_window(
     app: tauri::AppHandle,
     hwnd: isize,
     anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
-) {
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        toggle_hwnd_with_optional_dock_anchor(&app, hwnd, anchor_rect);
+) -> bool {
+    tauri::async_runtime::spawn_blocking(move || {
+        toggle_hwnd_with_optional_dock_anchor(&app, hwnd, anchor_rect)
     })
-    .await;
+    .await
+    .unwrap_or(false)
 }
 
 #[tauri::command]
@@ -2079,36 +2723,25 @@ pub fn trigger_notification_center() {
 
 
 #[tauri::command]
-pub fn trigger_hidden_tray() {
-    if crate::taskbar_manager::get_windows_taskbar_hidden() {
-        crate::taskbar_flyout::toggle_taskbar_flyout_by_target("tray");
-        return;
-    }
-    if crate::shell_surface_toggle::was_just_open(crate::shell_surface_toggle::Surface::ShellFlyout)
-    {
-        return;
-    }
-    crate::shell_surface_toggle::record_surface_opened(
-        crate::shell_surface_toggle::Surface::ShellFlyout,
-    );
-    unsafe {
-        keybd_event(VK_LWIN.0 as u8, 0, KEYEVENTF_EXTENDEDKEY, 0);
-        keybd_event(b'B', 0, KEYBD_EVENT_FLAGS(0), 0);
-        keybd_event(b'B', 0, KEYEVENTF_KEYUP, 0);
-        keybd_event(
-            VK_LWIN.0 as u8,
-            0,
-            KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP,
-            0,
-        );
-    }
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_millis(30));
-        unsafe {
-            keybd_event(VK_RETURN.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
-            keybd_event(VK_RETURN.0 as u8, 0, KEYEVENTF_KEYUP, 0);
-        }
+pub fn trigger_hidden_tray(
+    window: tauri::WebviewWindow,
+    anchor_rect: Option<crate::window_dock_anim::DockAnchorRect>,
+    position: Option<String>,
+) {
+    let resolved = anchor_rect.as_ref().and_then(|rect| {
+        crate::windows_tray_overflow::resolve_screen_anchor_from_window(&window, rect)
     });
+    let pos = position.or_else(|| anchor_rect.and_then(|r| r.position));
+    if let Some((screen_rect, sf)) = resolved {
+        crate::windows_tray_overflow::toggle_native_system_tray_overflow(
+            Some(screen_rect),
+            sf,
+            pos,
+        );
+    } else {
+        let sf = window.scale_factor().ok().unwrap_or(1.0).max(1.0);
+        crate::windows_tray_overflow::toggle_native_system_tray_overflow(None, sf, pos);
+    }
 }
 
 #[tauri::command]
@@ -2259,14 +2892,13 @@ pub fn trigger_fullscreen_screenshot() {
 
 
 #[tauri::command]
-pub fn check_navbar_window_overlap(app: tauri::AppHandle) -> bool {
-    if let Some(win) = app.get_webview_window("navbar") {
-        #[cfg(windows)]
-        if let Ok(raw_hwnd) = win.hwnd() {
-            let nav_hwnd = HWND(raw_hwnd.0);
-            let nav_mon = unsafe { MonitorFromWindow(nav_hwnd, MONITOR_DEFAULTTONEAREST) };
-            return is_any_window_covering_dock(nav_hwnd, nav_mon);
-        }
+pub fn check_navbar_window_overlap(window: tauri::WebviewWindow) -> bool {
+    #[cfg(windows)]
+    if let Ok(raw_hwnd) = window.hwnd() {
+        let nav_hwnd = HWND(raw_hwnd.0);
+        let nav_mon = unsafe { MonitorFromWindow(nav_hwnd, MONITOR_DEFAULTTONEAREST) };
+        let geom = get_window_hit_geom(window.label());
+        return is_any_window_covering_dock_for_geom(nav_hwnd, nav_mon, &geom);
     }
     false
 }
@@ -2406,11 +3038,8 @@ mod preview_probe_tests {
 
     #[test]
     fn test_autohide_normal_state_and_rect_overlap() {
-        set_navbar_auto_hide_state(false, false, Some(true));
-        let snap = hit_geom()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        set_window_auto_hide_state("navbar", false, false, Some(true));
+        let snap = get_window_hit_geom("navbar");
         assert!(!snap.auto_hide);
         assert!(snap.auto_hide_enabled);
         assert!(!snap.is_dock_hidden);

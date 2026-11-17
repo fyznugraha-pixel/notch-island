@@ -114,6 +114,24 @@ fn mime_type_for_filename(filename: &str) -> &'static str {
     }
 }
 
+fn build_inline_thumbnail_jpeg(path: &Path, filename: &str, total_len: u64) -> Option<Vec<u8>> {
+    if total_len <= 64 * 1024 || total_len > 25 * 1024 * 1024 {
+        return None;
+    }
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp") {
+        return None;
+    }
+    let img = crate::decode_safe_image_from_path(path)?;
+    let thumb = img.resize(240, 240, image::imageops::FilterType::Triangle);
+    let mut cursor = std::io::Cursor::new(Vec::with_capacity(16384));
+    thumb
+        .to_rgb8()
+        .write_to(&mut cursor, image::ImageFormat::Jpeg)
+        .ok()?;
+    Some(cursor.into_inner())
+}
+
 fn parse_single_byte_range(header_val: &str, total_len: u64) -> Option<(u64, u64)> {
     if total_len == 0 {
         return None;
@@ -611,6 +629,11 @@ fn handle_http_request(
     let path = raw_url.split('?').next().unwrap_or("").to_string();
     let method = request.method().clone();
 
+    if path == "/favicon.ico" {
+        let _ = request.respond(Response::empty(StatusCode(204)));
+        return;
+    }
+
     // 1. Check active session
     let session_opt = session_arc
         .lock()
@@ -702,6 +725,7 @@ fn handle_http_request(
                         let resolved_path = resolve_shelf_file_path(&file_meta.path);
                         let query = parse_query_params(&raw_url);
                         let is_inline = query.get("inline").map(|v| v == "1").unwrap_or(false);
+                        let is_thumb = query.get("thumb").map(|v| v == "1").unwrap_or(false);
 
                         if let Ok(mut f) = File::open(&resolved_path) {
                             let total_len = f.metadata().map(|m| m.len()).unwrap_or(file_meta.size);
@@ -709,6 +733,25 @@ fn handle_http_request(
                                 .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_else(|| file_meta.name.clone());
+
+                            if is_inline && is_thumb {
+                                if let Some(thumb_bytes) =
+                                    build_inline_thumbnail_jpeg(&resolved_path, &filename, total_len)
+                                {
+                                    let resp = with_header_safe(
+                                        with_header_safe(
+                                            Response::from_data(thumb_bytes),
+                                            b"Content-Type",
+                                            b"image/jpeg",
+                                        ),
+                                        b"Cache-Control",
+                                        b"private, max-age=300",
+                                    );
+                                    let _ = request.respond(resp);
+                                    return;
+                                }
+                            }
+
                             let content_type = if is_inline {
                                 mime_type_for_filename(&filename)
                             } else {
@@ -774,9 +817,16 @@ fn handle_http_request(
                                 }
                             }
 
+                            let reader = std::io::BufReader::with_capacity(256 * 1024, f);
                             let mut response = with_header_safe(
                                 with_header_safe(
-                                    Response::from_file(f),
+                                    Response::new(
+                                        StatusCode(200),
+                                        vec![],
+                                        reader,
+                                        usize::try_from(total_len).ok(),
+                                        None,
+                                    ),
                                     b"Content-Type",
                                     content_type.as_bytes(),
                                 ),
@@ -1096,15 +1146,12 @@ fn render_upload_html(token: &str, hostname: &str) -> String {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#09090b">
   <title>gili · Kirim ke Laptop</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }}
     body {{
       background: #09090b;
       color: #ffffff;
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
       min-height: 100vh;
       min-height: 100dvh;
       display: flex;
@@ -1752,7 +1799,7 @@ fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) ->
 
         let thumb_html = if is_img {
             format!(
-                r#"<img class="thumb-img" src="/d/{}/file/{}?inline=1" loading="lazy" alt="">"#,
+                r#"<img class="thumb-img" src="/d/{}/file/{}?inline=1&thumb=1" loading="lazy" alt="">"#,
                 token, idx
             )
         } else if is_vid {
@@ -1801,15 +1848,12 @@ fn render_download_html(token: &str, files: &[ShelfFileMeta], hostname: &str) ->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#09090b">
   <title>gili · Unduh dari Laptop</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }}
     body {{
       background: #09090b;
       color: #ffffff;
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
       min-height: 100vh;
       min-height: 100dvh;
       display: flex;
@@ -2462,5 +2506,20 @@ mod tests {
         assert!(html.contains("status-error"));
         assert!(html.contains("successCount"));
         assert!(html.contains("failCount"));
+        assert!(!html.contains("fonts.googleapis.com"));
+    }
+
+    #[test]
+    fn test_render_download_html_uses_fast_thumbs_without_blocking_fonts() {
+        let files = vec![ShelfFileMeta {
+            name: "NIKI - Card.png".to_string(),
+            size: 1_500_000,
+            size_formatted: "1.4 MB".to_string(),
+            path: "C:\\tmp\\NIKI - Card.png".to_string(),
+        }];
+        let html = render_download_html("tok123", &files, "PC-TEST");
+        assert!(!html.contains("fonts.googleapis.com"));
+        assert!(html.contains("?inline=1&thumb=1"));
+        assert!(html.contains("NIKI - Card.png"));
     }
 }

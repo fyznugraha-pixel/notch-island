@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Check, Route } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Plus, Route, X } from "lucide-react";
 import { AiBrandLogo, detectAiBrand } from "./AiBrandLogos";
 import { ScrollingText } from "../ScrollingText";
-import { t } from "../../../services/i18n";
+import { getLanguage, t } from "../../../services/i18n";
 import { getGiliFreeModel, isGiliFreeEnabled } from "../../../services/giliFreeService";
+import { getRegisteredModels, registerCustomModel } from "../../../services/aiModelRegistry";
 import type { AiModelConfig, AiProviderId } from "./AiChatTypes";
 
 interface AiChatModelDropdownProps {
@@ -34,10 +35,52 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
   isLightMode,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const customInputRef = useRef<HTMLInputElement>(null);
+  const [isCustomOpen, setIsCustomOpen] = useState(false);
+  const [customModelId, setCustomModelId] = useState("");
+  const [registeredSnapshot, setRegisteredSnapshot] = useState<AiModelConfig[]>(() =>
+    getRegisteredModels(provider)
+  );
   const [domLightMode, setDomLightMode] = useState(
     () => typeof document !== "undefined" && document.documentElement.classList.contains("light")
   );
   const activeLight = isLightMode ?? domLightMode;
+  const isEn = getLanguage() === "en";
+
+  useEffect(() => {
+    setRegisteredSnapshot(getRegisteredModels(provider));
+  }, [provider, models]);
+
+  useEffect(() => {
+    if (isCustomOpen) {
+      customInputRef.current?.focus();
+    }
+  }, [isCustomOpen]);
+
+  const displayModels = useMemo(() => {
+    if (models.length === 0 && registeredSnapshot.length === 0) return [];
+    const byId = new Map<string, AiModelConfig>();
+    for (const m of models) {
+      byId.set(m.id.toLowerCase(), m);
+    }
+    for (const m of registeredSnapshot) {
+      if (!byId.has(m.id.toLowerCase())) {
+        byId.set(m.id.toLowerCase(), m);
+      }
+    }
+    return [...byId.values()];
+  }, [models, registeredSnapshot]);
+
+  const handleApplyCustomModel = () => {
+    const trimmed = customModelId.trim();
+    if (!trimmed) return;
+    const newModel = registerCustomModel(provider, trimmed);
+    setRegisteredSnapshot(getRegisteredModels(provider));
+    setCustomModelId("");
+    setIsCustomOpen(false);
+    onSelectModel(newModel);
+    onClose();
+  };
 
   useEffect(() => {
     if (typeof isLightMode === "boolean" || typeof document === "undefined") return;
@@ -73,8 +116,14 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        if (isCustomOpen) {
+          setIsCustomOpen(false);
+          setCustomModelId("");
+        } else {
+          onClose();
+        }
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (document.activeElement?.tagName === "INPUT") return;
         e.preventDefault();
         const selectableItems: { id: string; select: () => void }[] = [
           {
@@ -98,7 +147,7 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
           ...(isGiliFreeEnabled()
             ? [{ id: "gili-free", select: () => onSelectModel(getGiliFreeModel()) }]
             : []),
-          ...models.map((m) => ({ id: m.id, select: () => onSelectModel(m) })),
+          ...displayModels.map((m) => ({ id: m.id, select: () => onSelectModel(m) })),
         ];
         const currentIndex = selectableItems.findIndex((item) => item.id === selectedModelId);
         const nextIndex =
@@ -110,7 +159,7 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [models, selectedModelId, onSelectModel, onSelectAuto, onClose, provider]);
+  }, [displayModels, selectedModelId, onSelectModel, onSelectAuto, onClose, provider, isCustomOpen]);
 
   return (
     <div
@@ -129,7 +178,7 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
         </span>
         <span className={`text-[10.5px] font-medium flex items-center gap-1 ${activeLight ? "text-emerald-700" : "text-emerald-400"}`}>
           <Check size={11} strokeWidth={2.5} />
-          {models.length > 0
+          {displayModels.length > 0
             ? t("aichat_verified_badge")
             : isGiliFreeEnabled()
             ? t("aichat_tier_free")
@@ -255,7 +304,7 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
           </button>
         )}
 
-        {models.map((model) => {
+        {displayModels.map((model) => {
           const isSelected = model.id === selectedModelId;
           return (
             <button
@@ -303,6 +352,79 @@ export const AiChatModelDropdown: React.FC<AiChatModelDropdownProps> = ({
             </button>
           );
         })}
+      </div>
+
+      <div className="mx-1 mt-1">
+        {isCustomOpen ? (
+          <div
+            className={`flex items-center gap-1.5 p-1 rounded-[12px] border ${
+              activeLight
+                ? "bg-black/[0.03] border-black/[0.12] focus-within:border-blue-600"
+                : "bg-white/[0.04] border-white/[0.12] focus-within:border-blue-500"
+            }`}
+          >
+            <input
+              ref={customInputRef}
+              type="text"
+              value={customModelId}
+              onChange={(e) => setCustomModelId(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleApplyCustomModel();
+                }
+              }}
+              aria-label={isEn ? "Custom model ID" : "ID model manual"}
+              placeholder={
+                isEn
+                  ? "Custom model ID (e.g. gemini-3.8-flash)"
+                  : "ID model manual (mis. gemini-3.8-flash)"
+              }
+              className={`grow min-w-0 h-7 px-2 bg-transparent border-0 outline-none text-[11.5px] font-mono ${
+                activeLight
+                  ? "text-[#1d1d1f] placeholder-neutral-500"
+                  : "text-white placeholder-[#8f8f99]"
+              }`}
+            />
+            <button
+              type="button"
+              onClick={handleApplyCustomModel}
+              disabled={!customModelId.trim()}
+              className="h-7 px-2.5 rounded-[9px] bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[11px] font-medium shrink-0 cursor-pointer transition-colors"
+            >
+              {isEn ? "Use" : "Pakai"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsCustomOpen(false);
+                setCustomModelId("");
+              }}
+              aria-label={t("action_cancel")}
+              className={`w-7 h-7 rounded-[9px] flex items-center justify-center shrink-0 cursor-pointer transition-colors ${
+                activeLight
+                  ? "text-neutral-600 hover:bg-black/[0.08]"
+                  : "text-[#a1a1aa] hover:bg-white/[0.08] hover:text-white"
+              }`}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsCustomOpen(true)}
+            className={`w-full h-7.5 px-3 rounded-[12px] text-[11.5px] font-medium flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+              activeLight
+                ? "bg-black/[0.04] hover:bg-black/[0.08] text-neutral-700"
+                : "bg-white/[0.04] hover:bg-white/[0.08] text-[#d4d4d8]"
+            }`}
+          >
+            <Plus size={12} aria-hidden="true" />
+            <span>{isEn ? "Custom model ID..." : "ID model manual..."}</span>
+          </button>
+        )}
       </div>
 
       {onOpenConnect && (

@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { AiBrandLogo, detectAiBrand } from "./AiBrandLogos";
-import { t } from "../../../services/i18n";
+import { getLanguage, t } from "../../../services/i18n";
 import type { AiModelConfig } from "./AiChatTypes";
 
 interface AiChatConnectModelSectionProps {
   models: AiModelConfig[];
   selectedModel: AiModelConfig;
   onSelectModel: (model: AiModelConfig) => void;
+  onApplyManualModel?: (modelId: string) => void;
   isModelCustomKey: boolean;
   onToggleModelCustomKey: (enabled: boolean) => void;
   isVerifying: boolean;
@@ -17,14 +18,24 @@ export const AiChatConnectModelSection: React.FC<AiChatConnectModelSectionProps>
   models,
   selectedModel,
   onSelectModel,
+  onApplyManualModel,
   isModelCustomKey,
   onToggleModelCustomKey,
   isVerifying,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(true);
+  const [manualModelId, setManualModelId] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const hasModels = models.length > 0;
+  const isEn = getLanguage() === "en";
+
+  const handleManualApply = () => {
+    const clean = manualModelId.trim();
+    if (!clean || !onApplyManualModel) return;
+    onApplyManualModel(clean);
+    setManualModelId("");
+  };
 
   useEffect(() => {
     if (!isMenuOpen) return;
@@ -156,6 +167,48 @@ export const AiChatConnectModelSection: React.FC<AiChatConnectModelSectionProps>
             </label>
           </div>
         </>
+      )}
+
+      {onApplyManualModel && (
+        <div className="flex flex-col gap-1 mt-1.5">
+          <label
+            htmlFor="connect-manual-model-id"
+            className="text-[10.5px] font-medium text-[#b4b4bd] pl-1"
+          >
+            {isEn ? "Manual model ID" : "ID model manual"}
+          </label>
+          <div className="flex items-center gap-1.5">
+            <div className="grow min-w-0 flex items-center h-8.5 px-2.5 rounded-[12px] bg-white/[0.04] border border-white/10 focus-within:border-blue-500/70 focus-within:ring-1 focus-within:ring-blue-500/40 transition-colors">
+              <input
+                id="connect-manual-model-id"
+                type="text"
+                value={manualModelId}
+                onChange={(e) => setManualModelId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleManualApply();
+                  }
+                }}
+                placeholder={
+                  isEn
+                    ? "Custom model ID (e.g. gemini-3.8-flash)"
+                    : "ID model manual (mis. gemini-3.8-flash)"
+                }
+                className="w-full min-w-0 bg-transparent border-0 outline-none text-white text-[12px] font-mono placeholder-[#8f8f99]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleManualApply}
+              disabled={!manualModelId.trim()}
+              className="h-8.5 px-3 rounded-[12px] bg-blue-600/85 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[12px] font-medium shrink-0 cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
+            >
+              {isEn ? "Use" : "Pakai"}
+            </button>
+          </div>
+        </div>
       )}
     </>
   );

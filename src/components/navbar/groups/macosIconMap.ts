@@ -14,13 +14,14 @@ export interface NavbarAppItem {
 export const normalizeIconUrl = (icon?: string | null): string | undefined => {
   if (!icon) return undefined;
   const trimmed = icon.trim();
+  const isBase64Payload = trimmed.length > 40 && /^[A-Za-z0-9+/=]+$/.test(trimmed);
+  if (isBase64Payload && trimmed.startsWith("/9j/")) {
+    return `data:image/jpeg;base64,${trimmed}`;
+  }
   if (trimmed.startsWith("data:") || trimmed.startsWith("/") || trimmed.startsWith("http")) {
     return trimmed;
   }
-  if (
-    trimmed.length > 40 &&
-    (trimmed.startsWith("iVBOR") || trimmed.startsWith("/9j/") || /^[A-Za-z0-9+/=]+$/.test(trimmed))
-  ) {
+  if (isBase64Payload) {
     return `data:image/png;base64,${trimmed}`;
   }
   return undefined;
@@ -105,7 +106,7 @@ const APP_MATCHERS: IconMatcherRule[] = [
   { slug: "androidstudio", pattern: /\b(android\s*studio|studio64)\b/i },
   { slug: "bitwarden", pattern: /\bbitwarden\b/i },
   { slug: "qbittorrent", pattern: /\bqbittorrent\b/i },
-  { slug: "calculator", pattern: /\b(calc|calculator|kalkulator)\b/i },
+  { slug: "calculator", pattern: /\b(calc|calculator|calculatorapp|windowscalculator|kalkulator)\b/i },
   { slug: "calendar", pattern: /\b(calendar|kalender)\b/i },
   { slug: "notes", pattern: /\b(notepad|notes|catatan)\b/i },
   { slug: "mail", pattern: /\b(outlook|thunderbird|gmail|mail)\b/i },
@@ -141,6 +142,7 @@ const ICON_TYPE_FALLBACK: Record<string, MacOSIconSlug> = {
   whatsapp: "whatsapp",
   telegram: "telegram",
   netflix: "netflix",
+  calculator: "calculator",
   claude: "claude",
   antigravity: "antigravity",
 };

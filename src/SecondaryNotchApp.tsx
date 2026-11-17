@@ -463,12 +463,8 @@ export const SecondaryNotchApp: React.FC = () => {
   }, []);
 
   const handleNotchClick = useCallback(() => {
-    if (isMediaActive) {
-      invoke("trigger_notch_action", { action: "open_tab:media_expanded" }).catch(() => {});
-    } else {
-      invoke("trigger_notch_action", { action: "open_tab:quick_control" }).catch(() => {});
-    }
-  }, [isMediaActive]);
+    invoke("trigger_notch_action", { action: "open_tab:preferred" }).catch(() => {});
+  }, []);
 
   const activeEffectiveThemeMode = resolveNotchThemeMode(Number(optOpacity), Number(optBlur));
 

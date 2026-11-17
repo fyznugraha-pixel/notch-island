@@ -52,6 +52,13 @@ import type {
 } from "../../../services/taskbarLaunchService";
 import { useTaskbarLang, tx } from "../../../services/taskbarI18n";
 import { Tooltip } from "../../ui/Tooltip";
+import type { MediaPayload } from "../../../types";
+import { MediaThumbnail } from "../../ui/MediaThumbnail";
+import {
+  mergeMediaPayloadPreservingThumbnail,
+  prefetchArtwork,
+} from "../../../services/artworkService";
+import { getMediaBranding } from "../../../utils/playerBranding";
 
 type AccessibilityFeatureKey =
   | "magnifier"
@@ -77,10 +84,28 @@ interface MediaState {
   title: string;
   artist: string;
   app: string;
-  album_art?: string;
   is_playing: boolean;
   position: number;
   duration: number;
+  payload: MediaPayload;
+}
+
+function buildQuickSettingsMediaState(
+  prev: MediaState | null,
+  incoming: MediaPayload
+): MediaState {
+  const merged = mergeMediaPayloadPreservingThumbnail(prev?.payload ?? null, incoming);
+  prefetchArtwork(merged);
+  const branding = getMediaBranding(merged);
+  return {
+    title: merged.title,
+    artist: merged.artist || "",
+    app: merged.web_source || branding.name || "Media",
+    is_playing: !!merged.is_playing,
+    position: merged.position || 0,
+    duration: merged.duration || 100,
+    payload: merged,
+  };
 }
 
 interface SystemPowerInfo {
@@ -134,6 +159,7 @@ export const QuickSettingsView: React.FC<QuickSettingsViewProps> = ({
 
   // 4. Media State
   const [mediaInfo, setMediaInfo] = useState<MediaState | null>(null);
+  const hasLiveMediaUpdateRef = useRef(false);
 
   // 5. Sliders State
   const [brightness, setBrightness] = useState<number>(64);
@@ -270,27 +296,11 @@ export const QuickSettingsView: React.FC<QuickSettingsViewProps> = ({
       refreshAccessibilityState();
 
       // Initial active SMTC media snapshot
-      invoke<{
-        title?: string;
-        artist?: string;
-        web_source?: string | null;
-        app_id?: string | null;
-        thumbnail?: string | null;
-        is_playing?: boolean;
-        position?: number;
-        duration?: number;
-      } | null>("get_current_media_state")
+      invoke<MediaPayload | null>("get_current_media_state")
         .then((m) => {
+          if (hasLiveMediaUpdateRef.current) return;
           if (m && m.title) {
-            setMediaInfo({
-              title: m.title,
-              artist: m.artist || "",
-              app: m.web_source || m.app_id || "Media",
-              album_art: m.thumbnail ?? undefined,
-              is_playing: !!m.is_playing,
-              position: m.position || 0,
-              duration: m.duration || 100,
-            });
+            setMediaInfo((prev) => buildQuickSettingsMediaState(prev, m));
           } else {
             setMediaInfo(null);
           }
@@ -339,29 +349,21 @@ export const QuickSettingsView: React.FC<QuickSettingsViewProps> = ({
       }
     });
 
-    const unlistenMedia = listen<{
-      title: string;
-      artist: string;
-      app: string;
-      thumbnail?: string;
-      is_playing: boolean;
-      position?: number;
-      duration?: number;
-    }>("media-update", (event) => {
-      if (event.payload && event.payload.title) {
-        setMediaInfo({
-          title: event.payload.title,
-          artist: event.payload.artist || "",
-          app: event.payload.app || "Media",
-          album_art: event.payload.thumbnail,
-          is_playing: event.payload.is_playing,
-          position: event.payload.position || 0,
-          duration: event.payload.duration || 100,
-        });
+    const unlistenMedia = listen<MediaPayload>("media-update", (event) => {
+      hasLiveMediaUpdateRef.current = true;
+      const incoming = event.payload;
+      if (incoming && incoming.title) {
+        setMediaInfo((prev) => buildQuickSettingsMediaState(prev, incoming));
       } else {
         setMediaInfo(null);
       }
     });
+
+    unlistenMedia
+      .then(() => {
+        invoke("request_media_resync").catch(() => {});
+      })
+      .catch(() => {});
 
     const unlistenMediaProg = listen<{ position: number; duration: number }>(
       "media-progress",
@@ -551,7 +553,15 @@ export const QuickSettingsView: React.FC<QuickSettingsViewProps> = ({
   // Media Controls
   const handleMediaPlayPause = () => {
     invoke("smtc_action", { action: "toggle" }).catch(() => {});
-    setMediaInfo((prev) => (prev ? { ...prev, is_playing: !prev.is_playing } : null));
+    setMediaInfo((prev) =>
+      prev
+        ? {
+            ...prev,
+            is_playing: !prev.is_playing,
+            payload: { ...prev.payload, is_playing: !prev.is_playing },
+          }
+        : null
+    );
   };
 
   const handleMediaPrev = () => {
@@ -1131,17 +1141,9 @@ export const QuickSettingsView: React.FC<QuickSettingsViewProps> = ({
                 {mediaInfo.artist || tx(lang, "Unknown artist", "Artis tidak diketahui")}
               </div>
             </div>
-            {mediaInfo.album_art ? (
-              <img
-                src={mediaInfo.album_art}
-                alt="Album art"
-                className="w-[50px] h-[50px] rounded-[12px] object-cover shrink-0 border border-[var(--taskbar-card-border)]"
-              />
-            ) : (
-              <span className="w-[50px] h-[50px] rounded-[12px] gili-flyout-chip flex items-center justify-center shrink-0 border border-[var(--taskbar-card-border)]">
-                <Music size={22} className="opacity-50" />
-              </span>
-            )}
+            <div className="w-[50px] h-[50px] rounded-[12px] overflow-hidden shrink-0 border border-[var(--taskbar-card-border)]">
+              <MediaThumbnail media={mediaInfo.payload} size="normal" />
+            </div>
           </div>
 
           {/* Progress bar */}

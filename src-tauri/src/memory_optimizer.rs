@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
@@ -17,6 +18,14 @@ extern "system" {
 
 static OPTIMIZER_STARTED: AtomicBool = AtomicBool::new(false);
 static TRIM_GEN: AtomicU64 = AtomicU64::new(0);
+static APP_START: OnceLock<Instant> = OnceLock::new();
+
+fn uptime_secs() -> u64 {
+    APP_START
+        .get()
+        .map(|start| start.elapsed().as_secs())
+        .unwrap_or(0)
+}
 
 pub fn trim_process_tree_working_set() {
     let own_pid = std::process::id();
@@ -78,10 +87,13 @@ pub fn trim_process_tree_working_set() {
 }
 
 pub fn schedule_working_set_trim(delay_ms: u64) {
+    if uptime_secs() < 90 {
+        return;
+    }
     let gen = TRIM_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(delay_ms));
-        if TRIM_GEN.load(Ordering::SeqCst) != gen {
+        if uptime_secs() < 90 || TRIM_GEN.load(Ordering::SeqCst) != gen {
             return;
         }
         trim_process_tree_working_set();
@@ -89,6 +101,7 @@ pub fn schedule_working_set_trim(delay_ms: u64) {
 }
 
 pub fn start_memory_optimizer() {
+    let _ = APP_START.get_or_init(Instant::now);
     if OPTIMIZER_STARTED
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -98,18 +111,10 @@ pub fn start_memory_optimizer() {
 
     std::thread::Builder::new()
         .name("gili-memory-optimizer".into())
-        .spawn(|| {
-            std::thread::sleep(Duration::from_secs(5));
-            trim_process_tree_working_set();
-
-            std::thread::sleep(Duration::from_secs(10));
-            trim_process_tree_working_set();
-
-            loop {
-                std::thread::sleep(Duration::from_secs(30));
-                if !crate::taskbar_flyout::is_flyout_open() {
-                    trim_process_tree_working_set();
-                }
+        .spawn(|| loop {
+            std::thread::sleep(Duration::from_secs(300));
+            if !crate::taskbar_flyout::is_flyout_open() {
+                trim_process_tree_working_set();
             }
         })
         .ok();

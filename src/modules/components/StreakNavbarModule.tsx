@@ -129,10 +129,8 @@ export const StreakNavbarModule: React.FC<NavbarModuleProps> = ({
           )}
           className={`flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
             isCompact
-              ? `${
-                  isVertical ? "w-full max-w-full" : "w-10"
-                } h-10 justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] relative`
-              : "h-10 px-3 gap-2 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
+              ? `gili-mod-compact${isVertical ? " gili-mod-vertical" : ""} justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] relative`
+              : "gili-mod-pill px-3 gap-2 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
           }`}
         >
           <Flame
@@ -147,7 +145,7 @@ export const StreakNavbarModule: React.FC<NavbarModuleProps> = ({
             fill={checkedToday ? "currentColor" : "none"}
           />
           {isCompact ? (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-amber-500 text-[#09090b] text-[9px] font-bold flex items-center justify-center tabular-nums">
+            <span className="gili-mod-badge absolute top-[1px] right-[1px] min-w-[14px] h-[14px] px-1 rounded-full bg-amber-500 text-[#09090b] text-[8.5px] font-bold flex items-center justify-center tabular-nums pointer-events-none">
               {streak.count}
             </span>
           ) : (

@@ -336,11 +336,38 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
           />
         </div>
 
-        {/* Icon Size */}
+        {/* Taskbar Height */}
         <div className={`flex flex-col justify-between gap-2.5 p-3 rounded-[12px] border ${subCardBg}`}>
           <div className="flex justify-between items-center text-[11.5px]">
             <span className={`font-medium ${textTitle}`}>
-              {isId ? "Ukuran Ikon" : "Icon Size"}
+              {isId ? "Tinggi Taskbar" : "Taskbar Height"}
+            </span>
+            <span
+              className={`font-semibold tabular-nums ${
+                isLightMode ? "text-blue-600" : "text-blue-400"
+              }`}
+            >
+              {config.taskbarHeight ?? 48}px
+            </span>
+          </div>
+          <input
+            type="range"
+            min={36}
+            max={64}
+            value={config.taskbarHeight ?? 48}
+            onChange={(e) => onChange({ taskbarHeight: Number(e.target.value) })}
+            aria-label={isId ? "Tinggi Taskbar" : "Taskbar Height"}
+            className={`w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[#0a84ff] ${
+              isLightMode ? "bg-black/10" : "bg-white/10"
+            }`}
+          />
+        </div>
+
+        {/* App Icon Size */}
+        <div className={`flex flex-col justify-between gap-2.5 p-3 rounded-[12px] border ${subCardBg}`}>
+          <div className="flex justify-between items-center text-[11.5px]">
+            <span className={`font-medium ${textTitle}`}>
+              {isId ? "Ukuran Ikon Aplikasi" : "App Icon Size"}
             </span>
             <span
               className={`font-semibold tabular-nums ${
@@ -356,7 +383,7 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
             max={56}
             value={config.iconSize}
             onChange={(e) => onChange({ iconSize: Number(e.target.value) })}
-            aria-label={isId ? "Ukuran Ikon" : "Icon Size"}
+            aria-label={isId ? "Ukuran Ikon Aplikasi" : "App Icon Size"}
             className={`w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[#0a84ff] ${
               isLightMode ? "bg-black/10" : "bg-white/10"
             }`}
@@ -364,7 +391,7 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
         </div>
 
         {/* Icon Spacing Segmented Control */}
-        <div className={`flex flex-col justify-between gap-2 p-3 rounded-[12px] border ${subCardBg}`}>
+        <div className={`sm:col-span-2 flex flex-col justify-between gap-2 p-3 rounded-[12px] border ${subCardBg}`}>
           <span className={`text-[11.5px] font-medium ${textTitle}`}>
             {isId ? "Jarak Antar Ikon" : "Icon Spacing"}
           </span>
