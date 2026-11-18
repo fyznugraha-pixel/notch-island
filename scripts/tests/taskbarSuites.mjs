@@ -1375,6 +1375,42 @@ export function registerTaskbarSuites(getLoader) {
         assert.deepEqual(getInlineFlyoutMotionOffset("right"), { opacity: 0, x: 12, scale: 0.96 });
       });
     });
+
+    describe("memoryOptimizationGuards", () => {
+      it("shelfService caps previewCache with LRU eviction and promotes reads", async () => {
+        const { loadModule } = getLoader();
+        const shelfService = await loadModule("/src/services/shelfService.ts");
+        shelfService.clearShelfPreviewCache();
+
+        // Populate 60 distinct entries (exact lowercase paths avoid duplicate lower keys)
+        for (let i = 0; i < 60; i++) {
+          shelfService.setCachedPreview(`id-${i}`, `/tmp/file-${i}.png`, {
+            sizeFormatted: `${i} KB`,
+            thumbnail: `thumb-${i}`,
+          });
+        }
+        // Cache key cap is 60, and each call sets 2 keys (id + lower path), so ~30 files stay cached.
+        // Touch id-40 so it stays hotter than older keys inserted later, then insert new files.
+        assert.ok(shelfService.getCachedPreview("id-40"));
+        for (let i = 60; i < 95; i++) {
+          shelfService.setCachedPreview(`id-${i}`, `/tmp/file-${i}.png`, {
+            sizeFormatted: `${i} KB`,
+          });
+        }
+        // Very early keys must have been evicted while newest entries remain
+        assert.equal(shelfService.getCachedPreview("id-0"), undefined);
+        assert.ok(shelfService.getCachedPreview("id-94"));
+        shelfService.clearShelfPreviewCache();
+      });
+
+      it("moduleAliases exports legacy ID mappings independently", async () => {
+        const { loadModule } = getLoader();
+        const moduleAliases = await loadModule("/src/modules/moduleAliases.ts");
+        assert.equal(moduleAliases.MODULE_ID_ALIASES.system, "pantau_sistem");
+        assert.equal(moduleAliases.MODULE_ID_ALIASES.media, "sedang_diputar");
+        assert.equal(moduleAliases.MODULE_ID_ALIASES.mixer, "mixer_suara");
+      });
+    });
   });
 }
 

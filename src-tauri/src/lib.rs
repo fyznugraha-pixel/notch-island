@@ -1,5 +1,8 @@
 use tauri::Manager;
 
+pub(crate) const WEBVIEW_BROWSER_ARGS: &str =
+    "--autoplay-policy=no-user-gesture-required --force-gpu-mem-available-mb=48 --gpu-program-cache-size-kb=4096 --disable-gpu-shader-disk-cache";
+
 mod privacy;
 mod connectivity;
 mod system_monitor;
@@ -314,6 +317,14 @@ pub struct ClipboardImageItem {
     pub height: u32,
 }
 
+fn build_image_limits(max_dim: u32, max_alloc_bytes: u64) -> image::Limits {
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(max_dim);
+    limits.max_image_height = Some(max_dim);
+    limits.max_alloc = Some(max_alloc_bytes);
+    limits
+}
+
 pub(crate) fn decode_safe_image_from_path(path: &std::path::Path) -> Option<image::DynamicImage> {
     const MAX_DIM: u32 = 12_000;
     const MAX_PIXELS: u64 = 64_000_000;
@@ -329,14 +340,60 @@ pub(crate) fn decode_safe_image_from_path(path: &std::path::Path) -> Option<imag
         return None;
     }
 
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(MAX_DIM);
-    limits.max_image_height = Some(MAX_DIM);
-    limits.max_alloc = Some(MAX_ALLOC_BYTES);
-
     let mut reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
-    reader.limits(limits);
+    reader.limits(build_image_limits(MAX_DIM, MAX_ALLOC_BYTES));
     reader.decode().ok()
+}
+
+fn decode_safe_image_from_bytes(bytes: &[u8]) -> Option<image::DynamicImage> {
+    const MAX_DIM: u32 = 8_192;
+    const MAX_PIXELS: u64 = 32_000_000;
+    const MAX_ALLOC_BYTES: u64 = 128 * 1024 * 1024;
+
+    let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
+    if w == 0 || h == 0 || w > MAX_DIM || h > MAX_DIM || (w as u64).saturating_mul(h as u64) > MAX_PIXELS {
+        return None;
+    }
+
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    reader.limits(build_image_limits(MAX_DIM, MAX_ALLOC_BYTES));
+    reader.decode().ok()
+}
+
+pub(crate) fn encode_smtc_thumbnail_data_url(bytes: &[u8], fallback_mime: &str) -> Option<String> {
+    if bytes.len() < 100 {
+        return None;
+    }
+    if let Some(dyn_img) = decode_safe_image_from_bytes(bytes) {
+        if let Some(encoded) = encode_dynamic_image_data_url(&dyn_img, 256, 82) {
+            return Some(encoded);
+        }
+    }
+    // Fallback when SMTC yields an exotic raster encoding, capped to avoid multi-MB IPC broadcasts
+    if bytes.len() > 512 * 1024 {
+        return None;
+    }
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let detected_mime = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else if bytes.starts_with(b"BM") {
+        "image/bmp"
+    } else if !fallback_mime.is_empty() {
+        fallback_mime
+    } else {
+        "image/jpeg"
+    };
+    Some(format!("data:{};base64,{}", detected_mime, STANDARD.encode(bytes)))
 }
 
 fn encode_dynamic_image_data_url(
@@ -2069,7 +2126,7 @@ fn sync_all_displays_windows_inner(
                 .visible(true)
                 .focused(false)
                 .initialization_script("window.__IS_SECONDARY_NOTCH_WINDOW__ = true;")
-                .additional_browser_args("--autoplay-policy=no-user-gesture-required");
+                .additional_browser_args(WEBVIEW_BROWSER_ARGS);
 
                 match builder.build() {
                     Ok(sec_win) => {
@@ -4290,7 +4347,7 @@ fn show_or_create_settings_window(app: &tauri::AppHandle, section: Option<String
         .focused(true)
         .skip_taskbar(false)
         .initialization_script("window.__IS_SETTINGS_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required")
+        .additional_browser_args(WEBVIEW_BROWSER_ARGS)
         .build()
         {
             Ok(win) => {
@@ -4817,17 +4874,25 @@ pub fn run() {
                 let mut pending_cursor_nudge = false;
                 let mut cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
                 let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
+                let mut notch_desktop_burst: u8 = 0;
                 let own_pid = std::process::id();
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     
                     loop_count = loop_count.wrapping_add(1);
+                    if notch_desktop_burst > 0 {
+                        notch_desktop_burst -= 1;
+                    }
                     if loop_count.is_multiple_of(15) {
                         let fg = unsafe { GetForegroundWindow() };
                         let fg_raw = fg.0 as isize;
                         let fg_changed = fg_raw != last_fg_hwnd_raw;
+                        let fg_is_desktop = navbar_window::is_desktop_shell_class(fg);
                         if fg_changed {
                             last_fg_hwnd_raw = fg_raw;
+                            if fg_is_desktop {
+                                notch_desktop_burst = 18;
+                            }
                             last_fg_was_own = if !fg.0.is_null() {
                                 let mut fg_pid = 0u32;
                                 unsafe { GetWindowThreadProcessId(fg, Some(&mut fg_pid)) };
@@ -4835,6 +4900,16 @@ pub fn run() {
                             } else {
                                 false
                             };
+                        }
+
+                        if win_clone.is_visible().unwrap_or(false) {
+                            let win_allowed = win_clone
+                                .hwnd()
+                                .ok()
+                                .is_none_or(|h| !is_foreground_window_fullscreen(windows::Win32::Foundation::HWND(h.0)));
+                            if win_allowed && (fg_changed || notch_desktop_burst > 0 || loop_count.is_multiple_of(30)) {
+                                navbar_window::reassert_overlay_above_desktop(&win_clone, None, fg_is_desktop && (fg_changed || notch_desktop_burst > 0));
+                            }
                         }
 
                         let check_browser = fg_changed
@@ -5932,30 +6007,16 @@ pub fn run() {
                                                             if loaded > 0 {
                                                                 let mut bytes = vec![0u8; loaded as usize];
                                                                 if reader.ReadBytes(&mut bytes).is_ok() && bytes.len() >= 100 {
-                                                                    use base64::{Engine as _, engine::general_purpose::STANDARD};
                                                                     let raw_mime = stream.ContentType().unwrap_or_default().to_string();
-                                                                    let detected_mime = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-                                                                        "image/jpeg"
-                                                                    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-                                                                        "image/png"
-                                                                    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-                                                                        "image/webp"
-                                                                    } else if bytes.starts_with(b"BM") {
-                                                                        "image/bmp"
-                                                                    } else if !raw_mime.is_empty() {
-                                                                        &raw_mime
-                                                                    } else {
-                                                                        "image/jpeg"
-                                                                    };
-                                                                    let b64 = STANDARD.encode(&bytes);
-                                                                    let uri = format!("data:{};base64,{}", detected_mime, b64);
-                                                                    let is_same_as_prev = prev_track_thumbnail.as_deref() == Some(uri.as_str());
-                                                                    // Ignore stale cover carried over from the previous track during the first ~1.0s of transition
-                                                                    if !is_same_as_prev || track_change_ticks >= SMTC_STALE_COVER_GUARD_TICKS {
-                                                                        if !is_same_as_prev || track_change_ticks >= SMTC_CACHE_COMMIT_TICKS {
-                                                                            cache_insert_thumbnail(&mut thumbnail_cache, &mut thumbnail_cache_seq, &cache_key, uri.clone());
+                                                                    if let Some(uri) = encode_smtc_thumbnail_data_url(&bytes, &raw_mime) {
+                                                                        let is_same_as_prev = prev_track_thumbnail.as_deref() == Some(uri.as_str());
+                                                                        // Ignore stale cover carried over from the previous track during the first ~1.0s of transition
+                                                                        if !is_same_as_prev || track_change_ticks >= SMTC_STALE_COVER_GUARD_TICKS {
+                                                                            if !is_same_as_prev || track_change_ticks >= SMTC_CACHE_COMMIT_TICKS {
+                                                                                cache_insert_thumbnail(&mut thumbnail_cache, &mut thumbnail_cache_seq, &cache_key, uri.clone());
+                                                                            }
+                                                                            thumbnail_b64 = Some(uri);
                                                                         }
-                                                                        thumbnail_b64 = Some(uri);
                                                                     }
                                                                 }
                                                             }
@@ -6483,5 +6544,38 @@ mod hit_test {
         // Re-initializing after Drop must succeed without mismatched apartment/refcount
         let guard2 = ComGuard::init(COINIT_MULTITHREADED);
         assert!(guard2.0);
+    }
+
+    #[test]
+    fn test_encode_smtc_thumbnail_resizes_large_image() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        // Synthetic 1024x1024 gradient PNG simulating an oversized SMTC album cover
+        let mut img = image::RgbaImage::new(1024, 1024);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            *px = image::Rgba([(x % 255) as u8, (y % 255) as u8, ((x + y) % 255) as u8, 255]);
+        }
+        let dyn_img = image::DynamicImage::ImageRgba8(img);
+        let mut png_buf = std::io::Cursor::new(Vec::new());
+        dyn_img.write_to(&mut png_buf, image::ImageFormat::Png).unwrap();
+
+        let uri = encode_smtc_thumbnail_data_url(png_buf.get_ref(), "image/png")
+            .expect("should encode SMTC thumbnail");
+        assert!(uri.starts_with("data:image/jpeg;base64,"));
+
+        let b64 = uri.trim_start_matches("data:image/jpeg;base64,");
+        let jpeg_bytes = STANDARD.decode(b64).unwrap();
+        let decoded = image::load_from_memory(&jpeg_bytes).unwrap();
+        assert!(decoded.width() <= 256 && decoded.height() <= 256);
+    }
+
+    #[test]
+    fn test_webview_browser_args_matches_tauri_conf() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let conf_args = conf["app"]["windows"][0]["additionalBrowserArgs"]
+            .as_str()
+            .expect("main window must specify additionalBrowserArgs");
+        assert_eq!(conf_args, WEBVIEW_BROWSER_ARGS);
     }
 }

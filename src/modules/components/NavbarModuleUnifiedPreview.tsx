@@ -17,7 +17,7 @@ export interface CatalogModuleItem {
 
 export const MODULE_CATALOG: CatalogModuleItem[] = rawCatalog as CatalogModuleItem[];
 
-import { MODULE_ID_ALIASES } from "../moduleComponents";
+import { MODULE_ID_ALIASES } from "../moduleAliases";
 export { MODULE_ID_ALIASES };
 
 export function getCatalogModule(id: string): CatalogModuleItem | undefined {

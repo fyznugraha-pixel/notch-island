@@ -23,7 +23,9 @@
         "skipTaskbar": true,
         "visible": true,
         "resizable": false,
-        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required"
+        "minimizable": false,
+        "maximizable": false,
+        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required --force-gpu-mem-available-mb=48 --gpu-program-cache-size-kb=4096 --disable-gpu-shader-disk-cache"
       }
     ],
     "security": {

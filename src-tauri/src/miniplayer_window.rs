@@ -631,7 +631,7 @@ pub fn show_or_create_miniplayer(app: &AppHandle) -> Result<bool, String> {
         .visible(true)
         .focused(false)
         .initialization_script("window.__IS_MINIPLAYER_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required")
+        .additional_browser_args(crate::WEBVIEW_BROWSER_ARGS)
         .build();
 
         match win {

@@ -479,9 +479,51 @@ after(async () => {
 describe("Suite 1 — Track 2: tabConfigService & resolvePreferredOpenTab", () => {
   const defaultTabs = ["media_expanded", "quick_control", "ai_chat"];
 
-  it("keeps lastActiveTab when remember_last + preventAutoOpenMedia=true even after 3m expiry", () => {
-    const resolved = tabConfigService.resolvePreferredOpenTab({
+  it("uses a 5-minute idle reset window and returns to quick_control when not playing music", () => {
+    assert.equal(tabConfigService.TAB_IDLE_RESET_MS, 5 * 60 * 1000);
+
+    // Within < 5m, keeps last active tab even when preventAutoOpenMedia=true
+    const withinWindow = tabConfigService.resolvePreferredOpenTab({
       currentTabs: defaultTabs,
+      openBehavior: "remember_last",
+      preventAutoOpenMedia: true,
+      isMusicActive: true,
+      hasMediaTrack: true,
+      tabExpired: false,
+      lastActiveTab: "ai_chat",
+      hasActiveAiStream: false,
+    });
+    assert.equal(withinWindow, "ai_chat");
+
+    // After >= 5m without music playing, resets straight to Control Center regardless of last/first/AI state
+    const afterExpiryNoMusic = tabConfigService.resolvePreferredOpenTab({
+      currentTabs: defaultTabs,
+      openBehavior: "first_tab",
+      preventAutoOpenMedia: true,
+      isMusicActive: false,
+      hasMediaTrack: false,
+      tabExpired: true,
+      lastActiveTab: "ai_chat",
+      hasActiveAiStream: true,
+    });
+    assert.equal(afterExpiryNoMusic, "quick_control");
+  });
+
+  it("returns to media_expanded after 5m expiry when music is actively playing", () => {
+    const expiredWhilePlaying = tabConfigService.resolvePreferredOpenTab({
+      currentTabs: defaultTabs,
+      openBehavior: "remember_last",
+      preventAutoOpenMedia: true,
+      isMusicActive: true,
+      hasMediaTrack: true,
+      tabExpired: true,
+      lastActiveTab: "ai_chat",
+      hasActiveAiStream: true,
+    });
+    assert.equal(expiredWhilePlaying, "media_expanded");
+
+    const expiredMediaDisabled = tabConfigService.resolvePreferredOpenTab({
+      currentTabs: ["quick_control", "ai_chat"],
       openBehavior: "remember_last",
       preventAutoOpenMedia: true,
       isMusicActive: true,
@@ -490,7 +532,7 @@ describe("Suite 1 — Track 2: tabConfigService & resolvePreferredOpenTab", () =
       lastActiveTab: "ai_chat",
       hasActiveAiStream: false,
     });
-    assert.equal(resolved, "ai_chat");
+    assert.equal(expiredMediaDisabled, "quick_control");
   });
 
   it("skips media_expanded and falls back to quick_control when lastActiveTab is null and preventAutoOpenMedia=true", () => {

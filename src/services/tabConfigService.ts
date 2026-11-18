@@ -33,6 +33,7 @@ export interface NotchTabsPreferences {
 
 const STORAGE_KEY = "island_tabs_preferences_v1";
 const STORE_KEY = "opt_tabs_preferences";
+export const TAB_IDLE_RESET_MS = 5 * 60 * 1000;
 
 export const DEFAULT_TAB_ITEMS: TabItemConfig[] = [
   { id: "media_expanded", enabled: true },
@@ -217,6 +218,18 @@ export function resolvePreferredOpenTab(
   } = params;
   const nonMediaFallbackTab =
     currentTabs.find((t) => t !== "media_expanded") || "quick_control";
+  const controlCenterFallback = currentTabs.includes("quick_control")
+    ? "quick_control"
+    : nonMediaFallbackTab;
+
+  // After 5 minutes without opening the notch, return to Music Player when playing or Control Center otherwise
+  if (tabExpired) {
+    if (isMusicActive && hasMediaTrack && currentTabs.includes("media_expanded")) {
+      return "media_expanded";
+    }
+    return controlCenterFallback;
+  }
+
   let target = "quick_control";
   let explicitlyRememberedMedia = false;
 
@@ -227,7 +240,7 @@ export function resolvePreferredOpenTab(
     target = currentTabs[0] || "quick_control";
   } else if (openBehavior === "quick_control") {
     target = "quick_control";
-  } else if (lastActiveTab && (preventAutoOpenMedia || !tabExpired)) {
+  } else if (lastActiveTab) {
     target = lastActiveTab;
     explicitlyRememberedMedia = target === "media_expanded";
   } else if (hasActiveAiStream && currentTabs.includes("ai_chat")) {
@@ -251,9 +264,7 @@ export function resolvePreferredOpenTab(
   if (!currentTabs.includes(target)) {
     target = preventAutoOpenMedia
       ? nonMediaFallbackTab
-      : currentTabs.includes("quick_control")
-      ? "quick_control"
-      : currentTabs[0] || "quick_control";
+      : controlCenterFallback;
   }
 
   return target;

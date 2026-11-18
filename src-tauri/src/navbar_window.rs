@@ -21,10 +21,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetTopWindow, GetWindow, GetWindowLongW, GetWindowPlacement, GetWindowRect, GetWindowTextW,
     GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow,
     SetWindowLongW, SetWindowPos, ShowWindow, ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE, GW_HWNDNEXT,
-    GW_OWNER, HWND_TOPMOST, LWA_ALPHA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, SW_MINIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE, WINDOWPLACEMENT,
-    WS_CAPTION, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT, WS_THICKFRAME,
+    GW_HWNDPREV, GW_OWNER, HWND_TOPMOST, LWA_ALPHA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_MINIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE,
+    WINDOWPLACEMENT, WS_CAPTION, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+    WS_THICKFRAME,
 };
 
 static NAVBAR_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -34,6 +35,7 @@ static NAVBAR_WATCHER_STARTED: Once = Once::new();
 static NAVBAR_CREATING: AtomicBool = AtomicBool::new(false);
 static LAST_EXTERNAL_FG_HWND: AtomicIsize = AtomicIsize::new(0);
 static OVERLAP_RECHECK_NEEDED: AtomicBool = AtomicBool::new(false);
+static DESKTOP_ZORDER_CHECK_NEEDED: AtomicBool = AtomicBool::new(false);
 
 pub fn is_navbar_enabled() -> bool {
     NAVBAR_ENABLED.load(Ordering::Relaxed)
@@ -41,6 +43,10 @@ pub fn is_navbar_enabled() -> bool {
 
 pub fn request_overlap_recheck() {
     OVERLAP_RECHECK_NEEDED.store(true, Ordering::Release);
+}
+
+pub fn request_desktop_zorder_check() {
+    DESKTOP_ZORDER_CHECK_NEEDED.store(true, Ordering::Release);
 }
 
 #[link(name = "dwmapi")]
@@ -256,22 +262,54 @@ pub fn remove_appbar_if_registered(hwnd: HWND) {
     }
 }
 
+fn strip_minimize_maximize_bits(style: u32) -> u32 {
+    style & !(WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0)
+}
+
+fn overlay_toolwindow_exstyle(ex: u32) -> u32 {
+    (ex | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0
+}
+
 fn apply_navbar_exstyle(hwnd: HWND, allow_activate: bool) {
     unsafe {
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        let clean_style = strip_minimize_maximize_bits(style);
+        let style_changed = clean_style != style;
+        if style_changed {
+            let _ = SetWindowLongW(hwnd, GWL_STYLE, clean_style as i32);
+        }
+
         let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-        let mut new_ex = (ex | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
+        let mut new_ex = overlay_toolwindow_exstyle(ex);
         if allow_activate {
             new_ex &= !WS_EX_NOACTIVATE.0;
         } else {
             new_ex |= WS_EX_NOACTIVATE.0;
         }
-        if new_ex != ex {
+        let ex_changed = new_ex != ex;
+        if ex_changed {
             let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex as i32);
+        }
+        if style_changed || ex_changed {
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
         }
     }
 }
 
 fn desired_click_through_map() -> &'static Mutex<HashMap<isize, bool>> {
+    static MAP: OnceLock<Mutex<HashMap<isize, bool>>> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn desired_focusable_map() -> &'static Mutex<HashMap<isize, bool>> {
     static MAP: OnceLock<Mutex<HashMap<isize, bool>>> = OnceLock::new();
     MAP.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -291,8 +329,7 @@ pub fn set_overlay_hwnd_click_through(hwnd: HWND, ignore: bool) {
         if ignore {
             let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
             let new_ex =
-                (ex | WS_EX_TOOLWINDOW.0 | WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0)
-                    & !WS_EX_APPWINDOW.0;
+                overlay_toolwindow_exstyle(ex) | WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0;
             if new_ex != ex {
                 let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex as i32);
                 let _ = SetWindowPos(
@@ -307,10 +344,11 @@ pub fn set_overlay_hwnd_click_through(hwnd: HWND, ignore: bool) {
             }
 
             let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            let base_style = strip_minimize_maximize_bits(style);
             let new_style = if should_disable_click_through_hwnd(hwnd) {
-                style | WS_DISABLED.0
+                base_style | WS_DISABLED.0
             } else {
-                style & !WS_DISABLED.0
+                base_style & !WS_DISABLED.0
             };
             if new_style != style {
                 let _ = SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
@@ -326,14 +364,14 @@ pub fn set_overlay_hwnd_click_through(hwnd: HWND, ignore: bool) {
             }
         } else {
             let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-            let new_style = style & !WS_DISABLED.0;
+            let new_style = strip_minimize_maximize_bits(style) & !WS_DISABLED.0;
             if new_style != style {
                 let _ = SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
             }
 
             let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-            let new_ex = (ex | WS_EX_TOOLWINDOW.0)
-                & !(WS_EX_APPWINDOW.0 | WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0);
+            let new_ex =
+                overlay_toolwindow_exstyle(ex) & !(WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0);
             if new_ex != ex {
                 let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex as i32);
             }
@@ -396,10 +434,12 @@ pub fn sync_overlay_click_through(win: &tauri::WebviewWindow, ignore: bool) {
             let cur_disabled = (style & WS_DISABLED.0) != 0;
             let needs_tool_fix =
                 (ex & WS_EX_TOOLWINDOW.0) == 0 || (ex & WS_EX_APPWINDOW.0) != 0;
+            let needs_style_fix = (style & (WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0)) != 0;
             if cur_transparent != ignore
                 || cur_layered != ignore
                 || cur_disabled != want_disabled
                 || needs_tool_fix
+                || needs_style_fix
             {
                 set_overlay_click_through(win, ignore);
             }
@@ -1015,6 +1055,128 @@ struct NavWinWatchState {
     was_mouse_down: bool,
     last_fs_fg_hwnd: isize,
     last_overlap_fg_hwnd: isize,
+    desktop_reassert_ticks: u8,
+}
+
+pub(crate) fn is_desktop_shell_class(hwnd: HWND) -> bool {
+    if hwnd.0.is_null() {
+        return false;
+    }
+    let mut buf = [0u16; 32];
+    let len = unsafe { GetClassNameW(hwnd, &mut buf) };
+    if len <= 0 {
+        return false;
+    }
+    let cls = String::from_utf16_lossy(&buf[..len as usize]);
+    cls == "Progman" || cls == "WorkerW"
+}
+
+pub(crate) fn is_desktop_shell_above_hwnd(hwnd: HWND) -> bool {
+    if hwnd.0.is_null() {
+        return false;
+    }
+    unsafe {
+        let mut own_rect = RECT::default();
+        if GetWindowRect(hwnd, &mut own_rect).is_err() {
+            return false;
+        }
+        let mut cur_res = GetWindow(hwnd, GW_HWNDPREV);
+        let mut steps = 0;
+        while let Ok(cur) = cur_res {
+            if cur.0.is_null() || steps >= 64 {
+                break;
+            }
+            steps += 1;
+            if IsWindowVisible(cur).as_bool() && !is_window_cloaked(cur) && is_desktop_shell_class(cur)
+            {
+                let mut cur_rect = RECT::default();
+                let mut overlap = RECT::default();
+                if GetWindowRect(cur, &mut cur_rect).is_ok()
+                    && IntersectRect(&mut overlap, &own_rect, &cur_rect).as_bool()
+                {
+                    return true;
+                }
+            }
+            cur_res = GetWindow(cur, GW_HWNDPREV);
+        }
+        false
+    }
+}
+
+fn restore_if_minimized_hwnd(hwnd: HWND, label: Option<&str>) -> bool {
+    if hwnd.0.is_null() || unsafe { !IsIconic(hwnd).as_bool() } {
+        return false;
+    }
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        let saved_rect = label.map(get_window_last_rect).unwrap_or((0, 0, 0, 0));
+        if saved_rect.2 > 0 && saved_rect.3 > 0 {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                saved_rect.0,
+                saved_rect.1,
+                saved_rect.2,
+                saved_rect.3,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        } else {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+    }
+    true
+}
+
+/// Ensures an overlay window is unminimized and stays above WorkerW/Progman on Show Desktop.
+pub(crate) fn reassert_overlay_above_desktop(
+    win: &tauri::WebviewWindow,
+    label: Option<&str>,
+    force_burst: bool,
+) -> (bool, bool) {
+    let Ok(raw_hwnd) = win.hwnd() else {
+        return (false, false);
+    };
+    let hwnd = HWND(raw_hwnd.0);
+    if hwnd.0.is_null() || unsafe { !IsWindow(hwnd).as_bool() } {
+        return (false, false);
+    }
+
+    let was_iconic = restore_if_minimized_hwnd(hwnd, label);
+    let lost_topmost =
+        (unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) as u32 } & WS_EX_TOPMOST.0) == 0;
+    let desktop_above = is_desktop_shell_above_hwnd(hwnd);
+
+    if was_iconic || lost_topmost || desktop_above || force_burst {
+        unsafe {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+        if let Some(lbl) = label {
+            crate::backdrop_blur::keep_acrylic_below_window(lbl, raw_hwnd.0 as isize);
+            crate::backdrop_blur::invalidate_all_backdrops();
+        }
+        crate::window_preview::reassert_overlay_zorder();
+        return (was_iconic, true);
+    }
+    (false, false)
 }
 
 fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
@@ -1056,7 +1218,8 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                 // Track the last active foreground window only when GetForegroundWindow() HWND changes.
                 let fg = unsafe { GetForegroundWindow() };
                 let fg_raw = fg.0 as isize;
-                if fg_raw != last_polled_fg_hwnd {
+                let fg_changed = fg_raw != last_polled_fg_hwnd;
+                if fg_changed {
                     last_polled_fg_hwnd = fg_raw;
                     static LAST_PREVIEW_FG_HWND: std::sync::atomic::AtomicIsize =
                         std::sync::atomic::AtomicIsize::new(0);
@@ -1078,11 +1241,69 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                 }
 
                 let overlap_recheck_due = OVERLAP_RECHECK_NEEDED.swap(false, Ordering::AcqRel);
+                let desktop_zcheck_due = DESKTOP_ZORDER_CHECK_NEEDED.swap(false, Ordering::AcqRel);
+                let fg_is_desktop = is_desktop_shell_class(fg);
+                let fg_switched_to_desktop = (fg_changed && fg_is_desktop) || desktop_zcheck_due;
                 let snipping_active = is_snipping_shortcut_or_overlay_active();
 
                 for (label, win) in nav_windows {
                     if !win.is_visible().unwrap_or(false) {
                         continue;
+                    }
+
+                    let state = watch_states.entry(label.clone()).or_default();
+                    if fg_switched_to_desktop {
+                        state.desktop_reassert_ticks = 16;
+                    }
+
+                    let near_edge = state.was_in_dock
+                        || !popup_regions_map()
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .get(&label)
+                            .is_none_or(|m| m.is_empty())
+                        || is_cursor_near_navbar_edge(pt, win.scale_factor().unwrap_or(1.0), &get_window_hit_geom(&label));
+
+                    let fs_due = fg_raw != state.last_fs_fg_hwnd
+                        || desktop_zcheck_due
+                        || (near_edge && tick.is_multiple_of(16))
+                        || tick.is_multiple_of(60);
+                    if fs_due {
+                        state.last_fs_fg_hwnd = fg_raw;
+                        let is_fs = is_fullscreen_app_covering_navbar(&win);
+                        if is_fs != state.was_fullscreen {
+                            state.was_fullscreen = is_fs;
+                            let _ = app.emit_to(&label, "navbar-fullscreen-state", is_fs);
+                            crate::backdrop_blur::set_window_acrylic_hidden(&label, is_fs);
+                            if !is_fs {
+                                state.desktop_reassert_ticks = state.desktop_reassert_ticks.max(10);
+                                crate::backdrop_blur::invalidate_all_backdrops();
+                                request_overlap_recheck();
+                            }
+                            if is_fs {
+                                set_overlay_click_through(&win, true);
+                                state.was_in_dock = false;
+                                continue;
+                            }
+                        }
+                    }
+
+                    if state.was_fullscreen {
+                        continue;
+                    }
+
+                    let mut burst_hit = false;
+                    if state.desktop_reassert_ticks > 0 {
+                        state.desktop_reassert_ticks -= 1;
+                        burst_hit = matches!(state.desktop_reassert_ticks, 15 | 10 | 5 | 0);
+                    }
+                    if fg_changed || desktop_zcheck_due || burst_hit || tick.is_multiple_of(4) {
+                        let force_burst = burst_hit && fg_is_desktop;
+                        let (was_iconic, _reasserted) =
+                            reassert_overlay_above_desktop(&win, Some(&label), force_burst);
+                        if was_iconic {
+                            let _ = app.emit_to(&label, "navbar-request-sync-bounds", ());
+                        }
                     }
 
                     let (Ok(win_pos), Ok(win_size), Ok(sf)) =
@@ -1098,37 +1319,6 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                         .get(&label)
                         .map(|m| m.values().cloned().collect())
                         .unwrap_or_default();
-
-                    let state = watch_states.entry(label.clone()).or_default();
-                    let near_edge = state.was_in_dock
-                        || !active_popups.is_empty()
-                        || is_cursor_near_navbar_edge(pt, sf, &geom);
-
-                    let fs_due = fg_raw != state.last_fs_fg_hwnd
-                        || (near_edge && tick.is_multiple_of(16))
-                        || tick.is_multiple_of(60);
-                    if fs_due {
-                        state.last_fs_fg_hwnd = fg_raw;
-                        let is_fs = is_fullscreen_app_covering_navbar(&win);
-                        if is_fs != state.was_fullscreen {
-                            state.was_fullscreen = is_fs;
-                            let _ = app.emit_to(&label, "navbar-fullscreen-state", is_fs);
-                            crate::backdrop_blur::set_window_acrylic_hidden(&label, is_fs);
-                            if !is_fs {
-                                crate::backdrop_blur::invalidate_all_backdrops();
-                                request_overlap_recheck();
-                            }
-                            if is_fs {
-                                set_overlay_click_through(&win, true);
-                                state.was_in_dock = false;
-                                continue;
-                            }
-                        }
-                    }
-
-                    if state.was_fullscreen {
-                        continue;
-                    }
 
                     if !geom.auto_hide_enabled {
                         if state.was_auto_hide_enabled || state.was_window_covered {
@@ -1253,10 +1443,12 @@ fn build_navbar_webview_window(
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
+        .minimizable(false)
+        .maximizable(false)
         .focused(false)
         .visible(false)
         .initialization_script(init_script)
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required")
+        .additional_browser_args(crate::WEBVIEW_BROWSER_ARGS)
         .build()?;
 
     if !NAVBAR_ENABLED.load(Ordering::SeqCst) {
@@ -1298,10 +1490,30 @@ fn build_navbar_webview_window(
                 if let Ok(mut map) = desired_click_through_map().lock() {
                     map.remove(&raw_hwnd_key);
                 }
+                if let Ok(mut map) = desired_focusable_map().lock() {
+                    map.remove(&raw_hwnd_key);
+                }
             }
         }
         tauri::WindowEvent::ScaleFactorChanged { .. } => {
             let _ = app_for_ev.emit_to(&label_for_ev, "navbar-request-sync-bounds", ());
+        }
+        tauri::WindowEvent::Resized(_) => {
+            if NAVBAR_ENABLED.load(Ordering::Relaxed) && nw.is_visible().unwrap_or(false) {
+                let is_min = nw.is_minimized().unwrap_or(false)
+                    || nw
+                        .hwnd()
+                        .ok()
+                        .is_some_and(|h| unsafe { IsIconic(HWND(h.0)).as_bool() });
+                if is_min {
+                    let (was_iconic, _) =
+                        reassert_overlay_above_desktop(&nw, Some(&label_for_ev), true);
+                    if was_iconic {
+                        let _ =
+                            app_for_ev.emit_to(&label_for_ev, "navbar-request-sync-bounds", ());
+                    }
+                }
+            }
         }
         _ => {}
     });
@@ -1641,15 +1853,35 @@ pub fn set_navbar_auto_hide_state(
 
 #[tauri::command]
 pub fn set_navbar_focusable(window: tauri::WebviewWindow, focusable: bool) {
-    let _ = window.set_focusable(focusable);
     #[cfg(windows)]
     if let Ok(raw_hwnd) = window.hwnd() {
+        let hwnd_raw = raw_hwnd.0 as isize;
         let hwnd = HWND(raw_hwnd.0);
+        if let Ok(mut map) = desired_focusable_map().lock() {
+            map.insert(hwnd_raw, focusable);
+        }
+        let _ = window.set_focusable(focusable);
         apply_navbar_exstyle(hwnd, focusable);
+        let win_clone = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            let latest = desired_focusable_map()
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&hwnd_raw).copied())
+                .unwrap_or(focusable);
+            if let Ok(h) = win_clone.hwnd() {
+                apply_navbar_exstyle(HWND(h.0), latest);
+                if latest {
+                    let _ = win_clone.set_focus();
+                }
+            }
+        });
         if focusable {
             let _ = window.set_focus();
         }
+        return;
     }
+    let _ = window.set_focusable(focusable);
 }
 
 #[tauri::command]
@@ -3181,5 +3413,32 @@ mod preview_probe_tests {
             &shown,
             &[],
         ));
+    }
+
+    #[test]
+    fn test_strip_minimize_maximize_and_toolwindow_exstyles() {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+        };
+        let raw_style = WS_CAPTION.0 | WS_SYSMENU.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0;
+        let cleaned = strip_minimize_maximize_bits(raw_style);
+        assert_eq!(cleaned & WS_MINIMIZEBOX.0, 0);
+        assert_eq!(cleaned & WS_MAXIMIZEBOX.0, 0);
+        assert_ne!(cleaned & WS_CAPTION.0, 0);
+        assert_eq!(
+            strip_minimize_maximize_bits(WS_POPUP.0 | WS_MINIMIZEBOX.0),
+            WS_POPUP.0
+        );
+
+        let cleaned_ex = overlay_toolwindow_exstyle(WS_EX_APPWINDOW.0 | WS_EX_TOPMOST.0);
+        assert_ne!(cleaned_ex & WS_EX_TOOLWINDOW.0, 0);
+        assert_eq!(cleaned_ex & WS_EX_APPWINDOW.0, 0);
+        assert_ne!(cleaned_ex & WS_EX_TOPMOST.0, 0);
+    }
+
+    #[test]
+    fn test_desktop_shell_above_hwnd_does_not_flag_unowned_or_null() {
+        assert!(!is_desktop_shell_class(HWND::default()));
+        assert!(!is_desktop_shell_above_hwnd(HWND::default()));
     }
 }

@@ -11,9 +11,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, GetWindowRect, IsChild, SetForegroundWindow,
 };
 
+const FLYOUT_IDLE_DESTROY_SECS: u64 = 90;
+
 static FLYOUT_OPEN: AtomicBool = AtomicBool::new(false);
 static FLYOUT_READY: AtomicBool = AtomicBool::new(false);
 static FLYOUT_CREATING: AtomicBool = AtomicBool::new(false);
+static FLYOUT_IDLE_GEN: AtomicU64 = AtomicU64::new(0);
 static FLYOUT_OPEN_GEN: AtomicU64 = AtomicU64::new(0);
 static FLYOUT_OPENED_AT_MS: AtomicU64 = AtomicU64::new(0);
 static FLYOUT_OPEN_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -36,9 +39,43 @@ pub fn is_flyout_open() -> bool {
     FLYOUT_OPEN.load(Ordering::SeqCst)
 }
 
-fn cancel_flyout_idle_destroy() {}
+fn cancel_flyout_idle_destroy() {
+    FLYOUT_IDLE_GEN.fetch_add(1, Ordering::SeqCst);
+}
 
-fn schedule_flyout_idle_destroy() {}
+fn should_abort_idle_destroy(gen: u64) -> bool {
+    FLYOUT_IDLE_GEN.load(Ordering::SeqCst) != gen
+        || FLYOUT_OPEN.load(Ordering::SeqCst)
+        || FLYOUT_CREATING.load(Ordering::SeqCst)
+}
+
+fn schedule_flyout_idle_destroy() {
+    let gen = FLYOUT_IDLE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(FLYOUT_IDLE_DESTROY_SECS));
+        if should_abort_idle_destroy(gen) {
+            return;
+        }
+        let Some(app) = APP_HANDLE.get() else {
+            return;
+        };
+        // Synchronize with flyout creation so an open transition cannot race destroy
+        let _build_guard = FLYOUT_BUILD_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if should_abort_idle_destroy(gen) {
+            return;
+        }
+        if let Some(win) = app.get_webview_window("taskbar_flyout") {
+            if !win.is_visible().unwrap_or(false) {
+                FLYOUT_READY.store(false, Ordering::SeqCst);
+                let _ = win.destroy();
+                crate::memory_optimizer::schedule_working_set_trim(800);
+            }
+        }
+    });
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FlyoutTriggerRect {
@@ -81,13 +118,6 @@ fn set_flyout_click_through(win: &WebviewWindow, ignore: bool) {
 pub fn init_flyout_manager(app: &AppHandle) {
     let _ = APP_HANDLE.set(app.clone());
     crate::shell_surface_toggle::ensure_watcher();
-    let app_clone = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(200));
-        if app_clone.get_webview_window("taskbar_flyout").is_none() {
-            let _ = ensure_flyout_window_with_initial(&app_clone, None);
-        }
-    });
 }
 
 fn resolve_theme_str(theme_opt: Option<&str>) -> &'static str {
@@ -145,7 +175,7 @@ fn ensure_flyout_window_with_initial(
     .focused(false)
     .visible(false)
     .initialization_script(&init_script)
-    .additional_browser_args("--autoplay-policy=no-user-gesture-required")
+    .additional_browser_args(crate::WEBVIEW_BROWSER_ARGS)
     .build()
     {
         Ok(win) => {
@@ -598,8 +628,8 @@ fn spawn_lazy_flyout_and_apply(app: &AppHandle, target: &str, theme_str: &str, a
             return;
         };
 
-        // Wait up to 900ms for TaskbarFlyoutApp mount so WebView2 child HWNDs exist before show()
-        for _ in 0..60 {
+        // Wait up to 1500ms for TaskbarFlyoutApp cold mount so WebView2 child HWNDs exist before show()
+        for _ in 0..100 {
             if FLYOUT_READY.load(Ordering::SeqCst) || !FLYOUT_OPEN.load(Ordering::SeqCst) {
                 break;
             }
@@ -1064,6 +1094,7 @@ pub fn dismiss_flyout_for_native_handoff() {
             serde_json::json!({ "isOpen": false, "target": target }),
         );
     }
+    schedule_flyout_idle_destroy();
 }
 
 #[tauri::command]
@@ -1561,5 +1592,16 @@ mod tests {
         assert_eq!(clamp_flyout_resize_height(412.6, 540.0), 413.0);
         assert_eq!(clamp_flyout_resize_height(f64::NAN, 540.0), 540.0);
         assert_eq!(clamp_flyout_resize_height(f64::INFINITY, 374.0), 374.0);
+    }
+
+    #[test]
+    fn test_cancel_flyout_idle_destroy_invalidates_generation() {
+        FLYOUT_OPEN.store(false, Ordering::SeqCst);
+        FLYOUT_CREATING.store(false, Ordering::SeqCst);
+        let gen = FLYOUT_IDLE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+        assert!(!should_abort_idle_destroy(gen));
+
+        cancel_flyout_idle_destroy();
+        assert!(should_abort_idle_destroy(gen));
     }
 }

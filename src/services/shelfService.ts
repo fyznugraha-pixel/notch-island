@@ -14,10 +14,23 @@ export interface FilePreview {
   isMissing?: boolean;
 }
 
-// In-memory cache for previews (thumbnails & formatted sizes) so they survive tab switches without re-fetching
+const MAX_PREVIEW_CACHE_ENTRIES = 60;
+// Bounded LRU cache for file previews so tab switches stay instant without unbounded memory growth
 const previewCache = new Map<string, FilePreview>();
 const inFlightRequests = new Set<string>();
 const completedFetches = new Set<string>();
+
+function touchPreviewCacheEntry(key: string, preview: FilePreview): void {
+  if (previewCache.has(key)) {
+    previewCache.delete(key);
+  }
+  previewCache.set(key, preview);
+  while (previewCache.size > MAX_PREVIEW_CACHE_ENTRIES) {
+    const oldestKey = previewCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    previewCache.delete(oldestKey);
+  }
+}
 
 function isImageExt(ext: string): boolean {
   return ["png", "jpg", "jpeg", "webp", "gif", "bmp", "ico", "svg", "heic", "heif", "avif"].includes(
@@ -27,14 +40,30 @@ function isImageExt(ext: string): boolean {
 
 export function getCachedPreview(idOrPath: string): FilePreview | undefined {
   if (!idOrPath) return undefined;
-  return previewCache.get(idOrPath) || previewCache.get(idOrPath.toLowerCase());
+  const exact = previewCache.get(idOrPath);
+  if (exact) {
+    previewCache.delete(idOrPath);
+    previewCache.set(idOrPath, exact);
+    return exact;
+  }
+  const lower = idOrPath.toLowerCase();
+  const byLower = previewCache.get(lower);
+  if (byLower) {
+    previewCache.delete(lower);
+    previewCache.set(lower, byLower);
+    return byLower;
+  }
+  return undefined;
 }
 
 export function setCachedPreview(id: string, path: string, preview: FilePreview): void {
-  if (id) previewCache.set(id, preview);
+  if (id) touchPreviewCacheEntry(id, preview);
   if (path) {
-    previewCache.set(path, preview);
-    previewCache.set(path.toLowerCase(), preview);
+    touchPreviewCacheEntry(path, preview);
+    const lower = path.toLowerCase();
+    if (lower !== path) {
+      touchPreviewCacheEntry(lower, preview);
+    }
   }
 }
 

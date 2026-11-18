@@ -41,7 +41,7 @@ function resolveNavbarWindowIdentity(): { windowLabel: string; secondaryIndex: n
           }
         }
       }
-    } catch {}
+    } catch { }
     if (secondaryIndex === 0) {
       const monParam = new URLSearchParams(window.location.search).get("monitor");
       if (monParam) {
@@ -67,15 +67,15 @@ function applyNavbarActivation(
     return;
   }
   if (isProLocked || !cfg.enabled) {
-    invoke("close_navbar_window").catch(() => {});
-    invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+    invoke("close_navbar_window").catch(() => { });
+    invoke("set_windows_taskbar_visible", { visible: true }).catch(() => { });
     return;
   }
 
-  invoke("open_navbar_window").catch(() => {});
+  invoke("open_navbar_window").catch(() => { });
   invoke("set_windows_taskbar_visible", {
     visible: !cfg.hideWindowsTaskbar,
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 export const NavbarApp: React.FC = () => {
@@ -105,8 +105,8 @@ export const NavbarApp: React.FC = () => {
     setIsLightSurface((prev) => (prev === info.isLight ? prev : info.isLight));
     setResolvedSurfaceTheme((prev) =>
       prev &&
-      prev.isTranslucent === info.isTranslucent &&
-      prev.opacityPct === info.opacityPct
+        prev.isTranslucent === info.isTranslucent &&
+        prev.opacityPct === info.opacityPct
         ? prev
         : { isTranslucent: info.isTranslucent, opacityPct: info.opacityPct }
     );
@@ -506,7 +506,7 @@ export const NavbarApp: React.FC = () => {
           };
           measureAndSyncRef.current?.(true);
         }
-      } catch {}
+      } catch { }
     };
     void resolveMonitor();
     return () => {
@@ -725,7 +725,7 @@ export const NavbarApp: React.FC = () => {
     nativeCommand: string,
     fallbackSelector?: string,
   ) => {
-    emit("navbar-dismiss-popovers").catch(() => {});
+    emit("navbar-dismiss-popovers").catch(() => { });
     if (useGili) {
       const rect =
         getTriggerRect(selector) ||
@@ -737,9 +737,9 @@ export const NavbarApp: React.FC = () => {
           position: config.position || "bottom",
           theme: config.style === "liquid" ? "liquid" : "solid",
         },
-      }).catch(() => {});
+      }).catch(() => { });
     } else {
-      invoke(nativeCommand).catch(() => {});
+      invoke(nativeCommand).catch(() => { });
     }
   };
 
@@ -802,20 +802,20 @@ export const NavbarApp: React.FC = () => {
       );
       return;
     }
-    emit("navbar-dismiss-popovers").catch(() => {});
+    emit("navbar-dismiss-popovers").catch(() => { });
     const rect = getTriggerRect('[data-flyout-trigger="tray"]');
     invoke("trigger_hidden_tray", {
       anchorRect: rect
         ? {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-            position: config.position || "bottom",
-          }
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          position: config.position || "bottom",
+        }
         : null,
       position: config.position || "bottom",
-    }).catch(() => {});
+    }).catch(() => { });
   };
 
   const handlePreviewStateChange = useCallback((_isShowing: boolean) => {

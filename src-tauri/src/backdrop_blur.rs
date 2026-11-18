@@ -41,8 +41,9 @@ use windows::Win32::System::WinRT::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-    GetWindowLongW, GetWindowRect, IsWindow, IsWindowVisible, PeekMessageW, RegisterClassW,
-    SetWindowPos, ShowWindow, TranslateMessage, GWL_STYLE, HTTRANSPARENT, MA_NOACTIVATE, MSG,
+    GetWindowLongW, GetWindowRect, IsIconic, IsWindow, IsWindowVisible, PeekMessageW,
+    RegisterClassW, SetWindowPos, ShowWindow, TranslateMessage, GWL_STYLE, HTTRANSPARENT,
+    MA_NOACTIVATE, MSG,
     PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSENDCHANGING,
     SWP_SHOWWINDOW, SW_HIDE, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_NCHITTEST, WM_PAINT,
     WM_SETCURSOR, WNDCLASSW, WS_CHILD, WS_DISABLED, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
@@ -492,9 +493,15 @@ unsafe extern "system" fn backdrop_win_event_proc(
     if event == EVENT_SYSTEM_FOREGROUND && !hwnd.0.is_null() {
         crate::window_preview::on_foreground_window_observed(hwnd.0 as isize);
         crate::navbar_window::on_external_foreground_observed(hwnd.0 as isize);
+        if crate::navbar_window::is_desktop_shell_class(hwnd) {
+            crate::navbar_window::request_desktop_zorder_check();
+        }
     } else if event == EVENT_SYSTEM_MINIMIZESTART && !hwnd.0.is_null() {
         crate::window_preview::on_window_minimizing_observed(hwnd.0 as isize);
         crate::window_dock_anim::on_window_minimizing_observed(hwnd.0 as isize);
+        crate::navbar_window::request_desktop_zorder_check();
+    } else if event == EVENT_OBJECT_REORDER {
+        crate::navbar_window::request_desktop_zorder_check();
     }
 
     if relevant_system || discrete_object || location_object {
@@ -748,7 +755,8 @@ fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicCommand>> {
                                     SW_HIDE,
                                 );
                                 slot.visible = false;
-                    } else if let Some(ref req) = slot.last_req {
+                            } else if !IsIconic(parent).as_bool() {
+                                if let Some(ref req) = slot.last_req {
                         let mut parent_rect = RECT::default();
                         if GetWindowRect(parent, &mut parent_rect).is_ok() {
                             let dpr = req.dpr.max(1.0);
@@ -777,6 +785,7 @@ fn ensure_acrylic_worker() -> &'static Mutex<Sender<AcrylicCommand>> {
                                         );
                                     }
                                 }
+                            }
                             }
                         }
                     }

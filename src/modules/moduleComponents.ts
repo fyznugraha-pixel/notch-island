@@ -55,40 +55,9 @@ const AmbientSoundNavbarModule = lazyMod(loadMediaLifestyleExtraModules, "Ambien
 const AirQualityNavbarModule = lazyMod(loadMediaLifestyleExtraModules, "AirQualityNavbarModule");
 const MoodCheckinNavbarModule = lazyMod(loadMediaLifestyleExtraModules, "MoodCheckinNavbarModule");
 
-// Alias map for legacy IDs to match canonical catalog IDs
-export const MODULE_ID_ALIASES: Record<string, string> = {
-  event: "acara_berikutnya",
-  todo: "to_do_fokus",
-  pomodoro: "pomodoro",
-  quicknote: "catat_cepat",
-  note: "catat_cepat",
-  system: "pantau_sistem",
-  net: "jaringan",
-  weather: "cuaca",
-  clock: "jam_dunia",
-  battery: "baterai_daya",
-  audiodevice: "output_audio",
-  audio_output: "output_audio",
-  virtual_desktop: "desktop_virtual",
-  water: "water_tracker",
-  prayer: "waktu_sholat",
-  shelf: "drop_zone_mini",
-  media: "sedang_diputar",
-  media_control: "kontrol_media",
-  focus: "mode_fokus",
-  mixer: "mixer_suara",
-  streak: "streak_kebiasaan",
-  quote: "kutipan_harian",
-  countdown: "hitung_mundur",
-  day_progress: "progres_hari",
-  eye_rest: "istirahat_mata",
-  startSearch: "start_search",
-  pinnedApps: "pinned_apps",
-  runningApps: "running_apps",
-  systemIcons: "output_audio",
-  notifications: "notifications",
-  clockDate: "jam_dunia",
-};
+// Alias map extracted to moduleAliases.ts so lightweight popover shells avoid pulling component/catalog graphs
+import { MODULE_ID_ALIASES } from "./moduleAliases";
+export { MODULE_ID_ALIASES };
 
 export const COMPONENT_MAP: Record<string, ComponentType<any>> = {
   // 1..6 Produktif

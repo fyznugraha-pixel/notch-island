@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { NavbarConfig, NavbarModuleView } from "../../types/navbar";
 import { saveNavbarConfig } from "../../services/navbarConfigService";
 import { useNavbarPopupHit } from "../../services/navbarPopupService";
-import { MODULE_ID_ALIASES } from "./NavbarModuleUnifiedPreview";
+import { MODULE_ID_ALIASES } from "../moduleAliases";
 import { TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { useNavbarLightMode } from "../../components/navbar/navbarThemeUtils";

@@ -62,7 +62,7 @@ pub async fn open_lyrics_share_window(app: AppHandle, payload: serde_json::Value
         .focused(true)
         .skip_taskbar(false)
         .initialization_script("window.__IS_LYRICS_SHARE_WINDOW__ = true;")
-        .additional_browser_args("--autoplay-policy=no-user-gesture-required")
+        .additional_browser_args(crate::WEBVIEW_BROWSER_ARGS)
         .build()
         {
             Ok(win) => {

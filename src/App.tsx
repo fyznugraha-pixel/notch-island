@@ -74,6 +74,7 @@ import {
   getOrderedEnabledTabs,
   isTabEnabled,
   resolvePreferredOpenTab,
+  TAB_IDLE_RESET_MS,
 } from "./services/tabConfigService";
 import { createQuickNoteItem, deleteQuickNoteItem } from "./services/noteUtils";
 import { WaterNotchToast, WaterToastType } from "./components/ui/water/WaterNotchToast";
@@ -1827,12 +1828,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setIsQuickAiChatOpen(false);
     setIsQuickAiChatExpanded(false);
     setControlCenterSubmenu(null);
-    const now = Date.now();
-    lastPanelClosedAtRef.current = now;
-    if (!isSecondaryWindow) {
-      try {
-        localStorage.setItem("island_last_panel_closed_at", String(now));
-      } catch {}
+    if (hadOpenPanel) {
+      const now = Date.now();
+      lastPanelClosedAtRef.current = now;
+      if (!isSecondaryWindow) {
+        try {
+          localStorage.setItem("island_last_panel_closed_at", String(now));
+        } catch {}
+      }
     }
     if (!isPlayingRef.current) {
       clearPausedMediaTimer();
@@ -1870,7 +1873,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const elapsed = lastPanelClosedAtRef.current > 0
       ? Date.now() - lastPanelClosedAtRef.current
       : Infinity;
-    const tabExpired = elapsed > 3 * 60 * 1000;
+    const tabExpired = elapsed >= TAB_IDLE_RESET_MS;
     const currentTabs = availableTabsRef.current;
 
     let target: ExpandedTab = forceTab || "quick_control";
