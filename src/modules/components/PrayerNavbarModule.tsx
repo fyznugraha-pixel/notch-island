@@ -1,30 +1,63 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Moon, RefreshCw } from "lucide-react";
 import { NavbarModuleProps } from "../registry";
 import { NavbarPopoverShell, useNavbarIsLightSurface } from "./NavbarPopoverShell";
 import {
-  DEFAULT_PRAYER_TIMINGS,
+  PRAYER_ORDER,
+  PRAYER_SCHEDULE_CACHE_KEY,
   PrayerScheduleData,
-  fetchLivePrayerTimes,
-} from "../../services/ambientEnvironmentService";
+  INDONESIAN_PRESET_CITIES,
+  getImmediatePrayerSchedule,
+  fetchPrayerSchedule,
+  getPrayerDisplayName,
+  getNextPrayerStatus,
+  getTodayDateKey,
+} from "../../services/prayerService";
+import {
+  searchCities,
+  saveCustomCity,
+  getSavedCustomCity,
+  subscribeWeatherChange,
+} from "../../services/weatherService";
+import { listenCrossWindowEvent } from "../../utils/crossWindowSync";
 import { Tooltip } from "../../components/ui/Tooltip";
-import { getLocalDateKey, useMinuteTick } from "../../utils/dateTime";
+import { useMinuteTick } from "../../utils/dateTime";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
-import type { Language } from "../../services/i18n";
 
-const PRAYER_CACHE_KEY = "gili_prayer_cache_v2";
+const LEGACY_PRAYER_CACHE_KEY = "gili_prayer_cache_v2";
 
-function localizePrayerName(name: string, lang: Language): string {
-  if (lang === "id") return name;
-  const map: Record<string, string> = {
-    Subuh: "Fajr",
-    Dzuhur: "Dhuhr",
-    Ashar: "Asr",
-    Maghrib: "Maghrib",
-    Isya: "Isha",
-  };
-  return map[name] ?? name;
+async function migrateLegacyPrayerCache(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const legacyRaw = localStorage.getItem(LEGACY_PRAYER_CACHE_KEY);
+    if (!legacyRaw) return;
+    localStorage.removeItem(LEGACY_PRAYER_CACHE_KEY);
+    const parsed = JSON.parse(legacyRaw);
+    const legacyCity = typeof parsed?.city === "string" ? parsed.city.trim() : "";
+    if (!legacyCity || legacyCity.toLowerCase() === "bandung" || getSavedCustomCity()) {
+      return;
+    }
+    const preset = INDONESIAN_PRESET_CITIES.find(
+      (c) => c.name.toLowerCase() === legacyCity.toLowerCase()
+    );
+    if (preset) {
+      saveCustomCity(preset);
+      return;
+    }
+    const matches = await searchCities(legacyCity, "id");
+    if (matches.length > 0) {
+      const first = matches[0];
+      saveCustomCity({
+        name: first.name,
+        admin1: first.admin1,
+        country: first.country,
+        latitude: first.latitude,
+        longitude: first.longitude,
+        source: "custom",
+      });
+    }
+  } catch {}
 }
 
 export const PrayerNavbarModule: React.FC<NavbarModuleProps> = ({
@@ -39,74 +72,125 @@ export const PrayerNavbarModule: React.FC<NavbarModuleProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
   const now = useMinuteTick(30000);
-  const dateKey = getLocalDateKey(now);
+  const dateKey = getTodayDateKey(now);
 
-  const [schedule, setSchedule] = useState<PrayerScheduleData>(() => {
-    try {
-      const raw = localStorage.getItem(PRAYER_CACHE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.city && Array.isArray(parsed.timings)) return parsed;
-      }
-    } catch {}
-    return {
-      city: "Bandung",
-      dateKey: "",
-      source: "fallback",
-      timings: DEFAULT_PRAYER_TIMINGS,
-    };
-  });
-
-  const [cityInput, setCityInput] = useState(schedule.city);
+  const [schedule, setSchedule] = useState<PrayerScheduleData>(() =>
+    getImmediatePrayerSchedule()
+  );
+  const [cityInput, setCityInput] = useState(schedule.locationName);
   const [loading, setLoading] = useState(false);
 
-  const refreshSchedule = async (city: string) => {
+  const syncFromCanonical = useCallback(() => {
+    const next = getImmediatePrayerSchedule();
+    setSchedule(next);
+    setCityInput(next.locationName);
+  }, []);
+
+  const refreshSchedule = useCallback(async (force = false) => {
     setLoading(true);
     try {
-      const live = await fetchLivePrayerTimes(city);
-      if (live) {
-        setSchedule(live);
-        setCityInput(live.city);
-        localStorage.setItem(PRAYER_CACHE_KEY, JSON.stringify(live));
-      }
+      const live = await fetchPrayerSchedule(force);
+      setSchedule(live);
+      setCityInput(live.locationName);
     } catch {
-      // Retain cached/fallback timings if offline
+      // Retain cached/calculated timings if offline
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (schedule.dateKey !== dateKey || schedule.source === "fallback") {
-      refreshSchedule(schedule.city);
-    }
-  }, [dateKey]);
+    let active = true;
+    migrateLegacyPrayerCache().then(() => {
+      if (!active) return;
+      if (schedule.dateKey !== dateKey || schedule.source === "calculated") {
+        refreshSchedule(false);
+      } else {
+        syncFromCanonical();
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [dateKey, refreshSchedule, syncFromCanonical]);
 
-  const curMins = now.getHours() * 60 + now.getMinutes();
-  const nextPrayer =
-    schedule.timings.find((p) => {
-      const [h, m] = p.time.split(":").map(Number);
-      return h * 60 + m > curMins;
-    }) || schedule.timings[0];
+  useEffect(() => {
+    const unsubWeather = subscribeWeatherChange(() => {
+      refreshSchedule(true);
+    });
+    const unsubPrayer = listenCrossWindowEvent("gili_prayer_updated", () => {
+      syncFromCanonical();
+    });
+    const onStorage = (e: StorageEvent) => {
+      if (
+        e.key === PRAYER_SCHEDULE_CACHE_KEY ||
+        e.key === "island_weather_custom_city" ||
+        e.key === "island_cached_weather_location"
+      ) {
+        syncFromCanonical();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      unsubWeather();
+      unsubPrayer();
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [refreshSchedule, syncFromCanonical]);
 
-  const [nh, nm] = nextPrayer.time.split(":").map(Number);
-  let diffMins = nh * 60 + nm - curMins;
-  if (diffMins <= 0) diffMins += 1440;
+  const status = getNextPrayerStatus(schedule, now);
+  const nextPrayerDisplay = getPrayerDisplayName(status.nextPrayer, lang);
+  const nextPrayerTime = status.nextPrayerTime;
+  const diffMins = status.minutesUntilNext;
   const diffBody =
     diffMins < 60
       ? `${diffMins}m`
       : `${Math.floor(diffMins / 60)}${tx(lang, "h", "j")} ${diffMins % 60}m`;
   const diffLabel = `-${diffBody}`;
-  const nextPrayerDisplay = localizePrayerName(nextPrayer.name, lang);
 
   const handleToggle = () => setIsOpen((v) => !v);
+
+  const handleCitySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = cityInput.trim();
+    if (!query) return;
+    setLoading(true);
+    try {
+      const preset = INDONESIAN_PRESET_CITIES.find(
+        (c) => c.name.toLowerCase() === query.toLowerCase()
+      );
+      if (preset) {
+        saveCustomCity(preset);
+      } else {
+        const results = await searchCities(query, lang);
+        if (results.length > 0) {
+          const first = results[0];
+          saveCustomCity({
+            name: first.name,
+            admin1: first.admin1,
+            country: first.country,
+            latitude: first.latitude,
+            longitude: first.longitude,
+            source: "custom",
+          });
+        }
+      }
+      const updated = await fetchPrayerSchedule(true);
+      setSchedule(updated);
+      setCityInput(updated.locationName);
+    } catch {
+      // Retain current schedule on network error
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <>
       <Tooltip
         content={`${tx(lang, "Prayer Times", "Waktu Sholat")} (${
-          schedule.city
-        }): ${nextPrayerDisplay} (${nextPrayer.time} · ${diffLabel})`}
+          schedule.locationName
+        }): ${nextPrayerDisplay} (${nextPrayerTime} · ${diffLabel})`}
         side={tooltipSide}
         disabled={isOpen}
         isLightMode={isLight}
@@ -119,8 +203,8 @@ export const PrayerNavbarModule: React.FC<NavbarModuleProps> = ({
             handleToggle,
             tx(
               lang,
-              `Next prayer: ${nextPrayerDisplay} at ${nextPrayer.time}`,
-              `Sholat berikutnya: ${nextPrayerDisplay} pukul ${nextPrayer.time}`
+              `Next prayer: ${nextPrayerDisplay} at ${nextPrayerTime}`,
+              `Sholat berikutnya: ${nextPrayerDisplay} pukul ${nextPrayerTime}`
             ),
             isOpen
           )}
@@ -137,7 +221,7 @@ export const PrayerNavbarModule: React.FC<NavbarModuleProps> = ({
           {!isCompact && (
             <div className="flex flex-col leading-[1.15] min-w-0 max-w-[130px]">
               <span className="text-[11.5px] font-bold text-white tabular-nums truncate">
-                {nextPrayerDisplay} {nextPrayer.time}
+                {nextPrayerDisplay} {nextPrayerTime}
               </span>
               <span
                 className={`text-[10px] tabular-nums truncate ${
@@ -155,7 +239,7 @@ export const PrayerNavbarModule: React.FC<NavbarModuleProps> = ({
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
         anchorRef={anchorRef}
-        title={`${tx(lang, "Prayer Times", "Jadwal Sholat")} (${schedule.city})`}
+        title={`${tx(lang, "Prayer Times", "Jadwal Sholat")} (${schedule.locationName})`}
         moduleId="waktu_sholat"
         currentView={view}
         config={config}
@@ -164,12 +248,13 @@ export const PrayerNavbarModule: React.FC<NavbarModuleProps> = ({
       >
         <div className="flex flex-col gap-2">
           <div className="flex flex-col gap-1">
-            {schedule.timings.map((p) => {
-              const isNext = p.name === nextPrayer.name;
-              const pName = localizePrayerName(p.name, lang);
+            {PRAYER_ORDER.map((prayerId) => {
+              const isNext = prayerId === status.nextPrayer;
+              const pName = getPrayerDisplayName(prayerId, lang);
+              const pTime = schedule.timings[prayerId];
               return (
                 <div
-                  key={p.name}
+                  key={prayerId}
                   className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[8px] text-[11.5px] min-w-0 ${
                     isNext
                       ? isLight
@@ -179,17 +264,14 @@ export const PrayerNavbarModule: React.FC<NavbarModuleProps> = ({
                   }`}
                 >
                   <span className="truncate min-w-0">{pName}</span>
-                  <span className="font-mono tabular-nums shrink-0">{p.time}</span>
+                  <span className="font-mono tabular-nums shrink-0">{pTime}</span>
                 </div>
               );
             })}
           </div>
 
           <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (cityInput.trim()) refreshSchedule(cityInput.trim());
-            }}
+            onSubmit={handleCitySubmit}
             className="flex items-center gap-1.5 pt-1 border-t border-white/[0.08]"
           >
             <input

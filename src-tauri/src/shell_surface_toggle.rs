@@ -233,9 +233,13 @@ pub fn record_surface_opened(kind: Surface) {
     LAST_OPENED_KIND.store(kind as u8, Ordering::SeqCst);
 }
 
-fn dismiss_surface_state() {
+fn clear_surface_tracking() {
     LAST_SEEN_MS.store(0, Ordering::SeqCst);
     LAST_OPENED_KIND.store(0, Ordering::SeqCst);
+}
+
+fn dismiss_surface_state() {
+    clear_surface_tracking();
     unsafe {
         keybd_event(VK_ESCAPE.0 as u8, 0, Default::default(), 0);
         keybd_event(VK_ESCAPE.0 as u8, 0, KEYEVENTF_KEYUP, 0);
@@ -255,14 +259,15 @@ pub fn was_just_open(kind: Surface) -> bool {
         }
     }
 
-    // Case 2: Surface was open <950ms ago and auto-dismissed on mouse-down focus change
+    // Case 2: Surface was open <950ms ago and auto-dismissed on mouse-down focus change.
+    // Foreground is now a user window, so reset tracking without injecting VK_ESCAPE into it.
     let seen_ms = LAST_SEEN_MS.load(Ordering::SeqCst);
     let seen_kind = LAST_SEEN_KIND.load(Ordering::SeqCst);
     if seen_ms != 0
         && is_matching_surface(seen_kind, kind)
         && now_ms().saturating_sub(seen_ms) < RECENT_DISMISS_WINDOW_MS
     {
-        dismiss_surface_state();
+        clear_surface_tracking();
         return true;
     }
 

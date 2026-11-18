@@ -22,7 +22,7 @@ import {
   resolveNotchThemeMode,
 } from "./components/ui/settings/TransparencyControlSection";
 import { getLanguage, setLanguage, Language } from "./services/i18n";
-import { getCachedWeather, fetchCurrentWeather, subscribeWeatherChange } from "./services/weatherService";
+import { getCachedWeather, startWeatherAutoSync } from "./services/weatherService";
 import { getTextWidth } from "./utils/text";
 import { getPerceivedLuminance } from "./utils/colorUtils";
 import {
@@ -156,29 +156,13 @@ export const SecondaryNotchApp: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
-    const updateWeather = async () => {
-      const data = await fetchCurrentWeather();
-      if (isMounted && data) {
-        setWeather({
-          temp: data.temp,
-          code: data.code,
-          locationName: data.locationName,
-        });
-      }
-    };
-
-    updateWeather();
-    const interval = setInterval(updateWeather, 1000 * 60 * 10);
-    const unsubscribe = subscribeWeatherChange(() => {
-      updateWeather();
+    return startWeatherAutoSync((data) => {
+      setWeather({
+        temp: data.temp,
+        code: data.code,
+        locationName: data.locationName,
+      });
     });
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-      unsubscribe();
-    };
   }, []);
 
   const needsSystemMetrics =

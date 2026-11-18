@@ -17,7 +17,7 @@ import {
   calculateEstimatedCostIdr,
 } from "./aiRouterService";
 import { getNotchSystemInstruction } from "./aiNotchTools";
-import { getGiliFreeEndpoint, getInstallId } from "./giliFreeService";
+import { buildGiliFreeHeaders, getGiliFreeEndpoint } from "./giliFreeService";
 import { getLanguage } from "./i18n";
 import type {
   AiProviderId,
@@ -1021,10 +1021,6 @@ ${notchInstruction}`;
   // OpenAI-compatible providers: Gili Free proxy, custom Base URL, OpenAI, OpenRouter, DeepSeek, Grok, Custom
   if (useGiliFree) {
     endpoint = `${getGiliFreeEndpoint()}/v1/chat/completions`;
-    headers = {
-      "Content-Type": "application/json",
-      "X-Gili-Install-Id": getInstallId(),
-    };
   } else if (customBase) {
     let clean = customBase.replace(/\/+$/, "");
     if (clean.endsWith("/chat/completions")) {
@@ -1124,11 +1120,16 @@ ${notchInstruction}`;
     reqPayload.stream_options = { include_usage: true };
   }
 
+  const requestBody = JSON.stringify(reqPayload);
+  if (useGiliFree) {
+    headers = await buildGiliFreeHeaders(requestBody);
+  }
+
   await streamAiRequest({
     url: endpoint,
     method: "POST",
     headers,
-    body: JSON.stringify(reqPayload),
+    body: requestBody,
     signal,
     onChunk: (line) => {
       const dataStr = extractSseData(line);

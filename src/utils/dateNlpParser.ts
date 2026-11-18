@@ -155,10 +155,11 @@ export function parseDateNlp(
   const relativeDayPattern =
     /\b(?:hari ini|today|malam ini|sore ini|siang ini|pagi ini|besok lusa|besok(?:\s+(?:pagi|siang|sore|malam))?|tomorrow(?:\s+(?:morning|afternoon|evening|night))?|lusa|akhir pekan|weekend|senin|selasa|rabu|kamis|jumat|jum'at|sabtu|minggu|ahad|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i;
 
-  // Try matching combined: [Day] [Time] or [Time] [Day] or just [Day] or just [Time]
-  // Pattern 1: Day phrase followed optionally by "jam / pukul / at" + time
+  // Pattern 1: Day phrase followed optionally by explicit time (prefixed "jam/pukul/at", colon/dot HH:MM, or am/pm/period suffix)
+  const timeModifier = "(?:pagi|siang|sore|malam|am|pm|morning|afternoon|evening|night)";
+  const strictTimePattern = `(?:(?:jam|pukul|at)\\s+\\d{1,2}(?:[:.]\\d{2})?(?:\\s*${timeModifier})?|\\d{1,2}[:.]\\d{2}(?:\\s*${timeModifier})?|\\d{1,2}(?:[:.]\\d{2})?\\s*${timeModifier})(?!\\d|%)\\b`;
   const combinedPattern = new RegExp(
-    `(${relativeDayPattern.source})(?:\\s+((?:(?:jam|pukul|at)\\s+)?\\d{1,2}(?:[:.]\\d{2})?\\s*(?:pagi|siang|sore|malam|am|pm|morning|afternoon|evening|night)?))?`,
+    `(${relativeDayPattern.source})(?:\\s+(${strictTimePattern}))?`,
     "i"
   );
 
@@ -236,6 +237,7 @@ export function parseDateNlp(
     }
 
     // Resolve explicit time part if present (e.g. "jam 4 sore", "16:00", "4pm")
+    let matchedLen = dayPart.length;
     if (timePart) {
       const dayPeriodMatch = dayPart.match(/\b(pagi|siang|sore|malam|morning|afternoon|evening|night)\b/i);
       const fallbackPeriod = dayPeriodMatch ? dayPeriodMatch[1] : "";
@@ -244,18 +246,21 @@ export function parseDateNlp(
         resolvedHour = parsedTime.hour;
         resolvedMinute = parsedTime.minute;
         hasExplicitTime = true;
+        matchedLen = fullMatchedStr.length;
       }
     }
 
     targetDate.setHours(resolvedHour, resolvedMinute, 0, 0);
 
     matchedIndex = match.index;
-    matchedRaw = text.slice(match.index, match.index + fullMatchedStr.length);
+    matchedRaw = text.slice(match.index, match.index + matchedLen);
   }
 
   // If no day matched, check standalone time like "jam 4 sore", "jam 16:00", "pukul 8 malam"
   if (!targetDate) {
-    const standaloneTimeMatch = lower.match(/(?:\b(?:jam|pukul|at)\s+\d{1,2}(?:[:.]\d{2})?\s*(?:pagi|siang|sore|malam|am|pm|morning|afternoon|evening|night)?\b|\b\d{1,2}[:.]\d{2}\s*(?:am|pm)?\b)/i);
+    const standaloneTimeMatch = lower.match(
+      /(?:\b(?:jam|pukul|at)\s+\d{1,2}(?:[:.]\d{2})?(?:\s*(?:pagi|siang|sore|malam|am|pm|morning|afternoon|evening|night))?(?!\d|%)\b|\b\d{1,2}[:.]\d{2}(?:\s*(?:am|pm|pagi|siang|sore|malam))?(?!\d|%)\b)/i
+    );
     if (standaloneTimeMatch && standaloneTimeMatch.index !== undefined) {
       const parsed = parseTimeSnippet(standaloneTimeMatch[0]);
       if (parsed) {
@@ -319,6 +324,9 @@ function parseTimeSnippet(snippet: string, fallbackModifier: string = ""): { hou
   const modifier = (match[3] || fallbackModifier).toLowerCase();
 
   if (isNaN(h) || h < 0 || h > 24 || isNaN(m) || m < 0 || m > 59) {
+    return null;
+  }
+  if (h === 24 && (m > 0 || modifier !== "")) {
     return null;
   }
 

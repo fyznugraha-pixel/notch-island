@@ -41,6 +41,9 @@ pub mod gpu_telemetry;
 pub mod memory_optimizer;
 pub mod store_license;
 pub mod lyrics_share;
+pub mod display_topology;
+mod http_guard;
+mod style_file_dialog;
 
 pub(crate) struct ComGuard(bool);
 
@@ -366,12 +369,37 @@ fn decode_safe_image_from_bytes(bytes: &[u8]) -> Option<image::DynamicImage> {
     reader.decode().ok()
 }
 
+fn resize_dynamic_image_to_max(img: &image::DynamicImage, max_dim: u32) -> image::DynamicImage {
+    let (w, h) = (img.width(), img.height());
+    if w.max(h) > max_dim {
+        img.resize(max_dim, max_dim, image::imageops::FilterType::CatmullRom)
+    } else {
+        img.clone()
+    }
+}
+
+fn image_has_meaningful_alpha(img: &image::DynamicImage) -> bool {
+    if !img.color().has_alpha() {
+        return false;
+    }
+    use image::GenericImageView;
+    img.pixels().any(|(_, _, px)| px.0[3] < 250)
+}
+
 pub(crate) fn encode_smtc_thumbnail_data_url(bytes: &[u8], fallback_mime: &str) -> Option<String> {
     if bytes.len() < 100 {
         return None;
     }
     if let Some(dyn_img) = decode_safe_image_from_bytes(bytes) {
-        if let Some(encoded) = encode_dynamic_image_data_url(&dyn_img, 256, 82) {
+        let resized = resize_dynamic_image_to_max(&dyn_img, 256);
+        if image_has_meaningful_alpha(&resized) {
+            use base64::{engine::general_purpose::STANDARD, Engine as _};
+            let mut cursor = std::io::Cursor::new(Vec::with_capacity(32768));
+            if resized.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+                return Some(format!("data:image/png;base64,{}", STANDARD.encode(cursor.into_inner())));
+            }
+        }
+        if let Some(encoded) = encode_dynamic_image_data_url(&resized, 256, 82) {
             return Some(encoded);
         }
     }
@@ -404,12 +432,7 @@ fn encode_dynamic_image_data_url(
     use base64::Engine;
     use image::codecs::jpeg::JpegEncoder;
 
-    let (w, h) = (img.width(), img.height());
-    let resized = if w.max(h) > max_dim {
-        img.resize(max_dim, max_dim, image::imageops::FilterType::CatmullRom)
-    } else {
-        img.clone()
-    };
+    let resized = resize_dynamic_image_to_max(img, max_dim);
 
     let mut cursor = std::io::Cursor::new(Vec::with_capacity(32768));
     let rgb = resized.to_rgb8();
@@ -983,36 +1006,58 @@ async fn fetch_external_lyrics_api(
             Ok(())
         }
 
+        let clean_headers = crate::http_guard::sanitize_headers(headers)?;
         validate_lyrics_url(&url)?;
 
         static LYRICS_HTTP_AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
         let agent = LYRICS_HTTP_AGENT.get_or_init(|| {
             ureq::AgentBuilder::new()
+                .redirects(0)
                 .timeout_connect(std::time::Duration::from_secs(4))
                 .timeout(std::time::Duration::from_secs(6))
                 .build()
         });
 
         let req_method = method.unwrap_or_else(|| "GET".to_string()).to_uppercase();
-        let mut request = match req_method.as_str() {
-            "POST" => agent.post(&url),
-            _ => agent.get(&url),
-        };
+        let mut current_url = url;
+        let mut hops = 0usize;
 
-        if let Some(hdrs) = headers {
-            for (k, v) in hdrs {
-                request = request.set(&k, &v);
+        let response = loop {
+            validate_lyrics_url(&current_url)?;
+            let mut request = match req_method.as_str() {
+                "POST" => agent.post(&current_url),
+                _ => agent.get(&current_url),
+            };
+
+            for (k, v) in &clean_headers {
+                request = request.set(k, v);
             }
-        }
 
-        let response = if req_method == "POST" {
-            if let Some(b) = body {
-                request.send_string(&b)
+            let resp_res = if req_method == "POST" && hops == 0 {
+                if let Some(ref b) = body {
+                    request.send_string(b)
+                } else {
+                    request.call()
+                }
             } else {
                 request.call()
+            };
+
+            match resp_res {
+                Ok(resp) if matches!(resp.status(), 301 | 302 | 303 | 307 | 308) => {
+                    if hops >= 3 {
+                        return Err("Too many redirects from lyrics provider".to_string());
+                    }
+                    let Some(loc) = resp.header("location") else {
+                        return Err(format!("Redirect without Location header (HTTP {})", resp.status()));
+                    };
+                    let next_url = crate::http_guard::resolve_redirect_url(&current_url, loc)?;
+                    validate_lyrics_url(&next_url)?;
+                    current_url = next_url;
+                    hops += 1;
+                }
+                other => break other,
             }
-        } else {
-            request.call()
         };
 
         match response {
@@ -1022,7 +1067,7 @@ async fn fetch_external_lyrics_api(
             // 404 means the provider simply has no entry — not a failure worth retrying
             Err(ureq::Error::Status(404, _)) => Ok(String::new()),
             Err(ureq::Error::Status(code, _)) => Err(format!("HTTP status {}", code)),
-            Err(e) => Err(format!("HTTP request error: {}", e)),
+            Err(e) => Err(crate::http_guard::redact_url_secrets(&format!("HTTP request error: {}", e))),
         }
     })
     .await
@@ -1044,7 +1089,12 @@ async fn ai_http_request(
     body: Option<String>,
 ) -> Result<AiHttpResponse, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        crate::http_guard::validate_ai_url(&url)?;
+        let clean_headers = crate::http_guard::sanitize_headers(headers)?;
+
         let agent = ureq::AgentBuilder::new()
+            .redirects(0)
+            .timeout_connect(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30))
             .build();
 
@@ -1056,10 +1106,8 @@ async fn ai_http_request(
             _ => agent.get(&url),
         };
 
-        if let Some(hdrs) = headers {
-            for (k, v) in hdrs {
-                request = request.set(&k, &v);
-            }
+        for (k, v) in clean_headers {
+            request = request.set(&k, &v);
         }
 
         let resp_result = if req_method == "POST" || req_method == "PUT" {
@@ -1090,7 +1138,7 @@ async fn ai_http_request(
                     body,
                 })
             }
-            Err(e) => Err(format!("Network error: {}", e)),
+            Err(e) => Err(crate::http_guard::redact_url_secrets(&format!("Network error: {}", e))),
         }
     })
     .await
@@ -1107,12 +1155,20 @@ fn active_ai_streams() -> &'static std::sync::Mutex<
     ACTIVE_AI_STREAMS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-struct AiStreamRegistryGuard(String);
+struct AiStreamRegistryGuard {
+    id: String,
+    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
 
 impl Drop for AiStreamRegistryGuard {
     fn drop(&mut self) {
         if let Ok(mut map) = active_ai_streams().lock() {
-            map.remove(&self.0);
+            let matches_current = map
+                .get(&self.id)
+                .is_some_and(|cur| std::sync::Arc::ptr_eq(cur, &self.flag));
+            if matches_current {
+                map.remove(&self.id);
+            }
         }
     }
 }
@@ -1141,23 +1197,37 @@ async fn ai_http_stream(
         Arc,
     };
 
+    if stream_id.trim().is_empty() {
+        return Err("Missing stream_id".to_string());
+    }
+    crate::http_guard::validate_ai_url(&url)?;
+    let clean_headers = crate::http_guard::sanitize_headers(headers)?;
+
     let cancel_flag = Arc::new(AtomicBool::new(false));
     if let Ok(mut map) = active_ai_streams().lock() {
-        map.insert(stream_id.clone(), Arc::clone(&cancel_flag));
+        if let Some(prev_flag) = map.insert(stream_id.clone(), Arc::clone(&cancel_flag)) {
+            prev_flag.store(true, Ordering::SeqCst);
+        }
     }
 
     let flag_clone = Arc::clone(&cancel_flag);
     tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Read;
         use tauri::Emitter;
-        use std::io::BufRead;
 
-        let _guard = AiStreamRegistryGuard(stream_id.clone());
+        let _guard = AiStreamRegistryGuard {
+            id: stream_id.clone(),
+            flag: Arc::clone(&flag_clone),
+        };
         if flag_clone.load(Ordering::SeqCst) {
             return;
         }
 
         let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(120))
+            .redirects(0)
+            .timeout_connect(std::time::Duration::from_secs(10))
+            .timeout_read(std::time::Duration::from_secs(60))
+            .timeout_write(std::time::Duration::from_secs(15))
             .build();
 
         let req_method = method.unwrap_or_else(|| "POST".to_string()).to_uppercase();
@@ -1166,10 +1236,8 @@ async fn ai_http_stream(
             _ => agent.get(&url),
         };
 
-        if let Some(hdrs) = headers {
-            for (k, v) in hdrs {
-                request = request.set(&k, &v);
-            }
+        for (k, v) in clean_headers {
+            request = request.set(&k, &v);
         }
 
         if flag_clone.load(Ordering::SeqCst) {
@@ -1188,18 +1256,26 @@ async fn ai_http_stream(
 
         match resp_result {
             Ok(resp) => {
-                let reader = std::io::BufReader::new(resp.into_reader());
-                for line in reader.lines() {
+                let capped = resp
+                    .into_reader()
+                    .take(crate::http_guard::MAX_AI_STREAM_TOTAL_BYTES as u64);
+                let mut reader = std::io::BufReader::new(capped);
+                loop {
                     if flag_clone.load(Ordering::SeqCst) {
                         return;
                     }
-                    match line {
-                        Ok(l) => {
+                    match crate::http_guard::read_bounded_line(
+                        &mut reader,
+                        crate::http_guard::MAX_AI_STREAM_LINE_BYTES,
+                    ) {
+                        Ok(Some(l)) => {
                             let _ = app.emit(&format!("ai-stream-chunk:{}", stream_id), l);
                         }
+                        Ok(None) => break,
                         Err(e) => {
                             if !flag_clone.load(Ordering::SeqCst) {
-                                let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Read error: {}", e));
+                                let safe_err = crate::http_guard::redact_url_secrets(&e);
+                                let _ = app.emit(&format!("ai-stream-error:{}", stream_id), safe_err);
                             }
                             return;
                         }
@@ -1212,12 +1288,20 @@ async fn ai_http_stream(
             Err(ureq::Error::Status(status, resp)) => {
                 if !flag_clone.load(Ordering::SeqCst) {
                     let body = resp.into_string().unwrap_or_default();
-                    let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("HTTP {}: {}", status, body));
+                    let safe_err = crate::http_guard::redact_url_secrets(&format!(
+                        "HTTP {}: {}",
+                        status, body
+                    ));
+                    let _ = app.emit(&format!("ai-stream-error:{}", stream_id), safe_err);
                 }
             }
             Err(e) => {
                 if !flag_clone.load(Ordering::SeqCst) {
-                    let _ = app.emit(&format!("ai-stream-error:{}", stream_id), format!("Network error: {}", e));
+                    let safe_err = crate::http_guard::redact_url_secrets(&format!(
+                        "Network error: {}",
+                        e
+                    ));
+                    let _ = app.emit(&format!("ai-stream-error:{}", stream_id), safe_err);
                 }
             }
         }
@@ -1885,6 +1969,16 @@ fn position_notch_window_on_monitor(
 ) {
     let (x, y, expected_w, expected_h) = compute_notch_window_rect(monitor, pos, top_offset_phys);
 
+    if let (Ok(cur_pos), Ok(cur_size)) = (window.outer_position(), window.outer_size()) {
+        if cur_pos.x == x
+            && cur_pos.y == y
+            && cur_size.width == expected_w
+            && cur_size.height == expected_h
+        {
+            return;
+        }
+    }
+
     let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(expected_w, expected_h)));
     let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
@@ -1955,6 +2049,29 @@ fn get_available_monitors(app: tauri::AppHandle, window: tauri::WebviewWindow) -
 }
 
 static SYNC_DISPLAYS_QUEUE: std::sync::Mutex<(bool, Option<bool>)> = std::sync::Mutex::new((false, None));
+static LAST_DISPLAY_TOPOLOGY: std::sync::Mutex<Option<display_topology::TopologySignature>> =
+    std::sync::Mutex::new(None);
+
+fn clear_secondary_notch_tracking(app: &tauri::AppHandle, label: &str) {
+    if let Ok(mut set) = INTERACTIVE_WINDOWS.lock() {
+        set.remove(label);
+    }
+    if let Ok(mut s) = app.state::<PillSize>().0.lock() {
+        s.secondary_pills.remove(label);
+    }
+}
+
+fn destroy_secondary_notch_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    win: &tauri::WebviewWindow,
+) {
+    clear_secondary_notch_tracking(app, label);
+    backdrop_blur::set_window_acrylic_hidden(label, true);
+    navbar_window::set_overlay_click_through(win, true);
+    let _ = win.hide();
+    let _ = win.destroy();
+}
 
 fn sync_all_displays_windows(
     app: &tauri::AppHandle,
@@ -2003,6 +2120,75 @@ fn sync_all_displays_windows(
     });
 }
 
+fn reconcile_displays_on_change(app: &tauri::AppHandle) {
+    let Some(main_win) = app.get_webview_window("main") else {
+        return;
+    };
+    let monitors = match main_win.available_monitors() {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let primary_mon = main_win.primary_monitor().ok().flatten();
+    let descriptors = display_topology::build_display_descriptors(&monitors, primary_mon.as_ref());
+
+    let (pos, top_offset, is_island, dpr, target_mon) = app
+        .state::<PillSize>()
+        .0
+        .lock()
+        .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr, s.target_monitor.clone()))
+        .unwrap_or((NotchPos::Top, 0.0, false, 1.0, None));
+
+    let is_all = target_mon
+        .as_deref()
+        .is_some_and(|t| t.trim().eq_ignore_ascii_case("all"));
+    let (_, sec_indices) = display_topology::split_primary_and_secondary_indices(&descriptors);
+
+    let sec_labels: Vec<String> = app
+        .webview_windows()
+        .keys()
+        .filter(|l| l.starts_with("notch_secondary_"))
+        .cloned()
+        .collect();
+    let has_stale_sec = sec_labels
+        .iter()
+        .any(|l| display_topology::should_destroy_secondary_notch(l, sec_indices.len(), is_all));
+    let sec_count_mismatch = is_all && sec_labels.len() != sec_indices.len();
+
+    let next_sig = display_topology::topology_signature(&descriptors);
+    let topology_changed = if let Ok(mut guard) = LAST_DISPLAY_TOPOLOGY.lock() {
+        let changed = guard.as_ref() != Some(&next_sig);
+        *guard = Some(next_sig);
+        changed
+    } else {
+        true
+    };
+
+    if !topology_changed && !has_stale_sec && !sec_count_mismatch {
+        return;
+    }
+
+    let sf = main_win.scale_factor().unwrap_or(1.0);
+    let effective_sf = if dpr > 0.0 {
+        (dpr as f64).max(sf)
+    } else {
+        sf * get_system_text_scale()
+    };
+    let phys_offset = if is_island {
+        (top_offset as f64 * effective_sf).round() as i32
+    } else {
+        0
+    };
+    position_notch_window(&main_win, pos, phys_offset, target_mon.as_deref());
+    sync_all_displays_windows(app, is_all);
+    navbar_window::on_display_topology_changed(app);
+    backdrop_blur::invalidate_all_backdrops();
+
+    if topology_changed {
+        use tauri::Emitter;
+        let _ = app.emit("monitors-changed", ());
+    }
+}
+
 fn sync_all_displays_windows_inner(
     app_handle: &tauri::AppHandle,
     is_all: bool,
@@ -2013,7 +2199,7 @@ fn sync_all_displays_windows_inner(
         if !is_all {
             for (label, win) in app_handle.webview_windows() {
                 if label.starts_with("notch_secondary_") {
-                    let _ = win.destroy();
+                    destroy_secondary_notch_window(&app_handle, &label, &win);
                 }
             }
             if let Ok(mut s) = state_guard.0.lock() {
@@ -2032,11 +2218,15 @@ fn sync_all_displays_windows_inner(
             Err(_) => return,
         };
 
-        // If only 1 monitor or none, no secondary notch should ever be created
-        if monitors.len() <= 1 {
+        let primary_mon = main_win.primary_monitor().ok().flatten();
+        let descriptors = display_topology::build_display_descriptors(&monitors, primary_mon.as_ref());
+        let (_, sec_indices) = display_topology::split_primary_and_secondary_indices(&descriptors);
+
+        // If only 1 distinct display or mirror/duplicate mode, destroy every secondary notch
+        if sec_indices.is_empty() {
             for (label, win) in app_handle.webview_windows() {
                 if label.starts_with("notch_secondary_") {
-                    let _ = win.destroy();
+                    destroy_secondary_notch_window(&app_handle, &label, &win);
                 }
             }
             if let Ok(mut s) = state_guard.0.lock() {
@@ -2045,51 +2235,22 @@ fn sync_all_displays_windows_inner(
             return;
         }
 
-        let primary_mon = main_win
-            .primary_monitor()
-            .ok()
-            .flatten()
-            .or_else(|| {
-                monitors.iter().find(|m| m.position().x == 0 && m.position().y == 0).cloned()
-            })
-            .or_else(|| monitors.first().cloned());
-
         let (pos, top_offset, is_island, dpr) = if let Ok(s) = state_guard.0.lock() {
             (s.pos, s.top_offset, s.is_island, s.dpr)
         } else {
             (NotchPos::Top, 0.0, false, 1.0)
         };
 
-        let secondary_monitors: Vec<tauri::Monitor> = monitors
-            .into_iter()
-            .filter(|m| {
-                if let Some(ref p) = primary_mon {
-                    if m.position() == p.position() && m.size() == p.size() {
-                        return false;
-                    }
-                    if let (Some(m_name), Some(p_name)) = (m.name(), p.name()) {
-                        if m_name == p_name {
-                            return false;
-                        }
-                    }
-                }
-                true
-            })
-            .collect();
-
-        let sec_count = secondary_monitors.len();
+        let sec_count = sec_indices.len();
 
         for (label, win) in app_handle.webview_windows() {
-            if label.starts_with("notch_secondary_") {
-                if let Ok(idx) = label.trim_start_matches("notch_secondary_").parse::<usize>() {
-                    if idx > sec_count {
-                        let _ = win.destroy();
-                    }
-                }
+            if display_topology::should_destroy_secondary_notch(&label, sec_count, true) {
+                destroy_secondary_notch_window(&app_handle, &label, &win);
             }
         }
 
-        for (i, mon) in secondary_monitors.into_iter().enumerate() {
+        for (i, mon_idx) in sec_indices.into_iter().enumerate() {
+            let mon = monitors[mon_idx].clone();
             let sec_idx = i + 1;
             let label = format!("notch_secondary_{}", sec_idx);
             let m_sf = mon.scale_factor();
@@ -2137,39 +2298,51 @@ fn sync_all_displays_windows_inner(
                         ensure_window_topmost(&sec_win);
 
                         let sec_for_events = sec_win.clone();
-                        let mon_for_events = mon.clone();
+                        let sec_label_for_ev = label.clone();
                         let app_for_sec = app_handle.clone();
                         sec_win.on_window_event(move |event| {
                             match event {
                                 tauri::WindowEvent::CloseRequested { api, .. } => {
                                     api.prevent_close();
                                 }
+                                tauri::WindowEvent::Destroyed => {
+                                    clear_secondary_notch_tracking(&app_for_sec, &sec_label_for_ev);
+                                }
                                 tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Resized(_) => {
-                                    if sec_for_events.is_minimized().unwrap_or(false) {
-                                        let _ = sec_for_events.unminimize();
-                                    }
-                                    let (p, off, isl, d) = app_for_sec
+                                    let (p, off, isl, d, target_mon) = app_for_sec
                                         .state::<PillSize>()
                                         .0
                                         .lock()
-                                        .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr))
-                                        .unwrap_or((NotchPos::Top, 0.0, false, 1.0));
-                                    let live_mon = sec_for_events
-                                        .current_monitor()
-                                        .ok()
-                                        .flatten()
-                                        .or_else(|| {
-                                            sec_for_events.available_monitors().ok().and_then(|mons| {
-                                                let target_name = mon_for_events.name();
-                                                mons.into_iter()
-                                                    .find(|m| target_name.is_some() && m.name() == target_name)
-                                            })
-                                        })
-                                        .unwrap_or_else(|| mon_for_events.clone());
-                                    let sf = sec_for_events.scale_factor().unwrap_or_else(|_| live_mon.scale_factor());
+                                        .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr, s.target_monitor.clone()))
+                                        .unwrap_or((NotchPos::Top, 0.0, false, 1.0, None));
+                                    let cur_is_all = target_mon
+                                        .as_deref()
+                                        .is_some_and(|t| t.trim().eq_ignore_ascii_case("all"));
+                                    let mons = sec_for_events.available_monitors().unwrap_or_default();
+                                    let prim = sec_for_events.primary_monitor().ok().flatten();
+                                    let descs = display_topology::build_display_descriptors(&mons, prim.as_ref());
+
+                                    let Some(target_idx) = display_topology::resolve_secondary_monitor_index(
+                                        &sec_label_for_ev,
+                                        &descs,
+                                        cur_is_all,
+                                    ) else {
+                                        // Monitor vanished or switched to mirror/single mode: never relocate onto primary
+                                        backdrop_blur::set_window_acrylic_hidden(&sec_label_for_ev, true);
+                                        navbar_window::set_overlay_click_through(&sec_for_events, true);
+                                        let _ = sec_for_events.hide();
+                                        sync_all_displays_windows(&app_for_sec, cur_is_all);
+                                        return;
+                                    };
+
+                                    if sec_for_events.is_minimized().unwrap_or(false) {
+                                        let _ = sec_for_events.unminimize();
+                                    }
+                                    let live_mon = &mons[target_idx];
+                                    let sf = live_mon.scale_factor();
                                     let eff_sf = if d > 0.0 { (d as f64).max(sf) } else { sf * get_system_text_scale() };
                                     let p_off = if isl { (off as f64 * eff_sf).round() as i32 } else { 0 };
-                                    position_notch_window_on_monitor(&sec_for_events, &live_mon, p, p_off);
+                                    position_notch_window_on_monitor(&sec_for_events, live_mon, p, p_off);
                                 }
                                 _ => {}
                             }
@@ -2284,6 +2457,7 @@ fn update_pill_size(
     let top_offset = top_offset.unwrap_or(0.0);
     let is_island = is_island.unwrap_or(false);
     let dpr = dpr.unwrap_or(0.0);
+    let mut reposition_params: Option<(f32, Option<String>)> = None;
     if let Ok(mut size) = state.0.lock() {
         let should_reposition = size.top_offset != top_offset
             || size.is_island != is_island
@@ -2298,13 +2472,25 @@ fn update_pill_size(
         if dpr > 0.0 {
             size.dpr = dpr;
         }
-
         if should_reposition {
-            let sf = window.scale_factor().unwrap_or(1.0);
-            let effective_sf = if size.dpr > 0.0 { (size.dpr as f64).max(sf) } else { sf * get_system_text_scale() };
-            let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-            position_notch_window(&window, pos, phys_offset, size.target_monitor.as_deref());
+            reposition_params = Some((size.dpr, size.target_monitor.clone()));
         }
+    }
+
+    // Release PillSize lock before calling Win32 window positioning to prevent WndProc re-entry deadlock.
+    if let Some((saved_dpr, target_monitor)) = reposition_params {
+        let sf = window.scale_factor().unwrap_or(1.0);
+        let effective_sf = if saved_dpr > 0.0 {
+            (saved_dpr as f64).max(sf)
+        } else {
+            sf * get_system_text_scale()
+        };
+        let phys_offset = if is_island {
+            (top_offset as f64 * effective_sf).round() as i32
+        } else {
+            0
+        };
+        position_notch_window(&window, pos, phys_offset, target_monitor.as_deref());
     }
 }
 
@@ -4424,6 +4610,8 @@ fn trigger_notch_action(app: tauri::AppHandle, action: String) {
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
     taskbar_manager::restore_taskbar_on_exit();
+    windows_dnd::restore_windows_dnd_on_exit();
+    toast_banners::restore_banners_on_exit();
     window_preview::cleanup_window_previews();
     app.restart();
 }
@@ -4471,7 +4659,9 @@ pub fn run() {
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         taskbar_manager::restore_taskbar_on_exit();
-    window_preview::cleanup_window_previews();
+        windows_dnd::restore_windows_dnd_on_exit();
+        toast_banners::restore_banners_on_exit();
+        window_preview::cleanup_window_previews();
         default_panic_hook(panic_info);
     }));
 
@@ -4502,6 +4692,8 @@ pub fn run() {
     }
 
     taskbar_manager::check_and_recover_on_startup();
+    windows_dnd::check_and_recover_dnd_on_startup();
+    toast_banners::check_and_recover_banners_on_startup();
 
     tauri::Builder::default()
         .on_permission_request(|_webview, _kind| {
@@ -4564,6 +4756,7 @@ pub fn run() {
             copy_files_to_clipboard,
             pick_files_dialog,
             pick_audio_file_dialog,
+            style_file_dialog::save_navbar_style_file,
             get_file_preview,
             set_shelf_drag,
             check_foreground_browser,
@@ -4763,7 +4956,9 @@ pub fn run() {
                         }
                         "quit" => {
                             taskbar_manager::restore_taskbar_on_exit();
-    window_preview::cleanup_window_previews();
+                            windows_dnd::restore_windows_dnd_on_exit();
+                            toast_banners::restore_banners_on_exit();
+                            window_preview::cleanup_window_previews();
                             app.exit(0);
                         }
                         _ => {}
@@ -4796,50 +4991,72 @@ pub fn run() {
             let _ = window.set_shadow(false);
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(820.0, 460.0)));
 
-            // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI berubah
+            // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI / display berubah
             position_notch_window(&window, NotchPos::Top, 0, None);
+            let app_for_display = app.handle().clone();
+            display_topology::start_display_change_watcher(move || {
+                reconcile_displays_on_change(&app_for_display);
+            });
+
+            let win_close = window.clone();
             let win_for_events = window.clone();
             let app_for_events = app.handle().clone();
+            let handle_main_display_event = move |force_sync_all: bool| {
+                if win_for_events.is_minimized().unwrap_or(false) {
+                    let _ = win_for_events.unminimize();
+                }
+                let (pos, top_offset, is_island, dpr, target_mon) = app_for_events
+                    .state::<PillSize>()
+                    .0
+                    .lock()
+                    .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr, s.target_monitor.clone()))
+                    .unwrap_or((NotchPos::Top, 0.0, false, 1.0, None));
+                let sf = win_for_events.scale_factor().unwrap_or(1.0);
+                let effective_sf = if dpr > 0.0 {
+                    (dpr as f64).max(sf)
+                } else {
+                    sf * get_system_text_scale()
+                };
+                let phys_offset = if is_island {
+                    (top_offset as f64 * effective_sf).round() as i32
+                } else {
+                    0
+                };
+                position_notch_window(&win_for_events, pos, phys_offset, target_mon.as_deref());
+
+                let is_all = target_mon
+                    .as_deref()
+                    .is_some_and(|t| t.trim().eq_ignore_ascii_case("all"));
+                let mons = win_for_events.available_monitors().unwrap_or_default();
+                let prim = win_for_events.primary_monitor().ok().flatten();
+                let descs = display_topology::build_display_descriptors(&mons, prim.as_ref());
+                let (_, sec_indices) = display_topology::split_primary_and_secondary_indices(&descs);
+                let sec_labels: Vec<String> = app_for_events
+                    .webview_windows()
+                    .keys()
+                    .filter(|k| k.starts_with("notch_secondary_"))
+                    .cloned()
+                    .collect();
+                let has_mismatch = sec_labels.iter().any(|l| {
+                    display_topology::should_destroy_secondary_notch(l, sec_indices.len(), is_all)
+                }) || (is_all && sec_labels.len() != sec_indices.len());
+
+                if (force_sync_all && is_all) || has_mismatch {
+                    sync_all_displays_windows(&app_for_events, is_all);
+                }
+            };
             window.on_window_event(move |event| {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         use tauri::Emitter;
-                        let _ = win_for_events.emit_to("main", "click-outside", serde_json::json!({ "target": "main" }));
+                        let _ = win_close.emit_to("main", "click-outside", serde_json::json!({ "target": "main" }));
                     }
                     tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                        if win_for_events.is_minimized().unwrap_or(false) {
-                            let _ = win_for_events.unminimize();
-                        }
-                        let (pos, top_offset, is_island, dpr, target_mon) = app_for_events
-                            .state::<PillSize>()
-                            .0
-                            .lock()
-                            .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr, s.target_monitor.clone()))
-                            .unwrap_or((NotchPos::Top, 0.0, false, 1.0, None));
-                        let sf = win_for_events.scale_factor().unwrap_or(1.0);
-                        let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
-                        let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-                        position_notch_window(&win_for_events, pos, phys_offset, target_mon.as_deref());
-
-                        if target_mon.as_deref().map(|t| t.trim().eq_ignore_ascii_case("all")).unwrap_or(false) {
-                            sync_all_displays_windows(&app_for_events, true);
-                        }
+                        handle_main_display_event(true);
                     }
                     tauri::WindowEvent::Resized(_) => {
-                        if win_for_events.is_minimized().unwrap_or(false) {
-                            let _ = win_for_events.unminimize();
-                        }
-                        let (pos, top_offset, is_island, dpr, target_mon) = app_for_events
-                            .state::<PillSize>()
-                            .0
-                            .lock()
-                            .map(|s| (s.pos, s.top_offset, s.is_island, s.dpr, s.target_monitor.clone()))
-                            .unwrap_or((NotchPos::Top, 0.0, false, 1.0, None));
-                        let sf = win_for_events.scale_factor().unwrap_or(1.0);
-                        let effective_sf = if dpr > 0.0 { (dpr as f64).max(sf) } else { sf * get_system_text_scale() };
-                        let phys_offset = if is_island { (top_offset as f64 * effective_sf).round() as i32 } else { 0 };
-                        position_notch_window(&win_for_events, pos, phys_offset, target_mon.as_deref());
+                        handle_main_display_event(false);
                     }
                     _ => {}
                 }
@@ -4874,12 +5091,23 @@ pub fn run() {
                 let mut pending_cursor_nudge = false;
                 let mut cached_geom: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>, f64)> = None;
                 let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
+                let mut last_desktop_geom_sig = display_topology::quick_desktop_geometry_signature();
                 let mut notch_desktop_burst: u8 = 0;
                 let own_pid = std::process::id();
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     
                     loop_count = loop_count.wrapping_add(1);
+                    if loop_count.is_multiple_of(25) {
+                        let cur_geom_sig = display_topology::quick_desktop_geometry_signature();
+                        if cur_geom_sig != last_desktop_geom_sig
+                            || (cur_geom_sig.0 <= 1 && !sec_hit_map.is_empty())
+                        {
+                            last_desktop_geom_sig = cur_geom_sig;
+                            cached_geom = None;
+                            reconcile_displays_on_change(&app_handle_poll);
+                        }
+                    }
                     if notch_desktop_burst > 0 {
                         notch_desktop_burst -= 1;
                     }
@@ -6177,20 +6405,18 @@ pub fn run() {
             store_license::init_cached_license_from_disk();
             taskbar_flyout::init_flyout_manager(app.handle());
             taskbar_safety::init_taskbar_switches_from_disk();
-            taskbar_hotkey::init_taskbar_hotkey_layer();
+            taskbar_hotkey::init_taskbar_hotkey_layer(app.handle().clone());
             taskbar_safety::ensure_taskbar_watchdog_spawned();
 
             if store_license::can_use_taskbar() {
                 let (navbar_enabled, hide_taskbar) = store_license::read_disk_navbar_flags();
+                taskbar_safety::set_desired_hide_windows_taskbar(navbar_enabled && hide_taskbar);
                 if navbar_enabled {
                     let app_nav = app.handle().clone();
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_millis(20));
                         if store_license::can_use_taskbar() {
                             navbar_window::show_or_create_navbar_window(&app_nav);
-                            if hide_taskbar {
-                                taskbar_manager::set_taskbar_visible(false);
-                            }
                         }
                     });
                 }
@@ -6567,6 +6793,32 @@ mod hit_test {
         let jpeg_bytes = STANDARD.decode(b64).unwrap();
         let decoded = image::load_from_memory(&jpeg_bytes).unwrap();
         assert!(decoded.width() <= 256 && decoded.height() <= 256);
+    }
+
+    #[test]
+    fn test_encode_smtc_thumbnail_preserves_transparent_alpha_as_png() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use image::GenericImageView;
+
+        let mut img = image::RgbaImage::new(512, 512);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            // Transparent outer border, opaque center square
+            let alpha = if x < 64 || y < 64 { 0 } else { 255 };
+            *px = image::Rgba([220, 60, 80, alpha]);
+        }
+        let dyn_img = image::DynamicImage::ImageRgba8(img);
+        let mut png_buf = std::io::Cursor::new(Vec::new());
+        dyn_img.write_to(&mut png_buf, image::ImageFormat::Png).unwrap();
+
+        let uri = encode_smtc_thumbnail_data_url(png_buf.get_ref(), "image/png")
+            .expect("should encode transparent SMTC thumbnail as PNG");
+        assert!(uri.starts_with("data:image/png;base64,"));
+
+        let b64 = uri.trim_start_matches("data:image/png;base64,");
+        let out_bytes = STANDARD.decode(b64).unwrap();
+        let decoded = image::load_from_memory(&out_bytes).unwrap();
+        assert!(decoded.width() <= 256 && decoded.height() <= 256);
+        assert_eq!(decoded.get_pixel(0, 0).0[3], 0);
     }
 
     #[test]

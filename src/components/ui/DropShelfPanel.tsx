@@ -39,8 +39,10 @@ import {
   startShelfSend,
   startShelfReceive,
   stopShelfTransfer,
+  getShelfTransferStatus,
+  getMinimizedShelfSessionToken,
+  setMinimizedShelfSessionToken,
   onShelfTransferProgress,
-  onShelfFileReceived,
   onShelfTransferCompleted,
 } from "../../services/shelfTransferService";
 import {
@@ -201,18 +203,26 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
     const [activeDeviceName, setActiveDeviceName] = useState<string>("");
     const [receivedBanner, setReceivedBanner] = useState<{ count: number; deviceName: string } | null>(null);
     const [shareError, setShareError] = useState<string | null>(null);
-    const onAddFilesRef = useRef(onAddFiles);
-    onAddFilesRef.current = onAddFiles;
 
     useEffect(() => {
       let isCancelled = false;
       let unlistenProgress: (() => void) | undefined;
-      let unlistenFile: (() => void) | undefined;
       let unlistenComplete: (() => void) | undefined;
+
+      getShelfTransferStatus()
+        .then((status) => {
+          if (isCancelled || !status || status.expires_in_sec <= 0) return;
+          setSessionInfo(status);
+          if (getMinimizedShelfSessionToken() !== status.token) {
+            setTransferMode(status.mode);
+          }
+        })
+        .catch(() => {});
 
       const initListeners = async () => {
         const uProgress = await onShelfTransferProgress((payload) => {
           setShareError(null);
+          setMinimizedShelfSessionToken(null);
           setTransferMode("receiving");
           setActiveDeviceName(payload.device_name);
           setIncomingProgress((prev) => ({
@@ -225,21 +235,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
           return;
         }
         unlistenProgress = uProgress;
-
-        const uFile = await onShelfFileReceived((payload) => {
-          onAddFilesRef.current?.([payload.path], {
-            source: "phone",
-            deviceName: payload.device_name,
-            isNew: true,
-            thumbnail: payload.thumbnail,
-            sizeFormatted: payload.size_formatted,
-          });
-        });
-        if (isCancelled) {
-          uFile();
-          return;
-        }
-        unlistenFile = uFile;
 
         const uComplete = await onShelfTransferCompleted((payload) => {
           if (payload.total_files > 0) {
@@ -254,6 +249,13 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
           }
           setIncomingProgress({});
           setTransferMode("idle");
+          getShelfTransferStatus()
+            .then((status) => {
+              if (!isCancelled) {
+                setSessionInfo(status && status.expires_in_sec > 0 ? status : null);
+              }
+            })
+            .catch(() => {});
         });
         if (isCancelled) {
           uComplete();
@@ -267,7 +269,6 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
       return () => {
         isCancelled = true;
         unlistenProgress?.();
-        unlistenFile?.();
         unlistenComplete?.();
       };
     }, []);
@@ -342,12 +343,34 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
       }
     };
 
-    const handleCloseTransfer = async () => {
+    const handleHideTransferModal = () => {
+      if (sessionInfo?.token) {
+        setMinimizedShelfSessionToken(sessionInfo.token);
+      }
+      setTransferMode("idle");
+    };
+
+    const handleResumeTransferModal = async () => {
+      setMinimizedShelfSessionToken(null);
+      try {
+        const latest = await getShelfTransferStatus();
+        if (latest && latest.expires_in_sec > 0) {
+          setSessionInfo(latest);
+          setTransferMode(latest.mode);
+          return;
+        }
+      } catch {}
+      setSessionInfo(null);
+      setTransferMode("idle");
+    };
+
+    const handleCancelTransfer = async () => {
       try {
         await stopShelfTransfer();
       } catch (err) {
         console.error("Error stopping transfer:", err);
       }
+      setMinimizedShelfSessionToken(null);
       setTransferMode("idle");
       setSessionInfo(null);
       setIncomingProgress({});
@@ -583,6 +606,50 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
       </div>
     ) : null;
 
+    const activeSessionPill =
+      transferMode === "idle" && sessionInfo && sessionInfo.expires_in_sec > 0 ? (
+        <div
+          className={`mb-1 px-2.5 py-1 rounded-lg border text-[10.5px] flex items-center justify-between gap-2 shrink-0 ${
+            isLightMode
+              ? "bg-blue-500/10 border-blue-600/25 text-blue-800"
+              : "bg-blue-500/12 border-blue-500/30 text-blue-200"
+          }`}
+        >
+          <span className="flex items-center gap-1.5 truncate">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="truncate">
+              {sessionInfo.mode === "send"
+                ? isEn
+                  ? "LAN send session active"
+                  : "Sesi kirim LAN masih aktif"
+                : isEn
+                ? "LAN receive session active"
+                : "Sesi terima LAN masih aktif"}
+            </span>
+          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleResumeTransferModal}
+              className="px-2 py-0.5 rounded bg-[#3882F6] hover:bg-[#2563eb] text-white font-semibold cursor-pointer transition-colors"
+            >
+              {isEn ? "Open QR" : "Buka QR"}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelTransfer}
+              className={`px-2 py-0.5 rounded font-medium cursor-pointer transition-colors ${
+                isLightMode
+                  ? "bg-black/10 hover:bg-black/15 text-neutral-800"
+                  : "bg-white/10 hover:bg-white/15 text-zinc-200"
+              }`}
+            >
+              {t("shelf_cancel")}
+            </button>
+          </div>
+        </div>
+      ) : null;
+
     return (
       <div
         data-scrollable="true"
@@ -591,6 +658,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
       >
         {files.length === 0 ? (
           <>
+            {activeSessionPill}
             {shareError && alertBanner}
             {/* Empty / Active Drop Zone */}
             <div
@@ -652,6 +720,7 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
         ) : (
           /* Filled State */
           <>
+            {activeSessionPill}
             {receivedBanner && (
               <DropShelfReceivedBanner
                 count={receivedBanner.count}
@@ -1029,8 +1098,8 @@ export const DropShelfPanel = React.memo<DropShelfPanelProps>(
             incomingProgress={incomingProgress}
             activeDeviceName={activeDeviceName}
             isLightMode={isLightMode}
-            onClose={handleCloseTransfer}
-            onCancel={handleCloseTransfer}
+            onClose={handleHideTransferModal}
+            onCancel={handleCancelTransfer}
           />
         )}
       </div>

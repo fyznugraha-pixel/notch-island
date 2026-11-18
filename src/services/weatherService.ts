@@ -100,6 +100,44 @@ export function subscribeWeatherChange(callback: () => void): () => void {
   };
 }
 
+// Polls weather periodically and retries immediately on reconnect or city change
+export function startWeatherAutoSync(
+  onData: (data: WeatherData) => void,
+  intervalMs = 1000 * 60 * 10
+): () => void {
+  let isMounted = true;
+  let lastSuccessAt = 0;
+
+  const refresh = async () => {
+    const data = await fetchCurrentWeather();
+    if (isMounted && data) {
+      lastSuccessAt = Date.now();
+      onData(data);
+    }
+  };
+
+  refresh();
+  const interval = setInterval(refresh, intervalMs);
+  const unsubscribeLocation = subscribeWeatherChange(refresh);
+  const onOnline = () => {
+    if (Date.now() - lastSuccessAt > 60_000) {
+      refresh();
+    }
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("online", onOnline);
+  }
+
+  return () => {
+    isMounted = false;
+    clearInterval(interval);
+    unsubscribeLocation();
+    if (typeof window !== "undefined") {
+      window.removeEventListener("online", onOnline);
+    }
+  };
+}
+
 function getGpsCoordinates(): Promise<{ latitude: number; longitude: number } | null> {
   if (typeof navigator === "undefined" || !navigator.geolocation) {
     return Promise.resolve(null);

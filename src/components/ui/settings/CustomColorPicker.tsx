@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Pipette,
   Copy,
@@ -12,9 +12,10 @@ import { Tooltip } from "../Tooltip";
 import {
   hexToHsl,
   hslToHex,
-  isValidHex,
   normalizeHex,
   getPerceivedLuminance,
+  parseLiveHexInput,
+  commitHexDraft,
 } from "../../../utils/colorUtils";
 
 interface CustomColorPickerProps {
@@ -196,12 +197,15 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
   const [hexInput, setHexInput] = useState(currentHex);
   const [copied, setCopied] = useState(false);
   const [activeCategory, setActiveCategory] = useState<PaletteCategory>("dark");
+  const isEditingHexRef = useRef(false);
 
   const categories = mode === "text" ? TEXT_TEMPLATE_CATEGORIES : SURFACE_TEMPLATE_CATEGORIES;
 
   useEffect(() => {
-    setHexInput(currentHex);
-    setHsl(hexToHsl(currentHex));
+    if (!isEditingHexRef.current) {
+      setHexInput(currentHex);
+      setHsl(hexToHsl(currentHex));
+    }
   }, [currentHex]);
 
   const handleHueChange = useCallback(
@@ -238,12 +242,23 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
   );
 
   const handleHexInputChange = (raw: string) => {
-    setHexInput(raw);
-    const trimmed = raw.trim();
-    if (isValidHex(trimmed)) {
-      const normalized = normalizeHex(trimmed);
-      setHsl(hexToHsl(normalized));
-      onChange(normalized);
+    const { draftValue, committedHex } = parseLiveHexInput(raw);
+    setHexInput(draftValue);
+    if (committedHex) {
+      setHsl(hexToHsl(committedHex));
+      onChange(committedHex);
+    }
+  };
+
+  const handleHexInputBlur = () => {
+    isEditingHexRef.current = false;
+    const resolved = commitHexDraft(hexInput);
+    if (resolved) {
+      setHexInput(resolved);
+      setHsl(hexToHsl(resolved));
+      onChange(resolved);
+    } else {
+      setHexInput(currentHex);
     }
   };
 
@@ -400,8 +415,17 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
           <input
             type="text"
             value={hexInput.replace(/^#/, "")}
-            onChange={(e) => handleHexInputChange(`#${e.target.value}`)}
-            maxLength={6}
+            onFocus={() => {
+              isEditingHexRef.current = true;
+            }}
+            onChange={(e) => handleHexInputChange(e.target.value)}
+            onBlur={handleHexInputBlur}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
+            maxLength={7}
             placeholder={mode === "text" ? "ffffff" : "0f172a"}
             className={`w-full bg-transparent text-[12.5px] font-mono font-semibold outline-none uppercase ${
               isLightMode ? "text-[#1d1d1f]" : "text-white"

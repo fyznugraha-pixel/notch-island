@@ -29,20 +29,77 @@ export const NOTE_COLOR_MAP: Record<NoteColor, string> = {
 
 export const NOTE_COLORS: NoteColor[] = ["blue", "mint", "amber", "coral"];
 
-const STORAGE_KEY = "gili_mini_notes_v2";
+export const MINI_NOTES_STORAGE_KEY = "gili_mini_notes_v2";
+const STORAGE_KEY = MINI_NOTES_STORAGE_KEY;
+const LEGACY_QUICK_NOTES_KEY = "gili_quick_notes";
+
+function migrateLegacyQuickNotes(existingNotes: MiniNoteItem[] | null): MiniNoteItem[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const legacyRaw = localStorage.getItem(LEGACY_QUICK_NOTES_KEY);
+    if (legacyRaw === null) return null;
+    localStorage.removeItem(LEGACY_QUICK_NOTES_KEY);
+    const parsedLegacy = JSON.parse(legacyRaw);
+    if (!Array.isArray(parsedLegacy)) return null;
+
+    const base = existingNotes ?? [];
+    const existingIds = new Set(base.map((n) => n.id));
+    const migrated: MiniNoteItem[] = [];
+
+    for (const q of parsedLegacy) {
+      if (!q || typeof q !== "object") continue;
+      const rawContent = typeof q.content === "string" ? q.content : "";
+      const rawTitle = typeof q.title === "string" ? q.title.trim() : "";
+      if (!rawContent.trim() && !rawTitle) continue;
+      const id =
+        typeof q.id === "string" && q.id
+          ? q.id
+          : `note_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      if (existingIds.has(id)) continue;
+      migrated.push({
+        id,
+        title: rawTitle ? rawTitle.slice(0, 64) : t("note_title"),
+        content: rawContent,
+        color: "blue",
+        pinned: false,
+        isChecklist: false,
+        checklist: [],
+        updatedAt: typeof q.updatedAt === "number" ? q.updatedAt : Date.now(),
+      });
+      existingIds.add(id);
+    }
+
+    if (migrated.length === 0) return null;
+    const merged = [...migrated, ...base];
+    saveMiniNotes(merged);
+    return merged;
+  } catch {
+    return null;
+  }
+}
 
 export function loadMiniNotes(): MiniNoteItem[] {
+  let parsedExisting: MiniNoteItem[] | null = null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw !== null) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed;
+        parsedExisting = parsed;
       }
     }
   } catch {
     // ignore
   }
+
+  const migrated = migrateLegacyQuickNotes(parsedExisting);
+  if (migrated) {
+    return migrated;
+  }
+  if (parsedExisting !== null) {
+    return parsedExisting;
+  }
+
   const isEn = getLanguage() === "en";
   return [
     {
@@ -58,6 +115,15 @@ export function loadMiniNotes(): MiniNoteItem[] {
       updatedAt: Date.now(),
     },
   ];
+}
+
+export function getMiniNoteDisplayText(note: MiniNoteItem): string {
+  if (note.content?.trim()) return note.content.trim();
+  if (note.title?.trim()) return note.title.trim();
+  return (note.checklist || [])
+    .map((c) => c.text)
+    .filter(Boolean)
+    .join(", ");
 }
 
 export function saveMiniNotes(notes: MiniNoteItem[]): void {

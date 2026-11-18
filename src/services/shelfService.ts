@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { StashedFile } from "../components/ui/DropShelfPanel";
 
 const STORAGE_KEY = "island_drop_shelf";
+const STORAGE_META_KEY = "island_drop_shelf_meta";
 const STORE_FILENAME = "shelf.json";
 
 let storeInstance: Store | null = null;
@@ -246,24 +247,131 @@ async function getShelfStore(): Promise<Store | null> {
 export function getInitialShelfFiles(): StashedFile[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : []
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-/** Timestamp (ms) of the most recent persistShelfFiles call — used to detect
- *  whether a slow async load was superseded by a fresher user action. */
+/** Monotonic revision timestamp (ms) of the most recent persistShelfFiles call. */
 let lastPersistAt = 0;
+
+function readLocalShelfMetaUpdatedAt(): number | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_META_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.updatedAt === "number" && Number.isFinite(parsed.updatedAt)) {
+      return parsed.updatedAt;
+    }
+  } catch {}
+  return null;
+}
+
+function nextPersistTimestamp(): number {
+  const stored = readLocalShelfMetaUpdatedAt() ?? 0;
+  const next = Math.max(Date.now(), lastPersistAt + 1, stored + 1);
+  lastPersistAt = next;
+  return next;
+}
+
+function newestAddedAt(arr: StashedFile[] | null): number {
+  if (!arr) return -1;
+  if (arr.length === 0) return 0;
+  return Math.max(...arr.map((f) => f.addedAt || 0));
+}
+
+export function reconcilePersistedShelfSources(params: {
+  storeFiles: StashedFile[] | null;
+  storeUpdatedAt: number | null;
+  localFiles: StashedFile[] | null;
+  localUpdatedAt: number | null;
+}): {
+  files: StashedFile[];
+  updatedAt: number;
+  syncToStore: boolean;
+  syncToLocal: boolean;
+} {
+  const { storeFiles, storeUpdatedAt, localFiles, localUpdatedAt } = params;
+
+  if (storeFiles === null && localFiles === null) {
+    return { files: [], updatedAt: 0, syncToStore: false, syncToLocal: false };
+  }
+
+  const effectiveStoreTs =
+    storeFiles !== null ? (storeUpdatedAt ?? newestAddedAt(storeFiles)) : -1;
+  const effectiveLocalTs =
+    localFiles !== null ? (localUpdatedAt ?? newestAddedAt(localFiles)) : -1;
+
+  if (localFiles === null && storeFiles !== null) {
+    return {
+      files: storeFiles,
+      updatedAt: Math.max(effectiveStoreTs, 0),
+      syncToStore: false,
+      syncToLocal: true,
+    };
+  }
+
+  if (storeFiles === null && localFiles !== null) {
+    return {
+      files: localFiles,
+      updatedAt: Math.max(effectiveLocalTs, 0),
+      syncToStore: true,
+      syncToLocal: false,
+    };
+  }
+
+  // Both exist: legacy synchronous clear (when neither source has explicit updatedAt)
+  if (localUpdatedAt === null && storeUpdatedAt === null && localFiles!.length === 0) {
+    return {
+      files: [],
+      updatedAt: 0,
+      syncToStore: storeFiles!.length > 0,
+      syncToLocal: false,
+    };
+  }
+
+  if (effectiveLocalTs > effectiveStoreTs) {
+    return {
+      files: localFiles!,
+      updatedAt: Math.max(effectiveLocalTs, 0),
+      syncToStore: true,
+      syncToLocal: false,
+    };
+  }
+
+  if (effectiveStoreTs > effectiveLocalTs) {
+    return {
+      files: storeFiles!,
+      updatedAt: Math.max(effectiveStoreTs, 0),
+      syncToStore: false,
+      syncToLocal: true,
+    };
+  }
+
+  return {
+    files: storeFiles!,
+    updatedAt: Math.max(effectiveStoreTs, 0),
+    syncToStore: false,
+    syncToLocal: false,
+  };
+}
 
 export async function loadPersistedShelfFiles(): Promise<StashedFile[] | null> {
   const startedAt = lastPersistAt;
   try {
     const store = await getShelfStore();
     let storeData: StashedFile[] | null = null;
+    let storeUpdatedAt: number | null = null;
     if (store) {
       const saved = await store.get<StashedFile[]>("files");
       if (Array.isArray(saved)) storeData = saved;
+      const savedTs = await store.get<number>("updatedAt");
+      if (typeof savedTs === "number" && Number.isFinite(savedTs)) {
+        storeUpdatedAt = savedTs;
+      }
     }
 
     // If a persist occurred while awaiting storage, discard this stale disk read.
@@ -272,42 +380,59 @@ export async function loadPersistedShelfFiles(): Promise<StashedFile[] | null> {
     }
 
     let localData: StashedFile[] | null = null;
-    const local = localStorage.getItem(STORAGE_KEY);
-    if (local !== null) {
-      const parsed = JSON.parse(local);
-      if (Array.isArray(parsed)) localData = parsed;
+    let localUpdatedAt: number | null = readLocalShelfMetaUpdatedAt();
+    try {
+      const local = localStorage.getItem(STORAGE_KEY);
+      if (local !== null) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) {
+          localData = parsed;
+        } else {
+          localUpdatedAt = null;
+        }
+      }
+    } catch (parseErr) {
+      // Corrupt localStorage must not hide valid shelf.json data on disk
+      console.warn("Corrupt localStorage shelf data, falling back to shelf.json:", parseErr);
+      localData = null;
+      localUpdatedAt = null;
     }
 
-    // Explicit empty local list ("[]") means the user cleared the shelf synchronously.
-    if (localData !== null && localData.length === 0) {
-      if (store && storeData && storeData.length > 0) {
-        await store.set("files", []);
-        await store.save();
-      }
-      return [];
+    const reconciled = reconcilePersistedShelfSources({
+      storeFiles: storeData,
+      storeUpdatedAt,
+      localFiles: localData,
+      localUpdatedAt,
+    });
+
+    if (lastPersistAt !== startedAt) {
+      return null;
     }
 
-    const newest = (arr: StashedFile[] | null) =>
-      arr && arr.length > 0 ? Math.max(...arr.map((f) => f.addedAt || 0)) : -1;
-    const storeNewest = newest(storeData);
-    const localNewest = newest(localData);
+    if (reconciled.updatedAt > lastPersistAt) {
+      lastPersistAt = reconciled.updatedAt;
+    }
 
-    let result: StashedFile[] = [];
-    if (storeNewest >= 0 && storeNewest >= localNewest) {
-      result = storeData!;
-    } else if (localNewest >= 0) {
-      result = localData!;
-      if (store) {
-        const clean = localData!.map(({ thumbnail, ...rest }: StashedFile) => rest);
-        await store.set("files", clean);
-        await store.save();
-      }
+    const cleanResult = reconciled.files.map(({ thumbnail, ...rest }: StashedFile) => rest);
+    if (reconciled.syncToLocal) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanResult));
+        localStorage.setItem(
+          STORAGE_META_KEY,
+          JSON.stringify({ updatedAt: reconciled.updatedAt })
+        );
+      } catch {}
+    }
+    if (reconciled.syncToStore && store) {
+      await store.set("files", cleanResult);
+      await store.set("updatedAt", reconciled.updatedAt);
+      await store.save();
     }
 
     if (lastPersistAt !== startedAt) {
       return null;
     }
-    return result;
+    return reconciled.files;
   } catch (err) {
     console.error("Failed to load persisted shelf files:", err);
   }
@@ -315,11 +440,12 @@ export async function loadPersistedShelfFiles(): Promise<StashedFile[] | null> {
 }
 
 export async function persistShelfFiles(files: StashedFile[], immediate = false): Promise<void> {
-  lastPersistAt = Date.now();
+  const updatedAt = nextPersistTimestamp();
   const cleanFiles = files.map(({ thumbnail, ...rest }) => rest);
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanFiles));
+    localStorage.setItem(STORAGE_META_KEY, JSON.stringify({ updatedAt }));
   } catch (err) {
     console.warn("localStorage sync warning:", err);
   }
@@ -327,8 +453,9 @@ export async function persistShelfFiles(files: StashedFile[], immediate = false)
   const flushToDisk = async () => {
     try {
       const store = await getShelfStore();
-      if (store) {
+      if (store && updatedAt >= lastPersistAt) {
         await store.set("files", cleanFiles);
+        await store.set("updatedAt", updatedAt);
         await store.save();
       }
     } catch (err) {

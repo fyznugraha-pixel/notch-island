@@ -22,6 +22,77 @@ export interface StreamAiRequestOptions {
   onChunk: (chunk: string) => void;
 }
 
+const GILI_SHELF_PORT = "8731";
+
+export function redactSensitiveUrlParams(message: string): string {
+  return message.replace(/([?&](?:key|api_key|token|access_token)=)[^&\s"')\]>,]+/gi, "$1[REDACTED]");
+}
+
+function isDisallowedIpv4Literal(host: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return false;
+  const [a, b, c, d] = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+  if (a > 255 || b > 255 || c > 255 || d > 255) return true;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true; // Cloud metadata & link-local
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  if (a >= 224) return true; // Multicast / reserved
+  return false;
+}
+
+export function validateAiHttpUrl(rawUrl: string): void {
+  const trimmed = rawUrl.trim();
+  if (!trimmed || trimmed.includes("\\")) {
+    throw new Error("URL endpoint AI tidak valid.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("URL endpoint AI tidak valid.");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Skema URL endpoint AI harus HTTPS atau HTTP lokal.");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("URL endpoint AI tidak boleh mengandung kredensial.");
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const isExplicitLoopback =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+
+  if (isExplicitLoopback) {
+    if (parsed.port === GILI_SHELF_PORT) {
+      throw new Error("Akses ke port layanan internal Gili diblokir.");
+    }
+    return;
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("Endpoint AI jarak jauh wajib menggunakan HTTPS.");
+  }
+
+  if (
+    host === "metadata.google.internal" ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".localhost")
+  ) {
+    throw new Error("Akses ke host metadata atau internal diblokir.");
+  }
+
+  if (isDisallowedIpv4Literal(host) || host.startsWith("[fe80:") || host.startsWith("[fc") || host.startsWith("[fd") || host === "[::]") {
+    throw new Error("Akses ke alamat IP privat atau metadata diblokir.");
+  }
+}
+
 export function createAbortError(): Error {
   if (typeof DOMException !== "undefined") {
     return new DOMException("Request aborted", "AbortError") as unknown as Error;
@@ -76,6 +147,8 @@ export async function aiFetch(
   text: () => Promise<string>;
   json: () => Promise<any>;
 }> {
+  validateAiHttpUrl(url);
+
   const isTauri =
     typeof window !== "undefined" &&
     Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
@@ -86,12 +159,18 @@ export async function aiFetch(
   };
 
   if (isTauri) {
-    const res = await invoke<AiHttpResponse>("ai_http_request", {
-      url,
-      method: options.method || "GET",
-      headers: effectiveHeaders,
-      body: options.body,
-    });
+    let res: AiHttpResponse;
+    try {
+      res = await invoke<AiHttpResponse>("ai_http_request", {
+        url,
+        method: options.method || "GET",
+        headers: effectiveHeaders,
+        body: options.body,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(redactSensitiveUrlParams(msg));
+    }
 
     return {
       ok: res.ok,
@@ -108,17 +187,22 @@ export async function aiFetch(
   }
 
   // Fallback for non-Tauri dev environment
-  const browserRes = await fetch(url, {
-    method: options.method || "GET",
-    headers: effectiveHeaders,
-    body: options.body,
-  });
-  return {
-    ok: browserRes.ok,
-    status: browserRes.status,
-    text: () => browserRes.text(),
-    json: () => browserRes.json(),
-  };
+  try {
+    const browserRes = await fetch(url, {
+      method: options.method || "GET",
+      headers: effectiveHeaders,
+      body: options.body,
+    });
+    return {
+      ok: browserRes.ok,
+      status: browserRes.status,
+      text: () => browserRes.text(),
+      json: () => browserRes.json(),
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(redactSensitiveUrlParams(msg));
+  }
 }
 
 export async function streamAiRequest({
@@ -129,6 +213,8 @@ export async function streamAiRequest({
   signal,
   onChunk,
 }: StreamAiRequestOptions): Promise<void> {
+  validateAiHttpUrl(url);
+
   const streamId = Math.random().toString(36).substring(2) + Date.now().toString(36);
 
   let unlistenChunk: (() => void) | null = null;
@@ -202,7 +288,7 @@ export async function streamAiRequest({
           }
 
           unlistenError = await listen<string>(`ai-stream-error:${streamId}`, (event) => {
-            rejectOnce(new Error(event.payload));
+            rejectOnce(new Error(redactSensitiveUrlParams(String(event.payload ?? ""))));
           });
           if (settled || signal?.aborted) {
             cancelBackendStream();
@@ -223,10 +309,11 @@ export async function streamAiRequest({
               return;
             }
             const errMsg = typeof e === "string" ? e : (e as any)?.message || "Gagal memulai streaming AI";
-            rejectOnce(new Error(errMsg));
+            rejectOnce(new Error(redactSensitiveUrlParams(errMsg)));
           });
         } catch (err) {
-          rejectOnce(err instanceof Error ? err : new Error(String(err)));
+          const msg = err instanceof Error ? err.message : String(err);
+          rejectOnce(new Error(redactSensitiveUrlParams(msg)));
         }
       });
     } finally {
@@ -248,15 +335,22 @@ export async function streamAiRequest({
 
   // Non-Tauri fallback (browser dev mode only)
   if (signal?.aborted) throw createAbortError();
-  const res = await fetch(url, {
-    method,
-    headers: effectiveHeaders,
-    body,
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: effectiveHeaders,
+      body,
+      signal,
+    });
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(redactSensitiveUrlParams(msg));
+  }
 
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    throw new Error(redactSensitiveUrlParams(`HTTP ${res.status}: ${await res.text()}`));
   }
 
   const reader = res.body?.getReader();

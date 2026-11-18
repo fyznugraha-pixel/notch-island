@@ -558,7 +558,7 @@ fn spawn_backdrop_winevent_watcher(tx: Sender<AcrylicCommand>) {
                 return;
             }
             let mut msg = MSG::default();
-            while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
+            while GetMessageW(&mut msg, HWND::default(), 0, 0).0 > 0 {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }

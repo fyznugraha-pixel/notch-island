@@ -53,7 +53,8 @@ import { getTextWidth } from "./utils/text";
 import { LyricsData, LyricsProviderId } from "./services/lyricsService";
 import { initMediaLyricsStore, subscribeLyrics, requestLyricsRefresh } from "./services/mediaLyricsStore";
 import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
-import { fetchCurrentWeather, subscribeWeatherChange, getCachedWeather } from "./services/weatherService";
+import { onShelfFileReceived } from "./services/shelfTransferService";
+import { startWeatherAutoSync, getCachedWeather } from "./services/weatherService";
 import { checkForAppUpdate } from "./services/updateService";
 import { initCredentials } from "./services/aiCredentialService";
 import type { ClipboardItem } from "./components/ui/ClipboardPanel";
@@ -65,7 +66,7 @@ import {
   isAppMuted,
   setDndStatus,
 } from "./services/notificationHistoryService";
-import { type TodoItem, type TodoRepeatRule, computeNextRepeatDue, rolloverRecurringTasks } from "./services/todoUtils";
+import { type TodoItem, type TodoRepeatRule, computeNextRepeatDue, rolloverRecurringTasks, loadCanonicalTodos } from "./services/todoUtils";
 import type { StashedFile } from "./components/ui/DropShelfPanel";
 import {
   NotchTabsPreferences,
@@ -86,7 +87,7 @@ import {
   useStreakFreeze,
   WaterData,
 } from "./services/waterService";
-import { listenCrossWindowEvent } from "./utils/crossWindowSync";
+import { emitCrossWindowEvent, listenCrossWindowEvent } from "./utils/crossWindowSync";
 import { useWaterReminder } from "./hooks/useWaterReminder";
 import { PrayerNotchToast } from "./components/ui/prayer/PrayerNotchToast";
 import {
@@ -350,10 +351,19 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   };
 
   const lastDismissedNotifRef = useRef<{ key: string; time: number }>({ key: "", time: 0 });
+  const notifLeaveTimerRef = useRef<number | null>(null);
+
+  const clearNotifLeaveTimer = useCallback(() => {
+    if (notifLeaveTimerRef.current !== null) {
+      window.clearTimeout(notifLeaveTimerRef.current);
+      notifLeaveTimerRef.current = null;
+    }
+  }, []);
 
   const showNotif = (newNotif: NotifPayload) => {
     cancelCollapseTimer();
     cancelCompactHoverTimer();
+    clearNotifLeaveTimer();
     isClosingRef.current = false;
     closeGraceUntilRef.current = 0;
 
@@ -950,22 +960,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const [isTodo, setIsTodo] = useState(false);
   const isTodoRef = useRef(false);
   useEffect(() => { isTodoRef.current = isTodo; }, [isTodo]);
-  const [todoItems, setTodoItems] = useState<TodoItem[]>(() => {
-    try {
-      const saved = localStorage.getItem("island_todo_list");
-      if (!saved) return [];
-      const parsed: TodoItem[] = JSON.parse(saved);
-      const { updated, changed } = rolloverRecurringTasks(parsed);
-      if (changed) {
-        try {
-          localStorage.setItem("island_todo_list", JSON.stringify(updated));
-        } catch {}
-      }
-      return updated;
-    } catch {
-      return [];
-    }
-  });
+  const [todoItems, setTodoItems] = useState<TodoItem[]>(() => loadCanonicalTodos());
+
+  const emitTodosSync = () => {
+    queueMicrotask(() => emitCrossWindowEvent("gili_todos_updated"));
+  };
 
   // Rollover recurring tasks on midnight / interval and window focus
   useEffect(() => {
@@ -976,6 +975,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         try {
           localStorage.setItem("island_todo_list", JSON.stringify(updated));
         } catch {}
+        emitTodosSync();
         return updated;
       });
     };
@@ -992,18 +992,20 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     };
   }, []);
 
-  // Listen for real-time todo updates from AI Chat and background services
+  // Listen for real-time todo updates from AI Chat, Taskbar, and background services
   useEffect(() => {
     const handleTodosUpdated = () => {
       try {
         const saved = localStorage.getItem("island_todo_list");
-        if (saved) {
-          setTodoItems(JSON.parse(saved));
-        }
+        setTodoItems(saved ? JSON.parse(saved) : []);
       } catch {}
     };
     window.addEventListener("gili_todos_updated", handleTodosUpdated);
-    return () => window.removeEventListener("gili_todos_updated", handleTodosUpdated);
+    const unsubCross = listenCrossWindowEvent("gili_todos_updated", handleTodosUpdated);
+    return () => {
+      window.removeEventListener("gili_todos_updated", handleTodosUpdated);
+      unsubCross();
+    };
   }, []);
 
   const pendingTodos = React.useMemo(() => {
@@ -1038,6 +1040,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
       } catch {}
+      emitTodosSync();
       return updated;
     });
     return newItem;
@@ -1079,6 +1082,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           try {
             localStorage.setItem("island_todo_list", JSON.stringify(updated));
           } catch {}
+          emitTodosSync();
           return updated;
         } else {
           // Unchecking a recurring task reverts it to active and restores previous due date
@@ -1096,6 +1100,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           try {
             localStorage.setItem("island_todo_list", JSON.stringify(updated));
           } catch {}
+          emitTodosSync();
           return updated;
         }
       }
@@ -1106,6 +1111,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
       } catch {}
+      emitTodosSync();
       return updated;
     });
   }, []);
@@ -1116,6 +1122,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
       } catch {}
+      emitTodosSync();
       return updated;
     });
   };
@@ -1130,6 +1137,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
       } catch {}
+      emitTodosSync();
       return updated;
     });
   };
@@ -1154,6 +1162,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
       } catch {}
+      emitTodosSync();
       return updated;
     });
   };
@@ -1165,6 +1174,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
       } catch {}
+      emitTodosSync();
       return updated;
     });
   };
@@ -1174,6 +1184,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       localStorage.removeItem("island_todo_list");
     } catch {}
+    emitTodosSync();
   };
 
 
@@ -1329,7 +1340,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const finalPaths = uniqueIncoming.filter((p) => !existingPaths.has(p.toLowerCase()));
 
     if (finalPaths.length === 0) {
-      goToTabRef.current("drop_shelf");
+      if (meta?.source !== "phone") {
+        goToTabRef.current("drop_shelf");
+      }
       return;
     }
 
@@ -1359,7 +1372,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       return updated;
     });
 
-    goToTabRef.current("drop_shelf");
+    if (meta?.source !== "phone") {
+      goToTabRef.current("drop_shelf");
+    }
 
     // Pre-resolve previews & metadata through the controlled concurrency queue
     queueFilePreviews(newItems, (batch) => {
@@ -1391,6 +1406,32 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   }, []);
   const addStashedFilesRef = useRef(addStashedFiles);
   addStashedFilesRef.current = addStashedFiles;
+
+  // Listen globally so LAN phone uploads persist into shelf even when DropShelfPanel is unmounted
+  useEffect(() => {
+    if (isSecondaryWindow) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    onShelfFileReceived((payload) => {
+      if (disposed) return;
+      addStashedFilesRef.current([payload.path], {
+        source: "phone",
+        deviceName: payload.device_name,
+        isNew: true,
+        thumbnail: payload.thumbnail,
+        sizeFormatted: payload.size_formatted,
+      });
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(console.error);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [isSecondaryWindow]);
 
 
   const removeStashedFile = (id: string, deleteFromDisk = true) => {
@@ -1878,9 +1919,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
     let target: ExpandedTab = forceTab || "quick_control";
     if (!forceTab) {
-      const hasMediaTrack = Boolean(mediaRef.current?.title || lastMediaPayloadRef.current?.title);
+      const hasMediaTrack =
+        optMediaRef.current &&
+        Boolean(mediaRef.current?.title || lastMediaPayloadRef.current?.title);
       const isMusicActive = Boolean(
-        hasMediaTrack && (isPlayingRef.current || ((variantRef.current === "media" || variantRef.current === "lyrics_idle") && !isPausedMediaCollapsedRef.current))
+        hasMediaTrack &&
+          (isPlayingRef.current ||
+            (!tabExpired &&
+              (variantRef.current === "media" || variantRef.current === "lyrics_idle") &&
+              !isPausedMediaCollapsedRef.current))
       );
       target = resolvePreferredOpenTab({
         currentTabs,
@@ -3451,30 +3498,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   }, [isSecondaryWindow]);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const updateWeather = async () => {
-      const data = await fetchCurrentWeather();
-      if (isMounted && data) {
-        setWeather({
-          temp: data.temp,
-          code: data.code,
-          locationName: data.locationName,
-        });
-      }
-    };
-
-    updateWeather();
-    const interval = setInterval(updateWeather, 1000 * 60 * 10);
-    const unsubscribe = subscribeWeatherChange(() => {
-      updateWeather();
+    return startWeatherAutoSync((data) => {
+      setWeather({
+        temp: data.temp,
+        code: data.code,
+        locationName: data.locationName,
+      });
     });
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-      unsubscribe();
-    };
   }, []);
 
   useEffect(() => {
@@ -4453,9 +4483,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         currentNotifRef.current = null;
         setNotif(null);
       }, duration);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        clearNotifLeaveTimer();
+      };
     }
-  }, [notif, notifQueue]);
+  }, [notif, notifQueue, clearNotifLeaveTimer]);
 
 
 
@@ -5551,6 +5584,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) {
             return;
           }
+          clearNotifLeaveTimer();
           isCursorInsideNotchRef.current = true;
           isShortcutPinnedRef.current = false;
           if (shortcutPinnedTimerRef.current) {
@@ -5626,7 +5660,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           if (isSwitchingTabRef.current) return;
           isCursorInsideNotchRef.current = false;
           if (notif) {
-            window.setTimeout(() => {
+            clearNotifLeaveTimer();
+            notifLeaveTimerRef.current = window.setTimeout(() => {
+              notifLeaveTimerRef.current = null;
               if (!isCursorInsideNotchRef.current && currentNotifRef.current) {
                 const k = `${currentNotifRef.current.appName || ""}|${currentNotifRef.current.title || ""}|${currentNotifRef.current.body || ""}`;
                 lastDismissedNotifRef.current = { key: k, time: Date.now() };
@@ -6322,10 +6358,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                                 focusModeOptions={focusModeOptions}
                                 stashedFilesCount={stashedFiles.length}
                                 onGoToTab={goToTab}
-                                onClose={() => {
-                                  setIsQuickControl(false);
-                                  setControlCenterSubmenu(null);
-                                }}
+                                onClose={() => handleCloseImmediate()}
                                 onSubmenuChange={setControlCenterSubmenu}
                                 isLightMode={isLightMode}
                               />
@@ -6954,7 +6987,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                               setSoundEffectsEnabled(next);
                               broadcastSetting("opt_sound_fx", next);
                             }}
-                            onClose={() => setIsSettings(false)}
+                            onClose={() => handleCloseImmediate()}
                               />
                             </React.Suspense>
                           </motion.div>

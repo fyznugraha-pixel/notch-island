@@ -5,7 +5,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, GetWindowRect, IsChild, SetForegroundWindow,
@@ -458,9 +458,7 @@ fn apply_target_to_flyout_window(
     action_log: &str,
 ) {
     let (desired_w, desired_h) = get_flyout_dimensions_for_target(target);
-    let scale_factor = win.scale_factor().unwrap_or(1.0);
-    let (target_x, target_y) =
-        calculate_anchored_position(win, pos_str, desired_w, desired_h, trigger_rect, scale_factor);
+    let placement = resolve_flyout_placement(win, pos_str, desired_w, desired_h, trigger_rect);
 
     let (hint_glass, hint_light) = crate::window_backdrop::get_shared_theme_hint();
     let is_liquid = match theme_opt {
@@ -488,20 +486,10 @@ fn apply_target_to_flyout_window(
         });
     }
 
-    let (origin_x, origin_y) = compute_flyout_anchor_origin(
-        win,
-        pos_str,
-        target_x,
-        target_y,
-        desired_w,
-        desired_h,
-        trigger_rect,
-        scale_factor,
-    );
     let open_seq = FLYOUT_OPEN_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
     let anchor_json = serde_json::json!({
-        "originX": origin_x,
-        "originY": origin_y,
+        "originX": placement.origin_x,
+        "originY": placement.origin_y,
         "position": pos_str,
         "seq": open_seq,
     });
@@ -521,8 +509,13 @@ fn apply_target_to_flyout_window(
             return;
         }
         let _ = win_main.eval(&eval_script);
-        let _ = win_main.set_size(tauri::LogicalSize::new(desired_w, desired_h));
-        let _ = win_main.set_position(tauri::LogicalPosition::new(target_x, target_y));
+        // Move to target monitor BEFORE sizing so DPI switches before size takes effect.
+        let pos = tauri::PhysicalPosition::new(placement.phys_x, placement.phys_y);
+        let size = tauri::PhysicalSize::new(placement.phys_w, placement.phys_h);
+        let _ = win_main.set_position(pos);
+        let _ = win_main.set_size(size);
+        let _ = win_main.set_position(pos);
+        let _ = win_main.set_size(size);
         #[cfg(windows)]
         if let Ok(raw_hwnd) = win_main.hwnd() {
             crate::window_backdrop::apply_flyout_backdrop(HWND(raw_hwnd.0), is_liquid, hint_light);
@@ -574,8 +567,8 @@ fn apply_target_to_flyout_window(
         "isOpen": true,
         "target": target,
         "theme": theme_str,
-        "width": desired_w,
-        "height": desired_h,
+        "width": placement.logical_w,
+        "height": placement.logical_h,
         "anchor": anchor_json
     });
 
@@ -584,10 +577,10 @@ fn apply_target_to_flyout_window(
     let log_target = target.to_string();
     let log_action = action_log.to_string();
     let log_details = serde_json::json!({
-        "x": target_x,
-        "y": target_y,
-        "w": desired_w,
-        "h": desired_h,
+        "x": placement.logical_x,
+        "y": placement.logical_y,
+        "w": placement.logical_w,
+        "h": placement.logical_h,
         "theme": theme_str
     });
     std::thread::spawn(move || {
@@ -751,48 +744,6 @@ pub fn get_taskbar_flyout_state() -> serde_json::Value {
     })
 }
 
-fn resolve_trigger_screen_logical(
-    win: &WebviewWindow,
-    trigger: Option<&FlyoutTriggerRect>,
-    scale_factor: f64,
-) -> (f64, f64, f64, f64, f64) {
-    let safe_scale = scale_factor.max(1.0);
-    let (nav_x_px, nav_y_px, nav_scale) =
-        if let Some(navbar_win) = crate::navbar_window::get_active_navbar_window(win.app_handle()) {
-            let n_scale = navbar_win.scale_factor().unwrap_or(safe_scale).max(1.0);
-            if let Ok(raw_hwnd) = navbar_win.hwnd() {
-                let hwnd = HWND(raw_hwnd.0);
-                let mut r = RECT::default();
-                if unsafe { GetWindowRect(hwnd, &mut r).is_ok() } {
-                    (r.left as f64, r.top as f64, n_scale)
-                } else {
-                    let p = navbar_win.outer_position().unwrap_or_default();
-                    (p.x as f64, p.y as f64, n_scale)
-                }
-            } else {
-                let p = navbar_win.outer_position().unwrap_or_default();
-                (p.x as f64, p.y as f64, n_scale)
-            }
-        } else {
-            (0.0, 0.0, safe_scale)
-        };
-
-    let nav_x = nav_x_px / safe_scale;
-    let nav_y = nav_y_px / safe_scale;
-    let ratio = nav_scale / safe_scale;
-    if let Some(t) = trigger {
-        (
-            nav_x + t.x * ratio,
-            nav_y + t.y * ratio,
-            t.width * ratio,
-            t.height * ratio,
-            nav_scale,
-        )
-    } else {
-        (nav_x, nav_y, 40.0, 40.0, nav_scale)
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct LogicalRect {
     x: f64,
@@ -807,6 +758,164 @@ struct WorkAreaBounds {
     top: f64,
     right: f64,
     bottom: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FlyoutPlacement {
+    phys_x: i32,
+    phys_y: i32,
+    phys_w: u32,
+    phys_h: u32,
+    logical_x: f64,
+    logical_y: f64,
+    logical_w: f64,
+    logical_h: f64,
+    origin_x: f64,
+    origin_y: f64,
+    nav_scale: f64,
+}
+
+fn compute_flyout_placement_in_phys_work(
+    pos: &str,
+    desired_w: f64,
+    desired_h: f64,
+    work_rect_px: RECT,
+    nav_x_px: f64,
+    nav_y_px: f64,
+    nav_scale: f64,
+    trigger: Option<&FlyoutTriggerRect>,
+) -> FlyoutPlacement {
+    let safe_scale = nav_scale.max(1.0);
+    let bounds = WorkAreaBounds {
+        left: work_rect_px.left as f64 / safe_scale,
+        top: work_rect_px.top as f64 / safe_scale,
+        right: work_rect_px.right as f64 / safe_scale,
+        bottom: work_rect_px.bottom as f64 / safe_scale,
+    };
+
+    let avail_w = (bounds.right - bounds.left - 24.0).max(200.0);
+    let avail_h = (bounds.bottom - bounds.top - 24.0).max(160.0);
+    let clamped_w = desired_w.min(avail_w).round();
+    let clamped_h = desired_h.min(avail_h).round();
+
+    let nav_x_log = nav_x_px / safe_scale;
+    let nav_y_log = nav_y_px / safe_scale;
+    let trig_logical = if let Some(t) = trigger {
+        LogicalRect {
+            x: nav_x_log + t.x,
+            y: nav_y_log + t.y,
+            width: t.width,
+            height: t.height,
+        }
+    } else {
+        LogicalRect {
+            x: nav_x_log,
+            y: nav_y_log,
+            width: 40.0,
+            height: 40.0,
+        }
+    };
+
+    let (target_x_log, target_y_log) = calculate_anchored_position_in_bounds(
+        pos,
+        clamped_w,
+        clamped_h,
+        trigger.map(|_| trig_logical),
+        bounds,
+    );
+    let (origin_x, origin_y) = compute_anchor_origin_from_logical(
+        pos,
+        target_x_log,
+        target_y_log,
+        clamped_w,
+        clamped_h,
+        trig_logical,
+    );
+
+    FlyoutPlacement {
+        phys_x: (target_x_log * safe_scale).round() as i32,
+        phys_y: (target_y_log * safe_scale).round() as i32,
+        phys_w: (clamped_w * safe_scale).round().max(1.0) as u32,
+        phys_h: (clamped_h * safe_scale).round().max(1.0) as u32,
+        logical_x: target_x_log,
+        logical_y: target_y_log,
+        logical_w: clamped_w,
+        logical_h: clamped_h,
+        origin_x,
+        origin_y,
+        nav_scale: safe_scale,
+    }
+}
+
+fn resolve_target_monitor_context(win: &WebviewWindow) -> (f64, f64, f64, RECT) {
+    let fallback_scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let active_nav = crate::navbar_window::get_active_navbar_window(win.app_handle());
+
+    let (nav_x_px, nav_y_px, nav_scale, target_hwnd) = if let Some(ref navbar_win) = active_nav {
+        let n_scale = navbar_win.scale_factor().unwrap_or(fallback_scale).max(1.0);
+        if let Ok(raw_hwnd) = navbar_win.hwnd() {
+            let hwnd = HWND(raw_hwnd.0);
+            let mut r = RECT::default();
+            let (nx, ny) = if unsafe { GetWindowRect(hwnd, &mut r).is_ok() } {
+                (r.left as f64, r.top as f64)
+            } else {
+                let p = navbar_win.outer_position().unwrap_or_default();
+                (p.x as f64, p.y as f64)
+            };
+            (nx, ny, n_scale, Some(hwnd))
+        } else {
+            let p = navbar_win.outer_position().unwrap_or_default();
+            (p.x as f64, p.y as f64, n_scale, None)
+        }
+    } else {
+        (0.0, 0.0, fallback_scale, None)
+    };
+
+    let mut work_rect = RECT {
+        left: 0,
+        top: 0,
+        right: (1920.0 * nav_scale).round() as i32,
+        bottom: (1080.0 * nav_scale).round() as i32,
+    };
+
+    unsafe {
+        let hmon = if let Some(hwnd) = target_hwnd {
+            MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+        } else {
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+        };
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if GetMonitorInfoW(hmon, &mut mi).as_bool() {
+            work_rect = mi.rcWork;
+        }
+    }
+
+    (nav_x_px, nav_y_px, nav_scale, work_rect)
+}
+
+fn resolve_flyout_placement(
+    win: &WebviewWindow,
+    pos: &str,
+    desired_w: f64,
+    desired_h: f64,
+    trigger: Option<&FlyoutTriggerRect>,
+) -> FlyoutPlacement {
+    let (nav_x_px, nav_y_px, nav_scale, work_rect) = resolve_target_monitor_context(win);
+    compute_flyout_placement_in_phys_work(
+        pos,
+        desired_w,
+        desired_h,
+        work_rect,
+        nav_x_px,
+        nav_y_px,
+        nav_scale,
+        trigger,
+    )
 }
 
 fn compute_anchor_origin_from_logical(
@@ -827,33 +936,6 @@ fn compute_anchor_origin_from_logical(
         "right" => (width, clamped_y),
         _ => (clamped_x, height),
     }
-}
-
-fn compute_flyout_anchor_origin(
-    win: &WebviewWindow,
-    pos: &str,
-    target_x: f64,
-    target_y: f64,
-    width: f64,
-    height: f64,
-    trigger: Option<&FlyoutTriggerRect>,
-    scale_factor: f64,
-) -> (f64, f64) {
-    let (trig_x, trig_y, trig_w, trig_h, _) =
-        resolve_trigger_screen_logical(win, trigger, scale_factor);
-    compute_anchor_origin_from_logical(
-        pos,
-        target_x,
-        target_y,
-        width,
-        height,
-        LogicalRect {
-            x: trig_x,
-            y: trig_y,
-            width: trig_w,
-            height: trig_h,
-        },
-    )
 }
 
 fn calculate_anchored_position_in_bounds(
@@ -932,56 +1014,6 @@ fn calculate_anchored_position_in_bounds(
     let clamped_y = y.clamp(bounds.top + margin, max_y);
 
     (clamped_x.round(), clamped_y.round())
-}
-
-fn calculate_anchored_position(
-    win: &WebviewWindow,
-    pos: &str,
-    width: f64,
-    height: f64,
-    trigger: Option<&FlyoutTriggerRect>,
-    scale_factor: f64,
-) -> (f64, f64) {
-    let (trig_x, trig_y, trig_w, trig_h, _nav_scale) =
-        resolve_trigger_screen_logical(win, trigger, scale_factor);
-
-    let point = POINT {
-        x: ((trig_x + trig_w / 2.0) * scale_factor) as i32,
-        y: ((trig_y + trig_h / 2.0) * scale_factor) as i32,
-    };
-
-    let mut work_left = 0.0;
-    let mut work_top = 0.0;
-    let mut work_right = 1920.0;
-    let mut work_bottom = 1080.0;
-
-    unsafe {
-        let hmon = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
-        let mut mi = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if GetMonitorInfoW(hmon, &mut mi).as_bool() {
-            work_left = mi.rcWork.left as f64 / scale_factor;
-            work_top = mi.rcWork.top as f64 / scale_factor;
-            work_right = mi.rcWork.right as f64 / scale_factor;
-            work_bottom = mi.rcWork.bottom as f64 / scale_factor;
-        }
-    }
-
-    let trigger_rect = trigger.map(|_| LogicalRect {
-        x: trig_x,
-        y: trig_y,
-        width: trig_w,
-        height: trig_h,
-    });
-    let bounds = WorkAreaBounds {
-        left: work_left,
-        top: work_top,
-        right: work_right,
-        bottom: work_bottom,
-    };
-    calculate_anchored_position_in_bounds(pos, width, height, trigger_rect, bounds)
 }
 
 pub fn hide_taskbar_flyout() {
@@ -1182,41 +1214,37 @@ pub fn resize_taskbar_flyout(app: AppHandle, height: f64) {
         return;
     }
 
-    let (desired_w, default_h) = get_flyout_dimensions_for_target(&active_target);
-    let desired_h = clamp_flyout_resize_height(height, default_h);
-    let scale_factor = win.scale_factor().unwrap_or(1.0);
-    let current_h = win
-        .inner_size()
-        .map(|s| s.height as f64 / scale_factor)
-        .unwrap_or(desired_h);
-
-    if (current_h - desired_h).abs() < 1.5 {
-        return;
-    }
-
     let (trigger_rect, pos_str, _) = LAST_OPEN_CONTEXT
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()
         .unwrap_or((None, "bottom".to_string(), None));
 
-    let (target_x, target_y) = calculate_anchored_position(
-        &win,
-        &pos_str,
-        desired_w,
-        desired_h,
-        trigger_rect.as_ref(),
-        scale_factor,
-    );
+    let (desired_w, default_h) = get_flyout_dimensions_for_target(&active_target);
+    let desired_h = clamp_flyout_resize_height(height, default_h);
+    let placement =
+        resolve_flyout_placement(&win, &pos_str, desired_w, desired_h, trigger_rect.as_ref());
+
+    let current_h_log = win
+        .inner_size()
+        .map(|s| s.height as f64 / placement.nav_scale)
+        .unwrap_or(placement.logical_h);
+
+    if (current_h_log - placement.logical_h).abs() < 1.5 {
+        return;
+    }
 
     FLYOUT_OPENED_AT_MS.store(now_epoch_ms(), Ordering::SeqCst);
+    let pos = tauri::PhysicalPosition::new(placement.phys_x, placement.phys_y);
+    let size = tauri::PhysicalSize::new(placement.phys_w, placement.phys_h);
     // Move first when growing so bottom-anchored flyouts don't momentarily push over the dock
-    if desired_h > current_h {
-        let _ = win.set_position(tauri::LogicalPosition::new(target_x, target_y));
-        let _ = win.set_size(tauri::LogicalSize::new(desired_w, desired_h));
+    if placement.logical_h > current_h_log {
+        let _ = win.set_position(pos);
+        let _ = win.set_size(size);
+        let _ = win.set_position(pos);
     } else {
-        let _ = win.set_size(tauri::LogicalSize::new(desired_w, desired_h));
-        let _ = win.set_position(tauri::LogicalPosition::new(target_x, target_y));
+        let _ = win.set_size(size);
+        let _ = win.set_position(pos);
     }
 }
 
@@ -1603,5 +1631,37 @@ mod tests {
 
         cancel_flyout_idle_destroy();
         assert!(should_abort_idle_destroy(gen));
+    }
+
+    #[test]
+    fn test_compute_flyout_placement_175_dpi_clamps_to_work_area() {
+        // 1920x1080 laptop @ 175% DPI => ~1097x617 logical work area; 740x700 must clamp safely
+        let work_rect = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let trigger = FlyoutTriggerRect {
+            x: 100.0,
+            y: 8.0,
+            width: 36.0,
+            height: 36.0,
+        };
+        let placed = compute_flyout_placement_in_phys_work(
+            "bottom",
+            740.0,
+            700.0,
+            work_rect,
+            0.0,
+            1000.0,
+            1.75,
+            Some(&trigger),
+        );
+        assert!(placed.phys_w <= 1920, "phys_w {} exceeded 1920", placed.phys_w);
+        assert!(placed.phys_h <= 1080, "phys_h {} exceeded 1080", placed.phys_h);
+        assert!(placed.phys_x >= 0, "phys_x {} went negative", placed.phys_x);
+        assert!(placed.phys_y >= 0, "phys_y {} went negative", placed.phys_y);
+        assert_eq!(placed.nav_scale, 1.75);
     }
 }

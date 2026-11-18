@@ -68,6 +68,7 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
   const [passwordInput, setPasswordInput] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
   const timersRef = useRef<number[]>([]);
@@ -148,6 +149,8 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
     }
 
     setPasswordSsid(null);
+    setPasswordError(null);
+    setConnectError(null);
     setConnectingSsid(network.ssid);
     try {
       await connectToWifi(network.ssid);
@@ -157,7 +160,10 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
       }, 1500);
     } catch (err) {
       console.error(err);
-      if (isMountedRef.current) setConnectingSsid(null);
+      if (isMountedRef.current) {
+        setConnectError(`${t("cc_connect_failed")}: ${network.ssid}`);
+        setConnectingSsid(null);
+      }
     }
   };
 
@@ -365,6 +371,12 @@ export const WifiSubmenu: React.FC<WifiSubmenuProps> = ({
                 <RotateCw size={12.5} className={isLoading ? "animate-spin text-[#3882F6]" : ""} />
               </button>
             </div>
+
+            {connectError && (
+              <div className="px-2 py-1 mb-0.5 rounded-[8px] bg-red-500/15 text-red-400 text-[10.5px] font-medium shrink-0 truncate">
+                {connectError}
+              </div>
+            )}
 
             {/* Network List with Bottom Fade */}
             <div className="flex-1 min-h-0 relative overflow-hidden">

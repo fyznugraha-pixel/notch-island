@@ -7,9 +7,8 @@ use tauri::{AppHandle, Emitter};
 use windows::core::{w, Interface, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, FILETIME, HWND, MAX_PATH};
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, CLSCTX_INPROC_SERVER,
-    COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, COINIT_MULTITHREADED, IPersistFile,
-    STGM_READ,
+    CoCreateInstance, CLSCTX_ALL, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    COINIT_DISABLE_OLE1DDE, IPersistFile, STGM_READ,
 };
 use windows::Win32::System::ProcessStatus::EnumProcesses;
 use windows::Win32::System::Threading::{
@@ -1151,9 +1150,8 @@ pub(crate) fn resolve_shortcut_with_options(
     lnk_path: &Path,
     extract_icon: bool,
 ) -> Option<WindowsPinnedApp> {
+    let _com = crate::ComGuard::init(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-
         let shell_link: IShellLinkW =
             CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
         let persist_file: IPersistFile = shell_link.cast().ok()?;
@@ -1426,13 +1424,122 @@ pub async fn launch_pinned_app(
     .map_err(|e| format!("Launch task failed: {e}"))?
 }
 
+fn is_valid_aumid_chars(trimmed: &str) -> bool {
+    !trimmed.is_empty()
+        && !trimmed.contains("..")
+        && trimmed.chars().all(|c| {
+            c.is_alphanumeric()
+                || matches!(
+                    c,
+                    '.' | '_' | '-' | '!' | ' ' | '{' | '}' | '\\' | ':' | '(' | ')' | '&' | ',' | '+' | '@'
+                )
+        })
+}
+
+pub(crate) fn is_safe_url_target(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with("\\\\")
+        || trimmed.chars().any(|c| c.is_control())
+    {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    const BLOCKED_SCHEMES: &[&str] = &[
+        "ms-msdt:",
+        "search-ms:",
+        "javascript:",
+        "vbscript:",
+        "jscript:",
+        "file:",
+        "data:",
+        "blob:",
+    ];
+    if BLOCKED_SCHEMES.iter().any(|s| lower.starts_with(s)) {
+        return false;
+    }
+    lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("ms-settings:")
+        || lower.starts_with("ms-windows-store:")
+        || lower.starts_with("mailto:")
+        || lower.starts_with("shell:appsfolder\\")
+        || trimmed
+            .split_once(':')
+            .is_some_and(|(scheme, rest)| {
+                !scheme.is_empty()
+                    && scheme.len() <= 32
+                    && scheme
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+                    && rest.starts_with("//")
+            })
+}
+
+fn is_allowed_shortcut_or_exe_path(raw: &str, allow_url_scheme: bool) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with("\\\\")
+        || trimmed.chars().any(|c| c.is_control())
+    {
+        return false;
+    }
+    if trimmed.to_ascii_lowercase().starts_with("shell:appsfolder\\") {
+        let aumid = &trimmed["shell:AppsFolder\\".len()..];
+        return is_valid_aumid_chars(aumid);
+    }
+    let path = Path::new(trimmed);
+    if path.is_file() {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        return matches!(ext.as_str(), "lnk" | "url" | "exe");
+    }
+    allow_url_scheme && is_safe_url_target(trimmed)
+}
+
+fn parse_cli_arguments(raw: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut token_started = false;
+    let mut chars = raw.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                in_quotes = !in_quotes;
+                token_started = true;
+            }
+            '\\' if chars.peek() == Some(&'"') => {
+                if let Some(q) = chars.next() {
+                    current.push(q);
+                    token_started = true;
+                }
+            }
+            c if c.is_whitespace() && !in_quotes => {
+                if token_started {
+                    args.push(std::mem::take(&mut current));
+                    token_started = false;
+                }
+            }
+            c => {
+                current.push(c);
+                token_started = true;
+            }
+        }
+    }
+    if token_started {
+        args.push(current);
+    }
+    args
+}
+
 pub(crate) fn activate_aumid(aumid: &str) -> bool {
     let trimmed = aumid.trim();
-    if trimmed.is_empty()
-        || !trimmed
-            .chars()
-            .all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | '!' | ' '))
-    {
+    if !is_valid_aumid_chars(trimmed) {
         return false;
     }
     let _com = crate::ComGuard::init(COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -1709,6 +1816,9 @@ fn launch_pinned_app_sync(
 
     let trimmed_lnk = lnk_path.trim();
     if !trimmed_lnk.is_empty() {
+        if !is_allowed_shortcut_or_exe_path(trimmed_lnk, true) {
+            return Err("Blocked unsafe shortcut or URI target".into());
+        }
         let lower_lnk = trimmed_lnk.to_lowercase();
         if let Some(aumid) = lower_lnk
             .strip_prefix("shell:appsfolder\\")
@@ -1722,6 +1832,9 @@ fn launch_pinned_app_sync(
                     return Ok(());
                 }
             }
+            if shell_execute_open(trimmed_lnk, "", None) {
+                return Ok(());
+            }
         } else if shell_execute_open(trimmed_lnk, "", None) {
             return Ok(());
         }
@@ -1729,6 +1842,9 @@ fn launch_pinned_app_sync(
 
     let trimmed_target = target_path.trim();
     if !trimmed_target.is_empty() {
+        if !is_allowed_shortcut_or_exe_path(trimmed_target, false) {
+            return Err("Blocked unsafe executable target".into());
+        }
         let lower_target = trimmed_target.to_lowercase();
         if lower_target.contains("\\windowsapps\\") || lower_target.contains("\\systemapps\\") {
             if let Some((derived_aumid, is_full_trust)) =
@@ -1770,8 +1886,9 @@ fn launch_pinned_app_sync(
             if let Some(dir) = parent_dir.filter(|s| !s.is_empty()) {
                 cmd.current_dir(dir);
             }
-            if !arguments.trim().is_empty() {
-                cmd.arg(&arguments);
+            let parsed_args = parse_cli_arguments(&arguments);
+            if !parsed_args.is_empty() {
+                cmd.args(parsed_args);
             }
             if cmd.spawn().is_ok() {
                 return Ok(());
@@ -1796,8 +1913,9 @@ fn launch_pinned_app_sync(
 mod tests {
     use super::{
         classify_taskband_token, detect_app_id, detect_icon_type, extract_pfn_from_pkg_dir_name,
-        parse_appx_manifest_xml, resolve_protocol_for_app, resolve_uwp_package_from_exe_path,
-        try_launch_squirrel_app, TaskbandEntry,
+        is_allowed_shortcut_or_exe_path, is_safe_url_target, is_valid_aumid_chars,
+        parse_appx_manifest_xml, parse_cli_arguments, resolve_protocol_for_app,
+        resolve_uwp_package_from_exe_path, try_launch_squirrel_app, TaskbandEntry,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -2137,5 +2255,36 @@ mod tests {
         assert!(!try_launch_squirrel_app(fake_exe.to_str().unwrap(), ""));
 
         let _ = std::fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    fn test_aumid_url_path_and_cli_args_sanitization() {
+        assert!(is_valid_aumid_chars(
+            "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\notepad.exe"
+        ));
+        assert!(is_valid_aumid_chars("Microsoft.WindowsStore_8wekyb3d8bbwe!App"));
+        assert!(!is_valid_aumid_chars("bad;calc.exe"));
+        assert!(!is_valid_aumid_chars("bad|pipe"));
+        assert!(!is_valid_aumid_chars("bad\nnewline"));
+
+        assert!(is_safe_url_target("https://example.com/docs"));
+        assert!(!is_safe_url_target("javascript:alert(1)"));
+        assert!(!is_safe_url_target("\\\\evil-server\\share\\payload.exe"));
+
+        assert!(is_allowed_shortcut_or_exe_path(
+            "shell:AppsFolder\\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+            false
+        ));
+        assert!(!is_allowed_shortcut_or_exe_path("\\\\evil\\share\\run.exe", true));
+        assert!(!is_allowed_shortcut_or_exe_path("", true));
+
+        assert_eq!(
+            parse_cli_arguments(r#"--profile="Profile 1" --disable-gpu "C:\My App\cfg.json""#),
+            vec![
+                "--profile=Profile 1".to_string(),
+                "--disable-gpu".to_string(),
+                r"C:\My App\cfg.json".to_string(),
+            ]
+        );
     }
 }

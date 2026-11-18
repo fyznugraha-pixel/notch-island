@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { NavbarConfig, NavbarModuleView } from "../../types/navbar";
 import { saveNavbarConfig } from "../../services/navbarConfigService";
 import { useNavbarPopupHit } from "../../services/navbarPopupService";
-import { MODULE_ID_ALIASES } from "../moduleAliases";
+import { isSameCatalogModuleId } from "../moduleAliases";
 import { TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { useNavbarLightMode } from "../../components/navbar/navbarThemeUtils";
@@ -274,11 +274,7 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
   }, [isOpen, pos, width, anchorRef]);
 
   const currentModuleEntry = moduleId
-    ? config.modules.find((m) => {
-        const canonicalM = MODULE_ID_ALIASES[m.id] || m.id;
-        const canonicalTarget = MODULE_ID_ALIASES[moduleId] || moduleId;
-        return canonicalM === canonicalTarget || m.id === moduleId;
-      })
+    ? config.modules.find((m) => isSameCatalogModuleId(m.id, moduleId))
     : undefined;
 
   const activeView: NavbarModuleView =
@@ -290,10 +286,8 @@ export const NavbarPopoverShell: React.FC<NavbarPopoverShellProps> = ({
   ) => {
     e.stopPropagation();
     if (!moduleId) return;
-    const canonicalTarget = MODULE_ID_ALIASES[moduleId] || moduleId;
     const nextModules = config.modules.map((m) => {
-      const canonicalM = MODULE_ID_ALIASES[m.id] || m.id;
-      if (canonicalM === canonicalTarget || m.id === moduleId) {
+      if (isSameCatalogModuleId(m.id, moduleId)) {
         return { ...m, view: nextView };
       }
       return m;

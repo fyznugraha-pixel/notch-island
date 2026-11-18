@@ -23,15 +23,72 @@ export interface PomodoroCompleteAlert {
   focusedTaskId: string | null;
 }
 
+interface MigratedLegacyPomodoro {
+  mode: PomodoroMode;
+  remainingSec: number;
+  isRunning: boolean;
+  cycleSession: number;
+}
+
+function migrateLegacyNavbarPomodoroState(): MigratedLegacyPomodoro | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const legacyRaw = localStorage.getItem("gili_pomodoro_live_state_v2");
+    if (!legacyRaw) return null;
+    let migrated: MigratedLegacyPomodoro | null = null;
+    if (!localStorage.getItem("gili_pomodoro_live_state")) {
+      const p = JSON.parse(legacyRaw);
+      if (p && typeof p.secondsLeft === "number") {
+        const mappedMode: PomodoroMode = p.mode === "break" ? "short_break" : "focus";
+        let remainingSec = Math.max(0, Math.round(p.secondsLeft));
+        let isRunning = Boolean(p.isRunning);
+        if (isRunning && typeof p.endAtMs === "number") {
+          remainingSec = Math.max(0, Math.ceil((p.endAtMs - Date.now()) / 1000));
+          if (remainingSec === 0) isRunning = false;
+        }
+        const cfg = loadPomodoroSettings();
+        const payload = {
+          mode: mappedMode,
+          remainingSec,
+          totalSec:
+            typeof p.totalSeconds === "number" && p.totalSeconds > 0
+              ? p.totalSeconds
+              : getModeDurationSeconds(mappedMode, cfg),
+          isRunning,
+          cycleSession: typeof p.cycle === "number" && p.cycle > 0 ? p.cycle : 1,
+          sessionsPerCycle: cfg.sessionsPerCycle || 4,
+        };
+        localStorage.setItem("gili_pomodoro_live_state", JSON.stringify(payload));
+        migrated = {
+          mode: mappedMode,
+          remainingSec,
+          isRunning: isRunning && remainingSec > 0,
+          cycleSession: payload.cycleSession,
+        };
+      }
+    }
+    localStorage.removeItem("gili_pomodoro_live_state_v2");
+    return migrated;
+  } catch {
+    return null;
+  }
+}
+
 export function usePomodoro(options: { isSecondary?: boolean } = {}) {
+  const initialMigratedRef = useRef<MigratedLegacyPomodoro | null | undefined>(undefined);
+  if (initialMigratedRef.current === undefined) {
+    initialMigratedRef.current = migrateLegacyNavbarPomodoroState();
+  }
+  const initialMigrated = initialMigratedRef.current;
+
   const [settings, setSettings] = useState<PomodoroSettings>(() => loadPomodoroSettings());
   const [dailyStats, setDailyStats] = useState<PomodoroDailyStats>(() => loadPomodoroDailyStats());
-  const [mode, setMode] = useState<PomodoroMode>("focus");
+  const [mode, setMode] = useState<PomodoroMode>(() => initialMigrated?.mode ?? "focus");
   const [remainingSec, setRemainingSec] = useState<number>(() =>
-    getModeDurationSeconds("focus", loadPomodoroSettings())
+    initialMigrated ? initialMigrated.remainingSec : getModeDurationSeconds("focus", loadPomodoroSettings())
   );
-  const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [cycleSession, setCycleSession] = useState<number>(1);
+  const [isRunning, setIsRunning] = useState<boolean>(() => initialMigrated?.isRunning ?? false);
+  const [cycleSession, setCycleSession] = useState<number>(() => initialMigrated?.cycleSession ?? 1);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [completeAlert, setCompleteAlert] = useState<PomodoroCompleteAlert | null>(null);
 
@@ -214,6 +271,11 @@ export function usePomodoro(options: { isSecondary?: boolean } = {}) {
 
   const handleSelectMode = useCallback(
     (nextMode: PomodoroMode) => {
+      if (options.isSecondary) {
+        const act = `mode:${nextMode}`;
+        emit("gili-pomodoro-action", act).catch(() => {});
+        emitCrossWindowEvent("gili-pomodoro-action", act);
+      }
       isRunningRef.current = false;
       setIsRunning(false);
       setCompleteAlert(null);
@@ -225,12 +287,13 @@ export function usePomodoro(options: { isSecondary?: boolean } = {}) {
       sessionStartRef.current = null;
       deadlineRef.current = null;
     },
-    []
+    [options.isSecondary]
   );
 
   const handleToggleRunning = useCallback(() => {
     if (options.isSecondary) {
       emit("gili-pomodoro-action", "toggle").catch(() => {});
+      emitCrossWindowEvent("gili-pomodoro-action", "toggle");
       return;
     }
     setCompleteAlert(null);
@@ -257,6 +320,7 @@ export function usePomodoro(options: { isSecondary?: boolean } = {}) {
   const handleReset = useCallback(() => {
     if (options.isSecondary) {
       emit("gili-pomodoro-action", "reset").catch(() => {});
+      emitCrossWindowEvent("gili-pomodoro-action", "reset");
       return;
     }
     isRunningRef.current = false;
@@ -272,6 +336,7 @@ export function usePomodoro(options: { isSecondary?: boolean } = {}) {
   const handleSkip = useCallback(() => {
     if (options.isSecondary) {
       emit("gili-pomodoro-action", "skip").catch(() => {});
+      emitCrossWindowEvent("gili-pomodoro-action", "skip");
       return;
     }
     setCompleteAlert(null);
@@ -420,26 +485,52 @@ export function usePomodoro(options: { isSecondary?: boolean } = {}) {
       localStorage.setItem("gili_pomodoro_live_state", JSON.stringify(payload));
     } catch {}
     emit("gili-pomodoro-sync", payload).catch(() => {});
+    emitCrossWindowEvent("gili-pomodoro-sync", payload);
   }, [mode, remainingSec, totalSec, isRunning, cycleSession, settings.sessionsPerCycle, options.isSecondary]);
 
-  // Remote control listener: actions from Navbar Dock / secondary windows (toggle, reset, skip)
+  const lastChannelActionRef = useRef<{ act: string; source: "tauri" | "cross"; at: number } | null>(null);
+
+  // Remote control listener: actions from Navbar Dock / secondary windows (toggle, reset, skip, mode:<mode>)
   useEffect(() => {
     if (options.isSecondary) return;
-    const unlistenPromise = listen<string>("gili-pomodoro-action", (event) => {
-      const act = event.payload;
+
+    const handleAction = (act: string, source: "tauri" | "cross") => {
+      const now = Date.now();
+      const prev = lastChannelActionRef.current;
+      if (prev && prev.act === act && prev.source !== source && now - prev.at < 100) {
+        lastChannelActionRef.current = null;
+        return;
+      }
+      lastChannelActionRef.current = { act, source, at: now };
+
       if (act === "toggle") {
         handleToggleRunning();
       } else if (act === "reset") {
         handleReset();
       } else if (act === "skip") {
         handleSkip();
+      } else if (act.startsWith("mode:")) {
+        const m = normalizePomodoroMode(act.slice(5));
+        if (m) handleSelectMode(m);
+      }
+    };
+
+    const unlistenPromise = listen<string>("gili-pomodoro-action", (event) => {
+      if (typeof event.payload === "string") {
+        handleAction(event.payload, "tauri");
+      }
+    });
+    const unlistenCross = listenCrossWindowEvent<string>("gili-pomodoro-action", (act) => {
+      if (typeof act === "string" && act) {
+        handleAction(act, "cross");
       }
     });
 
     return () => {
       unlistenPromise.then((fn) => fn());
+      unlistenCross();
     };
-  }, [handleToggleRunning, handleReset, handleSkip, options.isSecondary]);
+  }, [handleToggleRunning, handleReset, handleSkip, handleSelectMode, options.isSecondary]);
 
   // Sync Pomodoro settings across tabs & windows (e.g. Idle Timer toggle in Settings)
   useEffect(() => {
@@ -458,6 +549,7 @@ export function usePomodoro(options: { isSecondary?: boolean } = {}) {
   // Secondary windows follow live state emitted by primary window
   useEffect(() => {
     if (!options.isSecondary) return;
+    migrateLegacyNavbarPomodoroState();
 
     const applyLivePayload = (payload: any) => {
       if (!payload || typeof payload !== "object") return;
@@ -505,10 +597,23 @@ export function usePomodoro(options: { isSecondary?: boolean } = {}) {
       if (disposed) fn();
       else unlistenSync = fn;
     });
+    const unlistenCross = listenCrossWindowEvent<any>("gili-pomodoro-sync", (payload) => {
+      applyLivePayload(payload);
+    });
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "gili_pomodoro_live_state" && e.newValue) {
+        try {
+          applyLivePayload(JSON.parse(e.newValue));
+        } catch {}
+      }
+    };
+    window.addEventListener("storage", onStorage);
 
     return () => {
       disposed = true;
       unlistenSync?.();
+      unlistenCross();
+      window.removeEventListener("storage", onStorage);
     };
   }, [options.isSecondary]);
 

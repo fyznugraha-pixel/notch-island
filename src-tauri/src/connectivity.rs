@@ -113,7 +113,22 @@ mod wlan_ffi {
     use std::ffi::c_void;
     use windows::Win32::Foundation::HANDLE;
 
+    pub const WLAN_AVAILABLE_NETWORK_CONNECTED: u32 = 0x0000_0001;
+    pub const WLAN_AVAILABLE_NETWORK_HAS_PROFILE: u32 = 0x0000_0002;
+    pub const WLAN_INTERFACE_STATE_CONNECTED: u32 = 1;
+    pub const WLAN_INTF_OPCODE_RADIO_STATE: u32 = 4;
+    pub const WLAN_INTF_OPCODE_CURRENT_CONNECTION: u32 = 7;
+    pub const DOT11_RADIO_STATE_OFF: u32 = 2;
+
     #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct DOT11_SSID {
+        pub uSSIDLength: u32,
+        pub ucSSID: [u8; 32],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct WLAN_INTERFACE_INFO {
         pub InterfaceGuid: windows::core::GUID,
         pub strInterfaceDescription: [u16; 256],
@@ -125,6 +140,78 @@ mod wlan_ffi {
         pub dwNumberOfItems: u32,
         pub dwIndex: u32,
         pub InterfaceInfo: [WLAN_INTERFACE_INFO; 1],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct WLAN_AVAILABLE_NETWORK {
+        pub strProfileName: [u16; 256],
+        pub dot11Ssid: DOT11_SSID,
+        pub dot11BssType: u32,
+        pub uNumberOfBssids: u32,
+        pub bNetworkConnectable: i32,
+        pub wlanNotConnectableReason: u32,
+        pub uNumberOfPhyTypes: u32,
+        pub dot11PhyTypes: [u32; 8],
+        pub bMorePhyTypes: i32,
+        pub wlanSignalQuality: u32,
+        pub bSecurityEnabled: i32,
+        pub dot11DefaultAuthAlgorithm: u32,
+        pub dot11DefaultCipherAlgorithm: u32,
+        pub dwFlags: u32,
+        pub dwReserved: u32,
+    }
+
+    #[repr(C)]
+    pub struct WLAN_AVAILABLE_NETWORK_LIST {
+        pub dwNumberOfItems: u32,
+        pub dwIndex: u32,
+        pub Network: [WLAN_AVAILABLE_NETWORK; 1],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct WLAN_ASSOCIATION_ATTRIBUTES {
+        pub dot11Ssid: DOT11_SSID,
+        pub dot11BssType: u32,
+        pub dot11Bssid: [u8; 6],
+        pub dot11PhyType: u32,
+        pub uDot11PhyIndex: u32,
+        pub wlanSignalQuality: u32,
+        pub ulRxRate: u32,
+        pub ulTxRate: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct WLAN_SECURITY_ATTRIBUTES {
+        pub bSecurityEnabled: i32,
+        pub bOneXEnabled: i32,
+        pub dot11AuthAlgorithm: u32,
+        pub dot11CipherAlgorithm: u32,
+    }
+
+    #[repr(C)]
+    pub struct WLAN_CONNECTION_ATTRIBUTES {
+        pub isState: u32,
+        pub wlanConnectionMode: u32,
+        pub strProfileName: [u16; 256],
+        pub wlanAssociationAttributes: WLAN_ASSOCIATION_ATTRIBUTES,
+        pub wlanSecurityAttributes: WLAN_SECURITY_ATTRIBUTES,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct WLAN_PHY_RADIO_STATE {
+        pub dwPhyIndex: u32,
+        pub dot11SoftwareRadioState: u32,
+        pub dot11HardwareRadioState: u32,
+    }
+
+    #[repr(C)]
+    pub struct WLAN_RADIO_STATE {
+        pub dwNumberOfPhys: u32,
+        pub PhyRadioState: [WLAN_PHY_RADIO_STATE; 64],
     }
 
     #[link(name = "wlanapi")]
@@ -147,6 +234,24 @@ mod wlan_ffi {
             ppInterfaceList: *mut *mut WLAN_INTERFACE_INFO_LIST,
         ) -> u32;
 
+        pub fn WlanGetAvailableNetworkList(
+            hClientHandle: HANDLE,
+            pInterfaceGuid: *const windows::core::GUID,
+            dwFlags: u32,
+            pReserved: *const c_void,
+            ppAvailableNetworkList: *mut *mut WLAN_AVAILABLE_NETWORK_LIST,
+        ) -> u32;
+
+        pub fn WlanQueryInterface(
+            hClientHandle: HANDLE,
+            pInterfaceGuid: *const windows::core::GUID,
+            OpCode: u32,
+            pReserved: *const c_void,
+            pdwDataSize: *mut u32,
+            ppData: *mut *mut c_void,
+            pWlanOpcodeValueType: *mut u32,
+        ) -> u32;
+
         pub fn WlanScan(
             hClientHandle: HANDLE,
             pInterfaceGuid: *const windows::core::GUID,
@@ -157,6 +262,289 @@ mod wlan_ffi {
 
         pub fn WlanFreeMemory(pMemory: *mut c_void);
     }
+
+    pub fn decode_ssid(ssid: &DOT11_SSID) -> String {
+        let len = (ssid.uSSIDLength as usize).min(32);
+        String::from_utf8_lossy(&ssid.ucSSID[..len]).to_string()
+    }
+}
+
+#[cfg(windows)]
+fn format_command_error(output: &std::process::Output, fallback: &str) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (false, false) => format!("{} ({})", stdout, stderr),
+        (false, true) => stdout,
+        (true, false) => stderr,
+        (true, true) => fallback.to_string(),
+    }
+}
+
+#[cfg(windows)]
+struct NativeWifiSnapshot {
+    has_adapter: bool,
+    any_radio_on: Option<bool>,
+    connected_ssid: String,
+    networks: Vec<(WifiNetwork, u32, u32)>,
+}
+
+#[cfg(windows)]
+fn query_native_wifi_snapshot() -> Option<NativeWifiSnapshot> {
+    use std::collections::HashMap;
+    use std::ptr;
+    use wlan_ffi::*;
+
+    let mut ver = 0u32;
+    let mut handle = windows::Win32::Foundation::HANDLE::default();
+    if unsafe { WlanOpenHandle(2, ptr::null(), &mut ver, &mut handle) } != 0 {
+        return None;
+    }
+
+    struct HandleGuard(windows::Win32::Foundation::HANDLE);
+    impl Drop for HandleGuard {
+        fn drop(&mut self) {
+            unsafe {
+                WlanCloseHandle(self.0, std::ptr::null());
+            }
+        }
+    }
+    let _guard = HandleGuard(handle);
+
+    let mut iface_list_ptr: *mut WLAN_INTERFACE_INFO_LIST = ptr::null_mut();
+    if unsafe { WlanEnumInterfaces(handle, ptr::null(), &mut iface_list_ptr) } != 0
+        || iface_list_ptr.is_null()
+    {
+        return None;
+    }
+
+    let iface_count = unsafe { (*iface_list_ptr).dwNumberOfItems as usize };
+    let ifaces: Vec<WLAN_INTERFACE_INFO> = if iface_count > 0 {
+        unsafe {
+            std::slice::from_raw_parts((*iface_list_ptr).InterfaceInfo.as_ptr(), iface_count)
+                .to_vec()
+        }
+    } else {
+        Vec::new()
+    };
+    unsafe { WlanFreeMemory(iface_list_ptr as *mut _) };
+
+    if ifaces.is_empty() {
+        return Some(NativeWifiSnapshot {
+            has_adapter: false,
+            any_radio_on: Some(false),
+            connected_ssid: String::new(),
+            networks: Vec::new(),
+        });
+    }
+
+    let mut connected_ssid = String::new();
+    let mut saw_radio_state = false;
+    let mut any_radio_on = false;
+    let mut by_ssid: HashMap<String, (WifiNetwork, u32, u32)> = HashMap::new();
+
+    for iface in &ifaces {
+        let mut data_size = 0u32;
+        let mut radio_ptr: *mut std::ffi::c_void = ptr::null_mut();
+        if unsafe {
+            WlanQueryInterface(
+                handle,
+                &iface.InterfaceGuid,
+                WLAN_INTF_OPCODE_RADIO_STATE,
+                ptr::null(),
+                &mut data_size,
+                &mut radio_ptr,
+                ptr::null_mut(),
+            )
+        } == 0
+            && !radio_ptr.is_null()
+        {
+            if (data_size as usize) >= std::mem::size_of::<u32>() {
+                let rs = unsafe { &*(radio_ptr as *const WLAN_RADIO_STATE) };
+                let phy_count = (rs.dwNumberOfPhys as usize).min(64);
+                for phy in &rs.PhyRadioState[..phy_count] {
+                    saw_radio_state = true;
+                    if phy.dot11SoftwareRadioState != DOT11_RADIO_STATE_OFF
+                        && phy.dot11HardwareRadioState != DOT11_RADIO_STATE_OFF
+                    {
+                        any_radio_on = true;
+                    }
+                }
+            }
+            unsafe { WlanFreeMemory(radio_ptr) };
+        }
+
+        if connected_ssid.is_empty() && iface.isState == WLAN_INTERFACE_STATE_CONNECTED {
+            let mut conn_size = 0u32;
+            let mut conn_ptr: *mut std::ffi::c_void = ptr::null_mut();
+            if unsafe {
+                WlanQueryInterface(
+                    handle,
+                    &iface.InterfaceGuid,
+                    WLAN_INTF_OPCODE_CURRENT_CONNECTION,
+                    ptr::null(),
+                    &mut conn_size,
+                    &mut conn_ptr,
+                    ptr::null_mut(),
+                )
+            } == 0
+                && !conn_ptr.is_null()
+            {
+                if (conn_size as usize) >= std::mem::size_of::<WLAN_CONNECTION_ATTRIBUTES>() {
+                    let conn = unsafe { &*(conn_ptr as *const WLAN_CONNECTION_ATTRIBUTES) };
+                    if conn.isState == WLAN_INTERFACE_STATE_CONNECTED {
+                        let s = decode_ssid(&conn.wlanAssociationAttributes.dot11Ssid);
+                        if !s.is_empty() {
+                            connected_ssid = s;
+                        }
+                    }
+                }
+                unsafe { WlanFreeMemory(conn_ptr) };
+            }
+        }
+
+        let mut net_list_ptr: *mut WLAN_AVAILABLE_NETWORK_LIST = ptr::null_mut();
+        if unsafe {
+            WlanGetAvailableNetworkList(handle, &iface.InterfaceGuid, 0, ptr::null(), &mut net_list_ptr)
+        } == 0
+            && !net_list_ptr.is_null()
+        {
+            let net_count = unsafe { (*net_list_ptr).dwNumberOfItems as usize };
+            let slice = if net_count > 0 {
+                unsafe {
+                    std::slice::from_raw_parts((*net_list_ptr).Network.as_ptr(), net_count)
+                }
+            } else {
+                &[]
+            };
+            for net in slice {
+                let ssid = decode_ssid(&net.dot11Ssid);
+                if ssid.is_empty() {
+                    continue;
+                }
+                let is_connected = (net.dwFlags & WLAN_AVAILABLE_NETWORK_CONNECTED) != 0
+                    || ssid == connected_ssid;
+                let is_saved = (net.dwFlags & WLAN_AVAILABLE_NETWORK_HAS_PROFILE) != 0;
+                let is_secure = net.bSecurityEnabled != 0;
+                let signal = net.wlanSignalQuality.min(100);
+                let auth = net.dot11DefaultAuthAlgorithm;
+                let cipher = net.dot11DefaultCipherAlgorithm;
+
+                if is_connected && connected_ssid.is_empty() {
+                    connected_ssid = ssid.clone();
+                }
+
+                by_ssid
+                    .entry(ssid.clone())
+                    .and_modify(|entry| {
+                        if signal > entry.0.signal {
+                            entry.0.signal = signal;
+                        }
+                        entry.0.is_connected |= is_connected;
+                        entry.0.is_saved |= is_saved;
+                        if is_saved || entry.1 == 0 {
+                            entry.1 = auth;
+                            entry.2 = cipher;
+                        }
+                    })
+                    .or_insert((
+                        WifiNetwork {
+                            ssid,
+                            signal,
+                            is_connected,
+                            is_secure,
+                            is_saved,
+                        },
+                        auth,
+                        cipher,
+                    ));
+            }
+            unsafe { WlanFreeMemory(net_list_ptr as *mut _) };
+        }
+    }
+
+    Some(NativeWifiSnapshot {
+        has_adapter: true,
+        any_radio_on: if saw_radio_state { Some(any_radio_on) } else { None },
+        connected_ssid,
+        networks: by_ssid.into_values().collect(),
+    })
+}
+
+fn escape_wlan_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn resolve_profile_auth_cipher(
+    has_password: bool,
+    detected_auth: Option<u32>,
+    detected_cipher: Option<u32>,
+) -> (&'static str, &'static str) {
+    if !has_password {
+        if detected_auth == Some(10) {
+            return ("OWE", "AES");
+        }
+        return ("open", "none");
+    }
+    match detected_auth {
+        Some(9) => ("WPA3SAE", "AES"),
+        Some(4) => {
+            let enc = if detected_cipher == Some(2) { "TKIP" } else { "AES" };
+            ("WPAPSK", enc)
+        }
+        _ => {
+            let enc = if detected_cipher == Some(2) { "TKIP" } else { "AES" };
+            ("WPA2PSK", enc)
+        }
+    }
+}
+
+fn build_wlan_profile_xml(
+    ssid: &str,
+    password: Option<&str>,
+    detected_auth: Option<u32>,
+    detected_cipher: Option<u32>,
+) -> String {
+    let safe_ssid = escape_wlan_xml(ssid);
+    let (auth_str, enc_str) =
+        resolve_profile_auth_cipher(password.is_some(), detected_auth, detected_cipher);
+
+    let shared_key_xml = match password {
+        Some(pass) => {
+            let safe_pass = escape_wlan_xml(pass);
+            format!(
+                "\n            <sharedKey>\n                <keyType>passPhrase</keyType>\n                <protected>false</protected>\n                <keyMaterial>{safe_pass}</keyMaterial>\n            </sharedKey>"
+            )
+        }
+        None => String::new(),
+    };
+
+    format!(
+        r#"<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+    <name>{safe_ssid}</name>
+    <SSIDConfig>
+        <SSID>
+            <name>{safe_ssid}</name>
+        </SSID>
+    </SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>auto</connectionMode>
+    <MSM>
+        <security>
+            <authEncryption>
+                <authentication>{auth_str}</authentication>
+                <encryption>{enc_str}</encryption>
+                <useOneX>false</useOneX>
+            </authEncryption>{shared_key_xml}
+        </security>
+    </MSM>
+</WLANProfile>"#
+    )
 }
 
 /// Trigger background scan without blocking the caller thread
@@ -197,30 +585,100 @@ pub async fn get_wifi_status() -> Result<WifiStatus, String> {
             // Trigger active scan in background for subsequent updates
             trigger_background_scan();
 
+            // Prefer locale-independent Native Wifi API, falling back to netsh if needed.
+            if let Some(native) = query_native_wifi_snapshot() {
+                let radio_state = get_radio_state(RadioKind::WiFi);
+                let enabled = if !native.connected_ssid.is_empty() {
+                    true
+                } else if let Some(phy_on) = native.any_radio_on {
+                    phy_on
+                } else if let Some(state) = radio_state {
+                    state
+                } else {
+                    native.has_adapter
+                };
+
+                let connected_ssid = native.connected_ssid;
+                let mut networks: Vec<WifiNetwork> = native
+                    .networks
+                    .into_iter()
+                    .map(|(mut net, _, _)| {
+                        if !connected_ssid.is_empty() && net.ssid == connected_ssid {
+                            net.is_connected = true;
+                        }
+                        net
+                    })
+                    .collect();
+
+                if !connected_ssid.is_empty()
+                    && !networks.iter().any(|n| n.ssid == connected_ssid)
+                {
+                    networks.insert(
+                        0,
+                        WifiNetwork {
+                            ssid: connected_ssid.clone(),
+                            signal: 85,
+                            is_connected: true,
+                            is_secure: true,
+                            is_saved: true,
+                        },
+                    );
+                }
+
+                networks.sort_by(|a, b| {
+                    b.is_connected
+                        .cmp(&a.is_connected)
+                        .then_with(|| b.is_saved.cmp(&a.is_saved))
+                        .then_with(|| b.signal.cmp(&a.signal))
+                });
+
+                return Ok(WifiStatus {
+                    enabled,
+                    connected_ssid,
+                    networks,
+                });
+            }
+
             let mut connected_ssid = String::new();
             let mut has_adapter = false;
-            let mut software_radio_off = false;
+            let mut radio_explicit_off = false;
 
-            // 1. Check interfaces
+            // 1. Check interfaces (fallback)
             if let Ok(output) = Command::new("netsh")
                 .creation_flags(CREATE_NO_WINDOW)
                 .args(["wlan", "show", "interfaces"])
                 .output()
             {
                 let stdout = String::from_utf8_lossy(&output.stdout);
+                let mut current_state_connected = false;
+                let mut pending_ssid = String::new();
                 for line in stdout.lines() {
                     let trimmed = line.trim();
                     if trimmed.starts_with("Name") && trimmed.contains(':') {
                         has_adapter = true;
+                        current_state_connected = false;
+                        pending_ssid.clear();
                     } else if trimmed.starts_with("Radio status") {
-                        if trimmed.to_lowercase().contains("software off") {
-                            software_radio_off = true;
+                        let lower = trimmed.to_lowercase();
+                        if lower.contains("software off") || lower.contains("hardware off") {
+                            radio_explicit_off = true;
+                        }
+                    } else if trimmed.starts_with("State") && trimmed.contains(':') {
+                        if let Some((_, val)) = trimmed.split_once(':') {
+                            let st = val.trim().to_ascii_lowercase();
+                            current_state_connected = matches!(st.as_str(), "connected" | "terhubung");
+                            if current_state_connected && !pending_ssid.is_empty() && connected_ssid.is_empty() {
+                                connected_ssid = pending_ssid.clone();
+                            }
                         }
                     } else if trimmed.starts_with("SSID") && !trimmed.starts_with("BSSID") && trimmed.contains(':') {
                         if let Some((_, val)) = trimmed.split_once(':') {
                             let s = val.trim();
                             if !s.is_empty() {
-                                connected_ssid = s.to_string();
+                                pending_ssid = s.to_string();
+                                if current_state_connected && connected_ssid.is_empty() {
+                                    connected_ssid = pending_ssid.clone();
+                                }
                             }
                         }
                     }
@@ -231,7 +689,7 @@ pub async fn get_wifi_status() -> Result<WifiStatus, String> {
             let radio_state = get_radio_state(RadioKind::WiFi);
             let enabled = if !connected_ssid.is_empty() {
                 true
-            } else if software_radio_off {
+            } else if radio_explicit_off {
                 false
             } else if let Some(state) = radio_state {
                 state
@@ -411,11 +869,132 @@ pub async fn toggle_wifi(enable: bool) -> Result<bool, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[cfg(windows)]
+fn verify_ssid_associated(ssid: &str) -> bool {
+    for _ in 0..24 {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if let Some(snap) = query_native_wifi_snapshot() {
+            if snap.connected_ssid == ssid
+                || snap
+                    .networks
+                    .iter()
+                    .any(|(n, _, _)| n.ssid == ssid && n.is_connected)
+            {
+                return true;
+            }
+            continue;
+        }
+        if let Ok(output) = Command::new("netsh")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["wlan", "show", "interfaces"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut current_state: Option<String> = None;
+            let mut current_ssid: Option<String> = None;
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                if let Some((key, val)) = trimmed.split_once(':') {
+                    let k = key.trim();
+                    let v = val.trim();
+                    if k.eq_ignore_ascii_case("Name") {
+                        current_state = None;
+                        current_ssid = None;
+                    } else if k.eq_ignore_ascii_case("State") {
+                        current_state = Some(v.to_ascii_lowercase());
+                    } else if k.eq_ignore_ascii_case("SSID") && !k.eq_ignore_ascii_case("BSSID") {
+                        current_ssid = Some(v.to_string());
+                    }
+                    if current_ssid.as_deref() == Some(ssid)
+                        && matches!(current_state.as_deref(), Some("connected" | "terhubung"))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+fn add_temporary_profile_and_connect(
+    ssid: &str,
+    password: Option<&str>,
+    verify_connection: bool,
+) -> Result<(), String> {
+    let (detected_auth, detected_cipher) = query_native_wifi_snapshot()
+        .and_then(|snap| {
+            snap.networks
+                .into_iter()
+                .find(|(n, _, _)| n.ssid == ssid)
+                .map(|(_, auth, cipher)| (Some(auth), Some(cipher)))
+        })
+        .unwrap_or((None, None));
+
+    let profile_xml = build_wlan_profile_xml(ssid, password, detected_auth, detected_cipher);
+    let seq = WLAN_PROFILE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let temp_file = std::env::temp_dir().join(format!(
+        "wlan_prof_{}_{}.xml",
+        std::process::id(),
+        seq
+    ));
+    std::fs::write(&temp_file, profile_xml).map_err(|e| e.to_string())?;
+
+    let add_output = Command::new("netsh")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["wlan", "add", "profile", &format!("filename={}", temp_file.display()), "user=current"])
+        .output();
+    let _ = std::fs::remove_file(&temp_file);
+
+    let add_output = add_output.map_err(|e| e.to_string())?;
+    if !add_output.status.success() {
+        return Err(format_command_error(&add_output, "Failed to add Wi-Fi profile"));
+    }
+
+    let connect_output = Command::new("netsh")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["wlan", "connect", &format!("name={}", ssid)])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !connect_output.status.success() {
+        let _ = Command::new("netsh")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["wlan", "delete", "profile", &format!("name={}", ssid)])
+            .output();
+        return Err(format_command_error(&connect_output, "Failed to connect to Wi-Fi"));
+    }
+
+    if verify_connection && !verify_ssid_associated(ssid) {
+        let _ = Command::new("netsh")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["wlan", "delete", "profile", &format!("name={}", ssid)])
+            .output();
+        return Err(format!("Failed to connect to '{}'", ssid));
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn connect_wifi(ssid: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(windows)]
         {
+            let needs_open_profile = query_native_wifi_snapshot()
+                .and_then(|snap| {
+                    snap.networks
+                        .into_iter()
+                        .find(|(n, _, _)| n.ssid == ssid)
+                        .map(|(n, _, _)| !n.is_saved && !n.is_secure)
+                })
+                .unwrap_or(false);
+
+            if needs_open_profile {
+                return add_temporary_profile_and_connect(&ssid, None, true);
+            }
+
             let output = Command::new("netsh")
                 .creation_flags(CREATE_NO_WINDOW)
                 .args(["wlan", "connect", &format!("name={}", ssid)])
@@ -425,7 +1004,20 @@ pub async fn connect_wifi(ssid: String) -> Result<(), String> {
             if output.status.success() {
                 Ok(())
             } else {
-                Err(String::from_utf8_lossy(&output.stderr).to_string())
+                // Retry with a generated open WLAN profile when the target open AP is not yet saved.
+                let is_open_ap = query_native_wifi_snapshot()
+                    .and_then(|snap| {
+                        snap.networks
+                            .into_iter()
+                            .find(|(n, _, _)| n.ssid == ssid)
+                            .map(|(n, _, _)| !n.is_secure)
+                    })
+                    .unwrap_or(false);
+                if is_open_ap {
+                    add_temporary_profile_and_connect(&ssid, None, true)
+                } else {
+                    Err(format_command_error(&output, "Failed to connect to Wi-Fi"))
+                }
             }
         }
         #[cfg(not(windows))]
@@ -442,125 +1034,7 @@ pub async fn connect_wifi_with_password(ssid: String, password: String) -> Resul
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(windows)]
         {
-            let escape_xml = |s: &str| -> String {
-                s.replace('&', "&amp;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;")
-                    .replace('"', "&quot;")
-                    .replace('\'', "&apos;")
-            };
-
-            let safe_ssid = escape_xml(&ssid);
-            let safe_pass = escape_xml(&password);
-
-            let profile_xml = format!(
-r#"<?xml version="1.0"?>
-<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
-    <name>{safe_ssid}</name>
-    <SSIDConfig>
-        <SSID>
-            <name>{safe_ssid}</name>
-        </SSID>
-    </SSIDConfig>
-    <connectionType>ESS</connectionType>
-    <connectionMode>auto</connectionMode>
-    <MSM>
-        <security>
-            <authEncryption>
-                <authentication>WPA2PSK</authentication>
-                <encryption>AES</encryption>
-                <useOneX>false</useOneX>
-            </authEncryption>
-            <sharedKey>
-                <keyType>passPhrase</keyType>
-                <protected>false</protected>
-                <keyMaterial>{safe_pass}</keyMaterial>
-            </sharedKey>
-        </security>
-    </MSM>
-</WLANProfile>"#
-            );
-
-            let seq = WLAN_PROFILE_SEQ.fetch_add(1, Ordering::Relaxed);
-            let temp_file = std::env::temp_dir().join(format!(
-                "wlan_prof_{}_{}.xml",
-                std::process::id(),
-                seq
-            ));
-            std::fs::write(&temp_file, profile_xml).map_err(|e| e.to_string())?;
-
-            let add_output = Command::new("netsh")
-                .creation_flags(CREATE_NO_WINDOW)
-                .args(["wlan", "add", "profile", &format!("filename={}", temp_file.display()), "user=current"])
-                .output();
-
-            let _ = std::fs::remove_file(&temp_file);
-
-            let add_output = add_output.map_err(|e| e.to_string())?;
-            if !add_output.status.success() {
-                return Err(String::from_utf8_lossy(&add_output.stderr).to_string());
-            }
-
-            let connect_output = Command::new("netsh")
-                .creation_flags(CREATE_NO_WINDOW)
-                .args(["wlan", "connect", &format!("name={}", ssid)])
-                .output()
-                .map_err(|e| e.to_string())?;
-
-            if !connect_output.status.success() {
-                let _ = Command::new("netsh")
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .args(["wlan", "delete", "profile", &format!("name={}", ssid)])
-                    .output();
-                return Err(String::from_utf8_lossy(&connect_output.stderr).to_string());
-            }
-
-            let is_ssid_connected = |stdout: &str| -> bool {
-                let mut current_state: Option<String> = None;
-                let mut current_ssid: Option<String> = None;
-                for line in stdout.lines() {
-                    let trimmed = line.trim();
-                    if let Some((key, val)) = trimmed.split_once(':') {
-                        let k = key.trim();
-                        let v = val.trim();
-                        if k.eq_ignore_ascii_case("Name") {
-                            current_state = None;
-                            current_ssid = None;
-                        } else if k.eq_ignore_ascii_case("State") {
-                            current_state = Some(v.to_ascii_lowercase());
-                        } else if k.eq_ignore_ascii_case("SSID") && !k.eq_ignore_ascii_case("BSSID") {
-                            current_ssid = Some(v.to_string());
-                        }
-                        if current_ssid.as_deref() == Some(ssid.as_str())
-                            && matches!(current_state.as_deref(), Some("connected" | "terhubung"))
-                        {
-                            return true;
-                        }
-                    }
-                }
-                false
-            };
-
-            // Verify actual association/connection (authentication failure disconnects after handshake).
-            for _ in 0..24 {
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                if let Ok(output) = Command::new("netsh")
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .args(["wlan", "show", "interfaces"])
-                    .output()
-                {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    if is_ssid_connected(&stdout) {
-                        return Ok(());
-                    }
-                }
-            }
-
-            let _ = Command::new("netsh")
-                .creation_flags(CREATE_NO_WINDOW)
-                .args(["wlan", "delete", "profile", &format!("name={}", ssid)])
-                .output();
-            Err(format!("Failed to connect to '{}'", ssid))
+            add_temporary_profile_and_connect(&ssid, Some(&password), true)
         }
         #[cfg(not(windows))]
         {
@@ -585,7 +1059,7 @@ pub async fn disconnect_wifi() -> Result<(), String> {
             if output.status.success() {
                 Ok(())
             } else {
-                Err(String::from_utf8_lossy(&output.stderr).to_string())
+                Err(format_command_error(&output, "Failed to disconnect Wi-Fi"))
             }
         }
         #[cfg(not(windows))]
@@ -905,4 +1379,55 @@ pub async fn toggle_hotspot(enable: bool) -> Result<bool, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::ExitStatus;
+
+    #[cfg(windows)]
+    fn exit_status_code(code: u32) -> ExitStatus {
+        use std::os::windows::process::ExitStatusExt;
+        ExitStatus::from_raw(code)
+    }
+
+    #[test]
+    fn test_build_wlan_profile_xml_auth_cipher_and_escaping() {
+        let open_xml = build_wlan_profile_xml("Cafe & <Free>", None, Some(1), None);
+        assert!(open_xml.contains("<name>Cafe &amp; &lt;Free&gt;</name>"));
+        assert!(open_xml.contains("<authentication>open</authentication>"));
+        assert!(open_xml.contains("<encryption>none</encryption>"));
+        assert!(!open_xml.contains("<sharedKey>"));
+
+        let wpa3_xml = build_wlan_profile_xml("HomeNet", Some("p@ss&word"), Some(9), None);
+        assert!(wpa3_xml.contains("<authentication>WPA3SAE</authentication>"));
+        assert!(wpa3_xml.contains("<encryption>AES</encryption>"));
+        assert!(wpa3_xml.contains("<keyMaterial>p@ss&amp;word</keyMaterial>"));
+
+        let legacy_xml = build_wlan_profile_xml("OldRouter", Some("secret"), Some(4), Some(2));
+        assert!(legacy_xml.contains("<authentication>WPAPSK</authentication>"));
+        assert!(legacy_xml.contains("<encryption>TKIP</encryption>"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_format_command_error_uses_stdout_when_stderr_empty() {
+        let out = std::process::Output {
+            status: exit_status_code(1),
+            stdout: b"Profil nirkabel tidak ditemukan.".to_vec(),
+            stderr: Vec::new(),
+        };
+        assert_eq!(
+            format_command_error(&out, "fallback"),
+            "Profil nirkabel tidak ditemukan."
+        );
+
+        let empty_out = std::process::Output {
+            status: exit_status_code(1),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        };
+        assert_eq!(format_command_error(&empty_out, "fallback"), "fallback");
+    }
 }

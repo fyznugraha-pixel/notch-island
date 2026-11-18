@@ -132,3 +132,28 @@ export function getPerceivedLuminance(hex?: string | null): number {
   const b = parseInt(clean.substring(4, 6), 16) / 255;
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
+
+export function stripHexPrefix(raw: string): string {
+  return raw.replace(/#/g, "").trim().slice(0, 6);
+}
+
+// Commit only full 6-digit hex while typing so 3-digit shorthand (#abc) doesn't expand mid-keystroke
+export function parseLiveHexInput(raw: string): {
+  draftValue: string;
+  committedHex: string | null;
+} {
+  const clean = stripHexPrefix(raw);
+  const draftValue = `#${clean}`;
+  if (/^[0-9A-Fa-f]{6}$/.test(clean)) {
+    return { draftValue, committedHex: `#${clean.toLowerCase()}` };
+  }
+  return { draftValue, committedHex: null };
+}
+
+export function commitHexDraft(raw: string): string | null {
+  const clean = stripHexPrefix(raw);
+  if (/^[0-9A-Fa-f]{3}$/.test(clean) || /^[0-9A-Fa-f]{6}$/.test(clean)) {
+    return normalizeHex(`#${clean}`);
+  }
+  return null;
+}

@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use tauri::Manager;
 use windows::core::w;
 use windows::Win32::Foundation::{BOOL, COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
@@ -1161,7 +1160,7 @@ fn ensure_overlay_thread() {
                 }
 
                 let mut msg = MSG::default();
-                while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
+                while GetMessageW(&mut msg, HWND::default(), 0, 0).0 > 0 {
                     match msg.message {
                         WM_APP_SYNC_PREVIEWS => {
                             sync_slots_from_desired(&mut slots);
@@ -1259,7 +1258,7 @@ fn post_overlay_msg(msg: u32) {
 
 #[tauri::command]
 pub fn sync_window_previews(
-    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     slots: Vec<WindowPreviewSlotInput>,
 ) -> Vec<isize> {
     if slots.is_empty() {
@@ -1267,15 +1266,11 @@ pub fn sync_window_previews(
         return Vec::new();
     }
 
-    let Some(nav) = app.get_webview_window("navbar") else {
+    let Ok(raw_nav_hwnd) = window.hwnd() else {
         clear_window_previews();
         return Vec::new();
     };
-    let Ok(raw_nav_hwnd) = nav.hwnd() else {
-        clear_window_previews();
-        return Vec::new();
-    };
-    let scale_factor = nav.scale_factor().unwrap_or(1.0);
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
     let live_hwnds: Vec<isize> = slots
         .iter()
         .take(MAX_PREVIEW_SLOTS)
