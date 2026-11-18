@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, Ordering};
+use std::sync::OnceLock;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     keybd_event, GetAsyncKeyState, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VK_BACK, VK_CONTROL,
@@ -20,6 +21,8 @@ static HOOK_HANDLE: AtomicIsize = AtomicIsize::new(0);
 static WIN_KEY_MASK: AtomicU8 = AtomicU8::new(0);
 static WIN_KEY_INTERRUPTED: AtomicBool = AtomicBool::new(false);
 static HOTKEY_THREAD_STARTED: AtomicBool = AtomicBool::new(false);
+static KILL_SWITCH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static HOTKEY_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
 const BIT_LWIN: u8 = 1;
 const BIT_RWIN: u8 = 2;
@@ -167,23 +170,31 @@ fn evaluate_hotkey_event(
         } else {
             BIT_RWIN
         };
+        let extra_mod = mods.ctrl || mods.alt || mods.shift;
         if is_down {
+            // Reconcile stuck mask when Win release happened on secure desktop (Lock Screen / UAC).
+            if state.is_win_down() && !mods.win_physically_down {
+                state.win_key_mask = 0;
+                state.win_key_interrupted = false;
+            }
             let was_down = state.is_win_down();
             state.win_key_mask |= win_bit;
             if !was_down {
-                state.win_key_interrupted = false;
-                if flags.use_gili_start {
+                state.win_key_interrupted = extra_mod;
+                if !extra_mod && flags.use_gili_start {
                     return HotkeyAction::WinKeyDownInjectNeutralDelayed;
                 }
+            } else if extra_mod {
+                state.win_key_interrupted = true;
             }
         } else if is_up {
             let was_down = state.is_win_down();
             state.win_key_mask &= !win_bit;
             if !state.is_win_down() {
-                let interrupted = state.win_key_interrupted;
+                let interrupted = state.win_key_interrupted || extra_mod;
                 state.win_key_interrupted = false;
 
-                // Solo Win key released without any other key pressed in between
+                // Solo Win key released without any modifier or other key pressed in between
                 if was_down && !interrupted && flags.use_gili_start {
                     return HotkeyAction::WinSoloStart;
                 }
@@ -277,19 +288,11 @@ unsafe extern "system" fn low_level_keyboard_proc(
         return CallNextHookEx(None, n_code, wparam, lparam);
     }
 
-    let mods = if is_win_key {
-        ModifierState::default()
-    } else {
-        ModifierState {
-            ctrl: is_vk_physically_down(VK_CONTROL.0),
-            alt: is_vk_physically_down(VK_MENU.0),
-            shift: is_vk_physically_down(VK_SHIFT.0),
-            win_physically_down: if win_down_now {
-                is_win_physically_down()
-            } else {
-                false
-            },
-        }
+    let mods = ModifierState {
+        ctrl: is_vk_physically_down(VK_CONTROL.0),
+        alt: is_vk_physically_down(VK_MENU.0),
+        shift: is_vk_physically_down(VK_SHIFT.0),
+        win_physically_down: is_win_physically_down(),
     };
 
     let flags = HotkeyFlags::from_atomics();
@@ -303,13 +306,22 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
     match action {
         HotkeyAction::TriggerEmergencyKillSwitch => {
-            trigger_emergency_kill_switch(None);
-            return LRESULT(1); // Suppress event
+            if !KILL_SWITCH_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+                std::thread::spawn(|| {
+                    trigger_emergency_kill_switch(HOTKEY_APP_HANDLE.get());
+                    KILL_SWITCH_IN_FLIGHT.store(false, Ordering::SeqCst);
+                });
+            }
+            return LRESULT(1); // Suppress event without blocking WH_KEYBOARD_LL
         }
         HotkeyAction::WinKeyDownInjectNeutralDelayed => {
             std::thread::spawn(|| {
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                inject_neutral_key();
+                if WIN_KEY_MASK.load(Ordering::SeqCst) != 0
+                    && !WIN_KEY_INTERRUPTED.load(Ordering::SeqCst)
+                {
+                    inject_neutral_key();
+                }
             });
         }
         HotkeyAction::WinSoloStart => {
@@ -352,7 +364,8 @@ unsafe extern "system" fn low_level_keyboard_proc(
 }
 
 /// Starts the dedicated background OS thread running the WH_KEYBOARD_LL message loop.
-pub fn init_taskbar_hotkey_layer() {
+pub fn init_taskbar_hotkey_layer(app_handle: tauri::AppHandle) {
+    let _ = HOTKEY_APP_HANDLE.set(app_handle);
     if HOTKEY_THREAD_STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -377,7 +390,7 @@ pub fn init_taskbar_hotkey_layer() {
                 HOOK_HANDLE.store(hook.0 as isize, Ordering::SeqCst);
 
                 let mut msg = MSG::default();
-                while GetMessageW(&mut msg, HWND(std::ptr::null_mut()), 0, 0).as_bool() {
+                while GetMessageW(&mut msg, HWND(std::ptr::null_mut()), 0, 0).0 > 0 {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }

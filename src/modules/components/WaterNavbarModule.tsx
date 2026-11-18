@@ -6,21 +6,13 @@ import { Tooltip } from "../../components/ui/Tooltip";
 import { getLocalDateKey, useMinuteTick } from "../../utils/dateTime";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
-
-const WATER_KEY = "gili_water_log_v2";
-
-function readTodayWater(dateKey: string): number {
-  try {
-    const raw = localStorage.getItem(WATER_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.date === dateKey && typeof parsed.amount === "number") {
-        return Math.max(0, parsed.amount);
-      }
-    }
-  } catch {}
-  return 0;
-}
+import {
+  WATER_STORAGE_KEY,
+  getDailyIntake,
+  logDrink,
+  resetTodayWaterIntake,
+} from "../../services/waterService";
+import { listenCrossWindowEvent } from "../../utils/crossWindowSync";
 
 export const WaterNavbarModule: React.FC<NavbarModuleProps> = ({
   view = "compact",
@@ -35,29 +27,44 @@ export const WaterNavbarModule: React.FC<NavbarModuleProps> = ({
   const anchorRef = useRef<HTMLDivElement>(null);
   const now = useMinuteTick(60000);
   const todayKey = getLocalDateKey(now);
-  const [ml, setMl] = useState<number>(() => readTodayWater(todayKey));
-  const targetMl = 2000;
+  const [daily, setDaily] = useState(() => getDailyIntake(now));
 
   useEffect(() => {
-    setMl(readTodayWater(todayKey));
+    setDaily(getDailyIntake());
   }, [todayKey]);
 
-  const updateWater = (nextAmount: number) => {
-    const clamped = Math.max(0, nextAmount);
-    setMl(clamped);
-    try {
-      localStorage.setItem(
-        WATER_KEY,
-        JSON.stringify({ date: todayKey, amount: clamped })
-      );
-    } catch {}
+  useEffect(() => {
+    const sync = () => setDaily(getDailyIntake());
+    const unsubCross = listenCrossWindowEvent("gili_water_changed", sync);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === WATER_STORAGE_KEY || e.key === null) sync();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      unsubCross();
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  const ml = daily.totalMl;
+  const targetMl = daily.targetMl || 3000;
+
+  const handleAddDrink = (amountMl: number) => {
+    logDrink(amountMl, true);
+    setDaily(getDailyIntake());
   };
 
-  const progress = Math.min(1, ml / targetMl);
+  const handleResetToday = () => {
+    resetTodayWaterIntake();
+    setDaily(getDailyIntake());
+  };
+
+  const progress = targetMl > 0 ? Math.min(1, ml / targetMl) : 0;
   const litersDecimal = (ml / 1000).toFixed(1);
-  const litersText = `${
-    lang === "id" ? litersDecimal.replace(".", ",") : litersDecimal
-  } / 2 L`;
+  const targetLStr = Number((targetMl / 1000).toFixed(1)).toString();
+  const fmtNum = (val: string) => (lang === "id" ? val.replace(".", ",") : val);
+  const litersText = `${fmtNum(litersDecimal)} / ${fmtNum(targetLStr)} L`;
+  const remainingMl = Math.max(0, targetMl - ml);
   const handleToggle = () => setIsOpen((v) => !v);
 
   return (
@@ -146,8 +153,8 @@ export const WaterNavbarModule: React.FC<NavbarModuleProps> = ({
                   ? tx(lang, "Daily hydration met!", "Hidrasi harian terpenuhi!")
                   : tx(
                       lang,
-                      `${targetMl - ml} ml remaining today`,
-                      `Kurang ${targetMl - ml} ml lagi hari ini`
+                      `${remainingMl} ml remaining today`,
+                      `Kurang ${remainingMl} ml lagi hari ini`
                     )}
               </div>
             </div>
@@ -158,7 +165,7 @@ export const WaterNavbarModule: React.FC<NavbarModuleProps> = ({
             >
               <button
                 type="button"
-                onClick={() => updateWater(0)}
+                onClick={handleResetToday}
                 className={`w-7 h-7 shrink-0 rounded-[8px] bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white flex items-center justify-center cursor-pointer ${TRIGGER_FOCUS_RING}`}
               >
                 <RotateCcw size={12} />
@@ -178,7 +185,7 @@ export const WaterNavbarModule: React.FC<NavbarModuleProps> = ({
               <button
                 key={amt}
                 type="button"
-                onClick={() => updateWater(ml + amt)}
+                onClick={() => handleAddDrink(amt)}
                 className={`min-w-0 px-1 py-1.5 rounded-[8px] border text-[11px] font-semibold flex items-center justify-center gap-0.5 transition-colors cursor-pointer ${TRIGGER_FOCUS_RING} ${
                   isLight
                     ? "bg-sky-600/15 hover:bg-sky-600/25 border-sky-600/35 text-sky-700"

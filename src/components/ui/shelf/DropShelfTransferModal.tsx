@@ -37,7 +37,7 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
   // Generate QR Code with proper quiet zone margin and high resolution
   useEffect(() => {
     if (!session?.url) return;
-    setSecondsRemaining(session.expires_in_sec || 300);
+    setSecondsRemaining(session.expires_in_sec ?? 300);
 
     QRCode.toDataURL(session.url, {
       margin: 2,
@@ -104,6 +104,7 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
   const isSend = mode === "send";
   const isReceive = mode === "receive";
   const isReceiving = mode === "receiving";
+  const isExpired = secondsRemaining <= 0;
 
   const stepBadgeClass = isLightMode
     ? "w-3.5 h-3.5 rounded-full bg-black/[0.06] border border-black/10 text-[9px] font-bold text-neutral-700 flex items-center justify-center shrink-0"
@@ -156,18 +157,26 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
           </div>
         ) : (
           <div className={`${statusPillClass} tabular-nums`}>
-            <span className={isLightMode ? "text-neutral-500" : "text-zinc-400"}>
-              {isSend ? t("shelf_waiting_phone") : t("shelf_receive_mode_active")} ·
-            </span>
-            <span
-              className={
-                secondsRemaining < 60
-                  ? isLightMode ? "text-amber-600 font-semibold" : "text-amber-400 font-semibold"
-                  : isLightMode ? "text-[#1d1d1f] font-semibold" : "text-white font-semibold"
-              }
-            >
-              {t("shelf_expires_in", { time: formattedTime })}
-            </span>
+            {isExpired ? (
+              <span className={isLightMode ? "text-rose-600 font-semibold" : "text-rose-400 font-semibold"}>
+                {isEn ? "Session expired" : "Sesi berakhir"}
+              </span>
+            ) : (
+              <>
+                <span className={isLightMode ? "text-neutral-500" : "text-zinc-400"}>
+                  {isSend ? t("shelf_waiting_phone") : t("shelf_receive_mode_active")} ·
+                </span>
+                <span
+                  className={
+                    secondsRemaining < 60
+                      ? isLightMode ? "text-amber-600 font-semibold" : "text-amber-400 font-semibold"
+                      : isLightMode ? "text-[#1d1d1f] font-semibold" : "text-white font-semibold"
+                  }
+                >
+                  {t("shelf_expires_in", { time: formattedTime })}
+                </span>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -342,8 +351,14 @@ export const DropShelfTransferModal: React.FC<DropShelfTransferModalProps> = ({
               </div>
 
               {/* Bottom Notice */}
-              <div className="text-[9.5px] text-zinc-400 truncate">
-                {isSend ? (
+              <div className={`text-[9.5px] truncate ${isExpired ? (isLightMode ? "text-rose-600 font-medium" : "text-rose-400 font-medium") : "text-zinc-400"}`}>
+                {isExpired ? (
+                  <span>
+                    {isEn
+                      ? "Link expired. Cancel and restart to generate a new QR."
+                      : "Tautan kadaluarsa. Batalkan dan mulai ulang untuk QR baru."}
+                  </span>
+                ) : isSend ? (
                   <span>
                     {session?.files?.length || 0} file · {totalSharedSize}. {t("shelf_local_only")}
                   </span>

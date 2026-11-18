@@ -6,6 +6,12 @@ import {
   WeatherInfo,
   fetchLiveWeather,
 } from "../../services/ambientEnvironmentService";
+import {
+  getSavedCustomCity,
+  saveCustomCity,
+  subscribeWeatherChange,
+} from "../../services/weatherService";
+import { useCityModulePolling } from "../../hooks/useCityModulePolling";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
@@ -52,39 +58,53 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
     } catch {}
     return null;
   });
-  const [cityInput, setCityInput] = useState(weather?.city || "Bandung");
+  const initialCity = weather?.city || getSavedCustomCity()?.name || "Bandung";
+  const [cityInput, setCityInput] = useState(initialCity);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const loadWeather = async (targetCity: string) => {
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const next = await fetchLiveWeather(targetCity);
-      if (next) {
-        setWeather(next);
-        setCityInput(next.city);
-        localStorage.setItem(WEATHER_KEY, JSON.stringify(next));
-      } else {
-        setErrorMsg(tx(lang, "City not found.", "Kota tidak ditemukan."));
+  const { runFetch: loadWeather, setActiveCity } = useCityModulePolling({
+    initialCity,
+    fetcher: fetchLiveWeather,
+    onLoadingChange: setLoading,
+    onErrorClear: () => setErrorMsg(null),
+    onSuccess: (next, _city, isManual) => {
+      setActiveCity(next.city);
+      setWeather(next);
+      setCityInput(next.city);
+      localStorage.setItem(WEATHER_KEY, JSON.stringify(next));
+      if (
+        isManual &&
+        typeof next.latitude === "number" &&
+        typeof next.longitude === "number"
+      ) {
+        saveCustomCity({
+          name: next.city,
+          latitude: next.latitude,
+          longitude: next.longitude,
+          source: "custom",
+        });
       }
-    } catch {
+    },
+    onNotFound: () => {
+      setErrorMsg(tx(lang, "City not found.", "Kota tidak ditemukan."));
+    },
+    onNetworkError: () => {
       setErrorMsg(
         tx(lang, "Failed to load weather data.", "Gagal mengambil data cuaca.")
       );
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+  });
 
   useEffect(() => {
-    loadWeather(weather?.city || "Bandung");
-    const id = setInterval(
-      () => loadWeather(weather?.city || "Bandung"),
-      30 * 60000
-    );
-    return () => clearInterval(id);
-  }, []);
+    return subscribeWeatherChange(() => {
+      const saved = getSavedCustomCity();
+      if (saved?.name) {
+        setActiveCity(saved.name);
+        loadWeather(saved.name, false);
+      }
+    });
+  }, [loadWeather, setActiveCity]);
 
   const displayCity = weather?.city || cityInput || "Bandung";
   const tempLabel = weather ? `${weather.temp}°` : "--°";
@@ -189,7 +209,7 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (cityInput.trim()) loadWeather(cityInput.trim());
+              if (cityInput.trim()) loadWeather(cityInput.trim(), true);
             }}
             className="flex items-center gap-1.5"
           >

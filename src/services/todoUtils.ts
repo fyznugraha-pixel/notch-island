@@ -1,4 +1,8 @@
 import { t } from "./i18n";
+import { emitCrossWindowEvent } from "../utils/crossWindowSync";
+
+export const TODO_STORAGE_KEY = "island_todo_list";
+const LEGACY_NAVBAR_TODOS_KEY = "gili_todos";
 
 export type TodoRepeatRule = "none" | "daily" | "weekdays" | "weekly" | "monthly";
 
@@ -193,4 +197,141 @@ export function getRepeatLabel(rule?: TodoRepeatRule): string {
     default:
       return t("todo_repeat_none");
   }
+}
+
+function isLegacyDummyTodo(item: { id?: unknown; text?: unknown }): boolean {
+  const id = typeof item.id === "string" ? item.id : "";
+  const text = typeof item.text === "string" ? item.text.trim() : "";
+  if (id === "td_1" && (text === "Tubes SIA BAB 1" || text === "Review project milestones")) {
+    return true;
+  }
+  if (id === "td_2" && (text === "Kirim laporan mingguan" || text === "Send weekly report")) {
+    return true;
+  }
+  return false;
+}
+
+export function loadCanonicalTodos(): TodoItem[] {
+  let list: TodoItem[] = [];
+  let dirty = false;
+
+  try {
+    const raw = localStorage.getItem(TODO_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        list = parsed;
+      }
+    }
+  } catch {
+    list = [];
+  }
+
+  try {
+    const legacyRaw = localStorage.getItem(LEGACY_NAVBAR_TODOS_KEY);
+    if (legacyRaw !== null) {
+      localStorage.removeItem(LEGACY_NAVBAR_TODOS_KEY);
+      const parsedLegacy = JSON.parse(legacyRaw);
+      if (Array.isArray(parsedLegacy)) {
+        const existingIds = new Set(list.map((t) => t.id));
+        const existingTexts = new Set(list.map((t) => t.text.trim().toLowerCase()));
+        const migrated: TodoItem[] = [];
+        for (const item of parsedLegacy) {
+          if (!item || typeof item !== "object" || isLegacyDummyTodo(item)) continue;
+          const text = typeof item.text === "string" ? item.text.trim() : "";
+          if (!text) continue;
+          const id =
+            typeof item.id === "string" && item.id
+              ? item.id
+              : `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          if (existingIds.has(id) || existingTexts.has(text.toLowerCase())) continue;
+          migrated.push({
+            id,
+            text,
+            completed: Boolean(item.completed),
+            createdAt: Date.now(),
+            dueAt: null,
+            reminders: [],
+          });
+          existingIds.add(id);
+          existingTexts.add(text.toLowerCase());
+        }
+        if (migrated.length > 0) {
+          list = [...migrated, ...list];
+          dirty = true;
+        }
+      }
+    }
+  } catch {}
+
+  const { updated, changed } = rolloverRecurringTasks(list);
+  if (dirty || changed) {
+    try {
+      localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
+  }
+  return updated;
+}
+
+export function saveCanonicalTodos(items: TodoItem[]): void {
+  try {
+    localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(items));
+  } catch {}
+  emitCrossWindowEvent("gili_todos_updated");
+}
+
+export function addCanonicalTodo(text: string): TodoItem[] {
+  const trimmed = text.trim();
+  const current = loadCanonicalTodos();
+  if (!trimmed) return current;
+  const newItem: TodoItem = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    text: trimmed,
+    completed: false,
+    createdAt: Date.now(),
+    dueAt: null,
+    reminders: [],
+  };
+  const updated = [newItem, ...current];
+  saveCanonicalTodos(updated);
+  return updated;
+}
+
+export function toggleCanonicalTodo(id: string): TodoItem[] {
+  const current = loadCanonicalTodos();
+  const target = current.find((i) => i.id === id);
+  if (!target) return current;
+
+  const updated = current.map((i) => {
+    if (i.id !== id) return i;
+    if (i.repeat && i.repeat !== "none") {
+      if (!i.completed) {
+        const nextDueAt = i.dueAt ? computeNextRepeatDue(i.dueAt, i.repeat) : null;
+        return {
+          ...i,
+          completed: true,
+          lastCompletedAt: Date.now(),
+          previousDueAt: i.dueAt ?? null,
+          dueAt: nextDueAt,
+        };
+      }
+      return {
+        ...i,
+        completed: false,
+        lastCompletedAt: null,
+        dueAt: i.previousDueAt !== undefined ? i.previousDueAt : i.dueAt,
+        previousDueAt: null,
+      };
+    }
+    return { ...i, completed: !i.completed };
+  });
+
+  saveCanonicalTodos(updated);
+  return updated;
+}
+
+export function deleteCanonicalTodo(id: string): TodoItem[] {
+  const updated = loadCanonicalTodos().filter((item) => item.id !== id);
+  saveCanonicalTodos(updated);
+  return updated;
 }

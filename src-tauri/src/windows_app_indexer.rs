@@ -147,7 +147,7 @@ fn resolve_url_shortcut(path: &Path) -> Option<WindowsPinnedApp> {
         return None;
     }
     let (url, icon_file) = parse_url_shortcut_fields(path)?;
-    if is_vendor_web_link(&name, &url) {
+    if !crate::windows_pinned_apps::is_safe_url_target(&url) || is_vendor_web_link(&name, &url) {
         return None;
     }
     let lnk_path = path.to_string_lossy().to_string();
@@ -358,9 +358,9 @@ pub(crate) fn collect_all_installed_apps() -> Vec<WindowsPinnedApp> {
         push_or_merge_app(&mut apps, &mut name_to_idx, &mut seen_targets, app);
     }
 
+    let _com = ComGuard::init(COINIT_APARTMENTTHREADED);
     let mut shortcut_roots: Vec<(PathBuf, usize)> = Vec::new();
     unsafe {
-        let _com = ComGuard::init(COINIT_APARTMENTTHREADED);
         if let Some(p) = get_known_folder_path(&FOLDERID_Programs) {
             shortcut_roots.push((p, 6));
         }

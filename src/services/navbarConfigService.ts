@@ -9,24 +9,8 @@ import {
   DEFAULT_NAVBAR_CONFIG,
   DEFAULT_NAVBAR_MODULES,
   NAVBAR_ACCENT_COLORS,
+  VALID_NAVBAR_ICON_THEMES,
 } from "../types/navbar";
-
-const VALID_ICON_THEMES: ReadonlySet<NavbarIconTheme> = new Set([
-  "fluent",
-  "windows",
-  "ios",
-  "glass",
-  "monochrome",
-  "tinted",
-  "circle",
-  "retro",
-  "neon",
-  "clay",
-  "outline",
-  "pastel",
-  "sticker",
-  "contrast",
-]);
 
 export function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace("#", "").trim();
@@ -241,7 +225,7 @@ export function normalizeNavbarConfig(raw: unknown): NavbarConfig {
       : "tight";
 
   const iconTheme: NavbarIconTheme =
-    typeof r.iconTheme === "string" && VALID_ICON_THEMES.has(r.iconTheme as NavbarIconTheme)
+    typeof r.iconTheme === "string" && VALID_NAVBAR_ICON_THEMES.has(r.iconTheme as NavbarIconTheme)
       ? (r.iconTheme as NavbarIconTheme)
       : "fluent";
 

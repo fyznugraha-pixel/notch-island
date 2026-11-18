@@ -11,6 +11,7 @@ import {
 } from "../../services/ambientEnvironmentService";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
+import { useCityModulePolling } from "../../hooks/useCityModulePolling";
 import { getLocalDateKey } from "../../utils/dateTime";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 
@@ -171,42 +172,37 @@ export const AirQualityNavbarModule: React.FC<NavbarModuleProps> = ({
     } catch {}
     return null;
   });
-  const [cityInput, setCityInput] = useState(aq?.city || "Bandung");
+  const initialCity = aq?.city || "Bandung";
+  const [cityInput, setCityInput] = useState(initialCity);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const refreshAqi = async (targetCity: string) => {
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const live = await fetchLiveAirQuality(targetCity);
-      if (live) {
-        setAq(live);
-        setCityInput(live.city);
-        localStorage.setItem(AQI_CACHE_KEY, JSON.stringify(live));
-      } else {
-        setErrorMsg(
-          tx(
-            lang,
-            "City not found or failed to load AQI.",
-            "Kota tidak ditemukan / gagal memuat AQI."
-          )
-        );
-      }
-    } catch {
+  const { runFetch: refreshAqi, setActiveCity } = useCityModulePolling({
+    initialCity,
+    fetcher: fetchLiveAirQuality,
+    onLoadingChange: setLoading,
+    onErrorClear: () => setErrorMsg(null),
+    onSuccess: (live) => {
+      setActiveCity(live.city);
+      setAq(live);
+      setCityInput(live.city);
+      localStorage.setItem(AQI_CACHE_KEY, JSON.stringify(live));
+    },
+    onNotFound: () => {
+      setErrorMsg(
+        tx(
+          lang,
+          "City not found or failed to load AQI.",
+          "Kota tidak ditemukan / gagal memuat AQI."
+        )
+      );
+    },
+    onNetworkError: () => {
       setErrorMsg(
         tx(lang, "Connection failed while loading AQI.", "Koneksi gagal saat memuat AQI.")
       );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    refreshAqi(aq?.city || "Bandung");
-    const id = setInterval(() => refreshAqi(aq?.city || "Bandung"), 30 * 60000);
-    return () => clearInterval(id);
-  }, []);
+    },
+  });
 
   const aqiVal = aq?.aqi;
   const status =
@@ -323,7 +319,7 @@ export const AirQualityNavbarModule: React.FC<NavbarModuleProps> = ({
                 <button
                   key={city}
                   type="button"
-                  onClick={() => refreshAqi(city)}
+                  onClick={() => refreshAqi(city, true)}
                   className={`min-w-0 px-1 py-1 rounded-[7px] text-[10.5px] font-semibold truncate cursor-pointer ${TRIGGER_FOCUS_RING} ${
                     isSelected
                       ? isLight
@@ -341,7 +337,7 @@ export const AirQualityNavbarModule: React.FC<NavbarModuleProps> = ({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (cityInput.trim()) refreshAqi(cityInput.trim());
+              if (cityInput.trim()) refreshAqi(cityInput.trim(), true);
             }}
             className="flex items-center gap-1.5"
           >

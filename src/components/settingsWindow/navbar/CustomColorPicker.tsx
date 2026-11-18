@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Pipette, Copy, Check } from "lucide-react";
 import { Tooltip } from "../../ui/Tooltip";
 import {
   hexToHsl,
   hslToHex,
-  isValidHex,
   normalizeHex,
   getPerceivedLuminance,
 } from "./colorUtils";
+import { parseLiveHexInput, commitHexDraft } from "../../../utils/colorUtils";
 
 interface CustomColorPickerProps {
   value: string;
@@ -51,11 +51,14 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
   const [hsl, setHsl] = useState(() => hexToHsl(currentHex));
   const [hexInput, setHexInput] = useState(currentHex);
   const [copied, setCopied] = useState(false);
+  const isEditingHexRef = useRef(false);
 
   // Sync internal HSL whenever parent value changes externally
   useEffect(() => {
-    setHexInput(currentHex);
-    setHsl(hexToHsl(currentHex));
+    if (!isEditingHexRef.current) {
+      setHexInput(currentHex);
+      setHsl(hexToHsl(currentHex));
+    }
   }, [currentHex]);
 
   const handleHueChange = useCallback(
@@ -92,12 +95,23 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
   );
 
   const handleHexInputChange = (raw: string) => {
-    setHexInput(raw);
-    const trimmed = raw.trim();
-    if (isValidHex(trimmed)) {
-      const normalized = normalizeHex(trimmed);
-      setHsl(hexToHsl(normalized));
-      onChange(normalized);
+    const { draftValue, committedHex } = parseLiveHexInput(raw);
+    setHexInput(draftValue);
+    if (committedHex) {
+      setHsl(hexToHsl(committedHex));
+      onChange(committedHex);
+    }
+  };
+
+  const handleHexInputBlur = () => {
+    isEditingHexRef.current = false;
+    const resolved = commitHexDraft(hexInput);
+    if (resolved) {
+      setHexInput(resolved);
+      setHsl(hexToHsl(resolved));
+      onChange(resolved);
+    } else {
+      setHexInput(currentHex);
     }
   };
 
@@ -187,9 +201,18 @@ export const CustomColorPicker: React.FC<CustomColorPickerProps> = ({
           <input
             type="text"
             value={hexInput.replace(/^#/, "")}
-            onChange={(e) => handleHexInputChange(`#${e.target.value}`)}
+            onFocus={() => {
+              isEditingHexRef.current = true;
+            }}
+            onChange={(e) => handleHexInputChange(e.target.value)}
+            onBlur={handleHexInputBlur}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
             placeholder="0f172a"
-            maxLength={6}
+            maxLength={7}
             aria-label={isId ? "Kode warna hex" : "Hex color code"}
             className={`w-full bg-transparent text-[12.5px] font-mono outline-none uppercase font-semibold ${
               isLightMode ? "text-black" : "text-white"

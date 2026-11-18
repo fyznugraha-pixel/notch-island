@@ -12,9 +12,12 @@ import {
   Bookmark,
   Plus,
   Trash2,
+  Share2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tooltip } from "../../ui/Tooltip";
+import { encodeNavbarStyleCode } from "../../../services/navbarStyleShareService";
+import { copyTextToClipboard } from "../../../utils/clipboard";
 
 interface NavbarPresetsModalProps {
   isOpen: boolean;
@@ -55,6 +58,7 @@ export const NavbarPresetsModal: React.FC<NavbarPresetsModalProps> = ({
   const [activeTab, setActiveTab] = useState<"all" | "custom" | "builtin">("all");
   const [newPresetName, setNewPresetName] = useState("");
   const [userPresets, setUserPresets] = useState<UserSavedPreset[]>([]);
+  const [copiedPresetId, setCopiedPresetId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -111,6 +115,17 @@ export const NavbarPresetsModal: React.FC<NavbarPresetsModalProps> = ({
 
   const handleDeleteUserPreset = (id: string) => {
     saveUserPresets(userPresets.filter((p) => p.id !== id));
+  };
+
+  const handleCopyPresetStyle = async (preset: UserSavedPreset) => {
+    const code = encodeNavbarStyleCode(preset.config, preset.title);
+    const ok = await copyTextToClipboard(code);
+    if (ok) {
+      setCopiedPresetId(preset.id);
+      window.setTimeout(() => {
+        setCopiedPresetId((prev) => (prev === preset.id ? null : prev));
+      }, 1500);
+    }
   };
 
   if (!isOpen) return null;
@@ -402,6 +417,35 @@ export const NavbarPresetsModal: React.FC<NavbarPresetsModalProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
+                      <Tooltip
+                        content={
+                          copiedPresetId === preset.id
+                            ? isId
+                              ? "Kode style tersalin!"
+                              : "Style code copied!"
+                            : isId
+                            ? "Salin kode style preset ini"
+                            : "Copy style code of this preset"
+                        }
+                        allowFlip
+                        isLightMode={isLightMode}
+                        wrapperClassName="shrink-0"
+                      >
+                        <button
+                          type="button"
+                          aria-label={isId ? "Salin kode style preset ini" : "Copy style code of this preset"}
+                          onClick={() => handleCopyPresetStyle(preset)}
+                          className={`w-8 h-8 rounded-[8px] flex items-center justify-center cursor-pointer transition-colors ${
+                            copiedPresetId === preset.id
+                              ? "bg-emerald-500/20 text-emerald-400"
+                              : isLightMode
+                              ? "bg-black/[0.05] hover:bg-blue-500/15 text-neutral-600 hover:text-blue-700"
+                              : "bg-white/[0.05] hover:bg-[#3882F6]/20 text-zinc-400 hover:text-[#60a5fa]"
+                          }`}
+                        >
+                          {copiedPresetId === preset.id ? <Check size={13} /> : <Share2 size={13} />}
+                        </button>
+                      </Tooltip>
                       <button
                         type="button"
                         onClick={() => {

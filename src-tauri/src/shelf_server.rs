@@ -3,7 +3,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
@@ -363,6 +363,12 @@ pub struct ShelfTransferCompletedPayload {
     pub total_bytes: u64,
 }
 
+#[derive(Default)]
+struct ReceiveStats {
+    uploaded_files: usize,
+    uploaded_bytes: u64,
+}
+
 #[derive(Clone)]
 enum ActiveSession {
     Send {
@@ -374,19 +380,27 @@ enum ActiveSession {
         token: String,
         created_at: Instant,
         target_dir: PathBuf,
+        stats: Arc<Mutex<ReceiveStats>>,
     },
 }
 
 struct ServerManager {
+    server_id: u64,
     server: Option<Arc<Server>>,
-    #[allow(dead_code)]
     is_running: Arc<AtomicBool>,
     active_session: Arc<Mutex<Option<ActiveSession>>>,
+    accept_thread: Option<std::thread::JoinHandle<()>>,
     port: u16,
 }
 
 static SERVER_MANAGER: Mutex<Option<ServerManager>> = Mutex::new(None);
+static NEXT_SERVER_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_TRANSFER_ID: AtomicU64 = AtomicU64::new(1);
+
+const SESSION_TTL_SECS: u64 = 300;
+const MAX_ACTIVE_TRANSFERS: usize = 8;
+const MAX_TOTAL_TRANSFER_THREADS: usize = 24;
+const UPLOAD_INACTIVITY_TIMEOUT_MS: u64 = 45_000;
 
 fn now_millis() -> u64 {
     SystemTime::now()
@@ -542,12 +556,85 @@ fn urlencoding_decode(s: &str) -> String {
     String::from_utf8_lossy(&res).to_string()
 }
 
+fn shutdown_server_manager(mut mgr: ServerManager) {
+    mgr.is_running.store(false, Ordering::Release);
+    if let Ok(mut guard) = mgr.active_session.lock() {
+        *guard = None;
+    }
+    if let Some(ref srv) = mgr.server {
+        srv.unblock();
+    }
+    // Drop our Arc<Server> ref before joining so tiny_http::Server::drop runs cleanly when the accept loop exits
+    mgr.server = None;
+    if let Some(handle) = mgr.accept_thread.take() {
+        if std::thread::current().id() != handle.thread().id() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn is_streaming_transfer_route(url: &str) -> bool {
+    let path = url.split('?').next().unwrap_or("");
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    // Only long-running byte transfers use dedicated transfer threads; control/HTML routes use the non-blocking fast lane
+    (parts.len() == 3 && parts[0] == "u" && parts[2] == "upload")
+        || (parts.len() == 4 && parts[0] == "d" && parts[2] == "file")
+}
+
+struct TransferSlotGuard {
+    active_transfers: Arc<AtomicUsize>,
+    total_threads: Arc<AtomicUsize>,
+    active_released: Arc<AtomicBool>,
+}
+
+impl TransferSlotGuard {
+    fn acquire(
+        active_transfers: &Arc<AtomicUsize>,
+        total_threads: &Arc<AtomicUsize>,
+    ) -> Option<Self> {
+        let cur_active = active_transfers.load(Ordering::Acquire);
+        let cur_total = total_threads.load(Ordering::Acquire);
+        if cur_active >= MAX_ACTIVE_TRANSFERS || cur_total >= MAX_TOTAL_TRANSFER_THREADS {
+            return None;
+        }
+        active_transfers.fetch_add(1, Ordering::AcqRel);
+        total_threads.fetch_add(1, Ordering::AcqRel);
+        Some(Self {
+            active_transfers: Arc::clone(active_transfers),
+            total_threads: Arc::clone(total_threads),
+            active_released: Arc::new(AtomicBool::new(false)),
+        })
+    }
+
+    fn release_active_early(active_transfers: &Arc<AtomicUsize>, flag: &Arc<AtomicBool>) {
+        if !flag.swap(true, Ordering::AcqRel) {
+            active_transfers.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+}
+
+impl Drop for TransferSlotGuard {
+    fn drop(&mut self) {
+        if !self.active_released.swap(true, Ordering::AcqRel) {
+            self.active_transfers.fetch_sub(1, Ordering::AcqRel);
+        }
+        self.total_threads.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 fn ensure_server_running(app: &AppHandle) -> Result<(Arc<Server>, u16), String> {
     let mut mgr_guard = SERVER_MANAGER.lock().unwrap();
     if let Some(ref mgr) = *mgr_guard {
-        if let Some(ref srv) = mgr.server {
-            return Ok((srv.clone(), mgr.port));
+        if mgr.is_running.load(Ordering::Acquire) {
+            if let Some(ref srv) = mgr.server {
+                return Ok((srv.clone(), mgr.port));
+            }
         }
+    }
+    if let Some(stale) = mgr_guard.take() {
+        drop(mgr_guard);
+        shutdown_server_manager(stale);
+        mgr_guard = SERVER_MANAGER.lock().unwrap();
     }
 
     // Attempt preferred port 8731, then 8732, then OS auto-assigned
@@ -569,18 +656,23 @@ fn ensure_server_running(app: &AppHandle) -> Result<(Arc<Server>, u16), String> 
 
     let srv = chosen_server
         .ok_or_else(|| "Gagal memulai local HTTP server pada port 8731+".to_string())?;
+    let server_id = NEXT_SERVER_ID.fetch_add(1, Ordering::Relaxed);
     let is_running = Arc::new(AtomicBool::new(true));
-    let active_session = Arc::new(Mutex::new(None));
+    let active_session: Arc<Mutex<Option<ActiveSession>>> = Arc::new(Mutex::new(None));
+    let active_transfers = Arc::new(AtomicUsize::new(0));
+    let total_transfer_threads = Arc::new(AtomicUsize::new(0));
 
     let srv_clone = srv.clone();
     let is_running_clone = is_running.clone();
     let session_clone = active_session.clone();
+    let active_transfers_clone = active_transfers.clone();
+    let total_threads_clone = total_transfer_threads.clone();
     let app_handle = app.clone();
 
-    let (req_tx, req_rx) = std::sync::mpsc::sync_channel::<tiny_http::Request>(64);
-    let shared_rx = Arc::new(Mutex::new(req_rx));
-    for _ in 0..8 {
-        let rx_worker = Arc::clone(&shared_rx);
+    let (fast_tx, fast_rx) = std::sync::mpsc::sync_channel::<tiny_http::Request>(64);
+    let shared_fast_rx = Arc::new(Mutex::new(fast_rx));
+    for _ in 0..4 {
+        let rx_worker = Arc::clone(&shared_fast_rx);
         let worker_session = session_clone.clone();
         let worker_app = app_handle.clone();
         std::thread::spawn(move || loop {
@@ -589,30 +681,97 @@ fn ensure_server_running(app: &AppHandle) -> Result<(Arc<Server>, u16), String> 
                 Err(_) => break,
             };
             match next_req {
-                Ok(req) => handle_http_request(req, &worker_session, &worker_app),
+                Ok(req) => handle_http_request(req, &worker_session, &worker_app, None, None),
                 Err(_) => break,
             }
         });
     }
 
-    std::thread::spawn(move || {
-        while is_running_clone.load(Ordering::Relaxed) {
+    let accept_thread = std::thread::spawn(move || {
+        while is_running_clone.load(Ordering::Acquire) {
+            // Auto-retire expired idle session and unbind the listener cleanly
+            if active_transfers_clone.load(Ordering::Acquire) == 0 {
+                let expired = session_clone.lock().ok().map(|mut guard| {
+                    let is_exp = guard.as_ref().is_some_and(|s| match s {
+                        ActiveSession::Send { created_at, .. } => {
+                            created_at.elapsed() >= Duration::from_secs(SESSION_TTL_SECS)
+                        }
+                        ActiveSession::Receive { created_at, .. } => {
+                            created_at.elapsed() >= Duration::from_secs(SESSION_TTL_SECS)
+                        }
+                    });
+                    if is_exp {
+                        *guard = None;
+                        true
+                    } else {
+                        false
+                    }
+                }).unwrap_or(false);
+                if expired {
+                    is_running_clone.store(false, Ordering::Release);
+                    if let Ok(mut mgr_guard) = SERVER_MANAGER.lock() {
+                        if mgr_guard.as_ref().is_some_and(|m| m.server_id == server_id) {
+                            if let Some(mut old_mgr) = mgr_guard.take() {
+                                old_mgr.server = None;
+                                old_mgr.accept_thread = None;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+
             let request = match srv_clone.recv_timeout(Duration::from_millis(500)) {
                 Ok(Some(req)) => req,
                 Ok(None) => continue,
                 Err(_) => continue,
             };
 
-            if req_tx.send(request).is_err() {
+            if !is_running_clone.load(Ordering::Acquire) {
+                let _ = request.respond(
+                    Response::from_string("Sesi transfer telah dihentikan.")
+                        .with_status_code(StatusCode(503)),
+                );
+                break;
+            }
+
+            if is_streaming_transfer_route(request.url()) {
+                match TransferSlotGuard::acquire(&active_transfers_clone, &total_threads_clone) {
+                    Some(slot_guard) => {
+                        let req_session = session_clone.clone();
+                        let req_app = app_handle.clone();
+                        let slot_active_arc = Arc::clone(&slot_guard.active_transfers);
+                        let slot_flag_arc = Arc::clone(&slot_guard.active_released);
+                        std::thread::spawn(move || {
+                            let _guard = slot_guard;
+                            handle_http_request(
+                                request,
+                                &req_session,
+                                &req_app,
+                                Some(slot_active_arc),
+                                Some(slot_flag_arc),
+                            );
+                        });
+                    }
+                    None => {
+                        let _ = request.respond(
+                            Response::from_string("Terlalu banyak transfer aktif sekaligus. Coba lagi sebentar.")
+                                .with_status_code(StatusCode(503)),
+                        );
+                    }
+                }
+            } else if fast_tx.send(request).is_err() {
                 break;
             }
         }
     });
 
     let manager = ServerManager {
+        server_id,
         server: Some(srv.clone()),
         is_running,
         active_session,
+        accept_thread: Some(accept_thread),
         port: chosen_port,
     };
     *mgr_guard = Some(manager);
@@ -624,6 +783,8 @@ fn handle_http_request(
     mut request: tiny_http::Request,
     session_arc: &Arc<Mutex<Option<ActiveSession>>>,
     app: &AppHandle,
+    active_slot_counter: Option<Arc<AtomicUsize>>,
+    active_slot_released: Option<Arc<AtomicBool>>,
 ) {
     let raw_url = request.url().to_string();
     let path = raw_url.split('?').next().unwrap_or("").to_string();
@@ -855,7 +1016,10 @@ fn handle_http_request(
             return;
         }
 
-        if let ActiveSession::Receive { target_dir, .. } = &session {
+        if let ActiveSession::Receive {
+            target_dir, stats, ..
+        } = &session
+        {
             if parts.len() == 2 && method == Method::Get {
                 // Serve Upload HTML page (Board 64)
                 let html = render_upload_html(&active_token, &get_computer_name());
@@ -938,16 +1102,71 @@ fn handle_http_request(
                 };
                 let (mut dest_file, dest_path) = dest_path_opt.unwrap();
 
-                // Stream request body directly into target file
+                // Stream request body directly into target file with inactivity watchdog
                 let reader = request.as_reader();
                 let mut buffer = [0u8; 64 * 1024];
                 let mut transferred = 0u64;
+                let last_activity_ms = Arc::new(AtomicU64::new(now_millis()));
+                let upload_done = Arc::new(AtomicBool::new(false));
+                let upload_timed_out = Arc::new(AtomicBool::new(false));
+                let transferred_shared = Arc::new(AtomicU64::new(0));
+
+                let watchdog_handle = {
+                    let wd_last = Arc::clone(&last_activity_ms);
+                    let wd_done = Arc::clone(&upload_done);
+                    let wd_timed_out = Arc::clone(&upload_timed_out);
+                    let wd_transferred = Arc::clone(&transferred_shared);
+                    let wd_app = app.clone();
+                    let wd_file_id = file_id.clone();
+                    let wd_filename = actual_filename.clone();
+                    let wd_device = device_name.clone();
+                    let wd_slot_counter = active_slot_counter.clone();
+                    let wd_slot_flag = active_slot_released.clone();
+                    std::thread::spawn(move || {
+                        while !wd_done.load(Ordering::Acquire) {
+                            std::thread::sleep(Duration::from_millis(1000));
+                            if wd_done.load(Ordering::Acquire) {
+                                break;
+                            }
+                            if now_millis().saturating_sub(wd_last.load(Ordering::Acquire))
+                                >= UPLOAD_INACTIVITY_TIMEOUT_MS
+                            {
+                                wd_timed_out.store(true, Ordering::Release);
+                                if let (Some(c), Some(f)) = (&wd_slot_counter, &wd_slot_flag) {
+                                    TransferSlotGuard::release_active_early(c, f);
+                                }
+                                let tx_bytes = wd_transferred.load(Ordering::Acquire);
+                                let _ = wd_app.emit(
+                                    "shelf-transfer-progress",
+                                    ShelfTransferProgressPayload {
+                                        id: wd_file_id,
+                                        name: wd_filename,
+                                        size: total_size.max(tx_bytes),
+                                        transferred: tx_bytes,
+                                        progress: 0,
+                                        status: "error".to_string(),
+                                        device_name: wd_device,
+                                        speed_formatted: None,
+                                    },
+                                );
+                                break;
+                            }
+                        }
+                    })
+                };
 
                 let write_res = (|| -> std::io::Result<()> {
                     let start_time = Instant::now();
                     let mut last_emit = Instant::now();
                     loop {
                         let bytes_read = reader.read(&mut buffer)?;
+                        last_activity_ms.store(now_millis(), Ordering::Release);
+                        if upload_timed_out.load(Ordering::Acquire) {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "Upload timed out due to inactivity",
+                            ));
+                        }
                         if bytes_read == 0 {
                             break;
                         }
@@ -959,6 +1178,7 @@ fn handle_http_request(
                         }
                         dest_file.write_all(&buffer[..bytes_read])?;
                         transferred += bytes_read as u64;
+                        transferred_shared.store(transferred, Ordering::Release);
 
                         if last_emit.elapsed() >= Duration::from_millis(150) {
                             last_emit = Instant::now();
@@ -986,9 +1206,17 @@ fn handle_http_request(
                             );
                         }
                     }
+                    if upload_timed_out.load(Ordering::Acquire) {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "Upload timed out due to inactivity",
+                        ));
+                    }
                     dest_file.flush()?;
                     Ok(())
                 })();
+                upload_done.store(true, Ordering::Release);
+                let _ = watchdog_handle.join();
                 drop(dest_file);
 
                 match write_res {
@@ -1042,6 +1270,11 @@ fn handle_http_request(
                                 speed_formatted: None,
                             },
                         );
+
+                        if let Ok(mut st) = stats.lock() {
+                            st.uploaded_files = st.uploaded_files.saturating_add(1);
+                            st.uploaded_bytes = st.uploaded_bytes.saturating_add(transferred);
+                        }
 
                         let _ = app.emit(
                             "shelf-file-received",
@@ -1107,8 +1340,11 @@ fn handle_http_request(
                 let query = parse_query_params(&raw_url);
                 let device_name =
                     detect_device_name(&user_agent, query.get("device").map(|s| s.as_str()));
-                let count: usize = query.get("count").and_then(|s| s.parse().ok()).unwrap_or(0);
-                let total_bytes: u64 = query.get("bytes").and_then(|s| s.parse().ok()).unwrap_or(0);
+                // Use authoritative server-side tallies instead of untrusted URL query params
+                let (count, total_bytes) = stats
+                    .lock()
+                    .map(|st| (st.uploaded_files, st.uploaded_bytes))
+                    .unwrap_or((0, 0));
 
                 let _ = app.emit(
                     "shelf-transfer-completed",
@@ -1120,7 +1356,10 @@ fn handle_http_request(
                 );
 
                 let response = with_header_safe(
-                    Response::from_string("{\"ok\":true}"),
+                    Response::from_string(format!(
+                        r#"{{"ok":true,"totalFiles":{},"totalBytes":{}}}"#,
+                        count, total_bytes
+                    )),
                     b"Content-Type",
                     b"application/json",
                 );
@@ -2280,7 +2519,7 @@ pub fn start_shelf_send(app: AppHandle, paths: Vec<String>) -> Result<ShelfSessi
         url,
         port,
         local_ip,
-        expires_in_sec: 300,
+        expires_in_sec: SESSION_TTL_SECS,
         mode: "send".to_string(),
         files: Some(files_meta),
         computer_name,
@@ -2302,6 +2541,7 @@ pub fn start_shelf_receive(app: AppHandle) -> Result<ShelfSessionInfo, String> {
             token: token.clone(),
             created_at: Instant::now(),
             target_dir,
+            stats: Arc::new(Mutex::new(ReceiveStats::default())),
         });
     }
 
@@ -2312,7 +2552,7 @@ pub fn start_shelf_receive(app: AppHandle) -> Result<ShelfSessionInfo, String> {
         url,
         port,
         local_ip,
-        expires_in_sec: 300,
+        expires_in_sec: SESSION_TTL_SECS,
         mode: "receive".to_string(),
         files: None,
         computer_name,
@@ -2321,10 +2561,12 @@ pub fn start_shelf_receive(app: AppHandle) -> Result<ShelfSessionInfo, String> {
 
 #[tauri::command]
 pub fn stop_shelf_transfer() -> Result<(), String> {
-    let mgr_guard = SERVER_MANAGER.lock().unwrap();
-    if let Some(ref mgr) = *mgr_guard {
-        let mut session_guard = mgr.active_session.lock().unwrap();
-        *session_guard = None;
+    let taken_mgr = {
+        let mut mgr_guard = SERVER_MANAGER.lock().unwrap();
+        mgr_guard.take()
+    };
+    if let Some(mgr) = taken_mgr {
+        shutdown_server_manager(mgr);
     }
     Ok(())
 }
@@ -2333,7 +2575,7 @@ pub fn stop_shelf_transfer() -> Result<(), String> {
 pub fn get_shelf_transfer_status() -> Result<Option<ShelfSessionInfo>, String> {
     let mgr_guard = SERVER_MANAGER.lock().unwrap();
     if let Some(ref mgr) = *mgr_guard {
-        let session_guard = mgr.active_session.lock().unwrap();
+        let mut session_guard = mgr.active_session.lock().unwrap();
         if let Some(ref s) = *session_guard {
             let local_ip = get_local_ip();
             let computer_name = get_computer_name();
@@ -2344,7 +2586,11 @@ pub fn get_shelf_transfer_status() -> Result<Option<ShelfSessionInfo>, String> {
                     files,
                 } => {
                     let elapsed = created_at.elapsed().as_secs();
-                    let remaining = 300u64.saturating_sub(elapsed);
+                    let remaining = SESSION_TTL_SECS.saturating_sub(elapsed);
+                    if remaining == 0 {
+                        *session_guard = None;
+                        return Ok(None);
+                    }
                     return Ok(Some(ShelfSessionInfo {
                         token: token.clone(),
                         url: format!("http://{}:{}/d/{}", local_ip, mgr.port, token),
@@ -2360,7 +2606,11 @@ pub fn get_shelf_transfer_status() -> Result<Option<ShelfSessionInfo>, String> {
                     token, created_at, ..
                 } => {
                     let elapsed = created_at.elapsed().as_secs();
-                    let remaining = 300u64.saturating_sub(elapsed);
+                    let remaining = SESSION_TTL_SECS.saturating_sub(elapsed);
+                    if remaining == 0 {
+                        *session_guard = None;
+                        return Ok(None);
+                    }
                     return Ok(Some(ShelfSessionInfo {
                         token: token.clone(),
                         url: format!("http://{}:{}/u/{}", local_ip, mgr.port, token),
@@ -2521,5 +2771,39 @@ mod tests {
         assert!(!html.contains("fonts.googleapis.com"));
         assert!(html.contains("?inline=1&thumb=1"));
         assert!(html.contains("NIKI - Card.png"));
+    }
+
+    #[test]
+    fn test_is_streaming_transfer_route_separates_fast_and_slow_paths() {
+        assert!(is_streaming_transfer_route("/u/tok123/upload?name=a.jpg"));
+        assert!(is_streaming_transfer_route("/d/tok123/file/0?inline=1"));
+        assert!(!is_streaming_transfer_route("/u/tok123"));
+        assert!(!is_streaming_transfer_route("/u/tok123/complete?count=99"));
+        assert!(!is_streaming_transfer_route("/d/tok123"));
+        assert!(!is_streaming_transfer_route("/favicon.ico"));
+    }
+
+    #[test]
+    fn test_transfer_slot_guard_bounds_and_early_release() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let total = Arc::new(AtomicUsize::new(0));
+        let mut guards = Vec::new();
+        for _ in 0..MAX_ACTIVE_TRANSFERS {
+            guards.push(TransferSlotGuard::acquire(&active, &total).expect("slot available"));
+        }
+        assert!(
+            TransferSlotGuard::acquire(&active, &total).is_none(),
+            "must reject over MAX_ACTIVE_TRANSFERS"
+        );
+
+        TransferSlotGuard::release_active_early(&guards[0].active_transfers, &guards[0].active_released);
+        assert_eq!(active.load(Ordering::Acquire), MAX_ACTIVE_TRANSFERS - 1);
+        let recovered = TransferSlotGuard::acquire(&active, &total);
+        assert!(recovered.is_some(), "early timeout release must free an active slot");
+
+        drop(recovered);
+        drop(guards);
+        assert_eq!(active.load(Ordering::Acquire), 0);
+        assert_eq!(total.load(Ordering::Acquire), 0);
     }
 }

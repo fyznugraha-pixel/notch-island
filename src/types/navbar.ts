@@ -129,3 +129,20 @@ export const NAVBAR_ACCENT_COLORS = [
   "#22c55e", // Emerald
 ] as const;
 
+export const VALID_NAVBAR_ICON_THEMES: ReadonlySet<NavbarIconTheme> = new Set([
+  "fluent",
+  "windows",
+  "ios",
+  "glass",
+  "monochrome",
+  "tinted",
+  "circle",
+  "retro",
+  "neon",
+  "clay",
+  "outline",
+  "pastel",
+  "sticker",
+  "contrast",
+]);
+

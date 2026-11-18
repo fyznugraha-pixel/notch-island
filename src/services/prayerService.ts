@@ -5,6 +5,7 @@ import {
   getSavedLastLocation,
 } from "./weatherService";
 import { getLanguage } from "./i18n";
+import { emitCrossWindowEvent } from "../utils/crossWindowSync";
 
 export type PrayerId = "Fajr" | "Dhuhr" | "Asr" | "Maghrib" | "Isha";
 
@@ -105,7 +106,8 @@ export interface PrayerToastPayload {
 
 const SETTINGS_KEY = "gili_prayer_settings_v1";
 const COMPLETED_KEY = "gili_prayer_completed_v1";
-const SCHEDULE_CACHE_KEY = "gili_prayer_schedule_cache_v1";
+export const PRAYER_SCHEDULE_CACHE_KEY = "gili_prayer_schedule_cache_v1";
+const SCHEDULE_CACHE_KEY = PRAYER_SCHEDULE_CACHE_KEY;
 const CONFIG_FLAG_KEY = "gili_prayer_reminder_configured_v1";
 
 let sharedPrayerAudioCtx: AudioContext | null = null;
@@ -305,7 +307,7 @@ export function savePrayerSettings(next: PrayerSettings): void {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("gili_prayer_updated"));
+      emitCrossWindowEvent("gili_prayer_updated");
     }
   } catch {}
 }
@@ -369,7 +371,7 @@ export function togglePrayerCompleted(prayerId: PrayerId, dateKey = getTodayDate
     map[dateKey] = list;
     localStorage.setItem(COMPLETED_KEY, JSON.stringify(map));
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("gili_prayer_updated"));
+      emitCrossWindowEvent("gili_prayer_updated");
     }
     return { completed: list, isNowCompleted };
   } catch {
@@ -589,6 +591,7 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
         };
         try {
           localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(schedule));
+          emitCrossWindowEvent("gili_prayer_updated");
         } catch {}
         return schedule;
       }
@@ -600,6 +603,7 @@ export async function fetchPrayerSchedule(forceRefresh = false): Promise<PrayerS
   const offline = calculateOfflinePrayerSchedule(now, loc, settings.calculationMethod);
   try {
     localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(offline));
+    emitCrossWindowEvent("gili_prayer_updated");
   } catch {}
   return offline;
 }

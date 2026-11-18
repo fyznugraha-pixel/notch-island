@@ -128,6 +128,51 @@ function shiftLocalDateKey(dateKey: string, deltaDays: number): Date {
   return d;
 }
 
+function migrateLegacyWaterLog(data: WaterData): { data: WaterData; migrated: boolean } {
+  if (typeof window === "undefined") return { data, migrated: false };
+  try {
+    const legacyRaw = localStorage.getItem("gili_water_log_v2");
+    if (!legacyRaw) return { data, migrated: false };
+    const parsed = JSON.parse(legacyRaw);
+    localStorage.removeItem("gili_water_log_v2");
+    const amount = typeof parsed?.amount === "number" ? Math.round(parsed.amount) : 0;
+    if (amount <= 0) return { data, migrated: false };
+
+    const dayStartHour = data.settings.dayStartHour;
+    const legacyDateKey =
+      typeof parsed?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date)
+        ? parsed.date
+        : getLogicalDateKey(Date.now(), dayStartHour);
+    const todayKey = getLogicalDateKey(Date.now(), dayStartHour);
+    const existingTotal = data.records
+      .filter((r) => getLogicalDateKey(r.timestamp, dayStartHour) === legacyDateKey)
+      .reduce((sum, r) => sum + r.amountMl, 0);
+    if (existingTotal > 0) return { data, migrated: false };
+
+    const ts =
+      legacyDateKey !== todayKey
+        ? parseLocalDateKey(legacyDateKey).getTime()
+        : Date.now();
+    const migratedRecord: WaterIntakeRecord = {
+      id: `drink_migrated_${Date.now()}`,
+      timestamp: ts,
+      amountMl: amount,
+      isManual: true,
+    };
+    const records = sortRecordsDesc([migratedRecord, ...data.records]);
+    return {
+      data: {
+        ...data,
+        records,
+        lastDrinkTimestamp: records[0]?.timestamp ?? null,
+      },
+      migrated: true,
+    };
+  } catch {
+    return { data, migrated: false };
+  }
+}
+
 export function loadWaterData(): WaterData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -164,10 +209,11 @@ export function loadWaterData(): WaterData {
         },
       };
 
-      const resolved = applyPendingAutoFreezes(data);
-      if (hadMockData) {
+      const { data: afterLegacy, migrated } = migrateLegacyWaterLog(data);
+      const resolved = applyPendingAutoFreezes(afterLegacy);
+      if (hadMockData || migrated) {
         saveWaterData(resolved);
-      } else if (resolved !== data) {
+      } else if (resolved !== afterLegacy) {
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(resolved));
         } catch {}
@@ -178,8 +224,9 @@ export function loadWaterData(): WaterData {
     console.error("Failed to load water data:", err);
   }
   const initial = createInitialData();
-  saveWaterData(initial);
-  return initial;
+  const { data: initialMigrated } = migrateLegacyWaterLog(initial);
+  saveWaterData(initialMigrated);
+  return initialMigrated;
 }
 
 export function saveWaterData(data: WaterData): void {
@@ -378,6 +425,21 @@ export function resetAllWaterData(): void {
     lastUndoneRecord: null,
   };
   saveWaterData(reset);
+}
+
+export function resetTodayWaterIntake(targetDate = new Date()): WaterData {
+  const data = loadWaterData();
+  const todayKey = getLogicalDateKey(targetDate.getTime(), data.settings.dayStartHour);
+  const remaining = data.records.filter(
+    (r) => getLogicalDateKey(r.timestamp, data.settings.dayStartHour) !== todayKey
+  );
+  const updated: WaterData = {
+    ...data,
+    records: remaining,
+    lastDrinkTimestamp: remaining[0]?.timestamp ?? null,
+  };
+  saveWaterData(updated);
+  return updated;
 }
 
 /**

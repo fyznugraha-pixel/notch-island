@@ -10,10 +10,13 @@ import {
 } from "../../../modules/moduleI18n";
 import {
   MODULE_CATALOG,
-  MODULE_ID_ALIASES,
   getCatalogModule,
   CatalogModuleItem,
 } from "../../../modules/components/NavbarModuleUnifiedPreview";
+import {
+  MODULE_ID_ALIASES,
+  BUILTIN_MODULE_ID_SET,
+} from "../../../modules/moduleAliases";
 import { Tooltip } from "../../ui/Tooltip";
 
 interface AddModuleDialogProps {
@@ -33,16 +36,6 @@ type CategoryFilter =
   | "Sistem"
   | "Media & estetika"
   | "Gaya hidup";
-
-const BUILTIN_IDS = new Set([
-  "startSearch",
-  "pinnedApps",
-  "runningApps",
-  "hiddenTray",
-  "systemIcons",
-  "notifications",
-  "clockDate",
-]);
 
 const LocalizedModulePreview: React.FC<{
   moduleId: string;
@@ -364,7 +357,7 @@ export const AddModuleDialog: React.FC<AddModuleDialogProps> = ({
     const ids = new Map<string, string>();
 
     for (const m of config.modules) {
-      if (BUILTIN_IDS.has(m.id)) continue;
+      if (BUILTIN_MODULE_ID_SET.has(m.id)) continue;
       const canonical = MODULE_ID_ALIASES[m.id] || m.id;
       added.set(canonical, true);
       added.set(m.id, true);
@@ -408,7 +401,7 @@ export const AddModuleDialog: React.FC<AddModuleDialogProps> = ({
   if (!isOpen) return null;
 
   const addedCustomCount = config.modules.filter(
-    (m) => !BUILTIN_IDS.has(m.id)
+    (m) => !BUILTIN_MODULE_ID_SET.has(m.id)
   ).length;
 
   const categories: { id: CategoryFilter; label: string; count: number }[] = [

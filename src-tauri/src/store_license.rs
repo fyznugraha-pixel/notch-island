@@ -1,13 +1,18 @@
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const TASKBAR_PRO_PRODUCT_ID: &str = "gili_taskbar_pro";
+const OFFLINE_GRACE_SECS: u64 = 7 * 24 * 60 * 60;
+const CLOCK_SKEW_TOLERANCE_SECS: u64 = 300;
+const CACHE_FILE_VERSION: u32 = 2;
+const DPAPI_ENTROPY: &[u8] = b"GiliStoreProLicenseCacheV2";
 
 static PACKAGED_MSIX: OnceLock<bool> = OnceLock::new();
 static STORE_PRO_ACTIVE: AtomicBool = AtomicBool::new(false);
+static CACHED_CHECKED_AT_UNIX: AtomicU64 = AtomicU64::new(0);
 static STARTUP_SYNC_DONE: AtomicBool = AtomicBool::new(false);
 static STARTUP_SYNC_WAIT: OnceLock<(Mutex<bool>, Condvar)> = OnceLock::new();
 static CACHED_STORE_META: OnceLock<Mutex<StoreProductMeta>> = OnceLock::new();
@@ -73,8 +78,156 @@ fn wait_for_startup_sync_briefly() {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct StoreProCache {
+struct StoreProCachePayload {
     cached_store_pro_active: bool,
+    checked_at_unix: u64,
+    package_family: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ProtectedStoreProCacheFile {
+    version: u32,
+    blob: String,
+}
+
+fn current_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn current_package_family() -> String {
+    #[cfg(windows)]
+    unsafe {
+        use windows::core::PWSTR;
+        use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
+        use windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFamilyName;
+
+        let mut length: u32 = 0;
+        let err = GetCurrentPackageFamilyName(&mut length, PWSTR::null());
+        if err == ERROR_INSUFFICIENT_BUFFER && length > 0 {
+            let mut buf = vec![0u16; length as usize];
+            if GetCurrentPackageFamilyName(&mut length, PWSTR(buf.as_mut_ptr())) == ERROR_SUCCESS {
+                let s = String::from_utf16_lossy(&buf)
+                    .trim_end_matches('\0')
+                    .to_string();
+                if !s.is_empty() {
+                    return s;
+                }
+            }
+        }
+    }
+    "unpackaged".to_string()
+}
+
+#[cfg(windows)]
+mod dpapi {
+    use std::ffi::c_void;
+    use windows::Win32::Foundation::{LocalFree, BOOL, HLOCAL};
+
+    const CRYPTPROTECT_UI_FORBIDDEN: u32 = 0x1;
+
+    #[repr(C)]
+    struct CryptIntegerBlob {
+        cb_data: u32,
+        pb_data: *mut u8,
+    }
+
+    #[link(name = "crypt32")]
+    extern "system" {
+        fn CryptProtectData(
+            p_data_in: *const CryptIntegerBlob,
+            sz_data_descr: *const u16,
+            p_optional_entropy: *const CryptIntegerBlob,
+            pv_reserved: *mut c_void,
+            p_prompt_struct: *mut c_void,
+            dw_flags: u32,
+            p_data_out: *mut CryptIntegerBlob,
+        ) -> BOOL;
+
+        fn CryptUnprotectData(
+            p_data_in: *const CryptIntegerBlob,
+            ppsz_data_descr: *mut *mut u16,
+            p_optional_entropy: *const CryptIntegerBlob,
+            pv_reserved: *mut c_void,
+            p_prompt_struct: *mut c_void,
+            dw_flags: u32,
+            p_data_out: *mut CryptIntegerBlob,
+        ) -> BOOL;
+    }
+
+    pub fn protect(plaintext: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
+        let data_in = CryptIntegerBlob {
+            cb_data: u32::try_from(plaintext.len()).map_err(|_| "Payload too large".to_string())?,
+            pb_data: plaintext.as_ptr() as *mut u8,
+        };
+        let entropy_blob = CryptIntegerBlob {
+            cb_data: entropy.len() as u32,
+            pb_data: entropy.as_ptr() as *mut u8,
+        };
+        let mut data_out = CryptIntegerBlob {
+            cb_data: 0,
+            pb_data: std::ptr::null_mut(),
+        };
+
+        let ok = unsafe {
+            CryptProtectData(
+                &data_in,
+                std::ptr::null(),
+                &entropy_blob,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut data_out,
+            )
+        };
+        if !ok.as_bool() || data_out.pb_data.is_null() {
+            return Err("CryptProtectData failed".to_string());
+        }
+        let slice = unsafe { std::slice::from_raw_parts(data_out.pb_data, data_out.cb_data as usize) };
+        let result = slice.to_vec();
+        unsafe {
+            let _ = LocalFree(HLOCAL(data_out.pb_data as *mut c_void));
+        }
+        Ok(result)
+    }
+
+    pub fn unprotect(ciphertext: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
+        let data_in = CryptIntegerBlob {
+            cb_data: u32::try_from(ciphertext.len()).map_err(|_| "Ciphertext too large".to_string())?,
+            pb_data: ciphertext.as_ptr() as *mut u8,
+        };
+        let entropy_blob = CryptIntegerBlob {
+            cb_data: entropy.len() as u32,
+            pb_data: entropy.as_ptr() as *mut u8,
+        };
+        let mut data_out = CryptIntegerBlob {
+            cb_data: 0,
+            pb_data: std::ptr::null_mut(),
+        };
+
+        let ok = unsafe {
+            CryptUnprotectData(
+                &data_in,
+                std::ptr::null_mut(),
+                &entropy_blob,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut data_out,
+            )
+        };
+        if !ok.as_bool() || data_out.pb_data.is_null() {
+            return Err("CryptUnprotectData failed".to_string());
+        }
+        let slice = unsafe { std::slice::from_raw_parts(data_out.pb_data, data_out.cb_data as usize) };
+        let result = slice.to_vec();
+        unsafe {
+            let _ = LocalFree(HLOCAL(data_out.pb_data as *mut c_void));
+        }
+        Ok(result)
+    }
 }
 
 fn store_pro_cache_path() -> Option<std::path::PathBuf> {
@@ -82,17 +235,115 @@ fn store_pro_cache_path() -> Option<std::path::PathBuf> {
         .map(|base| std::path::PathBuf::from(base).join("Gili").join("store_pro_cache.json"))
 }
 
+fn is_cache_within_grace(checked_at_unix: u64, now_unix: u64) -> bool {
+    if checked_at_unix == 0 || now_unix == 0 {
+        return false;
+    }
+    if checked_at_unix > now_unix.saturating_add(CLOCK_SKEW_TOLERANCE_SECS) {
+        return false;
+    }
+    now_unix.saturating_sub(checked_at_unix) <= OFFLINE_GRACE_SECS
+}
+
+fn seal_cache_json(payload: &StoreProCachePayload) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use base64::Engine;
+        let json = serde_json::to_vec(payload).map_err(|e| e.to_string())?;
+        let encrypted = dpapi::protect(&json, DPAPI_ENTROPY)?;
+        let wrapper = ProtectedStoreProCacheFile {
+            version: CACHE_FILE_VERSION,
+            blob: base64::engine::general_purpose::STANDARD.encode(encrypted),
+        };
+        serde_json::to_string(&wrapper).map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("DPAPI cache unavailable on non-Windows".to_string())
+    }
+}
+
+fn unseal_and_validate_cache_json(
+    raw: &str,
+    expected_family: &str,
+    now_unix: u64,
+) -> Option<StoreProCachePayload> {
+    #[cfg(windows)]
+    {
+        use base64::Engine;
+        let wrapper = serde_json::from_str::<ProtectedStoreProCacheFile>(raw).ok()?;
+        if wrapper.version != CACHE_FILE_VERSION || wrapper.blob.is_empty() {
+            return None;
+        }
+        let ciphertext = base64::engine::general_purpose::STANDARD
+            .decode(wrapper.blob.trim())
+            .ok()?;
+        let plaintext = dpapi::unprotect(&ciphertext, DPAPI_ENTROPY).ok()?;
+        let payload = serde_json::from_slice::<StoreProCachePayload>(&plaintext).ok()?;
+        if payload.package_family != expected_family {
+            return None;
+        }
+        if !is_cache_within_grace(payload.checked_at_unix, now_unix) {
+            return None;
+        }
+        Some(payload)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (raw, expected_family, now_unix);
+        None
+    }
+}
+
+fn write_file_clearing_readonly(path: &std::path::Path, content: &str) {
+    if std::fs::write(path, content).is_ok() {
+        return;
+    }
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mut perms = meta.permissions();
+        if perms.readonly() {
+            perms.set_readonly(false);
+            let _ = std::fs::set_permissions(path, perms);
+        }
+    }
+    if std::fs::write(path, content).is_err() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn write_cached_license_to_disk(active: bool) {
+    let now_unix = if active { current_unix_secs() } else { 0 };
+    CACHED_CHECKED_AT_UNIX.store(now_unix, Ordering::SeqCst);
+
     let Some(path) = store_pro_cache_path() else {
         return;
     };
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(json) = serde_json::to_string(&StoreProCache {
-        cached_store_pro_active: active,
-    }) {
-        let _ = std::fs::write(path, json);
+
+    if !active {
+        // Removing or rewriting inactive cache avoids retaining a stale read-only active token.
+        let payload = StoreProCachePayload {
+            cached_store_pro_active: false,
+            checked_at_unix: current_unix_secs(),
+            package_family: current_package_family(),
+        };
+        if let Ok(sealed) = seal_cache_json(&payload) {
+            write_file_clearing_readonly(&path, &sealed);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+        return;
+    }
+
+    let payload = StoreProCachePayload {
+        cached_store_pro_active: true,
+        checked_at_unix: now_unix,
+        package_family: current_package_family(),
+    };
+    if let Ok(sealed) = seal_cache_json(&payload) {
+        write_file_clearing_readonly(&path, &sealed);
     }
 }
 
@@ -103,14 +354,24 @@ pub fn init_cached_license_from_disk() {
     let Some(path) = store_pro_cache_path() else {
         return;
     };
-    let Ok(raw) = std::fs::read_to_string(path) else {
+    let Ok(raw) = std::fs::read_to_string(&path) else {
         return;
     };
-    let Ok(parsed) = serde_json::from_str::<StoreProCache>(&raw) else {
-        return;
-    };
-    if parsed.cached_store_pro_active {
-        STORE_PRO_ACTIVE.store(true, Ordering::SeqCst);
+    let family = current_package_family();
+    let now_unix = current_unix_secs();
+    if let Some(payload) = unseal_and_validate_cache_json(&raw, &family, now_unix) {
+        if payload.cached_store_pro_active {
+            CACHED_CHECKED_AT_UNIX.store(payload.checked_at_unix, Ordering::SeqCst);
+            STORE_PRO_ACTIVE.store(true, Ordering::SeqCst);
+        } else {
+            CACHED_CHECKED_AT_UNIX.store(0, Ordering::SeqCst);
+            STORE_PRO_ACTIVE.store(false, Ordering::SeqCst);
+        }
+    } else {
+        // Fail closed on plaintext, forged, tampered, or expired caches.
+        CACHED_CHECKED_AT_UNIX.store(0, Ordering::SeqCst);
+        STORE_PRO_ACTIVE.store(false, Ordering::SeqCst);
+        let _ = std::fs::remove_file(&path);
     }
 }
 
@@ -356,6 +617,11 @@ fn apply_license_result(lic_res: &Result<bool, String>) {
             }
         }
         Err(err) => {
+            let checked_at = CACHED_CHECKED_AT_UNIX.load(Ordering::SeqCst);
+            if !is_cache_within_grace(checked_at, current_unix_secs()) {
+                STORE_PRO_ACTIVE.store(false, Ordering::SeqCst);
+                write_cached_license_to_disk(false);
+            }
             if let Ok(mut guard) = meta_store().lock() {
                 guard.last_error = Some(err.clone());
             }
@@ -790,10 +1056,39 @@ mod tests {
 
     #[test]
     fn test_store_license_serialization_and_unpackaged_snapshot() {
-        let cache: StoreProCache =
-            serde_json::from_str(r#"{"cached_store_pro_active":true}"#).unwrap();
-        assert!(cache.cached_store_pro_active);
-        assert!(serde_json::from_str::<StoreProCache>("{}").is_err());
+        let now = 1_763_450_000u64;
+        let payload = StoreProCachePayload {
+            cached_store_pro_active: true,
+            checked_at_unix: now,
+            package_family: "TestPkgFamily".to_string(),
+        };
+
+        let sealed = seal_cache_json(&payload).unwrap();
+        assert!(!sealed.contains("cached_store_pro_active"));
+        assert!(unseal_and_validate_cache_json(&sealed, "TestPkgFamily", now + 60).is_some());
+
+        // Plaintext legacy forgery must fail closed.
+        assert!(unseal_and_validate_cache_json(
+            r#"{"cached_store_pro_active":true}"#,
+            "TestPkgFamily",
+            now
+        )
+        .is_none());
+
+        // Wrong package family, expired grace (>7d), and far-future timestamp must fail closed.
+        assert!(unseal_and_validate_cache_json(&sealed, "OtherPkg", now + 60).is_none());
+        assert!(
+            unseal_and_validate_cache_json(&sealed, "TestPkgFamily", now + OFFLINE_GRACE_SECS + 1)
+                .is_none()
+        );
+        assert!(
+            unseal_and_validate_cache_json(
+                &sealed,
+                "TestPkgFamily",
+                now.saturating_sub(CLOCK_SKEW_TOLERANCE_SECS + 10)
+            )
+            .is_none()
+        );
 
         // Test binary runs unpackaged (non-MSIX), so taskbar entitlement is open.
         if !is_packaged_msix() {

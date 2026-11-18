@@ -30,6 +30,7 @@ import {
 import { playTaskCompleteSound } from "../../../services/soundService";
 import { Language, t } from "../../../services/i18n";
 import { iosSpring } from "../../../utils/iosMotion";
+import { listenCrossWindowEvent } from "../../../utils/crossWindowSync";
 import { Tooltip } from "../Tooltip";
 import {
   PRAYER_ACCENT,
@@ -91,10 +92,10 @@ export const PrayerReminderPanel: React.FC<PrayerReminderPanelProps> = ({
       setSettings(loadPrayerSettings());
       setCompletedList(getCompletedPrayersForDate(schedule.dateKey));
     };
-    window.addEventListener("gili_prayer_updated", syncHandler);
+    const unlistenPrayerSync = listenCrossWindowEvent("gili_prayer_updated", syncHandler);
     const clockTimer = setInterval(() => setNow(new Date()), 15_000);
     return () => {
-      window.removeEventListener("gili_prayer_updated", syncHandler);
+      unlistenPrayerSync();
       clearInterval(clockTimer);
     };
   }, [schedule.dateKey]);

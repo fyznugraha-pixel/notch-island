@@ -25,10 +25,27 @@ export const MODULE_ID_ALIASES: Record<string, string> = {
   countdown: "hitung_mundur",
   day_progress: "progres_hari",
   eye_rest: "istirahat_mata",
-  startSearch: "start_search",
-  pinnedApps: "pinned_apps",
-  runningApps: "running_apps",
-  systemIcons: "output_audio",
-  notifications: "notifications",
-  clockDate: "jam_dunia",
 };
+
+// Built-in core taskbar slots are handled separately from catalog add-ons
+export const BUILTIN_MODULE_ID_SET = new Set([
+  "startSearch",
+  "pinnedApps",
+  "runningApps",
+  "hiddenTray",
+  "systemIcons",
+  "notifications",
+  "clockDate",
+]);
+
+export function resolveCanonicalModuleId(id: string): string {
+  return MODULE_ID_ALIASES[id] || id;
+}
+
+export function isSameCatalogModuleId(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (BUILTIN_MODULE_ID_SET.has(a) || BUILTIN_MODULE_ID_SET.has(b)) {
+    return false;
+  }
+  return resolveCanonicalModuleId(a) === resolveCanonicalModuleId(b);
+}

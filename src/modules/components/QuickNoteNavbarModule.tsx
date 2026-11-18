@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { FileText, Plus, Trash2, Copy, Check } from "lucide-react";
 import { NavbarModuleProps } from "../registry";
 import { NavbarPopoverShell, useNavbarIsLightSurface } from "./NavbarPopoverShell";
@@ -6,15 +6,15 @@ import { Tooltip } from "../../components/ui/Tooltip";
 import { copyTextToClipboard } from "../../utils/clipboard";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
-
-interface QuickNoteItem {
-  id: string;
-  title: string;
-  content: string;
-  updatedAt: number;
-}
-
-const NOTES_KEY = "gili_quick_notes";
+import {
+  MINI_NOTES_STORAGE_KEY,
+  type MiniNoteItem,
+  loadMiniNotes,
+  createQuickNoteItem,
+  deleteQuickNoteItem,
+  getMiniNoteDisplayText,
+} from "../../services/noteUtils";
+import { listenCrossWindowEvent } from "../../utils/crossWindowSync";
 
 export const QuickNoteNavbarModule: React.FC<NavbarModuleProps> = ({
   view = "compact",
@@ -29,41 +29,32 @@ export const QuickNoteNavbarModule: React.FC<NavbarModuleProps> = ({
   const anchorRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<MiniNoteItem[]>(() => loadMiniNotes());
 
-  const [notes, setNotes] = useState<QuickNoteItem[]>(() => {
-    try {
-      const raw = localStorage.getItem(NOTES_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {}
-    return [];
-  });
-
-  const saveNotes = (next: QuickNoteItem[]) => {
-    setNotes(next);
-    try {
-      localStorage.setItem(NOTES_KEY, JSON.stringify(next));
-    } catch {}
-  };
+  useEffect(() => {
+    const syncNotes = () => setNotes(loadMiniNotes());
+    const unsubCross = listenCrossWindowEvent("gili_notes_updated", syncNotes);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === MINI_NOTES_STORAGE_KEY || e.key === null) syncNotes();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      unsubCross();
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   const handleSaveDraft = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = draft.trim();
     if (!trimmed) return;
-    const item: QuickNoteItem = {
-      id: `note_${Date.now()}`,
-      title: trimmed.slice(0, 36),
-      content: trimmed,
-      updatedAt: Date.now(),
-    };
-    saveNotes([item, ...notes]);
+    createQuickNoteItem(trimmed, "blue", false);
+    setNotes(loadMiniNotes());
     setDraft("");
   };
 
-  const handleCopy = async (note: QuickNoteItem) => {
-    const ok = await copyTextToClipboard(note.content);
+  const handleCopy = async (note: MiniNoteItem) => {
+    const ok = await copyTextToClipboard(getMiniNoteDisplayText(note));
     if (ok) {
       setCopiedId(note.id);
       setTimeout(() => setCopiedId(null), 1200);
@@ -71,7 +62,8 @@ export const QuickNoteNavbarModule: React.FC<NavbarModuleProps> = ({
   };
 
   const handleDelete = (id: string) => {
-    saveNotes(notes.filter((n) => n.id !== id));
+    deleteQuickNoteItem(id);
+    setNotes(loadMiniNotes());
   };
 
   const handleToggle = () => setIsOpen((v) => !v);
@@ -118,7 +110,7 @@ export const QuickNoteNavbarModule: React.FC<NavbarModuleProps> = ({
           ) : (
             <>
               <span className="text-[11.5px] text-zinc-200 truncate max-w-[95px]">
-                {notes[0] ? notes[0].content : tx(lang, "Jot an idea...", "Catat ide...")}
+                {notes[0] ? getMiniNoteDisplayText(notes[0]) : tx(lang, "Jot an idea...", "Catat ide...")}
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-[5px] bg-white/[0.07] text-zinc-300 font-mono shrink-0">
                 {notes.length > 0 ? noteCountText : tx(lang, "Quick", "Kilat")}
@@ -179,7 +171,7 @@ export const QuickNoteNavbarModule: React.FC<NavbarModuleProps> = ({
                   className="w-full min-w-0 overflow-hidden flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[8px] bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.08]"
                 >
                   <span className="text-[11.5px] text-zinc-200 truncate flex-1 min-w-0">
-                    {n.content}
+                    {getMiniNoteDisplayText(n)}
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
                     <Tooltip

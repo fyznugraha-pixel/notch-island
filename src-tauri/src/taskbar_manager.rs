@@ -7,18 +7,20 @@ use windows::Win32::Graphics::Gdi::{
     MonitorFromPoint, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY,
 };
 use windows::Win32::UI::Shell::{
-    SHAppBarMessage, APPBARDATA, ABM_GETSTATE, ABM_SETSTATE, ABS_ALWAYSONTOP, ABS_AUTOHIDE,
+    SHAppBarMessage, APPBARDATA, ABM_GETSTATE, ABM_SETSTATE, ABS_AUTOHIDE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowExW, FindWindowW, GetLayeredWindowAttributes, GetWindowLongW, IsWindowVisible,
     SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, HWND_BOTTOM,
-    LWA_ALPHA, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSENDCHANGING,
-    SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNA, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    HWND_TOPMOST, LWA_ALPHA, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNA, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 static TASKBAR_HIDDEN: AtomicBool = AtomicBool::new(false);
-static ORIGINAL_TASKBAR_STATE: AtomicU32 = AtomicU32::new(0);
+static ORIGINAL_TASKBAR_STATE: AtomicU32 = AtomicU32::new(u32::MAX);
+static ORIGINAL_PRIMARY_EXSTYLE: AtomicU32 = AtomicU32::new(0);
+static ORIGINAL_PRIMARY_EXSTYLE_CAPTURED: AtomicBool = AtomicBool::new(false);
 static WATCHDOG_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static TRAY_OVERFLOW_LEASE_COUNT: AtomicU32 = AtomicU32::new(0);
 static TRAY_OVERFLOW_LEASE_GEN: AtomicU64 = AtomicU64::new(0);
@@ -43,9 +45,16 @@ pub fn acquire_tray_overflow_lease() -> TrayOverflowLeaseGuard {
 }
 
 pub fn release_tray_overflow_lease() {
-    let prev = TRAY_OVERFLOW_LEASE_COUNT
-        .try_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(1)))
-        .unwrap_or(0);
+    let prev = loop {
+        let cur = TRAY_OVERFLOW_LEASE_COUNT.load(Ordering::Acquire);
+        let next = cur.saturating_sub(1);
+        if TRAY_OVERFLOW_LEASE_COUNT
+            .compare_exchange_weak(cur, next, Ordering::SeqCst, Ordering::Acquire)
+            .is_ok()
+        {
+            break cur;
+        }
+    };
     if prev <= 1 && TASKBAR_HIDDEN.load(Ordering::SeqCst) {
         restore_shell_tray_hidden_now();
     }
@@ -67,6 +76,44 @@ fn get_flag_path() -> Option<PathBuf> {
     Some(dir.join("taskbar_hidden.flag"))
 }
 
+fn parse_disk_flag_content(raw: &str) -> Option<(u32, Option<u32>)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed == "1" {
+        return Some((0, None));
+    }
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let pid = val.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let orig = val
+            .get("original_state")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+            .filter(|&v| v != u32::MAX);
+        return Some((pid, orig));
+    }
+    None
+}
+
+pub fn read_disk_flag_info() -> Option<(u32, Option<u32>)> {
+    let flag_path = get_flag_path()?;
+    let raw = std::fs::read_to_string(&flag_path).ok()?;
+    parse_disk_flag_content(&raw)
+}
+
+pub fn remove_disk_flag_for_pid(target_pid: u32) {
+    if let Some(flag_path) = get_flag_path() {
+        let matches = match read_disk_flag_info() {
+            Some((flag_pid, _)) => flag_pid == 0 || flag_pid == target_pid,
+            None => false,
+        };
+        if matches {
+            let _ = std::fs::remove_file(&flag_path);
+        }
+    }
+}
+
 /// Persists the taskbar hidden state flag to disk so a crash can be detected on subsequent launch.
 fn write_disk_flag(hidden: bool) {
     if let Some(flag_path) = get_flag_path() {
@@ -74,9 +121,22 @@ fn write_disk_flag(hidden: bool) {
             if let Some(parent) = flag_path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let _ = std::fs::write(&flag_path, b"1");
+            let payload = serde_json::json!({
+                "pid": std::process::id(),
+                "original_state": ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst),
+            })
+            .to_string();
+            let tmp_path = flag_path.with_extension("flag.tmp");
+            if std::fs::write(&tmp_path, payload.as_bytes()).is_ok() {
+                if std::fs::rename(&tmp_path, &flag_path).is_err() {
+                    let _ = std::fs::write(&flag_path, payload.as_bytes());
+                    let _ = std::fs::remove_file(&tmp_path);
+                }
+            } else {
+                let _ = std::fs::write(&flag_path, payload.as_bytes());
+            }
         } else {
-            let _ = std::fs::remove_file(&flag_path);
+            remove_disk_flag_for_pid(std::process::id());
         }
     }
 }
@@ -84,10 +144,10 @@ fn write_disk_flag(hidden: bool) {
 /// Checks if the previous session crashed while the taskbar was hidden.
 /// If so, restores the taskbar immediately.
 pub fn check_and_recover_on_startup() {
-    if let Some(flag_path) = get_flag_path() {
-        if flag_path.exists() {
-            eprintln!("[Gili Taskbar] Detected unexpected exit with hidden taskbar. Restoring...");
-            set_taskbar_visible(true);
+    if let Some((_pid, saved_state)) = read_disk_flag_info() {
+        eprintln!("[Gili Taskbar] Detected unexpected exit with hidden taskbar. Restoring...");
+        restore_taskbars_from_watchdog(saved_state);
+        if let Some(flag_path) = get_flag_path() {
             let _ = std::fs::remove_file(&flag_path);
         }
     }
@@ -95,7 +155,7 @@ pub fn check_and_recover_on_startup() {
 
 /// Saves the original taskbar auto-hide / always-on-top state via SHAppBarMessage.
 fn save_original_state(primary_hwnd: HWND) {
-    if ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst) != 0 {
+    if ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst) != u32::MAX {
         return; // Already captured original state
     }
 
@@ -106,6 +166,9 @@ fn save_original_state(primary_hwnd: HWND) {
             ..Default::default()
         };
         let state = SHAppBarMessage(ABM_GETSTATE, &mut abd) as u32;
+        let ex = GetWindowLongW(primary_hwnd, GWL_EXSTYLE) as u32;
+        ORIGINAL_PRIMARY_EXSTYLE.store(ex, Ordering::SeqCst);
+        ORIGINAL_PRIMARY_EXSTYLE_CAPTURED.store(true, Ordering::SeqCst);
         ORIGINAL_TASKBAR_STATE.store(state, Ordering::SeqCst);
     }
 }
@@ -117,7 +180,10 @@ fn set_shell_autohide_state(primary_hwnd: HWND, autohide: bool) {
             ABS_AUTOHIDE
         } else {
             let saved = ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst);
-            if saved != 0 { saved } else { ABS_ALWAYSONTOP }
+            if saved == u32::MAX {
+                return;
+            }
+            saved
         };
 
         let mut abd = APPBARDATA {
@@ -307,20 +373,67 @@ unsafe fn uncloak_and_show_tray_hwnd(hwnd: HWND) {
     );
     let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
     let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-    let restored_ex = ex & !(WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0);
+    let mut strip_mask = WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0;
+    if ORIGINAL_PRIMARY_EXSTYLE_CAPTURED.load(Ordering::SeqCst)
+        && (ORIGINAL_PRIMARY_EXSTYLE.load(Ordering::SeqCst) & WS_EX_LAYERED.0) == 0
+    {
+        strip_mask |= WS_EX_LAYERED.0;
+    }
+    let restored_ex = ex & !strip_mask;
     if restored_ex != ex {
         let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, restored_ex as i32);
     }
     let _ = ShowWindow(hwnd, SW_SHOW);
     let _ = SetWindowPos(
         hwnd,
-        HWND(std::ptr::null_mut()),
+        HWND_TOPMOST,
         0,
         0,
         0,
         0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW,
     );
+}
+
+pub fn restore_taskbars_from_watchdog(saved_state: Option<u32>) {
+    SHELL_TRAY_SUMMONING.store(false, Ordering::SeqCst);
+    if let Some(st) = saved_state {
+        if st != u32::MAX {
+            ORIGINAL_TASKBAR_STATE.store(st, Ordering::SeqCst);
+        }
+    }
+
+    unsafe {
+        if let Ok(hwnd) = FindWindowW(w!("Shell_TrayWnd"), None) {
+            if !hwnd.0.is_null() {
+                if ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst) != u32::MAX {
+                    set_shell_autohide_state(hwnd, false);
+                }
+                uncloak_and_show_tray_hwnd(hwnd);
+            }
+        }
+
+        let mut prev = HWND(std::ptr::null_mut());
+        loop {
+            let sec = FindWindowExW(
+                HWND(std::ptr::null_mut()),
+                prev,
+                w!("Shell_SecondaryTrayWnd"),
+                None,
+            );
+            if let Ok(hwnd) = sec {
+                if hwnd.0.is_null() {
+                    break;
+                }
+                uncloak_and_show_tray_hwnd(hwnd);
+                prev = hwnd;
+            } else {
+                break;
+            }
+        }
+    }
+
+    TASKBAR_HIDDEN.store(false, Ordering::SeqCst);
 }
 
 unsafe fn should_hide_tray_hwnd(hwnd: HWND) -> bool {
@@ -355,6 +468,9 @@ pub fn set_taskbar_visible(visible: bool) {
         SHELL_TRAY_SUMMONING.store(false, Ordering::SeqCst);
     }
 
+    let was_hidden = TASKBAR_HIDDEN.load(Ordering::SeqCst);
+    let has_saved_state = ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst) != u32::MAX;
+
     unsafe {
         let primary = FindWindowW(w!("Shell_TrayWnd"), None);
         if let Ok(hwnd) = primary {
@@ -369,7 +485,9 @@ pub fn set_taskbar_visible(visible: bool) {
                         cloak_and_hide_tray_hwnd(hwnd);
                     }
                 } else {
-                    set_shell_autohide_state(hwnd, false);
+                    if was_hidden || has_saved_state {
+                        set_shell_autohide_state(hwnd, false);
+                    }
                     uncloak_and_show_tray_hwnd(hwnd);
                 }
             }
@@ -398,7 +516,10 @@ pub fn set_taskbar_visible(visible: bool) {
 
     TASKBAR_HIDDEN.store(!visible, Ordering::SeqCst);
     write_disk_flag(!visible);
-    ensure_watchdog_started();
+    if !visible {
+        ensure_watchdog_started();
+        crate::taskbar_safety::ensure_taskbar_watchdog_spawned();
+    }
 }
 
 pub fn refresh_taskbar_visibility() {
@@ -480,7 +601,7 @@ fn spawn_win_event_hook_thread() {
         );
 
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, HWND(std::ptr::null_mut()), 0, 0).as_bool() {
+        while GetMessageW(&mut msg, HWND(std::ptr::null_mut()), 0, 0).0 > 0 {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -588,5 +709,24 @@ mod tests {
             assert!(has_tray_overflow_lease());
         }
         assert!(!has_tray_overflow_lease());
+    }
+
+    #[test]
+    fn test_disk_flag_parse_formats() {
+        assert_eq!(parse_disk_flag_content("1"), Some((0, None)));
+        assert_eq!(
+            parse_disk_flag_content(r#"{"pid":4242,"original_state":1}"#),
+            Some((4242, Some(1)))
+        );
+        assert_eq!(
+            parse_disk_flag_content(r#"{"pid":4242,"original_state":0}"#),
+            Some((4242, Some(0)))
+        );
+        assert_eq!(
+            parse_disk_flag_content(&format!(r#"{{"pid":4242,"original_state":{}}}"#, u32::MAX)),
+            Some((4242, None))
+        );
+        assert_eq!(parse_disk_flag_content(""), None);
+        assert_eq!(parse_disk_flag_content("invalid"), None);
     }
 }

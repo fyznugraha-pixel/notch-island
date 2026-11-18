@@ -5,14 +5,15 @@ import { NavbarPopoverShell, useNavbarIsLightSurface } from "./NavbarPopoverShel
 import { Tooltip } from "../../components/ui/Tooltip";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
-
-interface TodoItem {
-  id: string;
-  text: string;
-  completed: boolean;
-}
-
-const TODOS_KEY = "gili_todos";
+import {
+  TODO_STORAGE_KEY,
+  type TodoItem,
+  loadCanonicalTodos,
+  addCanonicalTodo,
+  toggleCanonicalTodo,
+  deleteCanonicalTodo,
+} from "../../services/todoUtils";
+import { listenCrossWindowEvent } from "../../utils/crossWindowSync";
 
 export const TodoNavbarModule: React.FC<NavbarModuleProps> = ({
   view = "compact",
@@ -26,53 +27,25 @@ export const TodoNavbarModule: React.FC<NavbarModuleProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [suppressOuterTip, setSuppressOuterTip] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
-  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [todos, setTodos] = useState<TodoItem[]>(() => loadCanonicalTodos());
   const [newTask, setNewTask] = useState("");
 
   const loadTodos = useCallback(() => {
-    try {
-      const raw = localStorage.getItem(TODOS_KEY);
-      if (raw !== null) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setTodos(parsed);
-          return;
-        }
-      }
-      setTodos([
-        {
-          id: "td_1",
-          text: tx(lang, "Review project milestones", "Tubes SIA BAB 1"),
-          completed: false,
-        },
-        {
-          id: "td_2",
-          text: tx(lang, "Send weekly report", "Kirim laporan mingguan"),
-          completed: false,
-        },
-      ]);
-    } catch {}
-  }, [lang]);
+    setTodos(loadCanonicalTodos());
+  }, []);
 
   useEffect(() => {
     loadTodos();
-    const id = setInterval(loadTodos, 3000);
+    const unsubCross = listenCrossWindowEvent("gili_todos_updated", loadTodos);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === TODOS_KEY) loadTodos();
+      if (e.key === TODO_STORAGE_KEY || e.key === null) loadTodos();
     };
     window.addEventListener("storage", onStorage);
     return () => {
-      clearInterval(id);
+      unsubCross();
       window.removeEventListener("storage", onStorage);
     };
   }, [loadTodos]);
-
-  const saveTodos = (next: TodoItem[]) => {
-    setTodos(next);
-    try {
-      localStorage.setItem(TODOS_KEY, JSON.stringify(next));
-    } catch {}
-  };
 
   const pendingTodos = todos.filter((t) => !t.completed);
   const topTodo = pendingTodos[0];
@@ -83,31 +56,23 @@ export const TodoNavbarModule: React.FC<NavbarModuleProps> = ({
       setIsOpen((v) => !v);
       return;
     }
-    const updated = todos.map((t) =>
-      t.id === topTodo.id ? { ...t, completed: true } : t
-    );
-    saveTodos(updated);
+    setTodos(toggleCanonicalTodo(topTodo.id));
   };
 
   const handleToggleItem = (id: string) => {
-    saveTodos(
-      todos.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
-    );
+    setTodos(toggleCanonicalTodo(id));
   };
 
   const handleAddTodo = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newTask.trim();
     if (!trimmed) return;
-    saveTodos([
-      { id: `td_${Date.now()}`, text: trimmed, completed: false },
-      ...todos,
-    ]);
+    setTodos(addCanonicalTodo(trimmed));
     setNewTask("");
   };
 
   const handleDeleteTodo = (id: string) => {
-    saveTodos(todos.filter((t) => t.id !== id));
+    setTodos(deleteCanonicalTodo(id));
   };
 
   const handleTogglePopover = () => {

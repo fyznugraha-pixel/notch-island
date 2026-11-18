@@ -24,10 +24,11 @@ import { NavbarBehaviorCard } from "./NavbarBehaviorCard";
 import { NavbarModulesOrderCard } from "./NavbarModulesOrderCard";
 import { AddModuleDialog } from "./AddModuleDialog";
 import { NavbarPresetsModal } from "./NavbarPresetsModal";
+import { NavbarStyleShareModal } from "./NavbarStyleShareModal";
 import { TaskbarProBanner, ProPurchaseFeedback } from "./TaskbarProBanner";
 import { getNavbarModuleById } from "../../../modules/registry";
-import { MODULE_ID_ALIASES } from "../../../modules/moduleComponents";
-import { LayoutTemplate, RotateCcw } from "lucide-react";
+import { isSameCatalogModuleId } from "../../../modules/moduleAliases";
+import { LayoutTemplate, RotateCcw, Share2 } from "lucide-react";
 import { Language, getLanguage } from "../../../services/i18n";
 
 interface NavbarSettingsTabProps {
@@ -45,6 +46,7 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
+  const [isStyleShareOpen, setIsStyleShareOpen] = useState(false);
   const [proStatus, setProStatus] = useState<TaskbarProStatus>(DEFAULT_TASKBAR_PRO_STATUS);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isRefreshingLicense, setIsRefreshingLicense] = useState(false);
@@ -89,9 +91,8 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
     moduleId: string,
     preferredView?: "compact" | "full"
   ) => {
-    const targetCanonical = MODULE_ID_ALIASES[moduleId] || moduleId;
-    const existingIndex = config.modules.findIndex(
-      (m) => (MODULE_ID_ALIASES[m.id] || m.id) === targetCanonical
+    const existingIndex = config.modules.findIndex((m) =>
+      isSameCatalogModuleId(m.id, moduleId)
     );
     if (existingIndex !== -1) {
       if (preferredView) {
@@ -352,18 +353,32 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
               : `${enabledModulesCount} active modules`}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsPresetsOpen(true)}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-[10px] border text-[12px] font-semibold transition-all cursor-pointer shrink-0 ${
-            isLightMode
-              ? "bg-blue-500/10 text-blue-700 hover:bg-blue-500/15 border-blue-500/25"
-              : "bg-[#0a84ff]/15 text-[#60a5fa] hover:bg-[#0a84ff]/25 border-[#0a84ff]/30"
-          }`}
-        >
-          <LayoutTemplate size={14} />
-          <span>{isId ? "Preset Taskbar" : "Taskbar Presets"}</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsStyleShareOpen(true)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-[10px] border text-[12px] font-semibold transition-all cursor-pointer shrink-0 ${
+              isLightMode
+                ? "bg-black/[0.04] text-neutral-800 hover:bg-black/[0.08] border-black/10"
+                : "bg-white/[0.05] text-zinc-200 hover:bg-white/[0.1] border-white/10"
+            }`}
+          >
+            <Share2 size={14} />
+            <span>{isId ? "Bagikan Style" : "Share Style"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsPresetsOpen(true)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-[10px] border text-[12px] font-semibold transition-all cursor-pointer shrink-0 ${
+              isLightMode
+                ? "bg-blue-500/10 text-blue-700 hover:bg-blue-500/15 border-blue-500/25"
+                : "bg-[#0a84ff]/15 text-[#60a5fa] hover:bg-[#0a84ff]/25 border-[#0a84ff]/30"
+            }`}
+          >
+            <LayoutTemplate size={14} />
+            <span>{isId ? "Preset Taskbar" : "Taskbar Presets"}</span>
+          </button>
+        </div>
       </div>
 
       {/* Undo Preset Banner */}
@@ -506,6 +521,16 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
         onClose={() => setIsPresetsOpen(false)}
         config={config}
         onApplyPreset={handleApplyPreset}
+        isLightMode={isLightMode}
+        optLanguage={currentLang}
+      />
+
+      {/* 11. Share & Import Style Modal */}
+      <NavbarStyleShareModal
+        isOpen={isStyleShareOpen}
+        onClose={() => setIsStyleShareOpen(false)}
+        config={config}
+        onApplyStyle={handleApplyPreset}
         isLightMode={isLightMode}
         optLanguage={currentLang}
       />

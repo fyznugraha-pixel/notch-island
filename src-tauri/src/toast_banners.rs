@@ -21,44 +21,90 @@ fn suppress_banners(hkcu: &RegKey) -> Result<(), String> {
         ) else {
             continue;
         };
-        if backup.get_value::<String, _>(&app_id).is_err() {
+        let has_backup = if backup.get_value::<String, _>(&app_id).is_ok() {
+            true
+        } else {
             let previous = match app_key.get_value::<u32, _>("ShowBanner") {
                 Ok(v) => v.to_string(),
                 Err(_) => ABSENT.to_string(),
             };
-            let _ = backup.set_value(&app_id, &previous);
+            backup.set_value(&app_id, &previous).is_ok()
+        };
+        if has_backup {
+            let _ = app_key.set_value("ShowBanner", &0u32);
         }
-        let _ = app_key.set_value("ShowBanner", &0u32);
     }
 
     backup.set_value(ACTIVE_MARKER, &"1").map_err(|e| e.to_string())
 }
 
 fn restore_banners(hkcu: &RegKey) {
-    let Ok(backup) = hkcu.open_subkey_with_flags(BACKUP_PATH, KEY_READ) else {
+    let Ok(backup) = hkcu.open_subkey_with_flags(BACKUP_PATH, KEY_READ | KEY_SET_VALUE) else {
         return;
     };
-    for (app_id, _) in backup.enum_values().flatten() {
+    let mut all_restored = true;
+    let entries: Vec<String> = backup
+        .enum_values()
+        .flatten()
+        .map(|(app_id, _)| app_id)
+        .collect();
+
+    for app_id in entries {
         if app_id == ACTIVE_MARKER {
             continue;
         }
         let previous = match backup.get_value::<String, _>(&app_id) {
             Ok(val) => val,
-            Err(_) => continue,
+            Err(_) => {
+                all_restored = false;
+                continue;
+            }
         };
-        let Ok(app_key) = hkcu.open_subkey_with_flags(
+        let app_key = match hkcu.open_subkey_with_flags(
             format!("{}\\{}", APP_SETTINGS_PATH, app_id),
             KEY_SET_VALUE,
-        ) else {
-            continue;
+        ) {
+            Ok(k) => k,
+            Err(err) => {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    let _ = backup.delete_value(&app_id);
+                } else {
+                    all_restored = false;
+                }
+                continue;
+            }
         };
-        if previous == ABSENT {
-            let _ = app_key.delete_value("ShowBanner");
+        let restored = if previous == ABSENT {
+            match app_key.delete_value("ShowBanner") {
+                Ok(()) => true,
+                Err(err) => err.kind() == std::io::ErrorKind::NotFound,
+            }
         } else if let Ok(v) = previous.parse::<u32>() {
-            let _ = app_key.set_value("ShowBanner", &v);
+            app_key.set_value("ShowBanner", &v).is_ok()
+        } else {
+            false
+        };
+
+        if restored {
+            let _ = backup.delete_value(&app_id);
+        } else {
+            all_restored = false;
         }
     }
-    let _ = hkcu.delete_subkey_all(BACKUP_PATH);
+
+    if all_restored {
+        let _ = hkcu.delete_subkey_all(BACKUP_PATH);
+    }
+}
+
+pub fn restore_banners_on_exit() {
+    if get_windows_banners_hidden() {
+        restore_banners(&RegKey::predef(HKEY_CURRENT_USER));
+    }
+}
+
+pub fn check_and_recover_banners_on_startup() {
+    restore_banners_on_exit();
 }
 
 #[tauri::command]

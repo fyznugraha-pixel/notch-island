@@ -7,15 +7,28 @@ import {
   ShelfTransferCompletedPayload,
 } from "../types/shelfTransfer";
 
+let minimizedSessionToken: string | null = null;
+
+export function getMinimizedShelfSessionToken(): string | null {
+  return minimizedSessionToken;
+}
+
+export function setMinimizedShelfSessionToken(token: string | null): void {
+  minimizedSessionToken = token;
+}
+
 export async function startShelfSend(paths: string[]): Promise<ShelfSessionInfo> {
+  minimizedSessionToken = null;
   return await invoke<ShelfSessionInfo>("start_shelf_send", { paths });
 }
 
 export async function startShelfReceive(): Promise<ShelfSessionInfo> {
+  minimizedSessionToken = null;
   return await invoke<ShelfSessionInfo>("start_shelf_receive");
 }
 
 export async function stopShelfTransfer(): Promise<void> {
+  minimizedSessionToken = null;
   await invoke("stop_shelf_transfer");
 }
 

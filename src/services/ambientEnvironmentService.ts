@@ -14,6 +14,8 @@ export interface WeatherInfo {
   isRain: boolean;
   humidity: number;
   updatedAt: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface AirQualityInfo {
@@ -90,6 +92,8 @@ export async function fetchLiveWeather(city: string): Promise<WeatherInfo | null
     isRain: desc.isRain,
     humidity: Math.round(Number(wData.current.relative_humidity_2m ?? 0)),
     updatedAt: Date.now(),
+    latitude: loc.latitude,
+    longitude: loc.longitude,
   };
 }
 

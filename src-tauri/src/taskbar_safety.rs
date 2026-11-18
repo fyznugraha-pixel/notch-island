@@ -1,19 +1,12 @@
 use std::os::windows::process::CommandExt;
-use std::process::Command;
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
-use windows::core::w;
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
+use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Threading::{
     OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
-};
-use windows::Win32::UI::Shell::{
-    SHAppBarMessage, APPBARDATA, ABM_SETSTATE, ABS_ALWAYSONTOP,
-};
-use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, SetWindowPos, ShowWindow, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_SHOWWINDOW, SW_SHOW,
 };
 
 use crate::taskbar_logger::log_taskbar_event;
@@ -27,7 +20,8 @@ pub static USE_GILI_VOLUME_OUTPUT: AtomicBool = AtomicBool::new(false);
 pub static USE_GILI_NOTIF_CAL: AtomicBool = AtomicBool::new(false);
 pub static USE_GILI_TRAY: AtomicBool = AtomicBool::new(false);
 
-static WATCHDOG_SPAWNED: AtomicBool = AtomicBool::new(false);
+static WATCHDOG_CHILD: Mutex<Option<Child>> = Mutex::new(None);
+static DESIRED_HIDE_WINDOWS_TASKBAR: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaskbarWindowSwitches {
@@ -57,70 +51,62 @@ impl Default for TaskbarWindowSwitches {
 /// native Windows taskbar regardless of how Gili exited (cleanly, crashed, or force-killed).
 pub fn run_taskbar_watchdog(target_pid: u32) {
     unsafe {
-        let process_handle = match OpenProcess(PROCESS_SYNCHRONIZE, false, target_pid) {
-            Ok(handle) => handle,
-            Err(_) => {
-                // Parent already dead, restore immediately
-                restore_windows_taskbar_hard();
-                return;
+        if let Ok(process_handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, target_pid) {
+            if !process_handle.0.is_null() {
+                let _ = WaitForSingleObject(process_handle, INFINITE);
+                let _ = CloseHandle(process_handle);
             }
-        };
-
-        if !process_handle.0.is_null() {
-            let _ = WaitForSingleObject(process_handle, INFINITE);
-            let _ = CloseHandle(process_handle);
         }
-
-        // Parent process terminated. Restore Windows Taskbar!
-        restore_windows_taskbar_hard();
     }
+
+    if let Some((flag_pid, saved_state)) = taskbar_manager::read_disk_flag_info() {
+        if flag_pid == 0 || flag_pid == target_pid {
+            taskbar_manager::restore_taskbars_from_watchdog(saved_state);
+            taskbar_manager::remove_disk_flag_for_pid(target_pid);
+        }
+    }
+
+    crate::windows_dnd::restore_windows_dnd_on_exit();
+    crate::toast_banners::restore_banners_on_exit();
 }
 
-/// Direct Win32 taskbar unhide logic used by the watchdog and emergency kill-switch.
+/// Direct Win32 taskbar unhide logic used by the emergency kill-switch.
 pub fn restore_windows_taskbar_hard() {
-    unsafe {
-        let primary = FindWindowW(w!("Shell_TrayWnd"), None);
-        if let Ok(hwnd) = primary {
-            if !hwnd.0.is_null() {
-                let mut abd = APPBARDATA {
-                    cbSize: std::mem::size_of::<APPBARDATA>() as u32,
-                    hWnd: hwnd,
-                    lParam: LPARAM(ABS_ALWAYSONTOP as isize),
-                    ..Default::default()
-                };
-                let _ = SHAppBarMessage(ABM_SETSTATE, &mut abd);
-                let _ = ShowWindow(hwnd, SW_SHOW);
-                let _ = SetWindowPos(
-                    hwnd,
-                    HWND(std::ptr::null_mut()),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW,
-                );
-            }
-        }
-    }
     taskbar_manager::set_taskbar_visible(true);
 }
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const DETACHED_PROCESS: u32 = 0x00000008;
+const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
 
 /// Spawns a detached watchdog process that guards taskbar restoration.
 pub fn ensure_taskbar_watchdog_spawned() {
-    if WATCHDOG_SPAWNED.swap(true, Ordering::SeqCst) {
-        return;
+    let mut guard = WATCHDOG_CHILD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(ref mut child) = *guard {
+        if matches!(child.try_wait(), Ok(None)) {
+            return;
+        }
     }
 
     if let Ok(current_exe) = std::env::current_exe() {
-        let pid = std::process::id();
-        let _ = Command::new(current_exe)
+        let pid_arg = std::process::id().to_string();
+        let spawned = Command::new(&current_exe)
             .arg("--taskbar-watchdog")
-            .arg(pid.to_string())
-            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
-            .spawn();
+            .arg(&pid_arg)
+            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB)
+            .spawn()
+            .or_else(|_| {
+                Command::new(&current_exe)
+                    .arg("--taskbar-watchdog")
+                    .arg(&pid_arg)
+                    .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+                    .spawn()
+            });
+        if let Ok(child) = spawned {
+            *guard = Some(child);
+        }
     }
 }
 
@@ -225,6 +211,14 @@ fn parse_navbar_config_from_settings_json(raw: &str) -> Option<serde_json::Value
     parsed.get("opt_navbar_config").cloned()
 }
 
+pub fn set_desired_hide_windows_taskbar(hide: bool) {
+    DESIRED_HIDE_WINDOWS_TASKBAR.store(hide, Ordering::SeqCst);
+}
+
+pub fn get_desired_hide_windows_taskbar() -> bool {
+    DESIRED_HIDE_WINDOWS_TASKBAR.load(Ordering::SeqCst)
+}
+
 pub fn sync_switches_from_navbar_config_value(cfg: &serde_json::Value) {
     let entitled = cfg!(test) || crate::store_license::can_use_taskbar();
     let (switches, genie_enabled) = switches_from_navbar_config_value(cfg, entitled);
@@ -232,18 +226,24 @@ pub fn sync_switches_from_navbar_config_value(cfg: &serde_json::Value) {
     set_taskbar_window_switches(switches);
     crate::window_dock_anim::set_genie_animation_enabled(genie_enabled);
 
+    let enabled = entitled
+        && cfg
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+    let hide_windows_taskbar = enabled
+        && cfg
+            .get("hideWindowsTaskbar")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+    set_desired_hide_windows_taskbar(hide_windows_taskbar);
+
     if !cfg!(test) {
-        let enabled = entitled
-            && cfg
-                .get("enabled")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-        let hide_windows_taskbar = enabled
-            && cfg
-                .get("hideWindowsTaskbar")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-        crate::taskbar_manager::set_taskbar_visible(!hide_windows_taskbar);
+        if !hide_windows_taskbar {
+            crate::taskbar_manager::set_taskbar_visible(true);
+        } else if crate::navbar_window::is_navbar_window_ready() {
+            crate::taskbar_manager::set_taskbar_visible(false);
+        }
     }
 }
 

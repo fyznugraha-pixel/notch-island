@@ -17,18 +17,19 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_REMOVE, APPBARDATA};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetLayeredWindowAttributes,
-    GetTopWindow, GetWindow, GetWindowLongW, GetWindowPlacement, GetWindowRect, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow,
-    SetWindowLongW, SetWindowPos, ShowWindow, ShowWindowAsync, GWL_EXSTYLE, GWL_STYLE, GW_HWNDNEXT,
-    GW_HWNDPREV, GW_OWNER, HWND_TOPMOST, LWA_ALPHA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_MINIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE,
-    WINDOWPLACEMENT, WS_CAPTION, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
-    WS_THICKFRAME,
+    EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetGUIThreadInfo,
+    GetLayeredWindowAttributes, GetTopWindow, GetWindow, GetWindowLongW, GetWindowPlacement,
+    GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
+    SetForegroundWindow, SetWindowLongW, SetWindowPos, ShowWindow, ShowWindowAsync, GUITHREADINFO,
+    GUI_INMENUMODE, GWL_EXSTYLE, GWL_STYLE, GW_HWNDNEXT, GW_HWNDPREV, GW_OWNER, HWND_TOPMOST,
+    LWA_ALPHA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SW_MINIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE, WINDOWPLACEMENT, WS_CAPTION,
+    WS_DISABLED, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_MAXIMIZE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
 };
 
 static NAVBAR_ENABLED: AtomicBool = AtomicBool::new(false);
+static NAVBAR_WINDOW_READY: AtomicBool = AtomicBool::new(false);
 static NAVBAR_LIFECYCLE_GEN: AtomicU64 = AtomicU64::new(0);
 static APPBAR_REGISTERED: AtomicBool = AtomicBool::new(false);
 static NAVBAR_WATCHER_STARTED: Once = Once::new();
@@ -39,6 +40,10 @@ static DESKTOP_ZORDER_CHECK_NEEDED: AtomicBool = AtomicBool::new(false);
 
 pub fn is_navbar_enabled() -> bool {
     NAVBAR_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn is_navbar_window_ready() -> bool {
+    NAVBAR_ENABLED.load(Ordering::SeqCst) && NAVBAR_WINDOW_READY.load(Ordering::SeqCst)
 }
 
 pub fn request_overlap_recheck() {
@@ -632,6 +637,27 @@ pub(crate) fn is_topmost_visible_trackable_window(target: HWND) -> bool {
     false
 }
 
+fn is_popup_menu_active() -> bool {
+    unsafe {
+        let mut gui = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        if GetGUIThreadInfo(0, &mut gui).is_ok() && (gui.flags & GUI_INMENUMODE).0 != 0 {
+            return true;
+        }
+        if let Ok(menu_hwnd) = windows::Win32::UI::WindowsAndMessaging::FindWindowW(
+            windows::core::w!("#32768"),
+            None,
+        ) {
+            if !menu_hwnd.0.is_null() && IsWindowVisible(menu_hwnd).as_bool() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Checks if the current foreground window is a true fullscreen application (game, video player, F11 browser)
 /// on the same monitor as the navbar window.
 fn is_fullscreen_app_covering_navbar(navbar_win: &tauri::WebviewWindow) -> bool {
@@ -641,12 +667,27 @@ fn is_fullscreen_app_covering_navbar(navbar_win: &tauri::WebviewWindow) -> bool 
     };
 
     unsafe {
-        let fg = GetForegroundWindow();
+        let mut fg = GetForegroundWindow();
         if fg.0.is_null() || fg == nav_hwnd {
             return false;
         }
         if !is_external_user_window(fg) {
-            return false;
+            // Preserve fullscreen state when Gili's own flyout opens over a fullscreen app.
+            if crate::taskbar_flyout::is_taskbar_flyout_open() {
+                let prev = LAST_EXTERNAL_FG_HWND.load(Ordering::Relaxed);
+                if prev != 0 {
+                    let prev_hwnd = HWND(prev as *mut _);
+                    if IsWindow(prev_hwnd).as_bool() && is_external_user_window(prev_hwnd) {
+                        fg = prev_hwnd;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
 
         let nav_mon = MonitorFromWindow(nav_hwnd, MONITOR_DEFAULTTONEAREST);
@@ -670,14 +711,16 @@ fn is_fullscreen_app_covering_navbar(navbar_win: &tauri::WebviewWindow) -> bool 
 
         let mon = mon_info.rcMonitor;
         let style = GetWindowLongW(fg, GWL_STYLE) as u32;
-        let has_frame = (style & (WS_CAPTION.0 | WS_THICKFRAME.0)) != 0;
+        let has_caption = (style & WS_CAPTION.0) == WS_CAPTION.0;
+        let is_maximized = (style & WS_MAXIMIZE.0) != 0;
+        let is_fullscreen_style = !has_caption || !is_maximized;
 
         let covers_full_monitor = win_rect.left <= mon.left + 2
             && win_rect.top <= mon.top + 2
             && win_rect.right >= mon.right - 2
             && win_rect.bottom >= mon.bottom - 2;
 
-        covers_full_monitor && !has_frame
+        covers_full_monitor && is_fullscreen_style
     }
 }
 
@@ -1108,10 +1151,8 @@ fn restore_if_minimized_hwnd(hwnd: HWND, label: Option<&str>) -> bool {
         return false;
     }
     unsafe {
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        if IsIconic(hwnd).as_bool() {
-            let _ = ShowWindow(hwnd, SW_RESTORE);
-        }
+        let _ = ShowWindowAsync(hwnd, SW_SHOWNOACTIVATE);
+        let _ = ShowWindowAsync(hwnd, SW_RESTORE);
         let saved_rect = label.map(get_window_last_rect).unwrap_or((0, 0, 0, 0));
         if saved_rect.2 > 0 && saved_rect.3 > 0 {
             let _ = SetWindowPos(
@@ -1243,7 +1284,9 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                 let overlap_recheck_due = OVERLAP_RECHECK_NEEDED.swap(false, Ordering::AcqRel);
                 let desktop_zcheck_due = DESKTOP_ZORDER_CHECK_NEEDED.swap(false, Ordering::AcqRel);
                 let fg_is_desktop = is_desktop_shell_class(fg);
-                let fg_switched_to_desktop = (fg_changed && fg_is_desktop) || desktop_zcheck_due;
+                let popup_menu_open = is_popup_menu_active();
+                let fg_switched_to_desktop =
+                    fg_is_desktop && !popup_menu_open && (fg_changed || desktop_zcheck_due);
                 let snipping_active = is_snipping_shortcut_or_overlay_active();
 
                 for (label, win) in nav_windows {
@@ -1252,7 +1295,9 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                     }
 
                     let state = watch_states.entry(label.clone()).or_default();
-                    if fg_switched_to_desktop {
+                    if popup_menu_open {
+                        state.desktop_reassert_ticks = 0;
+                    } else if fg_switched_to_desktop {
                         state.desktop_reassert_ticks = 16;
                     }
 
@@ -1266,8 +1311,9 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
 
                     let fs_due = fg_raw != state.last_fs_fg_hwnd
                         || desktop_zcheck_due
-                        || (near_edge && tick.is_multiple_of(16))
-                        || tick.is_multiple_of(60);
+                        || overlap_recheck_due
+                        || (near_edge && tick.is_multiple_of(8))
+                        || tick.is_multiple_of(20);
                     if fs_due {
                         state.last_fs_fg_hwnd = fg_raw;
                         let is_fs = is_fullscreen_app_covering_navbar(&win);
@@ -1276,7 +1322,9 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                             let _ = app.emit_to(&label, "navbar-fullscreen-state", is_fs);
                             crate::backdrop_blur::set_window_acrylic_hidden(&label, is_fs);
                             if !is_fs {
-                                state.desktop_reassert_ticks = state.desktop_reassert_ticks.max(10);
+                                if !popup_menu_open {
+                                    state.desktop_reassert_ticks = state.desktop_reassert_ticks.max(10);
+                                }
                                 crate::backdrop_blur::invalidate_all_backdrops();
                                 request_overlap_recheck();
                             }
@@ -1297,7 +1345,9 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                         state.desktop_reassert_ticks -= 1;
                         burst_hit = matches!(state.desktop_reassert_ticks, 15 | 10 | 5 | 0);
                     }
-                    if fg_changed || desktop_zcheck_due || burst_hit || tick.is_multiple_of(4) {
+                    if !popup_menu_open
+                        && (fg_changed || desktop_zcheck_due || burst_hit || tick.is_multiple_of(4))
+                    {
                         let force_burst = burst_hit && fg_is_desktop;
                         let (was_iconic, _reasserted) =
                             reassert_overlay_above_desktop(&win, Some(&label), force_burst);
@@ -1455,6 +1505,10 @@ fn build_navbar_webview_window(
         let _ = win.destroy();
         return Err(tauri::Error::WindowNotFound);
     }
+    if label == "navbar" && resolve_target_monitor_for_window(&win, None).is_none() {
+        let _ = win.destroy();
+        return Err(tauri::Error::WindowNotFound);
+    }
     let _ = win.set_focusable(false);
     set_overlay_click_through(&win, true);
     #[cfg(windows)]
@@ -1486,6 +1540,9 @@ fn build_navbar_webview_window(
             let _ = nw.hide();
         }
         tauri::WindowEvent::Destroyed => {
+            if label_for_ev == "navbar" {
+                NAVBAR_WINDOW_READY.store(false, Ordering::SeqCst);
+            }
             if raw_hwnd_key != 0 {
                 if let Ok(mut map) = desired_click_through_map().lock() {
                     map.remove(&raw_hwnd_key);
@@ -1496,6 +1553,13 @@ fn build_navbar_webview_window(
             }
         }
         tauri::WindowEvent::ScaleFactorChanged { .. } => {
+            if label_for_ev == "navbar" {
+                let is_all = monitor_mode_lock()
+                    .lock()
+                    .map(|m| m.eq_ignore_ascii_case("all"))
+                    .unwrap_or(true);
+                sync_secondary_navbar_windows(&app_for_ev, is_all);
+            }
             let _ = app_for_ev.emit_to(&label_for_ev, "navbar-request-sync-bounds", ());
         }
         tauri::WindowEvent::Resized(_) => {
@@ -1506,12 +1570,7 @@ fn build_navbar_webview_window(
                         .ok()
                         .is_some_and(|h| unsafe { IsIconic(HWND(h.0)).as_bool() });
                 if is_min {
-                    let (was_iconic, _) =
-                        reassert_overlay_above_desktop(&nw, Some(&label_for_ev), true);
-                    if was_iconic {
-                        let _ =
-                            app_for_ev.emit_to(&label_for_ev, "navbar-request-sync-bounds", ());
-                    }
+                    let _ = app_for_ev.emit_to(&label_for_ev, "navbar-request-sync-bounds", ());
                 }
             }
         }
@@ -1578,6 +1637,18 @@ pub fn sync_secondary_navbar_windows(app: &tauri::AppHandle, is_all: bool) {
             sync_secondary_navbar_windows_inner(&app_handle, next_is_all);
         }
     });
+}
+
+pub fn on_display_topology_changed(app: &tauri::AppHandle) {
+    if !NAVBAR_ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
+    let is_all = get_monitor_mode().eq_ignore_ascii_case("all");
+    sync_secondary_navbar_windows(app, is_all);
+    if app.get_webview_window("navbar").is_some() {
+        set_window_last_rect("navbar", (0, 0, 0, 0));
+        let _ = app.emit_to("navbar", "navbar-request-sync-bounds", ());
+    }
 }
 
 fn sync_secondary_navbar_windows_inner(app: &tauri::AppHandle, is_all: bool) {
@@ -1670,6 +1741,11 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
     let is_all = get_monitor_mode().eq_ignore_ascii_case("all");
 
     if let Some(w) = app.get_webview_window("navbar") {
+        if resolve_target_monitor_for_window(&w, None).is_none() {
+            hide_navbar_window(app);
+            crate::taskbar_manager::set_taskbar_visible(true);
+            return;
+        }
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_always_on_top(true);
@@ -1685,6 +1761,10 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             }
+        }
+        NAVBAR_WINDOW_READY.store(true, Ordering::SeqCst);
+        if crate::taskbar_safety::get_desired_hide_windows_taskbar() {
+            crate::taskbar_manager::set_taskbar_visible(false);
         }
         sync_secondary_navbar_windows(app, is_all);
         return;
@@ -1705,11 +1785,18 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
             "window.__IS_NAVBAR_WINDOW__ = true;",
         ) {
             Ok(_win) => {
+                NAVBAR_WINDOW_READY.store(true, Ordering::SeqCst);
+                if crate::taskbar_safety::get_desired_hide_windows_taskbar() {
+                    crate::taskbar_manager::set_taskbar_visible(false);
+                }
                 if get_monitor_mode().eq_ignore_ascii_case("all") {
                     sync_secondary_navbar_windows(&app_clone, true);
                 }
             }
             Err(e) => {
+                NAVBAR_WINDOW_READY.store(false, Ordering::SeqCst);
+                NAVBAR_ENABLED.store(false, Ordering::SeqCst);
+                crate::taskbar_manager::set_taskbar_visible(true);
                 if !matches!(e, tauri::Error::WindowNotFound) {
                     eprintln!("Failed to create navbar window: {:?}", e);
                 }
@@ -1722,6 +1809,7 @@ pub fn show_or_create_navbar_window(app: &tauri::AppHandle) {
 pub fn hide_navbar_window(app: &tauri::AppHandle) {
     let gen = NAVBAR_LIFECYCLE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     NAVBAR_ENABLED.store(false, Ordering::SeqCst);
+    NAVBAR_WINDOW_READY.store(false, Ordering::SeqCst);
     crate::window_preview::clear_window_previews();
 
     for (label, w) in app.webview_windows() {
@@ -2007,12 +2095,18 @@ pub fn sync_navbar_bounds(
             prev
         };
         let is_all = mode.eq_ignore_ascii_case("all");
-        let has_secondary = app
+        let expected_sec_count = if is_all {
+            split_primary_and_secondary_monitors(&window).1.len()
+        } else {
+            0
+        };
+        let actual_sec_count = app
             .webview_windows()
             .keys()
-            .any(|k| k.starts_with("navbar_secondary_"));
+            .filter(|k| k.starts_with("navbar_secondary_"))
+            .count();
         mode_changed = !prev_mode.eq_ignore_ascii_case(mode);
-        if mode_changed || (is_all && !has_secondary) || (!is_all && has_secondary) {
+        if mode_changed || actual_sec_count != expected_sec_count {
             sync_secondary_navbar_windows(&app, is_all);
         }
     }
@@ -2120,23 +2214,6 @@ pub fn sync_navbar_bounds(
             }
             if need_move {
                 unsafe {
-                    let target_center = POINT {
-                        x: mon_pos.x + (mon_size.width as i32) / 2,
-                        y: mon_pos.y + (mon_size.height as i32) / 2,
-                    };
-                    let cur_mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-                    let target_mon = MonitorFromPoint(target_center, MONITOR_DEFAULTTONEAREST);
-                    if cur_mon != target_mon {
-                        let _ = SetWindowPos(
-                            hwnd,
-                            HWND_TOPMOST,
-                            mon_pos.x,
-                            mon_pos.y,
-                            phys_w,
-                            phys_h,
-                            SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                        );
-                    }
                     let _ = SetWindowPos(
                         hwnd,
                         HWND_TOPMOST,
@@ -2198,6 +2275,8 @@ pub fn sync_navbar_bounds(
         {
             crate::taskbar_manager::refresh_taskbar_visibility();
         }
+    } else if label == "navbar" {
+        crate::taskbar_manager::set_taskbar_visible(true);
     }
 }
 

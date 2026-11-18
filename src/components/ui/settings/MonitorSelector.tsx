@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Monitor, RefreshCw, Check, Layers } from "lucide-react";
 import { Language, TranslationKey, translations, getLanguage } from "../../../services/i18n";
 
@@ -51,6 +52,17 @@ export const MonitorSelector: React.FC<MonitorSelectorProps> = ({
 
   useEffect(() => {
     fetchMonitors();
+    let unlisten: (() => void) | null = null;
+    listen("monitors-changed", () => {
+      fetchMonitors();
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, [fetchMonitors]);
 
   const handleSelectMonitor = (monitorId: string) => {
