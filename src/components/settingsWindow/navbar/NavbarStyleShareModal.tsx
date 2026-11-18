@@ -14,7 +14,6 @@ import { NavbarConfig } from "../../../types/navbar";
 import { Language } from "../../../services/i18n";
 import {
   NAVBAR_STYLE_MAX_BYTES,
-  NavbarStylePatch,
   NavbarStyleShareError,
   encodeNavbarStyleCode,
   exportNavbarStyleToFile,
@@ -22,13 +21,14 @@ import {
   parseNavbarStyleShareInput,
 } from "../../../services/navbarStyleShareService";
 import { copyTextToClipboard, readTextFromClipboard } from "../../../utils/clipboard";
+import { NavbarStyleModuleToggle } from "./NavbarStyleModuleToggle";
 import { NavbarStyleSummaryCard } from "./NavbarStyleSummaryCard";
 
 interface NavbarStyleShareModalProps {
   isOpen: boolean;
   onClose: () => void;
   config: NavbarConfig;
-  onApplyStyle: (stylePatch: NavbarStylePatch, styleTitle: string) => void;
+  onApplyStyle: (stylePatch: Partial<NavbarConfig>, styleTitle: string) => void;
   isLightMode?: boolean;
   optLanguage?: Language;
 }
@@ -68,7 +68,13 @@ export const NavbarStyleShareModal: React.FC<NavbarStyleShareModalProps> = ({
   const [statusNotice, setStatusNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
+  const [includeModulesExport, setIncludeModulesExport] = useState(true);
+  const [applyImportedModules, setApplyImportedModules] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setApplyImportedModules(true);
+  }, [importText]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -82,9 +88,13 @@ export const NavbarStyleShareModal: React.FC<NavbarStyleShareModalProps> = ({
   }, [isOpen, onClose]);
 
   const currentStyle = useMemo(() => extractNavbarStyle(config), [config]);
+  const exportActiveModuleCount = useMemo(
+    () => (Array.isArray(config.modules) ? config.modules.filter((m) => m.enabled).length : 0),
+    [config.modules]
+  );
   const generatedCode = useMemo(
-    () => encodeNavbarStyleCode(config, styleName),
-    [config, styleName]
+    () => encodeNavbarStyleCode(config, styleName, { includeModules: includeModulesExport }),
+    [config, styleName, includeModulesExport]
   );
 
   const parsedImport = useMemo(() => {
@@ -115,7 +125,11 @@ export const NavbarStyleShareModal: React.FC<NavbarStyleShareModalProps> = ({
 
   const handleExportFile = async () => {
     try {
-      const outcome = await exportNavbarStyleToFile(config, styleName || "gili-taskbar-style");
+      const outcome = await exportNavbarStyleToFile(
+        config,
+        styleName || "gili-taskbar-style",
+        { includeModules: includeModulesExport }
+      );
       if (outcome === "saved") {
         setStatusNotice({
           kind: "ok",
@@ -165,7 +179,11 @@ export const NavbarStyleShareModal: React.FC<NavbarStyleShareModalProps> = ({
     if (!parsedImport.data) return;
     const label =
       parsedImport.data.name || (isId ? "Style Taskbar Impor" : "Imported Taskbar Style");
-    onApplyStyle(parsedImport.data.style, label);
+    const patch: Partial<NavbarConfig> =
+      parsedImport.data.modules && applyImportedModules
+        ? { ...parsedImport.data.style, modules: parsedImport.data.modules }
+        : parsedImport.data.style;
+    onApplyStyle(patch, label);
     onClose();
   };
 
@@ -280,9 +298,27 @@ export const NavbarStyleShareModal: React.FC<NavbarStyleShareModalProps> = ({
                   />
                 </div>
 
+                <NavbarStyleModuleToggle
+                  checked={includeModulesExport}
+                  onChange={setIncludeModulesExport}
+                  title={
+                    isId
+                      ? `Sertakan susunan modul (${exportActiveModuleCount} modul aktif)`
+                      : `Include module layout (${exportActiveModuleCount} active modules)`
+                  }
+                  subtitle={
+                    isId
+                      ? "Ikutkan daftar & urutan widget taskbar (kalender, pomodoro, media, dll)."
+                      : "Include taskbar module list and grouping (calendar, pomodoro, media, etc.)."
+                  }
+                  isLightMode={isLightMode}
+                />
+
                 <NavbarStyleSummaryCard
                   styleData={currentStyle}
                   title={styleName.trim() || undefined}
+                  modules={config.modules}
+                  includeModules={includeModulesExport}
                   isLightMode={isLightMode}
                   optLanguage={optLanguage}
                 />
@@ -399,15 +435,53 @@ export const NavbarStyleShareModal: React.FC<NavbarStyleShareModalProps> = ({
                 )}
 
                 {parsedImport.data && (
-                  <NavbarStyleSummaryCard
-                    styleData={parsedImport.data.style}
-                    title={
-                      parsedImport.data.name ||
-                      (isId ? "Pratinjau Style Siap Diterapkan" : "Style Preview Ready to Apply")
-                    }
-                    isLightMode={isLightMode}
-                    optLanguage={optLanguage}
-                  />
+                  <>
+                    {parsedImport.data.modules ? (
+                      <NavbarStyleModuleToggle
+                        checked={applyImportedModules}
+                        onChange={setApplyImportedModules}
+                        title={
+                          isId
+                            ? `Terapkan juga susunan modul (${
+                                parsedImport.data.modules.filter((m) => m.enabled).length
+                              } modul aktif)`
+                            : `Also apply module layout (${
+                                parsedImport.data.modules.filter((m) => m.enabled).length
+                              } active modules)`
+                        }
+                        subtitle={
+                          isId
+                            ? "Matikan jika hanya ingin menerapkan warna, tema ikon, dan efek visual."
+                            : "Turn off to apply only colors, icon theme, and visual effects."
+                        }
+                        isLightMode={isLightMode}
+                      />
+                    ) : (
+                      <div
+                        className={`px-3 py-1.5 rounded-[9px] border text-[11px] ${
+                          isLightMode
+                            ? "bg-black/[0.03] border-black/[0.07] text-neutral-600"
+                            : "bg-white/[0.03] border-white/[0.07] text-zinc-400"
+                        }`}
+                      >
+                        {isId
+                          ? "Kode ini hanya berisi style visual (susunan modul Anda saat ini tidak berubah)."
+                          : "This share only contains visual styling (your current module layout stays unchanged)."}
+                      </div>
+                    )}
+
+                    <NavbarStyleSummaryCard
+                      styleData={parsedImport.data.style}
+                      title={
+                        parsedImport.data.name ||
+                        (isId ? "Pratinjau Style Siap Diterapkan" : "Style Preview Ready to Apply")
+                      }
+                      modules={parsedImport.data.modules}
+                      includeModules={applyImportedModules}
+                      isLightMode={isLightMode}
+                      optLanguage={optLanguage}
+                    />
+                  </>
                 )}
 
                 <div className="flex items-center justify-end gap-2 pt-1">

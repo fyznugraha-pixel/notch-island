@@ -18,6 +18,60 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "5.1.2",
+    date: "19 Nov 2026",
+    highlights: [
+      {
+        icon: <Palette size={14} />,
+        titleId: "Bagikan & Impor Style Taskbar + Susunan Modul",
+        titleEn: "Share & Import Taskbar Styles + Optional Module Layout",
+        descId: "Bagikan tampilan Gili Taskbar lewat kode ringkas GILI-STYLE1 atau file .gilistyle (bentuk, ukuran, warna, transparansi, efek visual, tema ikon, serta opsi menyertakan susunan modul) tanpa mengubah posisi layar atau setting sistem penerima.",
+        descEn: "Share Gili Taskbar looks via compact GILI-STYLE1 codes or .gilistyle files (shape, sizing, colors, translucency, visual effects, icon theme, and optional module layout checkbox) while keeping the recipient's monitor and system settings untouched.",
+        badge: "new",
+      },
+      {
+        icon: <Zap size={14} />,
+        titleId: "Interaksi Notch Lebih Halus, Buka Ulang Instan & Tab Pre-Warming",
+        titleEn: "Smoother Notch Interactions, Instant Re-Open & Tab Pre-Warming",
+        descId: "Menghilangkan jeda blokir saat klik ulang setelah menutup Notch, mengganti transisi tab agar masuk serentak tanpa menunggu animasi keluar, memangkas overhead sync DWM Acrylic dan tekstur frosted grain di NotchSurface, serta memulihkan budget GPU dan shader cache WebView2.",
+        descEn: "Removes re-open blocking on explicit clicks after collapsing the Notch, switches tab transitions to parallel cross-slide without blocking delays, throttles NotchSurface DWM Acrylic IPC and caches frosted grain noise, and restores native WebView2 GPU memory and shader caching.",
+        badge: "improve",
+      },
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Preservasi Taskbar Show Desktop, Topologi Multi-Monitor & Audit Keamanan",
+        titleEn: "Show Desktop Dock Preservation, Multi-Monitor Topology & Security Hardening",
+        descId: "Menjaga Gili Taskbar tetap terlihat saat Win+D, sinkronisasi otomatis saat monitor dipasang atau dilepas, memangkas footprint memori WebView2 saat idle, reset otomatis tab Notch setelah 5 menit, serta perbaikan stabilitas di Shelf, SMTC media, hotkey, dan System Tray.",
+        descEn: "Preserves Gili Taskbar visibility during Win+D Show Desktop, dynamically reconciles monitor attach/detach topology, reduces idle WebView2 memory footprint, resets Notch tab focus after 5 minutes idle, and hardens Shelf transfers, SMTC media sizing, hotkeys, and System Tray handling.",
+        badge: "fix",
+      },
+      {
+        icon: <ShieldCheck size={14} />,
+        titleId: "Pemulihan Taskbar Windows saat Quit & End Task",
+        titleEn: "Reliable Windows Taskbar Restore on Quit & End Task",
+        descId: "Memperbaiki race condition saat keluar aplikasi maupun penghentian paksa (End Task) agar taskbar bawaan Windows langsung tampil kembali normal, membersihkan bit autohide dan layer transparan yang tertinggal, serta menjalankan watchdog terpisah lewat Explorer dengan recovery cadangan.",
+        descEn: "Fixes exit and force-termination (End Task) race conditions so the native Windows taskbar reliably returns, clears lingering autohide and layered-window flags, and launches a decoupled Explorer-hosted watchdog with orphan recovery fallback.",
+        badge: "fix",
+      },
+      {
+        icon: <Cpu size={14} />,
+        titleId: "Pembersihan Memori Awal & Idle Flyout Lebih Cepat (60 Detik)",
+        titleEn: "Faster Startup Memory Trimming & 60s Idle Flyout Cleanup",
+        descId: "Mempercepat pemangkasan working set memori WebView2 pertama menjadi 60 detik setelah startup (sebelumnya menunggu 5 menit / guard 90 detik) serta mempersingkat batas tunggu penghancuran window flyout Taskbar yang menganggur dari 90 detik menjadi 60 detik.",
+        descEn: "Accelerates the initial WebView2 working-set trim to 60 seconds after startup (down from a 5-minute delay and 90-second guard) and reduces the idle destroy timeout for closed Taskbar flyout windows from 90 seconds to 60 seconds.",
+        badge: "improve",
+      },
+      {
+        icon: <SlidersHorizontal size={14} />,
+        titleId: "Tombol Next AI Chat, Tombol Settings File Shelf & Label Modul Taskbar",
+        titleEn: "AI Chat Next Button, File Shelf Settings Routing & Taskbar Module Filter",
+        descId: "Menambahkan tombol Next di header Gili AI Chat untuk berpindah ke tab berikutnya, memperbaiki tombol Settings kanan atas pada tab File Shelf agar membuka Settings utama Gili (tidak ganda membuka Settings File Shelf), dan memperbaiki label kategori modul Taskbar dari 'Semua' menjadi 'All' pada mode bahasa Inggris.",
+        descEn: "Adds a Next button to the Gili AI Chat header to advance to the next tab, fixes the top-right Settings button on the File Shelf tab to open global Gili Settings instead of duplicating File Shelf Settings, and updates the 'All' category filter label in the Taskbar module picker for English.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "5.1.1",
     date: "18 Nov 2026",
     highlights: [

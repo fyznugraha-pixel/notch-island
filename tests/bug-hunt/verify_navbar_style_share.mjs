@@ -52,6 +52,7 @@ async function runTests() {
     const parsedCode = shareService.parseNavbarStyleShareInput(`  \`${code}\` \n`);
     assert.equal(parsedCode.name, "Neon Ungu");
     assert.equal(parsedCode.recognizedFields, 15);
+    assert.equal(parsedCode.modules, undefined, "style-only encode must omit modules");
     assert.deepEqual(parsedCode.style, {
       shape: "anchored",
       cornerRadius: 22,
@@ -132,6 +133,71 @@ async function runTests() {
     assert.equal(sanitized.style.iconTheme, "fluent");
     assert.equal("hideWindowsTaskbar" in sanitized.style, false);
     assert.equal("modules" in sanitized.style, false);
+    assert.equal(
+      sanitized.modules,
+      undefined,
+      "malicious-only modules payload must be dropped cleanly"
+    );
+
+    // 2b. Style + Modules round-trip (GILI-STYLE1 + .gilistyle) & allowlist sanitization
+    const richModulesSender = {
+      ...senderConfig,
+      modules: [
+        { id: "startSearch", group: 1, enabled: true, view: "compact" },
+        { id: "pinnedApps", group: 1, enabled: true, view: "compact" },
+        { id: "runningApps", group: 2, enabled: true, view: "compact" },
+        { id: "pomodoro", group: 2, enabled: true, view: "full" },
+        { id: "to_do_fokus", group: 2, enabled: false, view: "compact" },
+        { id: "clockDate", group: 3, enabled: true, view: "full" },
+      ],
+    };
+    const codeWithMods = shareService.encodeNavbarStyleCode(richModulesSender, "Neon + Modul", {
+      includeModules: true,
+    });
+    const parsedWithMods = shareService.parseNavbarStyleShareInput(codeWithMods);
+    assert.equal(parsedWithMods.name, "Neon + Modul");
+    assert.ok(Array.isArray(parsedWithMods.modules), "modules must be included when opted in");
+    const pomodoroMod = parsedWithMods.modules.find((m) => m.id === "pomodoro");
+    const todoMod = parsedWithMods.modules.find((m) => m.id === "to_do_fokus");
+    const clockMod = parsedWithMods.modules.find((m) => m.id === "clockDate");
+    assert.deepEqual(pomodoroMod, { id: "pomodoro", group: 2, enabled: true, view: "full" });
+    assert.deepEqual(todoMod, { id: "to_do_fokus", group: 2, enabled: false, view: "compact" });
+    assert.deepEqual(clockMod, { id: "clockDate", group: 3, enabled: true, view: "full" });
+    assert.ok(
+      parsedWithMods.modules.some((m) => m.id === "hiddenTray"),
+      "normalizeModules must backfill missing built-in hiddenTray slot"
+    );
+
+    const fileWithMods = shareService.serializeNavbarStyleFile(richModulesSender, "File + Modul", {
+      includeModules: true,
+    });
+    const parsedFileWithMods = shareService.parseNavbarStyleShareInput(fileWithMods);
+    assert.deepEqual(parsedFileWithMods.modules, parsedWithMods.modules);
+
+    const mixedBadModulesJson = JSON.stringify({
+      format: "gili-taskbar-style",
+      version: 1,
+      style: { shape: "floating", accent: "#3882f6" },
+      modules: [
+        { id: "pomodoro", group: 99, enabled: "yes", view: "evil" },
+        { id: "../../evil", group: 2, enabled: true, view: "full" },
+        { id: "__proto__", group: 1, enabled: true, view: "compact" },
+        { id: "toString", group: 1, enabled: true, view: "compact" },
+      ],
+    });
+    const parsedMixedMods = shareService.parseNavbarStyleShareInput(mixedBadModulesJson);
+    assert.ok(Array.isArray(parsedMixedMods.modules));
+    assert.equal(
+      parsedMixedMods.modules.some(
+        (m) => m.id === "../../evil" || m.id === "__proto__" || m.id === "toString"
+      ),
+      false,
+      "untrusted/prototype module IDs must be stripped"
+    );
+    assert.deepEqual(
+      parsedMixedMods.modules.find((m) => m.id === "pomodoro"),
+      { id: "pomodoro", group: 2, enabled: true, view: "compact" }
+    );
 
     // 3. Rejects empty, oversized, wrong version, and unrelated JSON
     assert.throws(() => shareService.parseNavbarStyleShareInput("   "), (e) => e.code === "EMPTY");
@@ -162,10 +228,17 @@ async function runTests() {
 
     const presetsModal = readRepoFile("src/components/settingsWindow/navbar/NavbarPresetsModal.tsx");
     assert.ok(presetsModal.includes("handleCopyPresetStyle"));
+    assert.ok(presetsModal.includes("includeModules:"));
 
     const shareModal = readRepoFile("src/components/settingsWindow/navbar/NavbarStyleShareModal.tsx");
     assert.ok(shareModal.includes("NavbarStyleSummaryCard"));
+    assert.ok(shareModal.includes("NavbarStyleModuleToggle"));
+    assert.ok(shareModal.includes("includeModulesExport"));
+    assert.ok(shareModal.includes("applyImportedModules"));
     assert.ok(!shareModal.includes("h-8.5"), "Tailwind v3 requires standard spacing utility h-9, not h-8.5");
+
+    const summaryCard = readRepoFile("src/components/settingsWindow/navbar/NavbarStyleSummaryCard.tsx");
+    assert.ok(summaryCard.includes("includeModules"));
 
     console.log("NAVBAR STYLE SHARE VERIFICATION PASSED");
   } finally {

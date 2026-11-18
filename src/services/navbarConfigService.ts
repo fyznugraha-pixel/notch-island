@@ -151,7 +151,7 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
   return Math.min(Math.max(value, min), max);
 }
 
-function normalizeModules(rawModules: unknown): NavbarModuleConfig[] {
+export function normalizeModules(rawModules: unknown): NavbarModuleConfig[] {
   if (!Array.isArray(rawModules)) {
     return DEFAULT_NAVBAR_MODULES.map((m) => ({ ...m }));
   }

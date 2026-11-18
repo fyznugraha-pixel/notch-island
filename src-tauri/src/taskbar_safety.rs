@@ -4,9 +4,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
-use windows::Win32::Foundation::CloseHandle;
+use windows::core::{w, Interface, BSTR, HSTRING};
+use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, WAIT_TIMEOUT};
+use windows::Win32::System::Com::{
+    CoInitializeEx, CoUninitialize, IServiceProvider, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+};
 use windows::Win32::System::Threading::{
-    OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
+    CreateMutexW, OpenMutexW, OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
+    SYNCHRONIZATION_ACCESS_RIGHTS,
+};
+use windows::Win32::UI::Shell::{
+    IShellBrowser, IShellDispatch2, IShellFolderViewDual, IShellView, IShellWindows,
+    ShellWindows, SID_STopLevelBrowser, SVGIO_BACKGROUND, SWC_DESKTOP, SWFO_NEEDDISPATCH,
 };
 
 use crate::taskbar_logger::log_taskbar_event;
@@ -21,7 +30,60 @@ pub static USE_GILI_NOTIF_CAL: AtomicBool = AtomicBool::new(false);
 pub static USE_GILI_TRAY: AtomicBool = AtomicBool::new(false);
 
 static WATCHDOG_CHILD: Mutex<Option<Child>> = Mutex::new(None);
+static WATCHDOG_SPAWN_LOCK: Mutex<()> = Mutex::new(());
 static DESIRED_HIDE_WINDOWS_TASKBAR: AtomicBool = AtomicBool::new(false);
+
+const SINGLE_INSTANCE_MUTEX_NAME: windows::core::PCWSTR = w!("com_faiz_gili_single_instance_mutex");
+const MUTEX_SYNCHRONIZE: u32 = 0x00100000;
+
+fn watchdog_mutex_name(target_pid: u32) -> HSTRING {
+    HSTRING::from(format!("Local\\gili_taskbar_watchdog_{}", target_pid))
+}
+
+fn is_watchdog_mutex_held(target_pid: u32) -> bool {
+    let name = watchdog_mutex_name(target_pid);
+    unsafe {
+        match OpenMutexW(SYNCHRONIZATION_ACCESS_RIGHTS(MUTEX_SYNCHRONIZE), false, &name) {
+            Ok(h) if !h.0.is_null() => {
+                let _ = CloseHandle(h);
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+fn is_process_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    unsafe {
+        match OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
+            Ok(handle) if !handle.0.is_null() => {
+                let wait = WaitForSingleObject(handle, 0);
+                let _ = CloseHandle(handle);
+                wait == WAIT_TIMEOUT
+            }
+            _ => false,
+        }
+    }
+}
+
+fn is_any_live_gili_instance() -> bool {
+    unsafe {
+        match OpenMutexW(
+            SYNCHRONIZATION_ACCESS_RIGHTS(MUTEX_SYNCHRONIZE),
+            false,
+            SINGLE_INSTANCE_MUTEX_NAME,
+        ) {
+            Ok(h) if !h.0.is_null() => {
+                let _ = CloseHandle(h);
+                true
+            }
+            _ => false,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaskbarWindowSwitches {
@@ -50,6 +112,20 @@ impl Default for TaskbarWindowSwitches {
 /// This process waits for the parent Gili process to terminate, then immediately restores the
 /// native Windows taskbar regardless of how Gili exited (cleanly, crashed, or force-killed).
 pub fn run_taskbar_watchdog(target_pid: u32) {
+    let mutex_name = watchdog_mutex_name(target_pid);
+    let _watchdog_guard_handle = unsafe {
+        match CreateMutexW(None, true, &mutex_name) {
+            Ok(h) if !h.0.is_null() => {
+                if GetLastError() == ERROR_ALREADY_EXISTS {
+                    let _ = CloseHandle(h);
+                    return;
+                }
+                Some(h)
+            }
+            _ => None,
+        }
+    };
+
     unsafe {
         if let Ok(process_handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, target_pid) {
             if !process_handle.0.is_null() {
@@ -59,15 +135,47 @@ pub fn run_taskbar_watchdog(target_pid: u32) {
         }
     }
 
-    if let Some((flag_pid, saved_state)) = taskbar_manager::read_disk_flag_info() {
-        if flag_pid == 0 || flag_pid == target_pid {
-            taskbar_manager::restore_taskbars_from_watchdog(saved_state);
-            taskbar_manager::remove_disk_flag_for_pid(target_pid);
+    let flag_info = taskbar_manager::read_disk_flag_info();
+    let other_gili_alive = is_any_live_gili_instance();
+
+    let (should_restore, saved_state, saved_exstyle, cleanup_pid) = match flag_info {
+        Some(info) => {
+            let owned_by_target = info.pid == 0 || info.pid == target_pid;
+            let owner_dead = info.pid != 0 && !is_process_alive(info.pid);
+            (
+                owned_by_target || owner_dead,
+                info.original_state,
+                info.original_exstyle,
+                if owned_by_target { target_pid } else { info.pid },
+            )
         }
+        None => {
+            // Even if disk flag was removed prematurely right before a crash/exit race,
+            // recover if no Gili instance is running and Explorer's tray is still hidden.
+            let orphan_hidden = !other_gili_alive && taskbar_manager::is_any_tray_hwnd_hidden();
+            (orphan_hidden, None, None, target_pid)
+        }
+    };
+
+    if should_restore {
+        taskbar_manager::restore_taskbars_from_watchdog(saved_state, saved_exstyle);
+        if taskbar_manager::is_any_tray_hwnd_hidden() {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            taskbar_manager::restore_taskbars_from_watchdog(saved_state, saved_exstyle);
+        }
+        taskbar_manager::remove_disk_flag_for_pid(cleanup_pid);
     }
 
-    crate::windows_dnd::restore_windows_dnd_on_exit();
-    crate::toast_banners::restore_banners_on_exit();
+    if !other_gili_alive {
+        crate::windows_dnd::restore_windows_dnd_on_exit();
+        crate::toast_banners::restore_banners_on_exit();
+    }
+
+    if let Some(h) = _watchdog_guard_handle {
+        unsafe {
+            let _ = CloseHandle(h);
+        }
+    }
 }
 
 /// Direct Win32 taskbar unhide logic used by the emergency kill-switch.
@@ -77,10 +185,67 @@ pub fn restore_windows_taskbar_hard() {
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const DETACHED_PROCESS: u32 = 0x00000008;
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
+
+/// Launches the watchdog via Explorer's Desktop shell (`IShellDispatch2::ShellExecute`) so its
+/// parent PID is `explorer.exe` and it runs outside Gili's Job Object and Task Manager group.
+fn try_spawn_watchdog_via_explorer(exe_path: &std::path::Path, pid_arg: &str) -> bool {
+    unsafe {
+        let hr_com = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let should_uninit = hr_com.is_ok();
+
+        let result = (|| -> windows::core::Result<()> {
+            let shell_windows: IShellWindows =
+                windows::Win32::System::Com::CoCreateInstance(&ShellWindows, None, CLSCTX_ALL)?;
+            let empty = windows_core::VARIANT::default();
+            let mut hwnd_out: i32 = 0;
+            let desktop_disp = shell_windows.FindWindowSW(
+                &empty,
+                &empty,
+                SWC_DESKTOP,
+                &mut hwnd_out,
+                SWFO_NEEDDISPATCH,
+            )?;
+            let sp: IServiceProvider = desktop_disp.cast()?;
+            let sb: IShellBrowser = sp.QueryService(&SID_STopLevelBrowser)?;
+            let sv: IShellView = sb.QueryActiveShellView()?;
+            let view_disp: IShellFolderViewDual = sv.GetItemObject(SVGIO_BACKGROUND)?;
+            let shell_disp: IShellDispatch2 = view_disp.Application()?.cast()?;
+
+            let exe_bstr = BSTR::from(exe_path.to_string_lossy().as_ref());
+            let args_var = windows_core::VARIANT::from(format!("--taskbar-watchdog {}", pid_arg).as_str());
+            let dir_var = windows_core::VARIANT::from(
+                exe_path
+                    .parent()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+                    .as_str(),
+            );
+            let op_var = windows_core::VARIANT::from("open");
+            let show_var = windows_core::VARIANT::from(0i32); // SW_HIDE
+
+            shell_disp.ShellExecute(&exe_bstr, &args_var, &dir_var, &op_var, &show_var)?;
+            Ok(())
+        })();
+
+        if should_uninit {
+            CoUninitialize();
+        }
+        result.is_ok()
+    }
+}
 
 /// Spawns a detached watchdog process that guards taskbar restoration.
 pub fn ensure_taskbar_watchdog_spawned() {
+    let _spawn_guard = WATCHDOG_SPAWN_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let current_pid = std::process::id();
+    if is_watchdog_mutex_held(current_pid) {
+        return;
+    }
+
     let mut guard = WATCHDOG_CHILD
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -91,17 +256,21 @@ pub fn ensure_taskbar_watchdog_spawned() {
     }
 
     if let Ok(current_exe) = std::env::current_exe() {
-        let pid_arg = std::process::id().to_string();
+        let pid_arg = current_pid.to_string();
+        if try_spawn_watchdog_via_explorer(&current_exe, &pid_arg) {
+            return;
+        }
+        let base_flags = CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
         let spawned = Command::new(&current_exe)
             .arg("--taskbar-watchdog")
             .arg(&pid_arg)
-            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB)
+            .creation_flags(base_flags | CREATE_BREAKAWAY_FROM_JOB)
             .spawn()
             .or_else(|_| {
                 Command::new(&current_exe)
                     .arg("--taskbar-watchdog")
                     .arg(&pid_arg)
-                    .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+                    .creation_flags(base_flags)
                     .spawn()
             });
         if let Ok(child) = spawned {

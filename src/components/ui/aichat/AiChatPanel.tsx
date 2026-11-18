@@ -86,6 +86,8 @@ export interface AiChatHandoffPayload {
 
 interface AiChatPanelProps {
   onPrevTab?: () => void;
+  onNextTab?: () => void;
+  hasNext?: boolean;
   accentColor?: string;
   optLanguage?: Language;
   handoff?: AiChatHandoffPayload | null;
@@ -94,6 +96,8 @@ interface AiChatPanelProps {
 
 export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   onPrevTab,
+  onNextTab,
+  hasNext = false,
   accentColor = "#3882F6",
   optLanguage,
   handoff,
@@ -1144,6 +1148,8 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
               setActiveView("usage");
             }}
             onPrevTab={onPrevTab}
+            onNextTab={onNextTab}
+            hasNext={hasNext}
             accentColor={accentColor}
           />
 

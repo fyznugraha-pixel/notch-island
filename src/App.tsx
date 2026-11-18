@@ -140,52 +140,84 @@ const IdleMascot = React.lazy(() =>
   import("./components/ui/IdleMascot").then((m) => ({ default: m.IdleMascot }))
 );
 
+const loadControlCenterPanel = () => import("./components/ui/ControlCenterPanel");
+const loadAiChatPanel = () => import("./components/ui/aichat/AiChatPanel");
+const loadClipboardPanel = () => import("./components/ui/ClipboardPanel");
+const loadNotificationCenterPanel = () => import("./components/ui/NotificationCenterPanel");
+const loadTodoListPanel = () => import("./components/ui/TodoListPanel");
+const loadDropShelfPanel = () => import("./components/ui/DropShelfPanel");
+const loadSettingsPanel = () => import("./components/ui/SettingsPanel");
+const loadPomodoroPanel = () => import("./components/ui/PomodoroPanel");
+const loadSystemMonitorPanel = () => import("./components/ui/SystemMonitorPanel");
+const loadMiniNotePanel = () => import("./components/ui/MiniNotePanel");
+const loadWaterReminderPanel = () => import("./components/ui/water/WaterReminderPanel");
+const loadPrayerReminderPanel = () => import("./components/ui/prayer/PrayerReminderPanel");
+const loadVolumeMixerPanel = () => import("./components/ui/VolumeMixerPanel");
+const loadMediaExpandedPanel = () => import("./components/ui/MediaExpandedPanel");
+
+const TAB_CHUNK_PRELOADERS: Record<string, () => Promise<unknown>> = {
+  quick_control: loadControlCenterPanel,
+  media_expanded: loadMediaExpandedPanel,
+  ai_chat: loadAiChatPanel,
+  todo: loadTodoListPanel,
+  pomodoro: loadPomodoroPanel,
+  drop_shelf: loadDropShelfPanel,
+  sys_monitor: loadSystemMonitorPanel,
+  mini_note: loadMiniNotePanel,
+  water_reminder: loadWaterReminderPanel,
+  prayer_reminder: loadPrayerReminderPanel,
+  clipboard: loadClipboardPanel,
+  volume_mixer: loadVolumeMixerPanel,
+  notif_center: loadNotificationCenterPanel,
+  settings: loadSettingsPanel,
+};
+
 const ControlCenterPanel = React.lazy(() =>
-  import("./components/ui/ControlCenterPanel").then((m) => ({ default: m.ControlCenterPanel }))
+  loadControlCenterPanel().then((m) => ({ default: m.ControlCenterPanel }))
 );
 const AiChatPanel = React.lazy(() =>
-  import("./components/ui/aichat/AiChatPanel").then((m) => ({ default: m.default || m.AiChatPanel }))
+  loadAiChatPanel().then((m) => ({ default: m.default || m.AiChatPanel }))
 );
 import type { AiChatHandoffPayload } from "./components/ui/aichat/AiChatPanel";
 import type { AiChatMessage, AiMessageContext } from "./components/ui/aichat/AiChatTypes";
 const ClipboardPanel = React.lazy(() =>
-  import("./components/ui/ClipboardPanel").then((m) => ({ default: m.ClipboardPanel }))
+  loadClipboardPanel().then((m) => ({ default: m.ClipboardPanel }))
 );
 const NotificationCenterPanel = React.lazy(() =>
-  import("./components/ui/NotificationCenterPanel").then((m) => ({ default: m.NotificationCenterPanel }))
+  loadNotificationCenterPanel().then((m) => ({ default: m.NotificationCenterPanel }))
 );
 const TodoListPanel = React.lazy(() =>
-  import("./components/ui/TodoListPanel").then((m) => ({ default: m.TodoListPanel }))
+  loadTodoListPanel().then((m) => ({ default: m.TodoListPanel }))
 );
 const DropShelfPanel = React.lazy(() =>
-  import("./components/ui/DropShelfPanel").then((m) => ({ default: m.DropShelfPanel }))
+  loadDropShelfPanel().then((m) => ({ default: m.DropShelfPanel }))
 );
 const SettingsPanel = React.lazy(() =>
-  import("./components/ui/SettingsPanel").then((m) => ({ default: m.SettingsPanel }))
+  loadSettingsPanel().then((m) => ({ default: m.SettingsPanel }))
 );
 const PomodoroPanel = React.lazy(() =>
-  import("./components/ui/PomodoroPanel").then((m) => ({ default: m.PomodoroPanel }))
+  loadPomodoroPanel().then((m) => ({ default: m.PomodoroPanel }))
 );
 const SystemMonitorPanel = React.lazy(() =>
-  import("./components/ui/SystemMonitorPanel").then((m) => ({ default: m.SystemMonitorPanel }))
+  loadSystemMonitorPanel().then((m) => ({ default: m.SystemMonitorPanel }))
 );
 const MiniNotePanel = React.lazy(() =>
-  import("./components/ui/MiniNotePanel").then((m) => ({ default: m.MiniNotePanel }))
+  loadMiniNotePanel().then((m) => ({ default: m.MiniNotePanel }))
 );
 const WaterReminderPanel = React.lazy(() =>
-  import("./components/ui/water/WaterReminderPanel").then((m) => ({ default: m.WaterReminderPanel }))
+  loadWaterReminderPanel().then((m) => ({ default: m.WaterReminderPanel }))
 );
 const PrayerReminderPanel = React.lazy(() =>
-  import("./components/ui/prayer/PrayerReminderPanel").then((m) => ({ default: m.PrayerReminderPanel }))
+  loadPrayerReminderPanel().then((m) => ({ default: m.PrayerReminderPanel }))
 );
 const VolumeMixerPanel = React.lazy(() =>
-  import("./components/ui/VolumeMixerPanel").then((m) => ({ default: m.VolumeMixerPanel }))
+  loadVolumeMixerPanel().then((m) => ({ default: m.VolumeMixerPanel }))
 );
 const MediaExpandedPanel = React.lazy(() =>
-  import("./components/ui/MediaExpandedPanel").then((m) => ({ default: m.MediaExpandedPanel }))
+  loadMediaExpandedPanel().then((m) => ({ default: m.MediaExpandedPanel }))
 );
 const QuickNoteNotchCard = React.lazy(() =>
-  import("./components/ui/MiniNotePanel").then((m) => ({ default: m.QuickNoteNotchCard }))
+  loadMiniNotePanel().then((m) => ({ default: m.QuickNoteNotchCard }))
 );
 const QuickTodoNotchCard = React.lazy(() =>
   import("./components/ui/QuickTodoNotchCard").then((m) => ({ default: m.QuickTodoNotchCard }))
@@ -234,7 +266,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   const [notif, setNotif] = useState<NotifPayload | null>(null);
   const currentNotifRef = useRef<NotifPayload | null>(null);
-  
+
   useEffect(() => {
     currentNotifRef.current = notif;
   }, [notif]);
@@ -259,8 +291,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       lastLocked = isLocked;
 
       if (isLocked) {
-        invoke("toggle_navbar", { enabled: false }).catch(() => {});
-        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+        invoke("toggle_navbar", { enabled: false }).catch(() => { });
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => { });
         return;
       }
 
@@ -268,22 +300,22 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (cancelled || lastLocked) return;
 
       if (cfg.enabled) {
-        invoke("toggle_navbar", { enabled: true }).catch(() => {});
+        invoke("toggle_navbar", { enabled: true }).catch(() => { });
         invoke("set_windows_taskbar_visible", {
           visible: !cfg.hideWindowsTaskbar,
-        }).catch(() => {});
+        }).catch(() => { });
       } else {
-        invoke("toggle_navbar", { enabled: false }).catch(() => {});
-        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => {});
+        invoke("toggle_navbar", { enabled: false }).catch(() => { });
+        invoke("set_windows_taskbar_visible", { visible: true }).catch(() => { });
       }
     };
 
     getTaskbarProStatus()
       .then((status) => syncNavbarWithLicense(status.isLocked))
-      .catch(() => {});
+      .catch(() => { });
 
     const unsubscribePro = subscribeTaskbarProStatus((status) => {
-      syncNavbarWithLicense(status.isLocked).catch(() => {});
+      syncNavbarWithLicense(status.isLocked).catch(() => { });
     });
 
     return () => {
@@ -451,30 +483,30 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         nameMode = localStorage.getItem("island_greeting_name_mode") || "auto";
         const rawCustom = localStorage.getItem("island_custom_greeting_name");
         customName = (rawCustom && rawCustom !== "undefined" && rawCustom !== "null" ? rawCustom : "").trim();
-      } catch {}
+      } catch { }
 
       if (nameMode === "custom" && customName) {
         username = customName;
       } else {
         try {
           username = localStorage.getItem("island_username") || "";
-        } catch {}
+        } catch { }
 
         if (!username) {
           username = await invoke<string>("get_username");
           try {
             if (username) localStorage.setItem("island_username", username);
-          } catch {}
+          } catch { }
         } else {
           invoke<string>("get_username")
             .then((u) => {
               if (u) {
                 try {
                   localStorage.setItem("island_username", u);
-                } catch {}
+                } catch { }
               }
             })
-            .catch(() => {});
+            .catch(() => { });
         }
       }
 
@@ -482,14 +514,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const isNight = hour >= 18 || hour < 5;
       const isMorning = hour >= 5 && hour < 12;
       const isAfternoon = hour >= 12 && hour < 18;
-      const greeting = isNight 
-        ? t("greeting_evening") 
-        : isMorning 
-        ? t("greeting_morning") 
-        : isAfternoon
-        ? t("greeting_afternoon")
-        : t("greeting_welcome");
-      
+      const greeting = isNight
+        ? t("greeting_evening")
+        : isMorning
+          ? t("greeting_morning")
+          : isAfternoon
+            ? t("greeting_afternoon")
+            : t("greeting_welcome");
+
       showNotif({
         title: username ? `Hi, ${username}` : t("greeting_welcome"),
         body: `${greeting}!`,
@@ -508,7 +540,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const [isVolumeMixer, setIsVolumeMixer] = useState(false);
   useEffect(() => { isVolumeMixerRef.current = isVolumeMixer; }, [isVolumeMixer]);
   const [networkPing, setNetworkPing] = useState<number | null>(null);
-  const [audioSessions, setAudioSessions] = useState<{pid: number, name: string, volume: number, muted: boolean}[]>([]);
+  const [audioSessions, setAudioSessions] = useState<{ pid: number, name: string, volume: number, muted: boolean }[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const isPlayingRef = useRef(isPlaying);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
@@ -546,7 +578,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   useEffect(() => {
     invoke<boolean>("is_miniplayer_open")
       .then((open) => setIsMiniPlayerOpen(Boolean(open)))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
   const [showLyrics, setShowLyrics] = useState<boolean>(() => {
     try {
@@ -598,7 +630,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       return { curr, prev, next };
     });
   }, []);
-  
+
   const collapseTimerRef = useRef<number | null>(null);
   const isCursorInsideNotchRef = useRef(false);
   const isShortcutPinnedRef = useRef(false);
@@ -607,11 +639,19 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const closeGraceUntilRef = useRef<number>(0);
   const finishClosingTimerRef = useRef<number | null>(null);
   const variantsRef = useRef<Record<string, { width: number; height: number }> | null>(null);
-  const notchHoverEnterRef = useRef<() => void>(() => {});
+  const notchHoverEnterRef = useRef<() => void>(() => { });
 
   const finishClosing = () => {
+    if (finishClosingTimerRef.current) {
+      clearTimeout(finishClosingTimerRef.current);
+      finishClosingTimerRef.current = null;
+    }
     isClosingRef.current = false;
+    closeGraceUntilRef.current = 0;
   };
+
+  const isCloseGraceActive = () =>
+    isClosingRef.current || Date.now() < closeGraceUntilRef.current;
 
   useEffect(() => {
     setActiveIdleLyric({ curr: "", prev: "", next: "" });
@@ -665,7 +705,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setLyricsProvider(newProvider);
     try {
       localStorage.setItem("notch_lyrics_provider", newProvider);
-    } catch {}
+    } catch { }
     if (!media?.title) return;
     setIsLyricsLoading(true);
     await requestLyricsRefresh(media.artist || "", media.title, newProvider);
@@ -703,8 +743,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const handleOpenInitialSettings = () => {
       try {
         localStorage.setItem("island_onboarding_completed", "true");
-      } catch {}
-      invoke("open_settings_window", { section: "about" }).catch(() => {});
+      } catch { }
+      invoke("open_settings_window", { section: "about" }).catch(() => { });
     };
     const unlistenOnboarding = listenCrossWindowEvent("island_trigger_onboarding", handleOpenInitialSettings);
 
@@ -721,11 +761,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           localStorage.setItem("island_onboarding_completed", "true");
           localStorage.setItem("island_last_seen_version", currentVersion);
           setTimeout(() => {
-            invoke("open_settings_window", { section: "about" }).catch(() => {});
+            invoke("open_settings_window", { section: "about" }).catch(() => { });
           }, 800);
         }
-      } catch {}
-    }).catch(() => {});
+      } catch { }
+    }).catch(() => { });
 
     return () => unlistenOnboarding();
   }, []);
@@ -742,21 +782,21 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const s = localStorage.getItem("island_show_greeting");
       if (s === "false") return false;
-    } catch {}
+    } catch { }
     return true;
   });
   const [greetingNameMode, setGreetingNameMode] = useState<"auto" | "custom">(() => {
     try {
       const m = localStorage.getItem("island_greeting_name_mode");
       if (m === "custom") return "custom";
-    } catch {}
+    } catch { }
     return "auto";
   });
   const [customGreetingName, setCustomGreetingName] = useState<string>(() => {
     try {
       const v = localStorage.getItem("island_custom_greeting_name");
       if (v && v !== "undefined" && v !== "null") return v;
-    } catch {}
+    } catch { }
     return "";
   });
   const [greetingStage, setGreetingStage] = useState<"compact" | "expanded">("compact");
@@ -875,7 +915,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       ].slice(0, 50);
       try {
         localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       return updated;
     });
   };
@@ -903,7 +943,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const updated = [newItem, ...prev.filter((p) => p.imagePath !== item.imagePath)].slice(0, 50);
       try {
         localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       return updated;
     });
     return newItem;
@@ -916,7 +956,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       );
       try {
         localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       return updated;
     });
   };
@@ -928,7 +968,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       );
       try {
         localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       return updated;
     });
   };
@@ -938,7 +978,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const updated = prev.filter((item) => item.id !== id);
       try {
         localStorage.setItem("island_clipboard_history", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       return updated;
     });
   };
@@ -952,7 +992,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         } else {
           localStorage.removeItem("island_clipboard_history");
         }
-      } catch {}
+      } catch { }
       return pinnedOnly;
     });
   };
@@ -974,7 +1014,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         if (!changed) return prev;
         try {
           localStorage.setItem("island_todo_list", JSON.stringify(updated));
-        } catch {}
+        } catch { }
         emitTodosSync();
         return updated;
       });
@@ -998,7 +1038,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       try {
         const saved = localStorage.getItem("island_todo_list");
         setTodoItems(saved ? JSON.parse(saved) : []);
-      } catch {}
+      } catch { }
     };
     window.addEventListener("gili_todos_updated", handleTodosUpdated);
     const unsubCross = listenCrossWindowEvent("gili_todos_updated", handleTodosUpdated);
@@ -1039,7 +1079,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const updated = [newItem, ...prev];
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       emitTodosSync();
       return updated;
     });
@@ -1071,17 +1111,17 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           const updated = prev.map((i) =>
             i.id === id
               ? {
-                  ...i,
-                  completed: true,
-                  lastCompletedAt: Date.now(),
-                  previousDueAt: i.dueAt ?? null,
-                  dueAt: nextDueAt,
-                }
+                ...i,
+                completed: true,
+                lastCompletedAt: Date.now(),
+                previousDueAt: i.dueAt ?? null,
+                dueAt: nextDueAt,
+              }
               : i
           );
           try {
             localStorage.setItem("island_todo_list", JSON.stringify(updated));
-          } catch {}
+          } catch { }
           emitTodosSync();
           return updated;
         } else {
@@ -1089,17 +1129,17 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           const updated = prev.map((i) =>
             i.id === id
               ? {
-                  ...i,
-                  completed: false,
-                  lastCompletedAt: null,
-                  dueAt: i.previousDueAt !== undefined ? i.previousDueAt : i.dueAt,
-                  previousDueAt: null,
-                }
+                ...i,
+                completed: false,
+                lastCompletedAt: null,
+                dueAt: i.previousDueAt !== undefined ? i.previousDueAt : i.dueAt,
+                previousDueAt: null,
+              }
               : i
           );
           try {
             localStorage.setItem("island_todo_list", JSON.stringify(updated));
-          } catch {}
+          } catch { }
           emitTodosSync();
           return updated;
         }
@@ -1110,7 +1150,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       );
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       emitTodosSync();
       return updated;
     });
@@ -1121,7 +1161,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const updated = prev.filter((item) => item.id !== id);
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       emitTodosSync();
       return updated;
     });
@@ -1136,7 +1176,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       );
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       emitTodosSync();
       return updated;
     });
@@ -1152,16 +1192,16 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const updated = prev.map((item) =>
         item.id === id
           ? {
-              ...item,
-              dueAt,
-              reminders,
-              repeat: repeat && repeat !== "none" ? repeat : undefined,
-            }
+            ...item,
+            dueAt,
+            reminders,
+            repeat: repeat && repeat !== "none" ? repeat : undefined,
+          }
           : item
       );
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       emitTodosSync();
       return updated;
     });
@@ -1173,7 +1213,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const updated = prev.filter((item) => !item.completed || (item.repeat && item.repeat !== "none"));
       try {
         localStorage.setItem("island_todo_list", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       emitTodosSync();
       return updated;
     });
@@ -1183,7 +1223,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setTodoItems([]);
     try {
       localStorage.removeItem("island_todo_list");
-    } catch {}
+    } catch { }
     emitTodosSync();
   };
 
@@ -1277,8 +1317,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     isSecondaryWindow
   );
 
-  const goToTabRef = useRef<(targetTab: ExpandedTab, direction?: 1 | -1 | 0, fromSync?: boolean) => void>(() => {});
-  const openLastOrPreferredTabRef = useRef<(forceTab?: ExpandedTab) => boolean>(() => false);
+  const goToTabRef = useRef<(targetTab: ExpandedTab, direction?: 1 | -1 | 0, fromSync?: boolean) => void>(() => { });
+  const openLastOrPreferredTabRef = useRef<
+    (forceTab?: ExpandedTab, options?: { bypassCloseGrace?: boolean }) => boolean
+  >(() => false);
 
   const [stashedFiles, setStashedFiles] = useState<StashedFile[]>(getInitialShelfFiles);
   const stashedFilesRef = useRef<StashedFile[]>(stashedFiles);
@@ -1299,7 +1341,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const saved = localStorage.getItem("island_auto_compact_mode");
       if (saved === "browser" || saved === "maximized") return saved;
-    } catch {}
+    } catch { }
     return "browser";
   });
 
@@ -1610,8 +1652,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                   ? `${toast.minutesLeft || 10} Menit Menuju Sholat ${pName}`
                   : `${toast.minutesLeft || 10}m Until ${pName} Prayer`
                 : isId
-                ? `Waktunya Sholat ${pName}`
-                : `Time for ${pName} Prayer`,
+                  ? `Waktunya Sholat ${pName}`
+                  : `Time for ${pName} Prayer`,
             body: `${toast.prayerTime} · ${toast.locationName}`,
             appName: isId ? "Pengingat" : "Reminders",
             icon: "bell",
@@ -1638,8 +1680,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       prayerToast.type === "completed"
         ? 4500
         : prayerToast.type === "prayer_time"
-        ? 180000
-        : 15000;
+          ? 180000
+          : 15000;
     const timer = setTimeout(() => {
       stopAdzanAudio();
       setPrayerToast(null);
@@ -1715,6 +1757,40 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const availableTabsRef = useRef<ExpandedTab[]>(availableTabs);
   availableTabsRef.current = availableTabs;
 
+  // Staggered idle pre-warm for enabled notch tab modules so first open/tab-switch skips Suspense stalls
+  useEffect(() => {
+    if (isSecondaryWindow) return;
+    let cancelled = false;
+    let stepTimer: number | null = null;
+    const queue = Array.from(
+      new Set<string>(["quick_control", "media_expanded", ...availableTabsRef.current])
+    );
+    let idx = 0;
+
+    const scheduleNext = () => {
+      if (cancelled || idx >= queue.length) return;
+      const runWarm = () => {
+        if (cancelled || idx >= queue.length) return;
+        const tabId = queue[idx++];
+        TAB_CHUNK_PRELOADERS[tabId]?.().catch(() => { });
+        stepTimer = window.setTimeout(scheduleNext, 160);
+      };
+      const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+      if (typeof ric === "function") {
+        ric(runWarm, { timeout: 600 });
+      } else {
+        stepTimer = window.setTimeout(runWarm, 120);
+      }
+    };
+
+    const startTimer = window.setTimeout(scheduleNext, 1200);
+    return () => {
+      cancelled = true;
+      clearTimeout(startTimer);
+      if (stepTimer !== null) clearTimeout(stepTimer);
+    };
+  }, [isSecondaryWindow]);
+
   const currentTab: ExpandedTab | null = React.useMemo(() => {
     if (isSettings) return "settings";
     if (isNotifications) return "notif_center";
@@ -1735,8 +1811,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   const isSubPage = Boolean(
     currentTab &&
-      (currentTab === "clipboard" || currentTab === "volume_mixer" || currentTab === "notif_center") &&
-      !availableTabs.includes(currentTab)
+    (currentTab === "clipboard" || currentTab === "volume_mixer" || currentTab === "notif_center") &&
+    !availableTabs.includes(currentTab)
   );
 
   const currentTabIndex = React.useMemo(() => {
@@ -1748,14 +1824,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const saved = localStorage.getItem("island_last_active_tab");
       if (saved) return saved as ExpandedTab;
-    } catch {}
+    } catch { }
     return "quick_control";
   })());
   const lastPanelClosedAtRef = useRef<number>((() => {
     try {
       const saved = localStorage.getItem("island_last_panel_closed_at");
       if (saved) return parseInt(saved, 10);
-    } catch {}
+    } catch { }
     return 0;
   })());
 
@@ -1767,11 +1843,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (!isSecondaryWindow) {
         try {
           localStorage.setItem("island_last_active_tab", currentTab);
-        } catch {}
+        } catch { }
       }
     }
     if (currentTab === "quick_control") {
-      fetchHotspotStatus().then(setIsHotspotOn).catch(() => {});
+      fetchHotspotStatus().then(setIsHotspotOn).catch(() => { });
     }
   }, [currentTab, isSecondaryWindow]);
 
@@ -1815,13 +1891,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
     if (hadOpenPanel) {
       isClosingRef.current = true;
-      closeGraceUntilRef.current = Date.now() + 450;
+      closeGraceUntilRef.current = Date.now() + 180;
       if (finishClosingTimerRef.current) {
         clearTimeout(finishClosingTimerRef.current);
       }
-      finishClosingTimerRef.current = window.setTimeout(finishClosing, 450);
+      finishClosingTimerRef.current = window.setTimeout(finishClosing, 260);
     } else {
-      isClosingRef.current = false;
+      finishClosing();
     }
     isCursorInsideNotchRef.current = false;
     isShortcutPinnedRef.current = false;
@@ -1875,7 +1951,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (!isSecondaryWindow) {
         try {
           localStorage.setItem("island_last_panel_closed_at", String(now));
-        } catch {}
+        } catch { }
       }
     }
     if (!isPlayingRef.current) {
@@ -1886,7 +1962,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     if (!fromSync && !isSecondaryWindow) {
       invoke("broadcast_settings_sync", {
         payload: { type: "notch_tab_state", tab: null, isOpen: false },
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     if (hadOpenPanel) {
@@ -1900,13 +1976,20 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           topOffset: islandTopOffsetRef.current,
           isIsland: isIslandRef.current,
           dpr: window.devicePixelRatio || 1.0,
-        }).catch(() => {});
+        }).catch(() => { });
       }
     }
   }, [clearPausedMediaTimer]);
 
-  const openLastOrPreferredTab = (forceTab?: ExpandedTab): boolean => {
-    if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return false;
+  const openLastOrPreferredTab = (
+    forceTab?: ExpandedTab,
+    options?: { bypassCloseGrace?: boolean }
+  ): boolean => {
+    if (options?.bypassCloseGrace) {
+      finishClosing();
+    } else if (isCloseGraceActive()) {
+      return false;
+    }
     cancelCollapseTimer();
     setSlideDirection(0);
     isClosingRef.current = false;
@@ -1924,10 +2007,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         Boolean(mediaRef.current?.title || lastMediaPayloadRef.current?.title);
       const isMusicActive = Boolean(
         hasMediaTrack &&
-          (isPlayingRef.current ||
-            (!tabExpired &&
-              (variantRef.current === "media" || variantRef.current === "lyrics_idle") &&
-              !isPausedMediaCollapsedRef.current))
+        (isPlayingRef.current ||
+          (!tabExpired &&
+            (variantRef.current === "media" || variantRef.current === "lyrics_idle") &&
+            !isPausedMediaCollapsedRef.current))
       );
       target = resolvePreferredOpenTab({
         currentTabs,
@@ -1947,9 +2030,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   };
   openLastOrPreferredTabRef.current = openLastOrPreferredTab;
 
-  const openNotchFromMediaPill = () => {
+  const openNotchFromMediaPill = (bypassCloseGrace = false) => {
+    if (bypassCloseGrace) {
+      finishClosing();
+    }
     if (tabsPrefsRef.current.preventAutoOpenMediaWhilePlaying !== false) {
-      openLastOrPreferredTabRef.current();
+      openLastOrPreferredTabRef.current(undefined, { bypassCloseGrace });
     } else {
       goToTabRef.current("media_expanded", 0);
     }
@@ -1974,7 +2060,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const num = Number(saved);
         if (num === 0 || num === 1 || num === 3 || num === -1) return num;
       }
-    } catch {}
+    } catch { }
     return 0;
   });
   const optCloseDelayRef = useRef(optCloseDelay);
@@ -2048,8 +2134,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         configuredSec === 0
           ? 90
           : configuredSec > 0
-          ? configuredSec * 1000
-          : Math.max(_delayMs, 280);
+            ? configuredSec * 1000
+            : Math.max(_delayMs, 280);
 
       collapseTimerRef.current = window.setTimeout(async () => {
         if (isCursorInsideNotchRef.current || isSwitchingTabRef.current || isShortcutPinnedRef.current) return;
@@ -2080,7 +2166,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             cancelCollapseTimer();
             return;
           }
-        } catch {}
+        } catch { }
 
         handleCloseImmediate();
       }, effectiveDelay);
@@ -2112,8 +2198,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const currentTabs = availableTabsRef.current;
     const currentIndex = activeTab ? currentTabs.indexOf(activeTab) : -1;
     const targetIndex = currentTabs.indexOf(targetTab);
-    const resolvedDirection = direction !== undefined 
-      ? direction 
+    const resolvedDirection = direction !== undefined
+      ? direction
       : (targetIndex >= 0 && currentIndex >= 0 ? (targetIndex >= currentIndex ? 1 : -1) : 0);
 
     setSlideDirection(resolvedDirection);
@@ -2180,7 +2266,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     if (!fromSync && !isSecondaryWindow) {
       invoke("broadcast_settings_sync", {
         payload: { type: "notch_tab_state", tab: targetTab, isOpen: true },
-      }).catch(() => {});
+      }).catch(() => { });
     }
     const fetchDelay = wasAlreadyOpen ? 40 : 260;
     if (targetTab === "quick_control") {
@@ -2206,7 +2292,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   }, []);
 
   notchHoverEnterRef.current = () => {
-    if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
+    if (isCloseGraceActive()) return;
     isCursorInsideNotchRef.current = true;
     isShortcutPinnedRef.current = false;
     if (shortcutPinnedTimerRef.current) {
@@ -2238,66 +2324,93 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
   };
 
-  const handlePrevTab = () => {
-    if (currentTabIndex > 0) {
-      goToTab(availableTabs[currentTabIndex - 1], -1);
+  const handlePrevTab = useCallback(() => {
+    const cur = currentTabRef.current;
+    const tabs = availableTabsRef.current;
+    const idx = cur ? tabs.indexOf(cur) : -1;
+    if (idx > 0) {
+      goToTabRef.current(tabs[idx - 1], -1);
     }
-  };
+  }, []);
 
-  const handleNextTab = () => {
-    if (currentTabIndex >= 0 && currentTabIndex < availableTabs.length - 1) {
-      goToTab(availableTabs[currentTabIndex + 1], 1);
+  const handleNextTab = useCallback(() => {
+    const cur = currentTabRef.current;
+    const tabs = availableTabsRef.current;
+    const idx = cur ? tabs.indexOf(cur) : -1;
+    if (idx >= 0 && idx < tabs.length - 1) {
+      goToTabRef.current(tabs[idx + 1], 1);
     }
-  };
+  }, []);
 
-  const handleSelectTab = (idx: number) => {
-    if (idx >= 0 && idx < availableTabs.length && idx !== currentTabIndex) {
-      const dir = idx > currentTabIndex ? 1 : -1;
-      goToTab(availableTabs[idx], dir);
+  const handleSelectTab = useCallback((idx: number) => {
+    const cur = currentTabRef.current;
+    const tabs = availableTabsRef.current;
+    const curIdx = cur ? tabs.indexOf(cur) : -1;
+    if (idx >= 0 && idx < tabs.length && idx !== curIdx) {
+      const dir = idx > curIdx ? 1 : -1;
+      goToTabRef.current(tabs[idx], dir);
     }
-  };
+  }, []);
 
   const tabBeforeSettingsRef = useRef<ExpandedTab | null>(null);
 
-  const handleToggleSettings = () => {
-    if (currentTab === "drop_shelf") {
-      setIsShelfSettingsOpen((prev) => !prev);
-      return;
-    }
-    if (currentTab === "settings") {
+  const handleToggleSettings = useCallback(() => {
+    const cur = currentTabRef.current;
+    const tabs = availableTabsRef.current;
+    if (cur === "settings") {
       const fallbackTab: ExpandedTab =
         lastActiveTabRef.current && (lastActiveTabRef.current as string) !== "settings"
           ? lastActiveTabRef.current
-          : (availableTabs[0] as ExpandedTab) || "quick_control";
+          : (tabs[0] as ExpandedTab) || "quick_control";
       const target =
         tabBeforeSettingsRef.current && (tabBeforeSettingsRef.current as string) !== "settings"
           ? tabBeforeSettingsRef.current
           : fallbackTab;
       tabBeforeSettingsRef.current = null;
-      goToTab(target, -1);
+      goToTabRef.current(target, -1);
       return;
     }
-    tabBeforeSettingsRef.current = currentTab;
-    goToTab("settings", 1);
-  };
+    tabBeforeSettingsRef.current = cur;
+    goToTabRef.current("settings", 1);
+  }, []);
 
-  const handleToggleNotifications = () => {
-    if (currentTab === "notif_center") {
+  const handleToggleNotifications = useCallback(() => {
+    const cur = currentTabRef.current;
+    const tabs = availableTabsRef.current;
+    if (cur === "notif_center") {
       const fallbackTab: ExpandedTab =
         lastActiveTabRef.current && (lastActiveTabRef.current as string) !== "notif_center"
           ? lastActiveTabRef.current
-          : (availableTabs[0] as ExpandedTab) || "quick_control";
+          : (tabs[0] as ExpandedTab) || "quick_control";
       const target =
         tabBeforeNotifRef.current && (tabBeforeNotifRef.current as string) !== "notif_center"
           ? tabBeforeNotifRef.current
           : fallbackTab;
       tabBeforeNotifRef.current = null;
-      goToTab(target, -1);
+      goToTabRef.current(target, -1);
       return;
     }
-    tabBeforeNotifRef.current = currentTab;
-    goToTab("notif_center", 1);
-  };
+    tabBeforeNotifRef.current = cur;
+    goToTabRef.current("notif_center", 1);
+  }, []);
+
+  const handlePanelPrev = useCallback(() => {
+    const cur = currentTabRef.current;
+    if (cur === "drop_shelf" && isShelfSettingsOpen) {
+      setIsShelfSettingsOpen(false);
+    } else if (cur === "settings") {
+      handleToggleSettings();
+    } else if (cur === "notif_center") {
+      handleToggleNotifications();
+    } else if (
+      (cur === "clipboard" || cur === "volume_mixer") &&
+      !availableTabsRef.current.includes(cur)
+    ) {
+      goToTabRef.current("quick_control", -1);
+    } else {
+      handlePrevTab();
+    }
+  }, [isShelfSettingsOpen, handleToggleSettings, handleToggleNotifications, handlePrevTab]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2309,7 +2422,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           setIsQuickNoteSaved(false);
           setIsQuickAiChatOpen(false);
           setIsQuickAiChatExpanded(false);
-          invoke("restore_previous_foreground_window").catch(() => {});
+          invoke("restore_previous_foreground_window").catch(() => { });
           return;
         }
         if (isShortcutPinnedRef.current || currentTabRef.current) {
@@ -2352,7 +2465,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
     };
   }, []);
-  
+
   const [optVolume, setOptVolume] = useState(true);
   const [optClipboard, setOptClipboard] = useState(true);
   const [optOcr, setOptOcr] = useState(false);
@@ -2362,7 +2475,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const p = localStorage.getItem("island_position");
       if (isValidNotchPosition(p)) return p;
-    } catch {}
+    } catch { }
     return "top";
   });
   const optPositionRef = useRef<NotchPosition>(optPosition);
@@ -2387,7 +2500,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const n = Number(saved);
         if (!isNaN(n) && n >= 0.15 && n <= 1.0) return n;
       }
-    } catch {}
+    } catch { }
     return 1.0;
   });
   const [optBlur, setOptBlur] = useState<number>(() => {
@@ -2397,7 +2510,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const n = Number(saved);
         if (!isNaN(n) && n >= 0 && n <= 100) return n;
       }
-    } catch {}
+    } catch { }
     return 0;
   });
   const [optIdleColorEnabled, setOptIdleColorEnabled] = useState<boolean>(() => {
@@ -2411,7 +2524,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const saved = localStorage.getItem("island_idle_color");
       if (saved && isValidHex(saved)) return normalizeHex(saved);
-    } catch {}
+    } catch { }
     return "#0f172a";
   });
   const [optIdleTextColorEnabled, setOptIdleTextColorEnabled] = useState<boolean>(() => {
@@ -2425,11 +2538,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const saved = localStorage.getItem("island_idle_text_color");
       if (saved && isValidHex(saved)) return normalizeHex(saved);
-    } catch {}
+    } catch { }
     return "#ffffff";
   });
-  const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy"|"smooth"|"bouncy">("smooth");
-  const [optAccent, setOptAccent] = useState<"default"|"pink"|"blue"|"green">("default");
+  const [optAnimSpeed, setOptAnimSpeed] = useState<"snappy" | "smooth" | "bouncy">("smooth");
+  const [optAccent, setOptAccent] = useState<"default" | "pink" | "blue" | "green">("default");
   const [optNotifTime, setOptNotifTime] = useState<number>(3);
   const [optNotifSound, setOptNotifSound] = useState<string>(() => getSavedNotifSound());
   const optNotifSoundRef = useRef(optNotifSound);
@@ -2438,7 +2551,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const s = localStorage.getItem("island_notch_shape");
       if (s === "island" || s === "notch") return s;
-    } catch {}
+    } catch { }
     return "notch";
   });
   const notchShapeRef = useRef(notchShape);
@@ -2447,7 +2560,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const o = Number(localStorage.getItem("island_top_offset"));
       if (!isNaN(o) && o >= 6 && o <= 16) return o;
-    } catch {}
+    } catch { }
     return 10;
   });
   const [shapeTransitionY, setShapeTransitionY] = useState(0);
@@ -2456,7 +2569,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     try {
       const s = localStorage.getItem("island_theme");
       if (s === "dark" || s === "light" || s === "auto") return s;
-    } catch {}
+    } catch { }
     return "dark";
   });
   const [idleLayout, setIdleLayout] = useState<IdleLayoutConfig>(() => getSavedIdleLayout());
@@ -2514,7 +2627,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const broadcastSetting = useCallback((key: string, value: unknown) => {
     invoke("broadcast_settings_sync", {
       payload: { type: "setting_key", key, value },
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   const handleChangeLanguage = async (newLang: Language) => {
@@ -2522,12 +2635,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setOptLanguage(newLang);
     invoke("broadcast_settings_sync", {
       payload: { type: "setting_key", key: "opt_language", value: newLang },
-    }).catch(() => {});
+    }).catch(() => { });
     if (store) {
       try {
         await store.set("opt_language", newLang);
         await store.save();
-      } catch {}
+      } catch { }
     }
     broadcastSetting("opt_language", newLang);
   };
@@ -2545,12 +2658,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
 
     setNotchShape(shape);
-    try { localStorage.setItem("island_notch_shape", shape); } catch {}
+    try { localStorage.setItem("island_notch_shape", shape); } catch { }
     if (store) {
       try {
         await store.set("notch_shape", shape);
         await store.save();
-      } catch {}
+      } catch { }
     }
     if (!isSecondaryWindow) {
       invoke("set_window_position", {
@@ -2567,12 +2680,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const handleChangeIslandTopOffset = useCallback(async (offset: number) => {
     const clamped = Math.max(6, Math.min(16, Math.round(offset)));
     setIslandTopOffset(clamped);
-    try { localStorage.setItem("island_top_offset", String(clamped)); } catch {}
+    try { localStorage.setItem("island_top_offset", String(clamped)); } catch { }
     if (store) {
       try {
         await store.set("island_top_offset", clamped);
         await store.save();
-      } catch {}
+      } catch { }
     }
     if (!isSecondaryWindow) {
       invoke("set_window_position", {
@@ -2585,7 +2698,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       broadcastSetting("island_top_offset", clamped);
     }
   }, [store, isSecondaryWindow, broadcastSetting]);
-  
+
   const [camActive, setCamActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
   const optVolumeRef = useRef(optVolume);
@@ -2613,7 +2726,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
   }, [optMedia]);
 
-  
+
 
   const [shortcuts, setShortcuts] = useState<Record<ShortcutActionId, string | null>>(() => {
     try {
@@ -2630,7 +2743,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           return merged;
         }
       }
-    } catch {}
+    } catch { }
     return { ...DEFAULT_SHORTCUTS };
   });
 
@@ -2640,7 +2753,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (saved !== null) {
         return saved === "true";
       }
-    } catch {}
+    } catch { }
     return true;
   });
 
@@ -2679,9 +2792,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       handleCloseImmediate();
     } else {
       setIsHidden(false);
-      const didOpen = openLastOrPreferredTabRef.current();
+      const didOpen = openLastOrPreferredTabRef.current(undefined, { bypassCloseGrace: true });
       if (!didOpen) return;
-      invoke("focus_notch_window").catch(() => {});
+      invoke("focus_notch_window").catch(() => { });
       isShortcutPinnedRef.current = true;
       if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
       shortcutPinnedTimerRef.current = window.setTimeout(() => {
@@ -2701,7 +2814,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     if (!wasOpen) {
       try {
         await invoke("save_previous_foreground_window");
-      } catch {}
+      } catch { }
     }
     closeNonQuickPanels();
     setIsQuickNoteOpen(false);
@@ -2711,9 +2824,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setIsQuickTodoSaved(false);
     setIsQuickTodoOpen(!wasOpen);
     if (wasOpen) {
-      invoke("restore_previous_foreground_window").catch(() => {});
+      invoke("restore_previous_foreground_window").catch(() => { });
     } else {
-      invoke("focus_notch_window").catch(() => {});
+      invoke("focus_notch_window").catch(() => { });
     }
   }, [closeNonQuickPanels]);
 
@@ -2722,7 +2835,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     if (!wasOpen) {
       try {
         await invoke("save_previous_foreground_window");
-      } catch {}
+      } catch { }
     }
     closeNonQuickPanels();
     setIsQuickTodoOpen(false);
@@ -2732,16 +2845,16 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setIsQuickNoteSaved(false);
     setIsQuickNoteOpen(!wasOpen);
     if (wasOpen) {
-      invoke("restore_previous_foreground_window").catch(() => {});
+      invoke("restore_previous_foreground_window").catch(() => { });
     } else {
-      invoke("focus_notch_window").catch(() => {});
+      invoke("focus_notch_window").catch(() => { });
     }
   }, [closeNonQuickPanels]);
 
   const handleShortcutOpenMedia = useCallback(() => {
     setIsHidden(false);
     goToTabRef.current("media_expanded", 0);
-    invoke("focus_notch_window").catch(() => {});
+    invoke("focus_notch_window").catch(() => { });
     isShortcutPinnedRef.current = true;
     if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
     shortcutPinnedTimerRef.current = window.setTimeout(() => {
@@ -2798,7 +2911,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
       try {
         localStorage.setItem("island_target_monitor", nextId);
-      } catch {}
+      } catch { }
 
       if (store) {
         try {
@@ -2840,7 +2953,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     if (!wasOpen) {
       try {
         await invoke("save_previous_foreground_window");
-      } catch {}
+      } catch { }
     }
     closeNonQuickPanels();
     setIsQuickTodoOpen(false);
@@ -2850,9 +2963,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     setIsQuickAiChatOpen(!wasOpen);
     if (wasOpen) {
       setIsQuickAiChatExpanded(false);
-      invoke("restore_previous_foreground_window").catch(() => {});
+      invoke("restore_previous_foreground_window").catch(() => { });
     } else {
-      invoke("focus_notch_window").catch(() => {});
+      invoke("focus_notch_window").catch(() => { });
     }
   }, [closeNonQuickPanels]);
 
@@ -2921,7 +3034,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         setShortcutStatuses(statuses);
         invoke("broadcast_settings_sync", {
           payload: { type: "shortcut_statuses", statuses },
-        }).catch(() => {});
+        }).catch(() => { });
       }
     };
     applyShortcuts();
@@ -2960,7 +3073,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             setShortcutStatuses(restoredStatuses);
             invoke("broadcast_settings_sync", {
               payload: { type: "shortcut_statuses", statuses: restoredStatuses },
-            }).catch(() => {});
+            }).catch(() => { });
           }
           return {
             success: false,
@@ -2975,7 +3088,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setShortcuts(updated);
       try {
         localStorage.setItem("island_shortcuts", JSON.stringify(updated));
-      } catch {}
+      } catch { }
       if (store) {
         await store.set("shortcuts", updated);
         await store.save();
@@ -2986,10 +3099,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setShortcutStatuses(statuses);
       invoke("broadcast_settings_sync", {
         payload: { type: "shortcuts_update", actionId, newShortcut, shortcuts: updated, shortcutsEnabled: currentEnabled },
-      }).catch(() => {});
+      }).catch(() => { });
       invoke("broadcast_settings_sync", {
         payload: { type: "shortcut_statuses", statuses },
-      }).catch(() => {});
+      }).catch(() => { });
       return { success: true };
     },
     [isSecondaryWindow, store]
@@ -3012,7 +3125,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setShortcutsEnabled(enabled);
       try {
         localStorage.setItem("island_shortcuts_enabled", String(enabled));
-      } catch {}
+      } catch { }
       if (store) {
         await store.set("shortcuts_enabled", enabled);
         await store.save();
@@ -3022,10 +3135,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setShortcutStatuses(statuses);
       invoke("broadcast_settings_sync", {
         payload: { type: "shortcuts_enabled", enabled, shortcuts: currentShortcuts },
-      }).catch(() => {});
+      }).catch(() => { });
       invoke("broadcast_settings_sync", {
         payload: { type: "shortcut_statuses", statuses },
-      }).catch(() => {});
+      }).catch(() => { });
     },
     [isSecondaryWindow, store]
   );
@@ -3052,15 +3165,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         if (savedTabsPrefs) {
           const normTabs = normalizeTabsPreferences(savedTabsPrefs);
           setTabsPrefs(normTabs);
-          try { localStorage.setItem("island_tabs_preferences_v1", JSON.stringify(normTabs)); } catch {}
+          try { localStorage.setItem("island_tabs_preferences_v1", JSON.stringify(normTabs)); } catch { }
         }
-        
+
         const greet = await s.get('show_greeting');
         if (greet !== null) {
           setShowGreeting(greet as boolean);
           try {
             localStorage.setItem("island_show_greeting", String(greet));
-          } catch {}
+          } catch { }
         }
         const nameMode = await s.get('greeting_name_mode');
         if (nameMode !== null) {
@@ -3068,14 +3181,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           setGreetingNameMode(modeVal);
           try {
             localStorage.setItem("island_greeting_name_mode", modeVal);
-          } catch {}
+          } catch { }
         }
         const customName = await s.get('custom_greeting_name');
         if (typeof customName === 'string' && customName !== "undefined" && customName !== "null") {
           setCustomGreetingName(customName);
           try {
             localStorage.setItem("island_custom_greeting_name", customName);
-          } catch {}
+          } catch { }
         } else {
           try {
             const cached = localStorage.getItem("island_custom_greeting_name");
@@ -3083,7 +3196,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               localStorage.removeItem("island_custom_greeting_name");
               setCustomGreetingName("");
             }
-          } catch {}
+          } catch { }
         }
         const v = await s.get('opt_volume'); if (v !== null) setOptVolume(v as boolean);
         const c = await s.get('opt_clipboard'); if (c !== null) setOptClipboard(c as boolean);
@@ -3093,12 +3206,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const p = await s.get('opt_position');
         if (isValidNotchPosition(p)) {
           setOptPosition(p);
-          try { localStorage.setItem("island_position", p); } catch {}
+          try { localStorage.setItem("island_position", p); } catch { }
         }
         const mon = await s.get('opt_target_monitor');
         if (typeof mon === 'string' && mon) {
           setOptTargetMonitor(mon);
-          try { localStorage.setItem("island_target_monitor", mon); } catch {}
+          try { localStorage.setItem("island_target_monitor", mon); } catch { }
         }
         const o = await s.get('opt_opacity'); if (o !== null) setOptOpacity(Number(o));
         const bl = await s.get('opt_blur');
@@ -3118,46 +3231,46 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const cd = await s.get('opt_close_delay');
         if (cd === 0 || cd === 1 || cd === 3 || cd === -1) {
           setOptCloseDelay(cd as number);
-          try { localStorage.setItem("island_close_delay", String(cd)); } catch {}
+          try { localStorage.setItem("island_close_delay", String(cd)); } catch { }
         }
         const shape = await s.get('notch_shape');
         if (shape === 'notch' || shape === 'island') {
           setNotchShape(shape);
-          try { localStorage.setItem("island_notch_shape", shape); } catch {}
+          try { localStorage.setItem("island_notch_shape", shape); } catch { }
         }
         const topOff = await s.get('island_top_offset');
         if (typeof topOff === 'number' && topOff >= 6 && topOff <= 16) {
           setIslandTopOffset(topOff);
-          try { localStorage.setItem("island_top_offset", String(topOff)); } catch {}
+          try { localStorage.setItem("island_top_offset", String(topOff)); } catch { }
         }
         const ears = await s.get('opt_ears'); if (typeof ears === 'boolean') setOptEars(ears);
         const ac = await s.get('opt_auto_compact'); if (typeof ac === 'boolean') setOptAutoCompact(ac);
         const acm = await s.get('opt_auto_compact_mode');
         if (acm === 'browser' || acm === 'maximized') {
           setOptAutoCompactMode(acm);
-          try { localStorage.setItem("island_auto_compact_mode", acm); } catch {}
+          try { localStorage.setItem("island_auto_compact_mode", acm); } catch { }
         }
         const idleColEnabled = await s.get('opt_idle_color_enabled');
         if (typeof idleColEnabled === 'boolean') {
           setOptIdleColorEnabled(idleColEnabled);
-          try { localStorage.setItem("island_idle_color_enabled", String(idleColEnabled)); } catch {}
+          try { localStorage.setItem("island_idle_color_enabled", String(idleColEnabled)); } catch { }
         }
         const idleCol = await s.get('opt_idle_color');
         if (typeof idleCol === 'string' && isValidHex(idleCol)) {
           const norm = normalizeHex(idleCol);
           setOptIdleColor(norm);
-          try { localStorage.setItem("island_idle_color", norm); } catch {}
+          try { localStorage.setItem("island_idle_color", norm); } catch { }
         }
         const idleTextColEnabled = await s.get('opt_idle_text_color_enabled');
         if (typeof idleTextColEnabled === 'boolean') {
           setOptIdleTextColorEnabled(idleTextColEnabled);
-          try { localStorage.setItem("island_idle_text_color_enabled", String(idleTextColEnabled)); } catch {}
+          try { localStorage.setItem("island_idle_text_color_enabled", String(idleTextColEnabled)); } catch { }
         }
         const idleTextCol = await s.get('opt_idle_text_color');
         if (typeof idleTextCol === 'string' && isValidHex(idleTextCol)) {
           const norm = normalizeHex(idleTextCol);
           setOptIdleTextColor(norm);
-          try { localStorage.setItem("island_idle_text_color", norm); } catch {}
+          try { localStorage.setItem("island_idle_text_color", norm); } catch { }
         }
         const lang = await s.get('opt_language');
         if (lang === 'en' || lang === 'id') {
@@ -3169,7 +3282,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         if (savedLayout) {
           const parsed = parseIdleLayout(savedLayout);
           setIdleLayout(parsed);
-          try { localStorage.setItem("island_idle_layout", JSON.stringify(parsed)); } catch {}
+          try { localStorage.setItem("island_idle_layout", JSON.stringify(parsed)); } catch { }
         }
         const isz = await s.get('opt_idle_size'); if (isz === 'compact' || isz === 'default' || isz === 'large') setOptIdleSize(isz);
         const tsz = await s.get('opt_tab_size'); if (tsz === 'compact' || tsz === 'default' || tsz === 'large') setOptTabSize(tsz);
@@ -3193,7 +3306,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           }
           try {
             localStorage.setItem("island_shortcuts", JSON.stringify(loaded));
-          } catch {}
+          } catch { }
         }
         const savedShortcutsEnabled = await s.get('shortcuts_enabled');
         if (typeof savedShortcutsEnabled === 'boolean') {
@@ -3203,9 +3316,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           }
           try {
             localStorage.setItem("island_shortcuts_enabled", String(savedShortcutsEnabled));
-          } catch {}
+          } catch { }
         }
-        
+
         const autostartInit = await s.get('autostart_initialized');
         if (!autostartInit) {
           await invoke<boolean>("sync_autostart_state", { enabled: true }).catch(() => false);
@@ -3218,7 +3331,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             ? savedAutostart
             : await invoke<boolean>("get_autostart_state").catch(() => true);
           setIsAutostart(effectiveAuto);
-          invoke("sync_autostart_state", { enabled: effectiveAuto }).catch(() => {});
+          invoke("sync_autostart_state", { enabled: effectiveAuto }).catch(() => { });
         }
       } catch (e) {
         console.error("Failed to init store", e);
@@ -3257,24 +3370,24 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       }
     };
     bootGreeting();
-    fetchHotspotStatus().then(setIsHotspotOn).catch(() => {});
+    fetchHotspotStatus().then(setIsHotspotOn).catch(() => { });
 
     const updateCheckTimeout = !isSecondaryWindow
       ? window.setTimeout(async () => {
-          try {
-            const updateInfo = await checkForAppUpdate();
-            if (updateInfo.available && updateInfo.version) {
-              showNotif({
-                title: t("settings_update_available"),
-                body: `v${updateInfo.version} - Click to install`,
-                icon: "update",
-                onClick: () => {
-                  goToTabRef.current("settings");
-                },
-              });
-            }
-          } catch {}
-        }, 12000)
+        try {
+          const updateInfo = await checkForAppUpdate();
+          if (updateInfo.available && updateInfo.version) {
+            showNotif({
+              title: t("settings_update_available"),
+              body: `v${updateInfo.version} - Click to install`,
+              icon: "update",
+              onClick: () => {
+                goToTabRef.current("settings");
+              },
+            });
+          }
+        } catch { }
+      }, 12000)
       : undefined;
 
     const unlistenClickOutside = listenWindow("click-outside", () => {
@@ -3293,7 +3406,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
     const unlistenMouseEnter = listenWindow("notch-mouse-enter", () => {
       if (isShelfDraggingRef.current) return;
-      if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
+      if (isCloseGraceActive()) return;
       isCursorInsideNotchRef.current = true;
       notchHoverEnterRef.current();
     });
@@ -3342,14 +3455,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               e.clientY >= rect.top - margin &&
               e.clientY <= rect.bottom + margin;
             if (isNearNotch) {
+              finishClosing();
               if (variantRef.current === "media" || variantRef.current === "lyrics_idle") {
                 if (tabsPrefsRef.current.preventAutoOpenMediaWhilePlaying !== false) {
-                  openLastOrPreferredTabRef.current();
+                  openLastOrPreferredTabRef.current(undefined, { bypassCloseGrace: true });
                 } else {
                   goToTabRef.current("media_expanded", 0);
                 }
               } else if (variantRef.current === "idle") {
-                openLastOrPreferredTabRef.current();
+                openLastOrPreferredTabRef.current(undefined, { bypassCloseGrace: true });
               }
             }
           }
@@ -3381,24 +3495,24 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const minX = isLeftNotchPosition(pos)
           ? rect.left - pad
           : isRightNotchPosition(pos)
-          ? rect.right - targetWidth - 14
-          : (rect.left + rect.right) / 2 - targetWidth / 2 - 14;
+            ? rect.right - targetWidth - 14
+            : (rect.left + rect.right) / 2 - targetWidth / 2 - 14;
         const maxX = isLeftNotchPosition(pos)
           ? rect.left + targetWidth + 14
           : isRightNotchPosition(pos)
-          ? rect.right + pad
-          : (rect.left + rect.right) / 2 + targetWidth / 2 + 14;
+            ? rect.right + pad
+            : (rect.left + rect.right) / 2 + targetWidth / 2 + 14;
 
         const minY = isBottomNotchPosition(pos)
           ? rect.bottom - targetHeight - 14
           : isTopNotchPosition(pos)
-          ? rect.top - pad
-          : (rect.top + rect.bottom) / 2 - targetHeight / 2 - 14;
+            ? rect.top - pad
+            : (rect.top + rect.bottom) / 2 - targetHeight / 2 - 14;
         const maxY = isBottomNotchPosition(pos)
           ? rect.bottom + pad
           : isTopNotchPosition(pos)
-          ? rect.top + targetHeight + 14
-          : (rect.top + rect.bottom) / 2 + targetHeight / 2 + 14;
+            ? rect.top + targetHeight + 14
+            : (rect.top + rect.bottom) / 2 + targetHeight / 2 + 14;
 
         const isInside =
           lastClientX >= minX &&
@@ -3415,9 +3529,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           cancelCollapseTimer();
           if (focusModeRef.current === "Gaming") return;
           const hasOpenPanel = anyOpen;
-          if (currentVariant === "compact" && !compactHoverTimerRef.current && !hasOpenPanel) {
+          if (currentVariant === "compact" && !compactHoverTimerRef.current && !hasOpenPanel && !isCloseGraceActive()) {
             startCompactHoverTimer(80);
-          } else if (!hasOpenPanel && !isClosingRef.current) {
+          } else if (!hasOpenPanel && !isCloseGraceActive()) {
             if (currentVariant === "media" || currentVariant === "lyrics_idle") {
               if (tabsPrefsRef.current.preventAutoOpenMediaWhilePlaying !== false) {
                 openLastOrPreferredTabRef.current();
@@ -3454,7 +3568,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setIsMaximizedActive(Boolean(event.payload));
     });
     invoke<boolean>("check_foreground_maximized").then(setIsMaximizedActive).catch(console.error);
-    invoke<boolean>("request_notification_access").catch(() => {});
+    invoke<boolean>("request_notification_access").catch(() => { });
 
     let unlistenDragDrop: (() => void) | undefined;
     try {
@@ -3479,7 +3593,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     } catch (e) {
       console.error("Failed to setup onDragDropEvent", e);
     }
-    
+
     return () => {
       if (pointerMoveRafId !== null) cancelAnimationFrame(pointerMoveRafId);
       window.removeEventListener("pointerdown", handleGlobalPointerDown, true);
@@ -3492,7 +3606,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (unlistenDragDrop) unlistenDragDrop();
       if (updateCheckTimeout !== undefined) clearTimeout(updateCheckTimeout);
       if (!isSecondaryWindow) {
-        shortcutManager.destroy().catch(() => {});
+        shortcutManager.destroy().catch(() => { });
       }
     };
   }, [isSecondaryWindow]);
@@ -3521,7 +3635,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         }
       })
       .catch(console.error);
-      
+
     invoke<[boolean, boolean]>("get_privacy_status")
       .then(([cam, mic]) => {
         setCamActive(cam);
@@ -3529,19 +3643,19 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       })
       .catch(console.error);
 
-    initCredentials().catch(() => {});
+    initCredentials().catch(() => { });
 
     // Default mode is Normal on boot on primary window; avoid clearing active DND from secondary boot
     if (!isSecondaryWindow) {
       setDndStatus(false);
     }
 
-    const unlistenPrivacy = listen<{cam: boolean, mic: boolean}>("privacy-update", (event) => {
+    const unlistenPrivacy = listen<{ cam: boolean, mic: boolean }>("privacy-update", (event) => {
       setCamActive(event.payload.cam);
       setMicActive(event.payload.mic);
     });
 
-    const unlistenUsb = listen<{name: string, letter: string}>("usb-connected", (event) => {
+    const unlistenUsb = listen<{ name: string, letter: string }>("usb-connected", (event) => {
       if (!isSecondaryWindow && focusModeRef.current !== "DND" && !pomoMuteNotifsRef.current) {
         playDeviceConnectSound();
       }
@@ -3556,7 +3670,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       });
     });
 
-    const unlistenAudio = listen<{name: string, icon: string}>("audio-connected", (event) => {
+    const unlistenAudio = listen<{ name: string, icon: string }>("audio-connected", (event) => {
       if (!isSecondaryWindow && focusModeRef.current !== "DND" && !pomoMuteNotifsRef.current) {
         playDeviceConnectSound();
       }
@@ -3651,7 +3765,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               ].slice(0, 10);
               try {
                 localStorage.setItem("island_queue_history", JSON.stringify(updated));
-              } catch {}
+              } catch { }
               return updated;
             });
           }
@@ -3692,7 +3806,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 updated[0] = { ...updated[0], thumbnail: thumbToBackfill };
                 try {
                   localStorage.setItem("island_queue_history", JSON.stringify(updated));
-                } catch {}
+                } catch { }
                 return updated;
               }
               return prev;
@@ -3709,7 +3823,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       }
     });
 
-    const unlistenProgress = listen<{position: number, duration: number}>("media-progress", (event) => {
+    const unlistenProgress = listen<{ position: number, duration: number }>("media-progress", (event) => {
       const prev = latestMediaProgressRef.current;
       latestMediaProgressRef.current = {
         position: event.payload.position,
@@ -3725,10 +3839,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       }
     });
 
-    const unlistenBattery = listen<{is_charging: boolean, percent: number}>("battery-update", (event) => {
+    const unlistenBattery = listen<{ is_charging: boolean, percent: number }>("battery-update", (event) => {
       if (event.payload.percent > 100) return;
       setBattery((prev) => {
-
         if (prev && prev.is_charging !== event.payload.is_charging) {
           if (event.payload.is_charging) {
             if (!isSecondaryWindow) {
@@ -3739,11 +3852,18 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             showNotif({ title: t("notif_on_battery"), body: t("notif_battery_remaining", { percent: event.payload.percent }), icon: "battery" });
           }
         }
+        if (
+          prev &&
+          prev.is_charging === event.payload.is_charging &&
+          prev.percent === event.payload.percent
+        ) {
+          return prev;
+        }
         return event.payload;
       });
     });
 
-    const unlistenVolume = listen<{level: number}>("volume-update", (event) => {
+    const unlistenVolume = listen<{ level: number }>("volume-update", (event) => {
       if (isQuickControlRef.current || isVolumeMixerRef.current || isAdjustingVolumeRef.current) return;
       const vol = Math.round(event.payload.level * 100);
       setSoundLevel(vol);
@@ -3757,110 +3877,110 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const unlistenClipboard = isSecondaryWindow
       ? null
       : listen("clipboard-update", () => {
-      if (!optClipboardRef.current || isOcrWritingRef.current) return;
-
-      if (clipboardDebounceTimer) clearTimeout(clipboardDebounceTimer);
-      clipboardDebounceTimer = setTimeout(async () => {
         if (!optClipboardRef.current || isOcrWritingRef.current) return;
-        try {
-          // Cek teks terlebih dahulu
-          const copiedText = await invoke<string>("read_clipboard_text").catch(() => "");
-          if (copiedText && copiedText.trim().length > 0) {
-            addClipboardItem(copiedText);
-            if (!isClipboardRef.current) {
-              const snippet = copiedText.trim().length > 110
-                ? `${copiedText.trim().slice(0, 110)}…`
-                : copiedText.trim();
-              showNotif({
-                title: t("notif_copied_clipboard"),
-                body: snippet,
-                headline: snippet,
-                icon: "clipboard"
-              });
-            }
-            return;
-          }
 
-          // Jika bukan teks (misal: screenshot/gambar), periksa apakah clipboard berisi gambar
-          const clipImage = await invoke<{
-            id: string;
-            path: string;
-            thumbnail: string;
-            width: number;
-            height: number;
-          } | null>("read_clipboard_image", { persistFile: true, includeVision: false }).catch(() => null);
-
-          if (clipImage && clipImage.path) {
-            const addedItem = addClipboardImageItem({
-              imagePath: clipImage.path,
-              thumbnail: clipImage.thumbnail,
-              width: clipImage.width,
-              height: clipImage.height,
-              ocrText: "",
-            });
-
-            if (!isClipboardRef.current) {
-              const dimText = `${clipImage.width} × ${clipImage.height} px`;
-              showNotif({
-                title: t("notif_image_copied_clipboard"),
-                body: dimText,
-                headline: dimText,
-                icon: "clipboard",
-              });
+        if (clipboardDebounceTimer) clearTimeout(clipboardDebounceTimer);
+        clipboardDebounceTimer = setTimeout(async () => {
+          if (!optClipboardRef.current || isOcrWritingRef.current) return;
+          try {
+            // Cek teks terlebih dahulu
+            const copiedText = await invoke<string>("read_clipboard_text").catch(() => "");
+            if (copiedText && copiedText.trim().length > 0) {
+              addClipboardItem(copiedText);
+              if (!isClipboardRef.current) {
+                const snippet = copiedText.trim().length > 110
+                  ? `${copiedText.trim().slice(0, 110)}…`
+                  : copiedText.trim();
+                showNotif({
+                  title: t("notif_copied_clipboard"),
+                  body: snippet,
+                  headline: snippet,
+                  icon: "clipboard"
+                });
+              }
+              return;
             }
 
-            // Hanya jalankan OCR kalau fitur diaktifkan di settings
-            if (!optOcrRef.current) return;
+            // Jika bukan teks (misal: screenshot/gambar), periksa apakah clipboard berisi gambar
+            const clipImage = await invoke<{
+              id: string;
+              path: string;
+              thumbnail: string;
+              width: number;
+              height: number;
+            } | null>("read_clipboard_image", { persistFile: true, includeVision: false }).catch(() => null);
 
-            invoke<string>("extract_image_text", { path: clipImage.path })
-              .then((ocrText) => {
-                const cleanOcr = ocrText ? ocrText.trim() : "";
-                if (!cleanOcr) return;
-
-                updateClipboardItem(addedItem.id, { text: cleanOcr });
-
-                if (!isClipboardRef.current) {
-                  const notifSubtitle = cleanOcr.length > 80 ? `${cleanOcr.slice(0, 80)}…` : cleanOcr;
-                  showNotif({
-                    title: t("notif_ocr_detected"),
-                    body: notifSubtitle,
-                    headline: notifSubtitle,
-                    icon: "clipboard",
-                    onClick: () => {
-                      isOcrWritingRef.current = true;
-                      writeText(cleanOcr)
-                        .then(() => {
-                          addClipboardItem(cleanOcr);
-                          showNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
-                        })
-                        .catch((err) => {
-                          console.error(err);
-                          showNotif({ title: t("notif_ocr_copy_failed"), body: "", icon: "clipboard" });
-                        })
-                        .finally(() => {
-                          setTimeout(() => { isOcrWritingRef.current = false; }, 500);
-                        });
-                    },
-                  });
-                }
-              })
-              .catch((err) => {
-                console.debug("OCR extraction error:", err);
+            if (clipImage && clipImage.path) {
+              const addedItem = addClipboardImageItem({
+                imagePath: clipImage.path,
+                thumbnail: clipImage.thumbnail,
+                width: clipImage.width,
+                height: clipImage.height,
+                ocrText: "",
               });
 
-            return;
-          }
-        } catch (err) {
-          console.debug("Clipboard handler error:", err);
-        }
-      }, 350);
-    });
+              if (!isClipboardRef.current) {
+                const dimText = `${clipImage.width} × ${clipImage.height} px`;
+                showNotif({
+                  title: t("notif_image_copied_clipboard"),
+                  body: dimText,
+                  headline: dimText,
+                  icon: "clipboard",
+                });
+              }
 
-    const unlistenCaps = listen<{is_on: boolean}>("caps-update", (event) => {
+              // Hanya jalankan OCR kalau fitur diaktifkan di settings
+              if (!optOcrRef.current) return;
+
+              invoke<string>("extract_image_text", { path: clipImage.path })
+                .then((ocrText) => {
+                  const cleanOcr = ocrText ? ocrText.trim() : "";
+                  if (!cleanOcr) return;
+
+                  updateClipboardItem(addedItem.id, { text: cleanOcr });
+
+                  if (!isClipboardRef.current) {
+                    const notifSubtitle = cleanOcr.length > 80 ? `${cleanOcr.slice(0, 80)}…` : cleanOcr;
+                    showNotif({
+                      title: t("notif_ocr_detected"),
+                      body: notifSubtitle,
+                      headline: notifSubtitle,
+                      icon: "clipboard",
+                      onClick: () => {
+                        isOcrWritingRef.current = true;
+                        writeText(cleanOcr)
+                          .then(() => {
+                            addClipboardItem(cleanOcr);
+                            showNotif({ title: t("notif_ocr_copied"), body: "", icon: "clipboard" });
+                          })
+                          .catch((err) => {
+                            console.error(err);
+                            showNotif({ title: t("notif_ocr_copy_failed"), body: "", icon: "clipboard" });
+                          })
+                          .finally(() => {
+                            setTimeout(() => { isOcrWritingRef.current = false; }, 500);
+                          });
+                      },
+                    });
+                  }
+                })
+                .catch((err) => {
+                  console.debug("OCR extraction error:", err);
+                });
+
+              return;
+            }
+          } catch (err) {
+            console.debug("Clipboard handler error:", err);
+          }
+        }, 350);
+      });
+
+    const unlistenCaps = listen<{ is_on: boolean }>("caps-update", (event) => {
       showNotif({ title: event.payload.is_on ? t("notif_caps_on") : t("notif_caps_off"), body: "", icon: "capslock" });
     });
 
-    const unlistenBt = listen<{name: string, battery: string}>("bt-connected", (event) => {
+    const unlistenBt = listen<{ name: string, battery: string }>("bt-connected", (event) => {
       if (!isSecondaryWindow && focusModeRef.current !== "DND" && !pomoMuteNotifsRef.current) {
         playDeviceConnectSound();
       }
@@ -3915,11 +4035,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (isWa) {
         resolvedApp =
           lowerApp.includes("chrome") ||
-          lowerApp.includes("edge") ||
-          lowerApp.includes("brave") ||
-          lowerApp.includes("firefox") ||
-          lowerTitle.includes("web.whatsapp.com") ||
-          lowerBody.includes("web.whatsapp.com")
+            lowerApp.includes("edge") ||
+            lowerApp.includes("brave") ||
+            lowerApp.includes("firefox") ||
+            lowerTitle.includes("web.whatsapp.com") ||
+            lowerBody.includes("web.whatsapp.com")
             ? "WhatsApp Web"
             : "WhatsApp";
         resolvedIcon = "whatsapp";
@@ -4030,7 +4150,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
     const unlistenTraySettings = listenWindow("tray-open-settings", () => {
       if (isSecondaryWindow) return;
-      invoke("open_settings_window", { section: null }).catch(() => {});
+      invoke("open_settings_window", { section: null }).catch(() => { });
     });
 
     const unlistenSettingsSync = listen<any>("gili-settings-sync", (event) => {
@@ -4044,7 +4164,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (payload.type === "tabs_preferences" && payload.data) {
         const norm = normalizeTabsPreferences(payload.data);
         setTabsPrefs(norm);
-        try { localStorage.setItem("island_tabs_preferences_v1", JSON.stringify(norm)); } catch {}
+        try { localStorage.setItem("island_tabs_preferences_v1", JSON.stringify(norm)); } catch { }
         return;
       }
       if (payload.type === "shortcuts_ipc_reply") {
@@ -4054,7 +4174,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         if (!isSecondaryWindow) {
           invoke("broadcast_settings_sync", {
             payload: { type: "shortcut_statuses", statuses: shortcutStatusesRef.current },
-          }).catch(() => {});
+          }).catch(() => { });
         }
         return;
       }
@@ -4064,7 +4184,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             if (payload.requestId) {
               invoke("broadcast_settings_sync", {
                 payload: { type: "shortcuts_ipc_reply", requestId: payload.requestId, result: { success: true } },
-              }).catch(() => {});
+              }).catch(() => { });
             }
           });
         }
@@ -4078,12 +4198,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               setShortcutStatuses(statuses);
               invoke("broadcast_settings_sync", {
                 payload: { type: "shortcut_statuses", statuses },
-              }).catch(() => {});
+              }).catch(() => { });
             }
             if (payload.requestId) {
               invoke("broadcast_settings_sync", {
                 payload: { type: "shortcuts_ipc_reply", requestId: payload.requestId, result: { success: true } },
-              }).catch(() => {});
+              }).catch(() => { });
             }
           });
         }
@@ -4097,7 +4217,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               if (payload.requestId) {
                 invoke("broadcast_settings_sync", {
                   payload: { type: "shortcuts_ipc_reply", requestId: payload.requestId, result },
-                }).catch(() => {});
+                }).catch(() => { });
               }
             });
         }
@@ -4109,7 +4229,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             if (payload.requestId) {
               invoke("broadcast_settings_sync", {
                 payload: { type: "shortcuts_ipc_reply", requestId: payload.requestId, result: { success: true } },
-              }).catch(() => {});
+              }).catch(() => { });
             }
           });
         }
@@ -4140,8 +4260,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         payload.type === "setting_key"
           ? payload.key
           : payload.type === "opt_target_monitor"
-          ? "opt_target_monitor"
-          : null;
+            ? "opt_target_monitor"
+            : null;
       if (syncKey) {
         const value = payload.value;
         switch (syncKey) {
@@ -4154,18 +4274,18 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             break;
           case "show_greeting":
             setShowGreeting(Boolean(value));
-            try { localStorage.setItem("island_show_greeting", String(Boolean(value))); } catch {}
+            try { localStorage.setItem("island_show_greeting", String(Boolean(value))); } catch { }
             break;
           case "greeting_name_mode":
             setGreetingNameMode(value === "custom" ? "custom" : "auto");
-            try { localStorage.setItem("island_greeting_name_mode", value === "custom" ? "custom" : "auto"); } catch {}
+            try { localStorage.setItem("island_greeting_name_mode", value === "custom" ? "custom" : "auto"); } catch { }
             break;
           case "custom_greeting_name":
             setCustomGreetingName(typeof value === "string" ? value : "");
             try {
               if (typeof value === "string" && value) localStorage.setItem("island_custom_greeting_name", value);
               else localStorage.removeItem("island_custom_greeting_name");
-            } catch {}
+            } catch { }
             break;
           case "opt_auto_compact":
             setOptAutoCompact(Boolean(value));
@@ -4173,13 +4293,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           case "opt_auto_compact_mode":
             if (value === "browser" || value === "maximized") {
               setOptAutoCompactMode(value);
-              try { localStorage.setItem("island_auto_compact_mode", value); } catch {}
+              try { localStorage.setItem("island_auto_compact_mode", value); } catch { }
             }
             break;
           case "opt_close_delay":
             optCloseDelayRef.current = Number(value);
             setOptCloseDelay(Number(value));
-            try { localStorage.setItem("island_close_delay", String(Number(value))); } catch {}
+            try { localStorage.setItem("island_close_delay", String(Number(value))); } catch { }
             break;
           case "opt_notif_time":
             setOptNotifTime(Number(value));
@@ -4192,7 +4312,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             break;
           case "opt_theme":
             setOptTheme(value);
-            try { localStorage.setItem("island_theme", String(value)); } catch {}
+            try { localStorage.setItem("island_theme", String(value)); } catch { }
             break;
           case "notch_shape":
             if (value === "notch" || value === "island") {
@@ -4204,14 +4324,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 });
               }
               setNotchShape(value);
-              try { localStorage.setItem("island_notch_shape", value); } catch {}
+              try { localStorage.setItem("island_notch_shape", value); } catch { }
             }
             break;
           case "island_top_offset": {
             const clamped = Math.max(6, Math.min(16, Math.round(Number(value))));
             if (!Number.isNaN(clamped)) {
               setIslandTopOffset(clamped);
-              try { localStorage.setItem("island_top_offset", String(clamped)); } catch {}
+              try { localStorage.setItem("island_top_offset", String(clamped)); } catch { }
             }
             break;
           }
@@ -4219,14 +4339,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             if (isValidNotchPosition(value)) {
               setOptPosition(value);
               optPositionRef.current = value;
-              try { localStorage.setItem("island_position", value); } catch {}
+              try { localStorage.setItem("island_position", value); } catch { }
             }
             break;
           case "opt_target_monitor":
             if (typeof value === "string") {
               setOptTargetMonitor(value);
               optTargetMonitorRef.current = value;
-              try { localStorage.setItem("island_target_monitor", value); } catch {}
+              try { localStorage.setItem("island_target_monitor", value); } catch { }
               if (!isSecondaryWindow) {
                 invoke("set_target_monitor", { targetMonitor: value }).catch(console.error);
               }
@@ -4237,32 +4357,32 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             break;
           case "opt_opacity":
             setOptOpacity(Number(value));
-            try { localStorage.setItem("island_opacity", String(Number(value))); } catch {}
+            try { localStorage.setItem("island_opacity", String(Number(value))); } catch { }
             break;
           case "opt_blur":
             setOptBlur(Number(value));
-            try { localStorage.setItem("island_blur", String(Number(value))); } catch {}
+            try { localStorage.setItem("island_blur", String(Number(value))); } catch { }
             break;
           case "opt_idle_color_enabled":
             setOptIdleColorEnabled(Boolean(value));
-            try { localStorage.setItem("island_idle_color_enabled", String(value)); } catch {}
+            try { localStorage.setItem("island_idle_color_enabled", String(value)); } catch { }
             break;
           case "opt_idle_color":
             if (typeof value === "string" && isValidHex(value)) {
               const norm = normalizeHex(value);
               setOptIdleColor(norm);
-              try { localStorage.setItem("island_idle_color", norm); } catch {}
+              try { localStorage.setItem("island_idle_color", norm); } catch { }
             }
             break;
           case "opt_idle_text_color_enabled":
             setOptIdleTextColorEnabled(Boolean(value));
-            try { localStorage.setItem("island_idle_text_color_enabled", String(value)); } catch {}
+            try { localStorage.setItem("island_idle_text_color_enabled", String(value)); } catch { }
             break;
           case "opt_idle_text_color":
             if (typeof value === "string" && isValidHex(value)) {
               const norm = normalizeHex(value);
               setOptIdleTextColor(norm);
-              try { localStorage.setItem("island_idle_text_color", norm); } catch {}
+              try { localStorage.setItem("island_idle_text_color", norm); } catch { }
             }
             break;
           case "opt_anim_speed":
@@ -4332,7 +4452,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const rawTarget = act.includes(":") ? act.split(":")[1] : "quick_control";
         if (rawTarget === "preferred") {
           setIsHidden(false);
-          openLastOrPreferredTabRef.current();
+          openLastOrPreferredTabRef.current(undefined, { bypassCloseGrace: true });
           isShortcutPinnedRef.current = true;
           if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
           shortcutPinnedTimerRef.current = window.setTimeout(() => {
@@ -4379,7 +4499,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setShowLyrics(true);
       try {
         localStorage.setItem("island_show_lyrics", "true");
-      } catch {}
+      } catch { }
       setIsHidden(false);
       setIsExpanded(false);
     });
@@ -4395,19 +4515,19 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       }
     );
 
-    unlistenMedia.then(() => invoke("request_media_resync").catch(() => {}));
+    unlistenMedia.then(() => invoke("request_media_resync").catch(() => { }));
 
     const handleCrossWindowStorage = (e: StorageEvent) => {
       if (e.key === "island_clipboard_history") {
         try {
           setClipboardHistory(e.newValue ? JSON.parse(e.newValue) : []);
-        } catch {}
+        } catch { }
       } else if (e.key === "island_notification_history") {
         setNotificationsHistory(loadNotificationHistory());
       } else if (e.key === "island_todo_list") {
         try {
           setTodoItems(e.newValue ? JSON.parse(e.newValue) : []);
-        } catch {}
+        } catch { }
       }
     };
     window.addEventListener("storage", handleCrossWindowStorage);
@@ -4471,7 +4591,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       } else if (shortIcons.includes(notif.icon || "")) {
         duration = 1500;
       }
-      
+
       const timer = setTimeout(() => {
         if (isCursorInsideNotchRef.current) {
           return;
@@ -4508,13 +4628,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
     const active = targetNotif || notif;
     if (!active) return;
-    
+
     if (active.onClick) {
       active.onClick();
       // Let onClick handle its own unmount or notification replacement
       return;
     }
-    
+
     if (targetNotif && targetNotif !== notif) {
       setNotifQueue((q) => q.filter((n) => n !== targetNotif));
     } else {
@@ -4532,7 +4652,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
 
     const title = `${active.appName || ""} ${active.title}`.toLowerCase();
-    
+
     let url = "";
     if (title.includes("whatsapp")) url = "whatsapp://";
     else if (title.includes("telegram")) url = "tg://";
@@ -4753,13 +4873,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   // Short messages (like "diwa hp baru\nokee") stay sleek on a single line (height 68px).
   const isMultilineBody = Boolean(
     notif &&
-      !isSmallNotif &&
-      !isMediumNotif &&
-      inlineNotifBody &&
-      (
-        (notifBodyLines.length > 1 && (inlineBodyWidth > 220 || inlineNotifBody.length > 36)) ||
-        inlineBodyWidth > 280
-      )
+    !isSmallNotif &&
+    !isMediumNotif &&
+    inlineNotifBody &&
+    (
+      (notifBodyLines.length > 1 && (inlineBodyWidth > 220 || inlineNotifBody.length > 36)) ||
+      inlineBodyWidth > 280
+    )
   );
 
   const displayNotifBody = isMultilineBody ? rawNotifBody : inlineNotifBody;
@@ -4800,14 +4920,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       optFontSize === "small"
         ? "bold 12px 'Inter', sans-serif"
         : optFontSize === "large"
-        ? "bold 15px 'Inter', sans-serif"
-        : "bold 13px 'Inter', sans-serif";
+          ? "bold 15px 'Inter', sans-serif"
+          : "bold 13px 'Inter', sans-serif";
     const subFont =
       optFontSize === "small"
         ? "500 9px 'Inter', sans-serif"
         : optFontSize === "large"
-        ? "500 11px 'Inter', sans-serif"
-        : "500 9.5px 'Inter', sans-serif";
+          ? "500 11px 'Inter', sans-serif"
+          : "500 9.5px 'Inter', sans-serif";
     const textToMeasure = activeIdleLyric.curr || media.title || "Now Playing";
     const currWidth = getTextWidth(textToMeasure, lyricFont);
     const nextWidth = activeIdleLyric.next ? getTextWidth(activeIdleLyric.next, subFont) : 0;
@@ -4868,7 +4988,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       const bodyFont = optFontSize === "large" ? "15px 'SF Pro Display', sans-serif" : optFontSize === "small" ? "13px 'SF Pro Display', sans-serif" : "14px 'SF Pro Display', sans-serif";
       const titleWidth = getTextWidth(notif.title || "", titleFont);
       const bodyWidth = notif.body ? getTextWidth(notif.body, bodyFont) : 0;
-      
+
       let baseWidth = Math.round((32 + 32 + 12) * fontScale);
       if (notif.body) baseWidth += 8;
 
@@ -4880,7 +5000,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       if (notif.icon === "volume" || notif.icon === "brightness") {
         return Math.round(250 * fontScale);
       }
-      
+
       return Math.min(440, Math.max(Math.round(175 * fontScale), Math.ceil(baseWidth + titleWidth + bodyWidth + 12)));
     }
 
@@ -5033,65 +5153,65 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   const isExpandedPanel = Boolean(
     currentTab &&
-      (variant === "quick_control" ||
-        variant === "ai_chat" ||
-        variant === "todo" ||
-        variant === "pomodoro" ||
-        variant === "drop_shelf" ||
-        variant === "sys_monitor" ||
-        variant === "mini_note" ||
-        variant === "water_reminder" ||
-        variant === "prayer_reminder" ||
-        variant === "clipboard" ||
-        variant === "settings" ||
-        variant === "volume_mixer" ||
-        variant === "notif_center" ||
-        variant === "media_expanded" ||
-        variant === "media_expanded_lyrics")
-  );
-  const isExpandedPanelRef = useRef(false);
-  isExpandedPanelRef.current = isExpandedPanel;
-
-  const isAnyPanelOpen = Boolean(
-    isExpandedPanel ||
-      variant === "water_reminder" ||
-      variant === "water_toast" ||
-      variant === "prayer_reminder" ||
-      variant === "prayer_toast" ||
-      variant === "quick_control" ||
+    (variant === "quick_control" ||
       variant === "ai_chat" ||
       variant === "todo" ||
       variant === "pomodoro" ||
       variant === "drop_shelf" ||
       variant === "sys_monitor" ||
       variant === "mini_note" ||
+      variant === "water_reminder" ||
+      variant === "prayer_reminder" ||
       variant === "clipboard" ||
       variant === "settings" ||
       variant === "volume_mixer" ||
       variant === "notif_center" ||
       variant === "media_expanded" ||
-      variant === "media_expanded_lyrics" ||
-      variant === "quick_ai_chat" ||
-      variant === "quick_todo" ||
-      variant === "quick_note" ||
-      variant === "drag_over"
+      variant === "media_expanded_lyrics")
+  );
+  const isExpandedPanelRef = useRef(false);
+  isExpandedPanelRef.current = isExpandedPanel;
+
+  const isAnyPanelOpen = Boolean(
+    isExpandedPanel ||
+    variant === "water_reminder" ||
+    variant === "water_toast" ||
+    variant === "prayer_reminder" ||
+    variant === "prayer_toast" ||
+    variant === "quick_control" ||
+    variant === "ai_chat" ||
+    variant === "todo" ||
+    variant === "pomodoro" ||
+    variant === "drop_shelf" ||
+    variant === "sys_monitor" ||
+    variant === "mini_note" ||
+    variant === "clipboard" ||
+    variant === "settings" ||
+    variant === "volume_mixer" ||
+    variant === "notif_center" ||
+    variant === "media_expanded" ||
+    variant === "media_expanded_lyrics" ||
+    variant === "quick_ai_chat" ||
+    variant === "quick_todo" ||
+    variant === "quick_note" ||
+    variant === "drag_over"
   );
 
-  const panelTitle = 
+  const panelTitle =
     currentTab === "media_expanded" ? t("tab_now_playing") :
-    currentTab === "quick_control" ? t("tab_control_center") :
-    currentTab === "ai_chat" ? (t("tab_ai_chat") || "AI Chat") :
-    currentTab === "todo" ? t("tab_todo_list") :
-    currentTab === "pomodoro" ? t("tab_pomodoro") :
-    currentTab === "drop_shelf" ? (isShelfSettingsOpen ? t("shelf_settings_title") : t("tab_file_shelf")) :
-    currentTab === "sys_monitor" ? t("tab_sys_monitor") :
-    currentTab === "mini_note" ? t("tab_mini_note") :
-    currentTab === "water_reminder" ? (t("tab_water_reminder") || "Air") :
-    currentTab === "prayer_reminder" ? (t("tab_prayer_reminder") || "Sholat") :
-    currentTab === "clipboard" ? t("tab_clipboard") :
-    currentTab === "volume_mixer" ? t("tab_volume_mixer") :
-    currentTab === "notif_center" ? (t("tab_notifications") || "Notifikasi") :
-    t("tab_settings");
+      currentTab === "quick_control" ? t("tab_control_center") :
+        currentTab === "ai_chat" ? (t("tab_ai_chat") || "AI Chat") :
+          currentTab === "todo" ? t("tab_todo_list") :
+            currentTab === "pomodoro" ? t("tab_pomodoro") :
+              currentTab === "drop_shelf" ? (isShelfSettingsOpen ? t("shelf_settings_title") : t("tab_file_shelf")) :
+                currentTab === "sys_monitor" ? t("tab_sys_monitor") :
+                  currentTab === "mini_note" ? t("tab_mini_note") :
+                    currentTab === "water_reminder" ? (t("tab_water_reminder") || "Air") :
+                      currentTab === "prayer_reminder" ? (t("tab_prayer_reminder") || "Sholat") :
+                        currentTab === "clipboard" ? t("tab_clipboard") :
+                          currentTab === "volume_mixer" ? t("tab_volume_mixer") :
+                            currentTab === "notif_center" ? (t("tab_notifications") || "Notifikasi") :
+                              t("tab_settings");
 
   const isIsland = notchShape === "island";
   const effectiveEars = notchShape === "notch" && (optEars ?? true);
@@ -5127,7 +5247,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     idleLayout.right === "none";
   const idleSideWidth = Math.round(
     (effectiveIdleSize === "compact" ? 64 : effectiveIdleSize === "large" ? 80 : 72) *
-      (optFontSize === "large" ? 1.08 : optFontSize === "small" ? 0.94 : 1.0)
+    (optFontSize === "large" ? 1.08 : optFontSize === "small" ? 0.94 : 1.0)
   );
   const idleSideHeight = Math.round(
     Math.max(46, Math.max(1, activeIdleSlotsCount) * 20 + 18) * (idleHeight / 32)
@@ -5137,8 +5257,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     optFontSize === "large" || effectiveIdleSize === "large"
       ? 54
       : effectiveIdleSize === "compact"
-      ? 44
-      : 48;
+        ? 44
+        : 48;
 
   const lyricsExpandedWidth = effectiveTabSize === "compact" ? 652 : effectiveTabSize === "large" ? 740 : 680;
   const tabWidth = lyricsExpandedWidth;
@@ -5152,11 +5272,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     : unifiedTabHeight;
 
   const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let smoothSpring: any = prefersReducedMotion 
-    ? { duration: 0 } 
-    : { type: "spring", stiffness: 290, damping: 24, mass: 0.76 };
-  if (!prefersReducedMotion && optAnimSpeed === "snappy") smoothSpring = { type: "spring", stiffness: 380, damping: 27, mass: 0.68 };
-  if (!prefersReducedMotion && optAnimSpeed === "bouncy") smoothSpring = { type: "spring", stiffness: 260, damping: 19, mass: 0.78 };
+  const smoothSpring = useMemo<any>(() => {
+    if (prefersReducedMotion) return { duration: 0 };
+    if (optAnimSpeed === "snappy") return { type: "spring", stiffness: 380, damping: 27, mass: 0.68 };
+    if (optAnimSpeed === "bouncy") return { type: "spring", stiffness: 260, damping: 19, mass: 0.78 };
+    return { type: "spring", stiffness: 290, damping: 24, mass: 0.76 };
+  }, [prefersReducedMotion, optAnimSpeed]);
 
   const currentY = isSideCenter ? 0 : isBot ? -shapeTransitionY : shapeTransitionY;
   const currentX = optPosition === "left" ? shapeTransitionY : optPosition === "right" ? -shapeTransitionY : 0;
@@ -5189,8 +5310,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           ? 372
           : 360
         : isIsland
-        ? 148
-        : 138,
+          ? 148
+          : 138,
       x: 0,
       y: currentY,
       opacity: 1,
@@ -5203,12 +5324,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           ? 342
           : 330
         : isQuickTodoHasDue
-        ? isIsland
-          ? 258
-          : 246
-        : isIsland
-        ? 218
-        : 204,
+          ? isIsland
+            ? 258
+            : 246
+          : isIsland
+            ? 218
+            : 204,
       x: 0,
       y: currentY,
       opacity: 1,
@@ -5271,31 +5392,36 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     onboarding: { width: Math.min(tabWidth, 460), height: 195, x: 0, y: currentY, opacity: 1, borderRadius: radius("26px") },
   };
 
-  const tabVariants: any = {
-    enter: (direction: number) => ({
-      x: direction > 0 ? 16 : direction < 0 ? -16 : 0,
-      opacity: 0,
-    }),
-    center: {
-      x: 0,
-      opacity: 1,
-      transition: {
-        x: { duration: 0.2, ease: [0.22, 1, 0.36, 1] },
-        opacity: { duration: 0.18, ease: "easeOut" },
-        staggerChildren: 0.05,
-        delayChildren: 0.03,
+  const tabVariants = useMemo<any>(
+    () => ({
+      enter: (direction: number) => ({
+        x: direction > 0 ? 18 : direction < 0 ? -18 : 0,
+        opacity: 0,
+      }),
+      center: {
+        x: 0,
+        opacity: 1,
+        transition: prefersReducedMotion
+          ? { duration: 0 }
+          : {
+            x: { type: "spring", stiffness: 460, damping: 34, mass: 0.6 },
+            opacity: { duration: 0.14, ease: "easeOut" },
+          },
+        transitionEnd: { transform: "none" },
       },
-      transitionEnd: { transform: "none" },
-    },
-    exit: (direction: number) => ({
-      x: direction > 0 ? -16 : direction < 0 ? 16 : 0,
-      opacity: 0,
-      transition: {
-        x: { duration: 0.08, ease: [0.22, 1, 0.36, 1] },
-        opacity: { duration: 0.08, ease: "easeIn" },
-      },
+      exit: (direction: number) => ({
+        x: direction > 0 ? -18 : direction < 0 ? 18 : 0,
+        opacity: 0,
+        transition: prefersReducedMotion
+          ? { duration: 0 }
+          : {
+            x: { duration: 0.11, ease: [0.32, 0, 0.67, 0] },
+            opacity: { duration: 0.09, ease: "easeIn" },
+          },
+      }),
     }),
-  };
+    [prefersReducedMotion]
+  );
 
   const currentVariantSize = variants[variant as keyof typeof variants] || variants.idle;
   const lastExpandedSizeRef = useRef({ width: tabWidth, height: Math.round(385 * tabHeightMultiplier) });
@@ -5344,10 +5470,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       mediaQuery.removeEventListener?.("change", syncPillSize);
     };
   }, [syncPillSize]);
-  
+
   useEffect(() => {
     if (isSecondaryWindow) return;
-    invoke("set_window_position", { 
+    invoke("set_window_position", {
       isBottom: isBottomNotchPosition(optPosition),
       position: optPosition,
       topOffset: islandTopOffset,
@@ -5500,6 +5626,34 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const isIdleLightContrast = optIdleColorEnabled && isIdle && getPerceivedLuminance(optIdleColor) >= 0.55;
   const effectiveIsLight = isLightMode || isIdleLightContrast;
 
+  const notchGlassCssVars = useMemo(
+    () =>
+      computeNotchGlassCssVars(
+        activeEffectiveOpacity,
+        activeEffectiveBlur,
+        isLightMode,
+        isExpandedPanel
+      ),
+    [activeEffectiveOpacity, activeEffectiveBlur, isLightMode, isExpandedPanel]
+  );
+
+  const notchPillStyle = useMemo(
+    () =>
+    ({
+      "--shape-radius-top": isIsland
+        ? isExpandedPanel
+          ? "32px"
+          : `${Math.round(idleHeight / 2)}px`
+        : isBot
+          ? "32px"
+          : "0px",
+      "--shape-radius-bottom": isExpandedPanel ? "32px" : `${Math.round(idleHeight / 2)}px`,
+      "--top-offset": isIsland ? `${islandTopOffset}px` : "0px",
+      ...notchGlassCssVars,
+    } as React.CSSProperties),
+    [isIsland, isExpandedPanel, idleHeight, isBot, islandTopOffset, notchGlassCssVars]
+  );
+
   const renderAiThinkingBadge = (extraClassName = "") => {
     if (!hasActiveAiStream) return null;
     return (
@@ -5514,9 +5668,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             goToTab("ai_chat", 0);
           }}
           aria-label={optLanguage === "id" ? "Buka AI Chat" : "Open AI Chat"}
-          className={`flex items-center justify-center w-4 h-4 rounded-full shrink-0 cursor-pointer transition-colors ${
-            effectiveIsLight ? "text-[#0a84ff] hover:bg-black/10" : "text-[#38bdf8] hover:bg-white/10"
-          } ${extraClassName}`}
+          className={`flex items-center justify-center w-4 h-4 rounded-full shrink-0 cursor-pointer transition-colors ${effectiveIsLight ? "text-[#0a84ff] hover:bg-black/10" : "text-[#38bdf8] hover:bg-white/10"
+            } ${extraClassName}`}
         >
           <Loader2 className="w-3 h-3 animate-spin" />
         </button>
@@ -5526,9 +5679,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   return (
     <div
-      className={`relative w-screen h-screen flex bg-transparent pointer-events-none ${
-        isLeftPos ? "justify-start" : isRightPos ? "justify-end" : "justify-center"
-      } ${isTopPos ? "items-start" : isBot ? "items-end" : "items-center"}`}
+      className={`relative w-screen h-screen flex bg-transparent pointer-events-none ${isLeftPos ? "justify-start" : isRightPos ? "justify-end" : "justify-center"
+        } ${isTopPos ? "items-start" : isBot ? "items-end" : "items-center"}`}
     >
       <MiniPlayerDropTarget
         isNear={miniPlayerProximity.is_near}
@@ -5544,12 +5696,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         data-font-size={optFontSize}
         data-idle-size={effectiveIdleSize}
         data-tab-size={effectiveTabSize}
-        style={{
-          "--shape-radius-top": isIsland ? (isExpandedPanel ? "32px" : `${Math.round(idleHeight / 2)}px`) : (isBot ? "32px" : "0px"),
-          "--shape-radius-bottom": isExpandedPanel ? "32px" : `${Math.round(idleHeight / 2)}px`,
-          "--top-offset": isIsland ? `${islandTopOffset}px` : "0px",
-          ...computeNotchGlassCssVars(activeEffectiveOpacity, activeEffectiveBlur, isLightMode, isExpandedPanel),
-        } as React.CSSProperties}
+        style={notchPillStyle}
         initial="initialState"
         animate={variant}
         variants={variants}
@@ -5561,7 +5708,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         }}
         onWheel={handleNotchWheel}
         onMouseMove={() => {
-          if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
+          if (isCloseGraceActive()) return;
           isCursorInsideNotchRef.current = true;
           cancelCollapseTimer();
           if (
@@ -5581,7 +5728,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           }
         }}
         onMouseEnter={() => {
-          if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) {
+          if (isCloseGraceActive()) {
             return;
           }
           clearNotifLeaveTimer();
@@ -5630,7 +5777,6 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           }
         }}
         onClick={() => {
-          if (isClosingRef.current || Date.now() < closeGraceUntilRef.current) return;
           if (currentTab !== null || isExpandedPanel) return;
           if (
             notif ||
@@ -5642,17 +5788,19 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           ) {
             return;
           }
+          finishClosing();
+          isCursorInsideNotchRef.current = true;
           if (variant === "compact") {
             cancelCompactHoverTimer();
-            handleCompactHoverTrigger();
+            openLastOrPreferredTab(undefined, { bypassCloseGrace: true });
           } else if (variant === "media" || variant === "lyrics_idle") {
-            openNotchFromMediaPill();
+            openNotchFromMediaPill(true);
           } else if (variant === "pomo_idle") {
             goToTab("pomodoro", 0);
           } else if (variant === "todo_idle_countdown") {
             goToTab("todo", 0);
           } else if (variant === "idle") {
-            openLastOrPreferredTab();
+            openLastOrPreferredTab(undefined, { bypassCloseGrace: true });
           }
         }}
         onMouseLeave={() => {
@@ -5738,10 +5886,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               clearPausedMediaTimer();
               setIsPausedMediaCollapsed(true);
             } else {
-              openLastOrPreferredTab();
+              openLastOrPreferredTab(undefined, { bypassCloseGrace: true });
             }
           } else {
-            openLastOrPreferredTab();
+            openLastOrPreferredTab(undefined, { bypassCloseGrace: true });
           }
         }}
         className={`${effectiveIsLight ? "light" : "text-white"} ${isHidden ? "pointer-events-none" : "pointer-events-auto"} relative shrink-0 bg-transparent`}
@@ -5766,7 +5914,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
             isClipboard ||
             isVolumeMixer ||
             variant === "quick_ai_chat" ||
-      variant === "quick_todo" ||
+            variant === "quick_todo" ||
             variant === "quick_note" ||
             variant === "drag_over" ||
             variant === "pomo_complete_alert" ||
@@ -5830,15 +5978,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 }}
               >
                 <div
-                  className={`${
-                    isSideCenter ? "w-[2px] h-6" : "w-6 h-[2px]"
-                  } rounded-full transition-colors ${
-                    hasActiveAiStream
+                  className={`${isSideCenter ? "w-[2px] h-6" : "w-6 h-[2px]"
+                    } rounded-full transition-colors ${hasActiveAiStream
                       ? "bg-[#38bdf8] animate-pulse"
                       : effectiveIsLight
-                      ? "bg-black/70 shadow-[0_0_3px_rgba(0,0,0,0.3)]"
-                      : "bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]"
-                  }`}
+                        ? "bg-black/70 shadow-[0_0_3px_rgba(0,0,0,0.3)]"
+                        : "bg-white/70 shadow-[0_0_3px_rgba(255,255,255,0.6)]"
+                    }`}
                 />
               </motion.div>
             )}
@@ -5898,7 +6044,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                     onCancel={() => {
                       setIsQuickAiChatOpen(false);
                       setIsQuickAiChatExpanded(false);
-                      invoke("restore_previous_foreground_window").catch(() => {});
+                      invoke("restore_previous_foreground_window").catch(() => { });
                     }}
                   />
                 </React.Suspense>
@@ -5934,7 +6080,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                       setIsQuickTodoOpen(false);
                       setIsQuickTodoSaved(false);
                       setIsQuickTodoHasDue(false);
-                      invoke("restore_previous_foreground_window").catch(() => {});
+                      invoke("restore_previous_foreground_window").catch(() => { });
                     }}
                   />
                 </React.Suspense>
@@ -5965,7 +6111,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                     onCancel={() => {
                       setIsQuickNoteOpen(false);
                       setIsQuickNoteSaved(false);
-                      invoke("restore_previous_foreground_window").catch(() => {});
+                      invoke("restore_previous_foreground_window").catch(() => { });
                     }}
                   />
                 </React.Suspense>
@@ -6067,16 +6213,15 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                   opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
                   scale: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
                 }}
-                className={`absolute inset-0 flex items-center justify-center cursor-pointer overflow-hidden ${
-                  isSideCenter
-                    ? "px-1.5 py-2"
-                    : effectiveIdleSize === "compact"
+                className={`absolute inset-0 flex items-center justify-center cursor-pointer overflow-hidden ${isSideCenter
+                  ? "px-1.5 py-2"
+                  : effectiveIdleSize === "compact"
                     ? "px-[14px]"
                     : effectiveIdleSize === "large"
-                    ? "px-5"
-                    : "px-4"
-                }`}
-                onClick={() => openLastOrPreferredTab()}
+                      ? "px-5"
+                      : "px-4"
+                  }`}
+                onClick={() => openLastOrPreferredTab(undefined, { bypassCloseGrace: true })}
               >
                 {isIdleEmpty && !isSideCenter && !camActive && !micActive && !hasActiveAiStream && (
                   <React.Suspense fallback={null}>
@@ -6088,9 +6233,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                   </React.Suspense>
                 )}
                 <div
-                  className={`flex ${
-                    isSideCenter ? "flex-col gap-1" : effectiveIdleSize === "compact" ? "gap-2" : effectiveIdleSize === "large" ? "gap-3" : "gap-2.5"
-                  } items-center justify-center w-full relative z-10`}
+                  className={`flex ${isSideCenter ? "flex-col gap-1" : effectiveIdleSize === "compact" ? "gap-2" : effectiveIdleSize === "large" ? "gap-3" : "gap-2.5"
+                    } items-center justify-center w-full relative z-10`}
                 >
                   {idleLayout.left !== "none" && (
                     <motion.div key={`idle-left-${idleLayout.left}`} layout transition={smoothSpring} className="flex items-center shrink-0">
@@ -6142,7 +6286,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
               <motion.div
                 key="media"
                 onClick={() => {
-                  openNotchFromMediaPill();
+                  openNotchFromMediaPill(true);
                 }}
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -6161,28 +6305,24 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                     <ScrollingText
                       text={media!.title}
                       style={optIdleTextColorEnabled && optIdleTextColor ? { color: optIdleTextColor } : undefined}
-                      className={`${
-                        optFontSize === "small"
-                          ? "text-[12px]"
-                          : optFontSize === "large"
+                      className={`${optFontSize === "small"
+                        ? "text-[12px]"
+                        : optFontSize === "large"
                           ? "text-[14.5px]"
                           : "text-[13px]"
-                      } font-semibold tracking-tight leading-[1.2] translate-y-[3.5px] ${
-                        effectiveIsLight ? "text-[#1d1d1f]" : "text-white"
-                      }`}
+                        } font-semibold tracking-tight leading-[1.2] translate-y-[3.5px] ${effectiveIsLight ? "text-[#1d1d1f]" : "text-white"
+                        }`}
                     />
                     <ScrollingText
                       text={media!.artist}
                       style={optIdleTextColorEnabled && optIdleTextColor ? { color: optIdleTextColor, opacity: 0.75 } : undefined}
-                      className={`${
-                        optFontSize === "small"
-                          ? "text-[9.5px]"
-                          : optFontSize === "large"
+                      className={`${optFontSize === "small"
+                        ? "text-[9.5px]"
+                        : optFontSize === "large"
                           ? "text-[11.5px]"
                           : "text-[10.5px]"
-                      } font-medium leading-[1.2] mt-[1px] ${
-                        effectiveIsLight ? "text-neutral-600" : "text-white/55"
-                      }`}
+                        } font-medium leading-[1.2] mt-[1px] ${effectiveIsLight ? "text-neutral-600" : "text-white/55"
+                        }`}
                     />
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -6221,7 +6361,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                       onActiveLineChange={handleActiveIdleLyricChange}
                       onTogglePlay={() => handleMediaControl("toggle")}
                       onClick={() => {
-                        openNotchFromMediaPill();
+                        openNotchFromMediaPill(true);
                       }}
                     />
                   </div>
@@ -6237,11 +6377,9 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0.1, ease: "easeIn" } }}
                 transition={{ duration: 0.16, ease: "easeOut" }}
-                className={`absolute inset-x-0 ${
-                  isTopPos ? "top-0" : isBot ? "bottom-0" : "inset-y-0 items-center"
-                } flex ${
-                  isLeftPos ? "justify-start" : isRightPos ? "justify-end" : "justify-center"
-                } pointer-events-none`}
+                className={`absolute inset-x-0 ${isTopPos ? "top-0" : isBot ? "bottom-0" : "inset-y-0 items-center"
+                  } flex ${isLeftPos ? "justify-start" : isRightPos ? "justify-end" : "justify-center"
+                  } pointer-events-none`}
               >
                 <motion.div
                   style={{
@@ -6267,44 +6405,33 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                     y: smoothSpring,
                     height: smoothSpring,
                   }}
-                  className={`flex flex-col overflow-hidden pointer-events-auto shrink-0 gpu-accelerated ${
-                    optPosition === "top-left"
-                      ? "origin-top-left"
-                      : optPosition === "top-right"
+                  className={`flex flex-col overflow-hidden pointer-events-auto shrink-0 gpu-accelerated ${optPosition === "top-left"
+                    ? "origin-top-left"
+                    : optPosition === "top-right"
                       ? "origin-top-right"
                       : optPosition === "left"
-                      ? "origin-left"
-                      : optPosition === "right"
-                      ? "origin-right"
-                      : optPosition === "bottom-left"
-                      ? "origin-bottom-left"
-                      : optPosition === "bottom-right"
-                      ? "origin-bottom-right"
-                      : isBot
-                      ? "origin-bottom"
-                      : "origin-top"
-                  }`}
+                        ? "origin-left"
+                        : optPosition === "right"
+                          ? "origin-right"
+                          : optPosition === "bottom-left"
+                            ? "origin-bottom-left"
+                            : optPosition === "bottom-right"
+                              ? "origin-bottom-right"
+                              : isBot
+                                ? "origin-bottom"
+                                : "origin-top"
+                    }`}
                 >
                   <PanelFrame
                     title={panelTitle}
                     hasPrev={currentTab === "settings" || isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) ? true : currentTabIndex > 0}
                     hasNext={currentTab === "settings" || isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) ? false : currentTabIndex < availableTabs.length - 1}
-                    onPrev={
-                      currentTab === "drop_shelf" && isShelfSettingsOpen
-                        ? () => setIsShelfSettingsOpen(false)
-                        : currentTab === "settings"
-                        ? handleToggleSettings
-                        : currentTab === "notif_center"
-                        ? handleToggleNotifications
-                        : isSubPage
-                        ? () => goToTab("quick_control", -1)
-                        : handlePrevTab
-                    }
+                    onPrev={handlePanelPrev}
                     onNext={handleNextTab}
                     prevTooltip={currentTab === "settings" || isSubPage || (currentTab === "drop_shelf" && isShelfSettingsOpen) ? t("nav_back") : t("nav_prev")}
                     nextTooltip={t("nav_next")}
                     onToggleSettings={isSubPage ? undefined : handleToggleSettings}
-                    isSettingsActive={currentTab === "settings" || (currentTab === "drop_shelf" && isShelfSettingsOpen)}
+                    isSettingsActive={currentTab === "settings"}
                     onToggleNotifications={handleToggleNotifications}
                     isNotificationsActive={currentTab === "notif_center"}
                     unreadNotificationsCount={unreadNotifCount}
@@ -6327,7 +6454,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                     themeMode={activeEffectiveThemeMode}
                   >
                     <div className="relative w-full h-full min-w-0 overflow-hidden">
-                      <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
+                      <AnimatePresence custom={slideDirection} initial={false}>
                         {currentTab === "quick_control" && (
                           <motion.div
                             key="quick_control"
@@ -6379,6 +6506,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                             <React.Suspense fallback={null}>
                               <AiChatPanel
                                 onPrevTab={handlePrevTab}
+                                onNextTab={handleNextTab}
+                                hasNext={currentTabIndex >= 0 && currentTabIndex < availableTabs.length - 1}
                                 optLanguage={optLanguage}
                                 handoff={aiChatHandoff}
                                 onConsumeHandoff={() => setAiChatHandoff(null)}
@@ -6638,356 +6767,356 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                                   if (store) await store.set("opt_auto_compact", next);
                                   invoke("broadcast_settings_sync", {
                                     payload: { type: "setting_key", key: "opt_auto_compact", value: next },
-                                  }).catch(() => {});
+                                  }).catch(() => { });
                                 }}
                                 optAutoCompactMode={optAutoCompactMode}
                                 onChangeAutoCompactMode={async (mode) => {
                                   setOptAutoCompactMode(mode);
-                                  try { localStorage.setItem("island_auto_compact_mode", mode); } catch {}
+                                  try { localStorage.setItem("island_auto_compact_mode", mode); } catch { }
                                   if (store) {
                                     await store.set("opt_auto_compact_mode", mode);
                                     await store.save();
                                   }
                                   invoke("broadcast_settings_sync", {
                                     payload: { type: "setting_key", key: "opt_auto_compact_mode", value: mode },
-                                  }).catch(() => {});
+                                  }).catch(() => { });
                                 }}
-                            isAutostart={isAutostart}
-                            onToggleAutostart={async () => {
-                              const next = !isAutostart;
-                              await invoke("sync_autostart_state", { enabled: next }).catch(() => {});
-                              setIsAutostart(next);
-                              if (store) {
-                                await store.set("autostart_initialized", true);
-                                await store.set("opt_autostart", next);
-                              }
-                              broadcastSetting("opt_autostart", next);
-                            }}
-                            showGreeting={showGreeting}
-                            onToggleGreeting={async () => {
-                              const next = !showGreeting;
-                              setShowGreeting(next);
-                              try {
-                                localStorage.setItem("island_show_greeting", String(next));
-                              } catch {}
-                              if (store) await store.set("show_greeting", next);
-                              broadcastSetting("show_greeting", next);
-                              if (next) {
-                                setTimeout(() => triggerGreeting(), 150);
-                              }
-                            }}
-                            greetingNameMode={greetingNameMode}
-                            onChangeGreetingNameMode={async (mode) => {
-                              setGreetingNameMode(mode);
-                              try {
-                                localStorage.setItem("island_greeting_name_mode", mode);
-                              } catch {}
-                              if (store) await store.set("greeting_name_mode", mode);
-                              broadcastSetting("greeting_name_mode", mode);
-                            }}
-                            customGreetingName={customGreetingName}
-                            onChangeCustomGreetingName={async (name) => {
-                              const cleanName = (name && name !== "undefined" && name !== "null") ? name : "";
-                              setCustomGreetingName(cleanName);
-                              try {
-                                if (cleanName) {
-                                  localStorage.setItem("island_custom_greeting_name", cleanName);
-                                } else {
-                                  localStorage.removeItem("island_custom_greeting_name");
-                                }
-                              } catch {}
-                              if (store) await store.set("custom_greeting_name", cleanName);
-                              broadcastSetting("custom_greeting_name", cleanName);
-                            }}
-                            onTestGreeting={() => {
-                              triggerGreeting();
-                            }}
-                            optNotifTime={optNotifTime}
-                            onChangeNotifTime={async (sec) => {
-                              setOptNotifTime(sec);
-                              if (store) await store.set("opt_notif_time", sec);
-                              broadcastSetting("opt_notif_time", sec);
-                            }}
-                            optNotifSound={optNotifSound}
-                            onChangeNotifSound={async (soundId) => {
-                              setOptNotifSound(soundId);
-                              setSavedNotifSound(soundId);
-                              if (store) {
-                                await store.set("opt_notif_sound", soundId);
-                                await store.save();
-                              }
-                              broadcastSetting("opt_notif_sound", soundId);
-                            }}
-                            onTestNotification={() => {
-                              handleCloseImmediate();
-                              window.setTimeout(() => {
-                                const isId = getLanguage() === "id";
-                                const samples: NotifPayload[] = isId
-                                  ? [
-                                      {
-                                        title: "Dukung Pengembang · Gili",
-                                        body: "Jangan lupa support dev yaa! Traktir kopi biar makin semangat update fitur keren ☕",
-                                        subtitle: "Traktir Dev Kopi ☕",
-                                        headline: "Suka pakai Gili Island?",
-                                        secondaryText: "Dukungan dan secangkir kopi darimu sangat berarti untuk kelanjutan projek ini! ❤️",
-                                        icon: "coffee",
-                                      },
-                                      {
-                                        title: "Support Developer · Gili",
-                                        body: "Yuk dukung dev dengan traktir secangkir kopi! Bikin coding malam-malam makin kenceng 🚀",
-                                        subtitle: "Beliin Dev Kopi ☕",
-                                        headline: "Traktir Dev Kopi",
-                                        secondaryText: "Terima kasih banyak sudah menggunakan dan mendukung Gili Island!",
-                                        icon: "coffee",
-                                      },
-                                      {
-                                        title: "Traktir Kopi Dev ☕",
-                                        body: "Hai! Kalau kamu suka Gili, jangan lupa traktir dev kopi ya. Bikin hari dev makin cerah ✨",
-                                        subtitle: "Support Dev · Gili Island",
-                                        headline: "Yuk Traktir Dev Kopi!",
-                                        secondaryText: "Setiap cangkir kopi bikin dev makin rajin nambahin fitur dan perbaiki bug!",
-                                        icon: "heart",
-                                      },
-                                    ]
-                                  : [
-                                      {
-                                        title: "Support Developer · Gili",
-                                        body: "Don't forget to support the dev! Buy a coffee to keep awesome new updates coming ☕",
-                                        subtitle: "Buy Dev a Coffee ☕",
-                                        headline: "Enjoying Gili Island?",
-                                        secondaryText: "Your support and a cup of coffee mean a lot to keep this project going! ❤️",
-                                        icon: "coffee",
-                                      },
-                                      {
-                                        title: "Support Developer · Gili",
-                                        body: "Support the dev with a cup of coffee! Keeps late-night coding sessions fueled 🚀",
-                                        subtitle: "Buy Dev a Coffee ☕",
-                                        headline: "Treat Dev to Coffee",
-                                        secondaryText: "Thank you so much for using and supporting Gili Island!",
-                                        icon: "coffee",
-                                      },
-                                      {
-                                        title: "Treat Dev to Coffee ☕",
-                                        body: "Hey! If you enjoy Gili, consider treating the dev to coffee. It truly brightens my day ✨",
-                                        subtitle: "Support Dev · Gili Island",
-                                        headline: "Buy Dev a Coffee!",
-                                        secondaryText: "Every cup of coffee helps fuel new features and swift bug fixes!",
-                                        icon: "heart",
-                                      },
-                                    ];
-                                const randomSample = samples[Math.floor(Math.random() * samples.length)];
-                                showNotif({ ...randomSample, forceShow: true } as any);
-                              }, 500);
-                            }}
-                            optCloseDelay={optCloseDelay}
-                            onChangeCloseDelay={async (sec) => {
-                              optCloseDelayRef.current = sec;
-                              setOptCloseDelay(sec);
-                              try {
-                                localStorage.setItem("island_close_delay", String(sec));
-                              } catch {}
-                              if (store) {
-                                await store.set("opt_close_delay", sec);
-                                await store.save();
-                              }
-                              broadcastSetting("opt_close_delay", sec);
-                            }}
-                            shortcuts={shortcuts}
-                            shortcutsEnabled={shortcutsEnabled}
-                            shortcutStatuses={shortcutStatuses}
-                            onUpdateShortcut={handleUpdateShortcut}
-                            onResetShortcut={handleResetShortcut}
-                            onToggleShortcutsEnabled={handleToggleShortcutsEnabled}
-                            optTheme={optTheme}
-                            onChangeTheme={async (theme) => {
-                              setOptTheme(theme);
-                              try {
-                                localStorage.setItem("island_theme", theme);
-                              } catch {}
-                              if (store) await store.set("opt_theme", theme);
-                              broadcastSetting("opt_theme", theme);
-                            }}
-                            idleLayout={idleLayout}
-                            onChangeIdleLayout={async (nextLayout) => {
-                              setIdleLayout(nextLayout);
-                              try {
-                                localStorage.setItem("island_idle_layout", JSON.stringify(nextLayout));
-                              } catch {}
-                              if (store) await store.set("opt_idle_layout", nextLayout);
-                              broadcastSetting("opt_idle_layout", nextLayout);
-                            }}
-                            idleRuntimeData={idleRuntimeData}
-                            optIdleSize={optIdleSize}
-                            onChangeIdleSize={async (size) => {
-                              setOptIdleSize(size);
-                              if (store) await store.set("opt_idle_size", size);
-                              broadcastSetting("opt_idle_size", size);
-                            }}
-                            optTabSize={optTabSize}
-                            onChangeTabSize={async (size) => {
-                              setOptTabSize(size);
-                              if (store) await store.set("opt_tab_size", size);
-                              broadcastSetting("opt_tab_size", size);
-                            }}
-                            optFontSize={optFontSize}
-                            onChangeFontSize={async (size) => {
-                              setOptFontSize(size);
-                              if (store) await store.set("opt_font_size", size);
-                              broadcastSetting("opt_font_size", size);
-                            }}
-                            notchShape={notchShape}
-                            onChangeNotchShape={handleChangeNotchShape}
-                            islandTopOffset={islandTopOffset}
-                            onChangeIslandTopOffset={handleChangeIslandTopOffset}
-                            isLightMode={isLightMode}
-                            optEars={optEars}
-                            onToggleEars={async () => {
-                              if (notchShape === "island") return;
-                              const next = !optEars;
-                              setOptEars(next);
-                              if (store) await store.set("opt_ears", next);
-                              broadcastSetting("opt_ears", next);
-                            }}
-                            optPosition={optPosition}
-                            onChangePosition={async (pos) => {
-                              setOptPosition(pos);
-                              try { localStorage.setItem("island_position", pos); } catch {}
-                              if (store) {
-                                try {
-                                  await store.set("opt_position", pos);
-                                  await store.save();
-                                } catch {}
-                              }
-                              invoke("set_window_position", {
-                                isBottom: isBottomNotchPosition(pos),
-                                position: pos,
-                                topOffset: islandTopOffset,
-                                isIsland: notchShape === "island",
-                                targetMonitor: optTargetMonitorRef.current,
-                              }).catch(console.error);
-                              broadcastSetting("opt_position", pos);
-                            }}
-                            optOpacity={optOpacity}
-                            onChangeOpacity={async (val) => {
-                              setOptOpacity(val);
-                              try { localStorage.setItem("island_opacity", String(val)); } catch {}
-                              if (store) {
-                                try {
-                                  await store.set("opt_opacity", val);
-                                  await store.save();
-                                } catch {}
-                              }
-                              invoke("broadcast_settings_sync", {
-                                payload: { type: "setting_key", key: "opt_opacity", value: val },
-                              }).catch(() => {});
-                            }}
-                            optBlur={optBlur}
-                            onChangeBlur={async (val) => {
-                              setOptBlur(val);
-                              try { localStorage.setItem("island_blur", String(val)); } catch {}
-                              if (store) {
-                                try {
-                                  await store.set("opt_blur", val);
-                                  await store.save();
-                                } catch {}
-                              }
-                              invoke("broadcast_settings_sync", {
-                                payload: { type: "setting_key", key: "opt_blur", value: val },
-                              }).catch(() => {});
-                            }}
-                            optIdleColorEnabled={optIdleColorEnabled}
-                            onChangeIdleColorEnabled={async (val) => {
-                              setOptIdleColorEnabled(val);
-                              try { localStorage.setItem("island_idle_color_enabled", String(val)); } catch {}
-                              if (store) {
-                                try {
-                                  await store.set("opt_idle_color_enabled", val);
-                                  await store.save();
-                                } catch {}
-                              }
-                              invoke("broadcast_settings_sync", {
-                                payload: { type: "setting_key", key: "opt_idle_color_enabled", value: val },
-                              }).catch(() => {});
-                            }}
-                            optIdleColor={optIdleColor}
-                            onChangeIdleColor={async (color) => {
-                              const norm = normalizeHex(color);
-                              setOptIdleColor(norm);
-                              try { localStorage.setItem("island_idle_color", norm); } catch {}
-                              if (store) {
-                                try {
-                                  await store.set("opt_idle_color", norm);
-                                  await store.save();
-                                } catch {}
-                              }
-                              invoke("broadcast_settings_sync", {
-                                payload: { type: "setting_key", key: "opt_idle_color", value: norm },
-                              }).catch(() => {});
-                            }}
-                            optIdleTextColorEnabled={optIdleTextColorEnabled}
-                            onChangeIdleTextColorEnabled={async (val) => {
-                              setOptIdleTextColorEnabled(val);
-                              try { localStorage.setItem("island_idle_text_color_enabled", String(val)); } catch {}
-                              if (store) {
-                                try {
-                                  await store.set("opt_idle_text_color_enabled", val);
-                                  await store.save();
-                                } catch {}
-                              }
-                              invoke("broadcast_settings_sync", {
-                                payload: { type: "setting_key", key: "opt_idle_text_color_enabled", value: val },
-                              }).catch(() => {});
-                            }}
-                            optIdleTextColor={optIdleTextColor}
-                            onChangeIdleTextColor={async (color) => {
-                              const norm = normalizeHex(color);
-                              setOptIdleTextColor(norm);
-                              try { localStorage.setItem("island_idle_text_color", norm); } catch {}
-                              if (store) {
-                                try {
-                                  await store.set("opt_idle_text_color", norm);
-                                  await store.save();
-                                } catch {}
-                              }
-                              invoke("broadcast_settings_sync", {
-                                payload: { type: "setting_key", key: "opt_idle_text_color", value: norm },
-                              }).catch(() => {});
-                            }}
-                            optAnimSpeed={optAnimSpeed}
-                            onChangeAnimSpeed={async (speed) => {
-                              setOptAnimSpeed(speed);
-                              if (store) await store.set("opt_anim_speed", speed);
-                              broadcastSetting("opt_anim_speed", speed);
-                            }}
-                            optVolume={optVolume}
-                            onToggleVolume={async () => {
-                              const next = !optVolume;
-                              setOptVolume(next);
-                              if (store) await store.set("opt_volume", next);
-                              broadcastSetting("opt_volume", next);
-                            }}
-                            optClipboard={optClipboard}
-                            onToggleClipboard={async () => {
-                              const next = !optClipboard;
-                              setOptClipboard(next);
-                              if (store) await store.set("opt_clipboard", next);
-                              broadcastSetting("opt_clipboard", next);
-                            }}
-                            optMedia={optMedia}
-                            onToggleMedia={async () => {
-                              const next = !optMedia;
-                              setOptMedia(next);
-                              if (store) await store.set("opt_media", next);
-                              broadcastSetting("opt_media", next);
-                            }}
-                            optSoundFx={optSoundFx}
-                            onToggleSoundFx={() => {
-                              const next = !optSoundFx;
-                              setOptSoundFx(next);
-                              setSoundEffectsEnabled(next);
-                              broadcastSetting("opt_sound_fx", next);
-                            }}
-                            onClose={() => handleCloseImmediate()}
+                                isAutostart={isAutostart}
+                                onToggleAutostart={async () => {
+                                  const next = !isAutostart;
+                                  await invoke("sync_autostart_state", { enabled: next }).catch(() => { });
+                                  setIsAutostart(next);
+                                  if (store) {
+                                    await store.set("autostart_initialized", true);
+                                    await store.set("opt_autostart", next);
+                                  }
+                                  broadcastSetting("opt_autostart", next);
+                                }}
+                                showGreeting={showGreeting}
+                                onToggleGreeting={async () => {
+                                  const next = !showGreeting;
+                                  setShowGreeting(next);
+                                  try {
+                                    localStorage.setItem("island_show_greeting", String(next));
+                                  } catch { }
+                                  if (store) await store.set("show_greeting", next);
+                                  broadcastSetting("show_greeting", next);
+                                  if (next) {
+                                    setTimeout(() => triggerGreeting(), 150);
+                                  }
+                                }}
+                                greetingNameMode={greetingNameMode}
+                                onChangeGreetingNameMode={async (mode) => {
+                                  setGreetingNameMode(mode);
+                                  try {
+                                    localStorage.setItem("island_greeting_name_mode", mode);
+                                  } catch { }
+                                  if (store) await store.set("greeting_name_mode", mode);
+                                  broadcastSetting("greeting_name_mode", mode);
+                                }}
+                                customGreetingName={customGreetingName}
+                                onChangeCustomGreetingName={async (name) => {
+                                  const cleanName = (name && name !== "undefined" && name !== "null") ? name : "";
+                                  setCustomGreetingName(cleanName);
+                                  try {
+                                    if (cleanName) {
+                                      localStorage.setItem("island_custom_greeting_name", cleanName);
+                                    } else {
+                                      localStorage.removeItem("island_custom_greeting_name");
+                                    }
+                                  } catch { }
+                                  if (store) await store.set("custom_greeting_name", cleanName);
+                                  broadcastSetting("custom_greeting_name", cleanName);
+                                }}
+                                onTestGreeting={() => {
+                                  triggerGreeting();
+                                }}
+                                optNotifTime={optNotifTime}
+                                onChangeNotifTime={async (sec) => {
+                                  setOptNotifTime(sec);
+                                  if (store) await store.set("opt_notif_time", sec);
+                                  broadcastSetting("opt_notif_time", sec);
+                                }}
+                                optNotifSound={optNotifSound}
+                                onChangeNotifSound={async (soundId) => {
+                                  setOptNotifSound(soundId);
+                                  setSavedNotifSound(soundId);
+                                  if (store) {
+                                    await store.set("opt_notif_sound", soundId);
+                                    await store.save();
+                                  }
+                                  broadcastSetting("opt_notif_sound", soundId);
+                                }}
+                                onTestNotification={() => {
+                                  handleCloseImmediate();
+                                  window.setTimeout(() => {
+                                    const isId = getLanguage() === "id";
+                                    const samples: NotifPayload[] = isId
+                                      ? [
+                                        {
+                                          title: "Dukung Pengembang · Gili",
+                                          body: "Jangan lupa support dev yaa! Traktir kopi biar makin semangat update fitur keren ☕",
+                                          subtitle: "Traktir Dev Kopi ☕",
+                                          headline: "Suka pakai Gili Island?",
+                                          secondaryText: "Dukungan dan secangkir kopi darimu sangat berarti untuk kelanjutan projek ini! ❤️",
+                                          icon: "coffee",
+                                        },
+                                        {
+                                          title: "Support Developer · Gili",
+                                          body: "Yuk dukung dev dengan traktir secangkir kopi! Bikin coding malam-malam makin kenceng 🚀",
+                                          subtitle: "Beliin Dev Kopi ☕",
+                                          headline: "Traktir Dev Kopi",
+                                          secondaryText: "Terima kasih banyak sudah menggunakan dan mendukung Gili Island!",
+                                          icon: "coffee",
+                                        },
+                                        {
+                                          title: "Traktir Kopi Dev ☕",
+                                          body: "Hai! Kalau kamu suka Gili, jangan lupa traktir dev kopi ya. Bikin hari dev makin cerah ✨",
+                                          subtitle: "Support Dev · Gili Island",
+                                          headline: "Yuk Traktir Dev Kopi!",
+                                          secondaryText: "Setiap cangkir kopi bikin dev makin rajin nambahin fitur dan perbaiki bug!",
+                                          icon: "heart",
+                                        },
+                                      ]
+                                      : [
+                                        {
+                                          title: "Support Developer · Gili",
+                                          body: "Don't forget to support the dev! Buy a coffee to keep awesome new updates coming ☕",
+                                          subtitle: "Buy Dev a Coffee ☕",
+                                          headline: "Enjoying Gili Island?",
+                                          secondaryText: "Your support and a cup of coffee mean a lot to keep this project going! ❤️",
+                                          icon: "coffee",
+                                        },
+                                        {
+                                          title: "Support Developer · Gili",
+                                          body: "Support the dev with a cup of coffee! Keeps late-night coding sessions fueled 🚀",
+                                          subtitle: "Buy Dev a Coffee ☕",
+                                          headline: "Treat Dev to Coffee",
+                                          secondaryText: "Thank you so much for using and supporting Gili Island!",
+                                          icon: "coffee",
+                                        },
+                                        {
+                                          title: "Treat Dev to Coffee ☕",
+                                          body: "Hey! If you enjoy Gili, consider treating the dev to coffee. It truly brightens my day ✨",
+                                          subtitle: "Support Dev · Gili Island",
+                                          headline: "Buy Dev a Coffee!",
+                                          secondaryText: "Every cup of coffee helps fuel new features and swift bug fixes!",
+                                          icon: "heart",
+                                        },
+                                      ];
+                                    const randomSample = samples[Math.floor(Math.random() * samples.length)];
+                                    showNotif({ ...randomSample, forceShow: true } as any);
+                                  }, 500);
+                                }}
+                                optCloseDelay={optCloseDelay}
+                                onChangeCloseDelay={async (sec) => {
+                                  optCloseDelayRef.current = sec;
+                                  setOptCloseDelay(sec);
+                                  try {
+                                    localStorage.setItem("island_close_delay", String(sec));
+                                  } catch { }
+                                  if (store) {
+                                    await store.set("opt_close_delay", sec);
+                                    await store.save();
+                                  }
+                                  broadcastSetting("opt_close_delay", sec);
+                                }}
+                                shortcuts={shortcuts}
+                                shortcutsEnabled={shortcutsEnabled}
+                                shortcutStatuses={shortcutStatuses}
+                                onUpdateShortcut={handleUpdateShortcut}
+                                onResetShortcut={handleResetShortcut}
+                                onToggleShortcutsEnabled={handleToggleShortcutsEnabled}
+                                optTheme={optTheme}
+                                onChangeTheme={async (theme) => {
+                                  setOptTheme(theme);
+                                  try {
+                                    localStorage.setItem("island_theme", theme);
+                                  } catch { }
+                                  if (store) await store.set("opt_theme", theme);
+                                  broadcastSetting("opt_theme", theme);
+                                }}
+                                idleLayout={idleLayout}
+                                onChangeIdleLayout={async (nextLayout) => {
+                                  setIdleLayout(nextLayout);
+                                  try {
+                                    localStorage.setItem("island_idle_layout", JSON.stringify(nextLayout));
+                                  } catch { }
+                                  if (store) await store.set("opt_idle_layout", nextLayout);
+                                  broadcastSetting("opt_idle_layout", nextLayout);
+                                }}
+                                idleRuntimeData={idleRuntimeData}
+                                optIdleSize={optIdleSize}
+                                onChangeIdleSize={async (size) => {
+                                  setOptIdleSize(size);
+                                  if (store) await store.set("opt_idle_size", size);
+                                  broadcastSetting("opt_idle_size", size);
+                                }}
+                                optTabSize={optTabSize}
+                                onChangeTabSize={async (size) => {
+                                  setOptTabSize(size);
+                                  if (store) await store.set("opt_tab_size", size);
+                                  broadcastSetting("opt_tab_size", size);
+                                }}
+                                optFontSize={optFontSize}
+                                onChangeFontSize={async (size) => {
+                                  setOptFontSize(size);
+                                  if (store) await store.set("opt_font_size", size);
+                                  broadcastSetting("opt_font_size", size);
+                                }}
+                                notchShape={notchShape}
+                                onChangeNotchShape={handleChangeNotchShape}
+                                islandTopOffset={islandTopOffset}
+                                onChangeIslandTopOffset={handleChangeIslandTopOffset}
+                                isLightMode={isLightMode}
+                                optEars={optEars}
+                                onToggleEars={async () => {
+                                  if (notchShape === "island") return;
+                                  const next = !optEars;
+                                  setOptEars(next);
+                                  if (store) await store.set("opt_ears", next);
+                                  broadcastSetting("opt_ears", next);
+                                }}
+                                optPosition={optPosition}
+                                onChangePosition={async (pos) => {
+                                  setOptPosition(pos);
+                                  try { localStorage.setItem("island_position", pos); } catch { }
+                                  if (store) {
+                                    try {
+                                      await store.set("opt_position", pos);
+                                      await store.save();
+                                    } catch { }
+                                  }
+                                  invoke("set_window_position", {
+                                    isBottom: isBottomNotchPosition(pos),
+                                    position: pos,
+                                    topOffset: islandTopOffset,
+                                    isIsland: notchShape === "island",
+                                    targetMonitor: optTargetMonitorRef.current,
+                                  }).catch(console.error);
+                                  broadcastSetting("opt_position", pos);
+                                }}
+                                optOpacity={optOpacity}
+                                onChangeOpacity={async (val) => {
+                                  setOptOpacity(val);
+                                  try { localStorage.setItem("island_opacity", String(val)); } catch { }
+                                  if (store) {
+                                    try {
+                                      await store.set("opt_opacity", val);
+                                      await store.save();
+                                    } catch { }
+                                  }
+                                  invoke("broadcast_settings_sync", {
+                                    payload: { type: "setting_key", key: "opt_opacity", value: val },
+                                  }).catch(() => { });
+                                }}
+                                optBlur={optBlur}
+                                onChangeBlur={async (val) => {
+                                  setOptBlur(val);
+                                  try { localStorage.setItem("island_blur", String(val)); } catch { }
+                                  if (store) {
+                                    try {
+                                      await store.set("opt_blur", val);
+                                      await store.save();
+                                    } catch { }
+                                  }
+                                  invoke("broadcast_settings_sync", {
+                                    payload: { type: "setting_key", key: "opt_blur", value: val },
+                                  }).catch(() => { });
+                                }}
+                                optIdleColorEnabled={optIdleColorEnabled}
+                                onChangeIdleColorEnabled={async (val) => {
+                                  setOptIdleColorEnabled(val);
+                                  try { localStorage.setItem("island_idle_color_enabled", String(val)); } catch { }
+                                  if (store) {
+                                    try {
+                                      await store.set("opt_idle_color_enabled", val);
+                                      await store.save();
+                                    } catch { }
+                                  }
+                                  invoke("broadcast_settings_sync", {
+                                    payload: { type: "setting_key", key: "opt_idle_color_enabled", value: val },
+                                  }).catch(() => { });
+                                }}
+                                optIdleColor={optIdleColor}
+                                onChangeIdleColor={async (color) => {
+                                  const norm = normalizeHex(color);
+                                  setOptIdleColor(norm);
+                                  try { localStorage.setItem("island_idle_color", norm); } catch { }
+                                  if (store) {
+                                    try {
+                                      await store.set("opt_idle_color", norm);
+                                      await store.save();
+                                    } catch { }
+                                  }
+                                  invoke("broadcast_settings_sync", {
+                                    payload: { type: "setting_key", key: "opt_idle_color", value: norm },
+                                  }).catch(() => { });
+                                }}
+                                optIdleTextColorEnabled={optIdleTextColorEnabled}
+                                onChangeIdleTextColorEnabled={async (val) => {
+                                  setOptIdleTextColorEnabled(val);
+                                  try { localStorage.setItem("island_idle_text_color_enabled", String(val)); } catch { }
+                                  if (store) {
+                                    try {
+                                      await store.set("opt_idle_text_color_enabled", val);
+                                      await store.save();
+                                    } catch { }
+                                  }
+                                  invoke("broadcast_settings_sync", {
+                                    payload: { type: "setting_key", key: "opt_idle_text_color_enabled", value: val },
+                                  }).catch(() => { });
+                                }}
+                                optIdleTextColor={optIdleTextColor}
+                                onChangeIdleTextColor={async (color) => {
+                                  const norm = normalizeHex(color);
+                                  setOptIdleTextColor(norm);
+                                  try { localStorage.setItem("island_idle_text_color", norm); } catch { }
+                                  if (store) {
+                                    try {
+                                      await store.set("opt_idle_text_color", norm);
+                                      await store.save();
+                                    } catch { }
+                                  }
+                                  invoke("broadcast_settings_sync", {
+                                    payload: { type: "setting_key", key: "opt_idle_text_color", value: norm },
+                                  }).catch(() => { });
+                                }}
+                                optAnimSpeed={optAnimSpeed}
+                                onChangeAnimSpeed={async (speed) => {
+                                  setOptAnimSpeed(speed);
+                                  if (store) await store.set("opt_anim_speed", speed);
+                                  broadcastSetting("opt_anim_speed", speed);
+                                }}
+                                optVolume={optVolume}
+                                onToggleVolume={async () => {
+                                  const next = !optVolume;
+                                  setOptVolume(next);
+                                  if (store) await store.set("opt_volume", next);
+                                  broadcastSetting("opt_volume", next);
+                                }}
+                                optClipboard={optClipboard}
+                                onToggleClipboard={async () => {
+                                  const next = !optClipboard;
+                                  setOptClipboard(next);
+                                  if (store) await store.set("opt_clipboard", next);
+                                  broadcastSetting("opt_clipboard", next);
+                                }}
+                                optMedia={optMedia}
+                                onToggleMedia={async () => {
+                                  const next = !optMedia;
+                                  setOptMedia(next);
+                                  if (store) await store.set("opt_media", next);
+                                  broadcastSetting("opt_media", next);
+                                }}
+                                optSoundFx={optSoundFx}
+                                onToggleSoundFx={() => {
+                                  const next = !optSoundFx;
+                                  setOptSoundFx(next);
+                                  setSoundEffectsEnabled(next);
+                                  broadcastSetting("opt_sound_fx", next);
+                                }}
+                                onClose={() => handleCloseImmediate()}
                               />
                             </React.Suspense>
                           </motion.div>
@@ -7065,7 +7194,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                                     const next = !prev;
                                     try {
                                       localStorage.setItem("island_show_lyrics", String(next));
-                                    } catch {}
+                                    } catch { }
                                     return next;
                                   });
                                 }}
@@ -7147,7 +7276,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
                     <ScrollingText text={notif.title} className={`text-[13px] font-semibold tracking-tight leading-tight w-full ${isLightMode ? 'text-[#1d1d1f]' : 'text-white'}`} />
                     {notif.body && (
                       <AnimatePresence mode="popLayout">
-                        <motion.div 
+                        <motion.div
                           key={notif.body}
                           initial={{ opacity: 0, y: 6, scale: 0.96 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}

@@ -16,6 +16,9 @@ extern "system" {
     fn K32EmptyWorkingSet(hProcess: *mut c_void) -> i32;
 }
 
+const INITIAL_TRIM_DELAY_SECS: u64 = 60;
+const PERIODIC_TRIM_INTERVAL_SECS: u64 = 300;
+
 static OPTIMIZER_STARTED: AtomicBool = AtomicBool::new(false);
 static TRIM_GEN: AtomicU64 = AtomicU64::new(0);
 static APP_START: OnceLock<Instant> = OnceLock::new();
@@ -86,14 +89,20 @@ pub fn trim_process_tree_working_set() {
     }
 }
 
+fn trim_if_flyout_closed() {
+    if !crate::taskbar_flyout::is_flyout_open() {
+        trim_process_tree_working_set();
+    }
+}
+
 pub fn schedule_working_set_trim(delay_ms: u64) {
-    if uptime_secs() < 90 {
+    if uptime_secs() < INITIAL_TRIM_DELAY_SECS {
         return;
     }
     let gen = TRIM_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(delay_ms));
-        if uptime_secs() < 90 || TRIM_GEN.load(Ordering::SeqCst) != gen {
+        if uptime_secs() < INITIAL_TRIM_DELAY_SECS || TRIM_GEN.load(Ordering::SeqCst) != gen {
             return;
         }
         trim_process_tree_working_set();
@@ -111,10 +120,12 @@ pub fn start_memory_optimizer() {
 
     std::thread::Builder::new()
         .name("gili-memory-optimizer".into())
-        .spawn(|| loop {
-            std::thread::sleep(Duration::from_secs(300));
-            if !crate::taskbar_flyout::is_flyout_open() {
-                trim_process_tree_working_set();
+        .spawn(|| {
+            std::thread::sleep(Duration::from_secs(INITIAL_TRIM_DELAY_SECS));
+            trim_if_flyout_closed();
+            loop {
+                std::thread::sleep(Duration::from_secs(PERIODIC_TRIM_INTERVAL_SECS));
+                trim_if_flyout_closed();
             }
         })
         .ok();

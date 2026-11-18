@@ -1,11 +1,14 @@
 import React from "react";
-import { Sparkles, Layers, Maximize2, Tag } from "lucide-react";
+import { Sparkles, Layers, LayoutGrid, Maximize2, Tag } from "lucide-react";
 import { Language } from "../../../services/i18n";
+import { NavbarModuleConfig } from "../../../types/navbar";
 import { NavbarStylePatch } from "../../../services/navbarStyleShareService";
 
 interface NavbarStyleSummaryCardProps {
   styleData: NavbarStylePatch;
   title?: string;
+  modules?: NavbarModuleConfig[];
+  includeModules?: boolean;
   isLightMode?: boolean;
   optLanguage?: Language;
 }
@@ -30,10 +33,17 @@ const ICON_THEME_LABELS: Record<string, string> = {
 export const NavbarStyleSummaryCard: React.FC<NavbarStyleSummaryCardProps> = ({
   styleData,
   title,
+  modules,
+  includeModules = true,
   isLightMode = false,
   optLanguage = "id",
 }) => {
   const isId = optLanguage === "id";
+  const hasModulesPayload = Array.isArray(modules) && modules.length > 0;
+  const activeModulesCount = hasModulesPayload
+    ? modules.filter((m) => m.enabled).length
+    : 0;
+  const modulesApplied = hasModulesPayload && includeModules;
   const surfaceHex =
     styleData.background === "custom" && styleData.customColor
       ? styleData.customColor
@@ -124,10 +134,30 @@ export const NavbarStyleSummaryCard: React.FC<NavbarStyleSummaryCardProps> = ({
           <Tag size={10} />
           Label: {styleData.appLabels ? (isId ? "Aktif" : "On") : isId ? "Mati" : "Off"}
         </span>
+        {hasModulesPayload && (
+          <span
+            className={`px-2 py-0.5 rounded-[7px] border inline-flex items-center gap-1 ${chipClass} ${
+              modulesApplied ? "" : "opacity-55 line-through"
+            }`}
+          >
+            <LayoutGrid size={10} />
+            {modulesApplied
+              ? isId
+                ? `Modul: ${activeModulesCount} aktif`
+                : `Modules: ${activeModulesCount} active`
+              : isId
+              ? "Modul: Tidak diubah"
+              : "Modules: Skipped"}
+          </span>
+        )}
       </div>
 
       <div className={`text-[10.5px] ${mutedText}`}>
-        {isId
+        {modulesApplied
+          ? isId
+            ? "Susunan modul ikut disertakan; posisi layar, monitor, dan setting lainnya di PC tetap aman."
+            : "Module layout included; screen position, monitor, and other PC settings remain untouched."
+          : isId
           ? "Posisi layar, monitor, susunan modul, dan setting lainnya di PC Anda tetap aman dan tidak berubah."
           : "Screen position, monitor, module layout, and all other PC settings remain untouched."}
       </div>

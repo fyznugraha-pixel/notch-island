@@ -10,6 +10,7 @@ import {
   snapToPhysicalPixel,
 } from "../../utils/notchGeometry";
 import { hexToRgba, getPerceivedLuminance } from "../../utils/colorUtils";
+import { getCachedFrostedGrainDataUrl } from "../../utils/frostedGlass";
 
 export type NotchSurfaceTone = "default" | "drag_over";
 
@@ -50,7 +51,7 @@ interface NotchSurfaceProps {
  * `<g clipPath="url(#notch-unified-clip)">` spanning the full width (including both ears),
  * guaranteeing zero color difference between the notch body and its ears.
  */
-export const NotchSurface: React.FC<NotchSurfaceProps> = ({
+export const NotchSurface: React.FC<NotchSurfaceProps> = React.memo(({
   containerRef,
   position = "top",
   isExpanded = false,
@@ -117,6 +118,8 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
   const lastDprRef = useRef<number>(-1);
   const observedSizeRef = useRef<{ width: number; height: number } | null>(null);
   const lastAcrylicEnabledRef = useRef<boolean>(false);
+  const lastAcrylicSyncAtRef = useRef<number>(0);
+  const pendingAcrylicSyncRef = useRef<boolean>(false);
 
   const morphProgressRef = useRef<number>(isIsland ? 1.0 : 0.0);
   const targetMorphRef = useRef<number>(isIsland ? 1.0 : 0.0);
@@ -295,9 +298,16 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
         const { totalW, totalH, offsetLeft, offsetTop } =
           getNotchSurfaceMetrics(pathParams);
 
-        // Read layout geometry before mutating wrapperRef styles to avoid read-after-write layout thrashing
+        // Throttle native DWM underlay IPC (~30Hz, matching Rust 35ms coalescing) and sync exact frame on settle
         const ac = acrylicConfigRef.current;
-        const containerRect = ac.enabled ? container.getBoundingClientRect() : null;
+        const nowMs = performance.now();
+        const enabledToggled = ac.enabled !== lastAcrylicEnabledRef.current;
+        const needAcrylicTick = ac.enabled || lastAcrylicEnabledRef.current;
+        const shouldSendAcrylicNow =
+          needAcrylicTick && (enabledToggled || nowMs - lastAcrylicSyncAtRef.current >= 32);
+
+        const containerRect =
+          shouldSendAcrylicNow && ac.enabled ? container.getBoundingClientRect() : null;
 
         if (wrapperRef.current) {
           wrapperRef.current.style.width = `${totalW}px`;
@@ -306,8 +316,10 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
           wrapperRef.current.style.top = `${offsetTop}px`;
         }
 
-        if (ac.enabled || lastAcrylicEnabledRef.current) {
+        if (shouldSendAcrylicNow) {
           lastAcrylicEnabledRef.current = ac.enabled;
+          lastAcrylicSyncAtRef.current = nowMs;
+          pendingAcrylicSyncRef.current = false;
           invoke("sync_notch_acrylic", {
             enabled: ac.enabled,
             containerLeft: containerRect ? containerRect.left : 0,
@@ -324,6 +336,8 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
             opacity: ac.opacity,
             isLight: ac.isLight,
           }).catch(() => {});
+        } else if (needAcrylicTick) {
+          pendingAcrylicSyncRef.current = true;
         }
 
         if (svgRef.current) {
@@ -360,6 +374,31 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
         }
       } else {
         idleFrames += 1;
+        if (idleFrames === 1 && pendingAcrylicSyncRef.current) {
+          pendingAcrylicSyncRef.current = false;
+          const ac = acrylicConfigRef.current;
+          if (ac.enabled && lastWidthRef.current > 0 && lastHeightRef.current > 0) {
+            lastAcrylicEnabledRef.current = true;
+            lastAcrylicSyncAtRef.current = performance.now();
+            const containerRect = container.getBoundingClientRect();
+            invoke("sync_notch_acrylic", {
+              enabled: true,
+              containerLeft: containerRect.left,
+              containerTop: containerRect.top,
+              width: lastWidthRef.current,
+              height: lastHeightRef.current,
+              earRadius: lastReRef.current,
+              bottomRadius: lastRbRef.current,
+              topRadius: lastRtRef.current,
+              isIsland: morphProgressRef.current >= 0.5,
+              position,
+              dpr,
+              blurStrength: ac.blurStrength,
+              opacity: ac.opacity,
+              isLight: ac.isLight,
+            }).catch(() => {});
+          }
+        }
       }
 
       if (isMorphing || performance.now() < activeUntil || idleFrames < 6) {
@@ -538,24 +577,13 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
       ? "rgba(0, 0, 0, 0.12)"
       : "var(--notch-stroke)";
 
+  const frostedGrainUrl = isTranslucent && effectiveBlur > 0 ? getCachedFrostedGrainDataUrl() : null;
+
   return (
     <div
       ref={wrapperRef}
       className="absolute top-0 pointer-events-none select-none z-0 overflow-visible"
     >
-      {/* Unified Frosted Backdrop Filter layer — only mounted in translucent modes */}
-      {isTranslucent && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            clipPath: "url(#notch-unified-clip)",
-            WebkitClipPath: "url(#notch-unified-clip)",
-            backdropFilter: "var(--notch-blur)",
-            WebkitBackdropFilter: "var(--notch-blur)",
-          }}
-        />
-      )}
-
       {/* SVG definitions and unified base + ambient + state tint surface (body + both ears together) */}
       <svg
         ref={svgRef}
@@ -584,32 +612,16 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
             </filter>
           )}
 
-          {/* Native 1:1 resolution frosted matte grain ("burem kasar") */}
-          {isTranslucent && effectiveBlur > 0 && (
-            <>
-              <filter id="notch-frosted-grain" x="0%" y="0%" width="100%" height="100%">
-                <feTurbulence
-                  type="fractalNoise"
-                  baseFrequency="0.82"
-                  numOctaves="3"
-                  stitchTiles="stitch"
-                  result="noise"
-                />
-                <feColorMatrix
-                  type="matrix"
-                  values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0.085 0"
-                  in="noise"
-                />
-              </filter>
-              <pattern
-                id="notch-frosted-grain-pattern"
-                patternUnits="userSpaceOnUse"
-                width="64"
-                height="64"
-              >
-                <rect width="64" height="64" filter="url(#notch-frosted-grain)" />
-              </pattern>
-            </>
+          {/* Pre-baked 64x64 matte frosted grain texture (zero per-frame feTurbulence evaluation) */}
+          {frostedGrainUrl && (
+            <pattern
+              id="notch-frosted-grain-pattern"
+              patternUnits="userSpaceOnUse"
+              width="64"
+              height="64"
+            >
+              <image href={frostedGrainUrl} width="64" height="64" preserveAspectRatio="none" />
+            </pattern>
           )}
 
           <linearGradient id="notch-drag-over-grad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -712,8 +724,8 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
                   />
                 )}
 
-                {/* Native 1:1 Frosted Matte Acrylic Grain ("burem kasar" texture) */}
-                {isTranslucent && effectiveBlur > 0 && (
+                {/* Pre-baked 1:1 Frosted Matte Acrylic Grain texture */}
+                {frostedGrainUrl && (
                   <rect
                     width="100%"
                     height="100%"
@@ -841,4 +853,4 @@ export const NotchSurface: React.FC<NotchSurfaceProps> = ({
       </svg>
     </div>
   );
-};
+});

@@ -1,7 +1,7 @@
 use tauri::Manager;
 
 pub(crate) const WEBVIEW_BROWSER_ARGS: &str =
-    "--autoplay-policy=no-user-gesture-required --force-gpu-mem-available-mb=48 --gpu-program-cache-size-kb=4096 --disable-gpu-shader-disk-cache";
+    "--autoplay-policy=no-user-gesture-required";
 
 mod privacy;
 mod connectivity;
@@ -4607,12 +4607,30 @@ fn trigger_notch_action(app: tauri::AppHandle, action: String) {
     }
 }
 
-#[tauri::command]
-fn restart_app(app: tauri::AppHandle) {
+fn cleanup_shell_state_on_exit() {
     taskbar_manager::restore_taskbar_on_exit();
     windows_dnd::restore_windows_dnd_on_exit();
     toast_banners::restore_banners_on_exit();
     window_preview::cleanup_window_previews();
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn console_ctrl_exit_handler(ctrl_type: u32) -> windows::Win32::Foundation::BOOL {
+    use windows::Win32::System::Console::{
+        CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT,
+    };
+    if matches!(
+        ctrl_type,
+        CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT | CTRL_SHUTDOWN_EVENT
+    ) {
+        cleanup_shell_state_on_exit();
+    }
+    windows::Win32::Foundation::FALSE
+}
+
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    cleanup_shell_state_on_exit();
     app.restart();
 }
 
@@ -4658,12 +4676,17 @@ pub fn run() {
 
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
-        taskbar_manager::restore_taskbar_on_exit();
-        windows_dnd::restore_windows_dnd_on_exit();
-        toast_banners::restore_banners_on_exit();
-        window_preview::cleanup_window_previews();
+        cleanup_shell_state_on_exit();
         default_panic_hook(panic_info);
     }));
+
+    #[cfg(windows)]
+    unsafe {
+        let _ = windows::Win32::System::Console::SetConsoleCtrlHandler(
+            Some(console_ctrl_exit_handler),
+            true,
+        );
+    }
 
     #[cfg(windows)]
     {
@@ -4955,10 +4978,7 @@ pub fn run() {
                             taskbar_manager::set_taskbar_visible(true);
                         }
                         "quit" => {
-                            taskbar_manager::restore_taskbar_on_exit();
-                            windows_dnd::restore_windows_dnd_on_exit();
-                            toast_banners::restore_banners_on_exit();
-                            window_preview::cleanup_window_previews();
+                            cleanup_shell_state_on_exit();
                             app.exit(0);
                         }
                         _ => {}
@@ -6426,8 +6446,16 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                cleanup_shell_state_on_exit();
+            }
+        });
 }
 
 #[cfg(test)]

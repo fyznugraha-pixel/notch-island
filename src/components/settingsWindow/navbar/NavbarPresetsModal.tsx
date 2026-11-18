@@ -118,7 +118,9 @@ export const NavbarPresetsModal: React.FC<NavbarPresetsModalProps> = ({
   };
 
   const handleCopyPresetStyle = async (preset: UserSavedPreset) => {
-    const code = encodeNavbarStyleCode(preset.config, preset.title);
+    const code = encodeNavbarStyleCode(preset.config, preset.title, {
+      includeModules: Array.isArray(preset.config.modules) && preset.config.modules.length > 0,
+    });
     const ok = await copyTextToClipboard(code);
     if (ok) {
       setCopiedPresetId(preset.id);

@@ -151,3 +151,49 @@ export function computeCalibratedGlassPalette({
         : 0.75,
   };
 }
+
+let cachedFrostedGrainUrl: string | null | undefined;
+
+/**
+ * Generates and caches a 64x64 subtle monochrome noise bitmap once per session,
+ * avoiding per-frame SVG `<feTurbulence>` rasterization during notch animations.
+ */
+export function getCachedFrostedGrainDataUrl(): string | null {
+  if (cachedFrostedGrainUrl !== undefined) {
+    return cachedFrostedGrainUrl;
+  }
+  if (typeof document === "undefined") {
+    cachedFrostedGrainUrl = null;
+    return null;
+  }
+  try {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      cachedFrostedGrainUrl = null;
+      return null;
+    }
+    const imgData = ctx.createImageData(size, size);
+    const data = imgData.data;
+    // Fixed-seed xorshift32 matches 0.085 max alpha white frosted grain deterministically
+    let seed = 0x9e3779b9;
+    for (let i = 0; i < data.length; i += 4) {
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      const noise = (seed >>> 0) / 4294967295;
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      data[i + 3] = Math.round(noise * 22);
+    }
+    ctx.putImageData(imgData, 0, 0);
+    cachedFrostedGrainUrl = canvas.toDataURL("image/png");
+  } catch {
+    cachedFrostedGrainUrl = null;
+  }
+  return cachedFrostedGrainUrl;
+}

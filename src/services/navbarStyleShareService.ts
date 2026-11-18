@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import rawCatalog from "../modules/modules.catalog.json";
+import { BUILTIN_MODULE_ID_SET, resolveCanonicalModuleId } from "../modules/moduleAliases";
 import {
   DEFAULT_NAVBAR_CONFIG,
   NAVBAR_ACCENT_COLORS,
@@ -6,11 +8,22 @@ import {
   NavbarConfig,
   NavbarIconSpacing,
   NavbarIconTheme,
+  NavbarModuleConfig,
   NavbarShape,
   NavbarStyle,
   VALID_NAVBAR_ICON_THEMES,
 } from "../types/navbar";
+import { normalizeModules } from "./navbarConfigService";
 import { isValidHex, normalizeHex } from "../utils/colorUtils";
+
+const FORBIDDEN_MODULE_IDS = new Set(["__proto__", "constructor", "prototype"]);
+const VALID_CATALOG_MODULE_IDS = new Set<string>(
+  Array.isArray(rawCatalog)
+    ? rawCatalog
+        .map((entry) => (entry && typeof entry.id === "string" ? entry.id.trim() : ""))
+        .filter((id) => id.length > 0 && !FORBIDDEN_MODULE_IDS.has(id))
+    : []
+);
 
 export const NAVBAR_STYLE_SHARE_PREFIX = "GILI-STYLE1:";
 export const NAVBAR_STYLE_FILE_FORMAT = "gili-taskbar-style";
@@ -37,9 +50,14 @@ export const NAVBAR_STYLE_KEYS = [
 export type NavbarStyleKey = (typeof NAVBAR_STYLE_KEYS)[number];
 export type NavbarStylePatch = Pick<NavbarConfig, NavbarStyleKey>;
 
+export interface NavbarStyleShareOptions {
+  includeModules?: boolean;
+}
+
 export interface ParsedNavbarStyleShare {
   name?: string;
   style: NavbarStylePatch;
+  modules?: NavbarModuleConfig[];
   recognizedFields: number;
 }
 
@@ -63,6 +81,7 @@ interface EncodedStyleEnvelope {
   v: 1;
   n?: string;
   s: Partial<NavbarStylePatch>;
+  m?: NavbarModuleConfig[];
 }
 
 function clampInt(raw: unknown, min: number, max: number, fallback: number): number {
@@ -242,22 +261,67 @@ export function sanitizeNavbarStylePatch(
   };
 }
 
+export function sanitizeNavbarModules(rawModules: unknown): NavbarModuleConfig[] | undefined {
+  if (!Array.isArray(rawModules) || rawModules.length === 0) return undefined;
+
+  const filtered: NavbarModuleConfig[] = [];
+  for (const item of rawModules.slice(0, 64)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const candidate = item as Record<string, unknown>;
+    if (typeof candidate.id !== "string") continue;
+    const rawId = candidate.id.trim();
+    if (!rawId || rawId.length > 64 || FORBIDDEN_MODULE_IDS.has(rawId)) continue;
+
+    const resolved = resolveCanonicalModuleId(rawId);
+    const canonicalId = typeof resolved === "string" ? resolved : "";
+    if (
+      !canonicalId ||
+      FORBIDDEN_MODULE_IDS.has(canonicalId) ||
+      (!BUILTIN_MODULE_ID_SET.has(rawId) && !VALID_CATALOG_MODULE_IDS.has(canonicalId))
+    ) {
+      continue;
+    }
+
+    const group =
+      candidate.group === 1 || candidate.group === 2 || candidate.group === 3
+        ? candidate.group
+        : 2;
+    const enabled = typeof candidate.enabled === "boolean" ? candidate.enabled : true;
+    const view = candidate.view === "full" ? "full" : "compact";
+    filtered.push({ id: rawId, group, enabled, view });
+  }
+
+  if (filtered.length === 0) return undefined;
+  return normalizeModules(filtered);
+}
+
 export function extractNavbarStyle(config: Partial<NavbarConfig>): NavbarStylePatch {
   return sanitizeNavbarStylePatch(config as Record<string, unknown>, config).style;
 }
 
-export function encodeNavbarStyleCode(config: Partial<NavbarConfig>, name?: string): string {
+export function encodeNavbarStyleCode(
+  config: Partial<NavbarConfig>,
+  name?: string,
+  options?: NavbarStyleShareOptions
+): string {
   const cleanName = sanitizeStyleName(name);
+  const modules = options?.includeModules ? sanitizeNavbarModules(config.modules) : undefined;
   const payload: EncodedStyleEnvelope = {
     v: 1,
     ...(cleanName ? { n: cleanName } : {}),
     s: extractNavbarStyle(config),
+    ...(modules ? { m: modules } : {}),
   };
   return `${NAVBAR_STYLE_SHARE_PREFIX}${encodeUtf8Base64Url(JSON.stringify(payload))}`;
 }
 
-export function serializeNavbarStyleFile(config: Partial<NavbarConfig>, name?: string): string {
+export function serializeNavbarStyleFile(
+  config: Partial<NavbarConfig>,
+  name?: string,
+  options?: NavbarStyleShareOptions
+): string {
   const cleanName = sanitizeStyleName(name) || "Gili Taskbar Style";
+  const modules = options?.includeModules ? sanitizeNavbarModules(config.modules) : undefined;
   return JSON.stringify(
     {
       format: NAVBAR_STYLE_FILE_FORMAT,
@@ -265,6 +329,7 @@ export function serializeNavbarStyleFile(config: Partial<NavbarConfig>, name?: s
       name: cleanName,
       exportedAt: new Date().toISOString(),
       style: extractNavbarStyle(config),
+      ...(modules ? { modules } : {}),
     },
     null,
     2
@@ -323,9 +388,11 @@ export function parseNavbarStyleShareInput(
     if (recognizedFields < 2) {
       throw new NavbarStyleShareError("NO_STYLE_FIELDS", "No valid taskbar style fields found.");
     }
+    const modules = sanitizeNavbarModules(env.m);
     return {
       name: sanitizeStyleName(env.n),
       style,
+      ...(modules ? { modules } : {}),
       recognizedFields,
     };
   }
@@ -367,19 +434,27 @@ export function parseNavbarStyleShareInput(
   if (recognizedFields < 2) {
     throw new NavbarStyleShareError("NO_STYLE_FIELDS", "No valid taskbar style fields found.");
   }
+  const rawModulesCandidate = Array.isArray(doc.modules)
+    ? doc.modules
+    : Array.isArray(rawStyleObj.modules)
+    ? rawStyleObj.modules
+    : undefined;
+  const modules = sanitizeNavbarModules(rawModulesCandidate);
   return {
     name: styleName,
     style,
+    ...(modules ? { modules } : {}),
     recognizedFields,
   };
 }
 
 export async function exportNavbarStyleToFile(
   config: Partial<NavbarConfig>,
-  name?: string
+  name?: string,
+  options?: NavbarStyleShareOptions
 ): Promise<"saved" | "cancelled"> {
   const cleanName = sanitizeStyleName(name) || "gili-taskbar-style";
-  const content = serializeNavbarStyleFile(config, cleanName);
+  const content = serializeNavbarStyleFile(config, cleanName, options);
 
   try {
     const saved = await invoke<boolean>("save_navbar_style_file", {

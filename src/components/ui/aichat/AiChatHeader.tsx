@@ -1,6 +1,7 @@
 import React from "react";
 import {
   ChevronLeft,
+  ChevronRight,
   ChevronDown,
   Plus,
   Settings,
@@ -21,8 +22,13 @@ interface AiChatHeaderProps {
   onOpenSettings: () => void;
   onOpenUsage: () => void;
   onPrevTab?: () => void;
+  onNextTab?: () => void;
+  hasNext?: boolean;
   accentColor?: string;
 }
+
+const headerIconBtnClass =
+  "w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all";
 
 export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
   activeModel,
@@ -34,6 +40,8 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
   onOpenSettings,
   onOpenUsage,
   onPrevTab,
+  onNextTab,
+  hasNext = false,
   accentColor = "#3882F6",
 }) => {
   const isAutoMode = selectedMode === "auto";
@@ -47,7 +55,7 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
           type="button"
           aria-label={t("aichat_tooltip_prev")}
           onClick={onPrevTab}
-          className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
+          className={headerIconBtnClass}
         >
           <ChevronLeft size={16} strokeWidth={2} />
         </button>
@@ -99,7 +107,7 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
           type="button"
           aria-label={t("aichat_tooltip_usage")}
           onClick={onOpenUsage}
-          className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
+          className={headerIconBtnClass}
         >
           <BarChart2 size={15} strokeWidth={2} />
         </button>
@@ -111,7 +119,7 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
           type="button"
           aria-label={t("aichat_tooltip_history")}
           onClick={onOpenHistory}
-          className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
+          className={headerIconBtnClass}
         >
           <History size={15} strokeWidth={2} />
         </button>
@@ -123,7 +131,7 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
           type="button"
           aria-label={t("aichat_tooltip_new_chat")}
           onClick={onNewConversation}
-          className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
+          className={headerIconBtnClass}
         >
           <Plus size={16} strokeWidth={2} />
         </button>
@@ -135,11 +143,34 @@ export const AiChatHeader: React.FC<AiChatHeaderProps> = ({
           type="button"
           aria-label={t("aichat_tooltip_settings")}
           onClick={onOpenSettings}
-          className="w-[34px] h-[34px] rounded-[17px] border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 text-[#e4e4e7] flex items-center justify-center p-0 cursor-pointer transition-all"
+          className={headerIconBtnClass}
         >
           <Settings size={15} strokeWidth={2} />
         </button>
       </Tooltip>
+
+      {/* Next Tab Button */}
+      {hasNext && onNextTab ? (
+        <Tooltip content={t("nav_next")} side="bottom" align="end">
+          <button
+            type="button"
+            aria-label={t("nav_next")}
+            onClick={onNextTab}
+            className={headerIconBtnClass}
+          >
+            <ChevronRight size={16} strokeWidth={2} />
+          </button>
+        </Tooltip>
+      ) : (
+        <button
+          type="button"
+          disabled
+          aria-label={t("nav_next")}
+          className="w-[34px] h-[34px] rounded-[17px] border border-white/[0.06] bg-white/[0.03] text-white/25 flex items-center justify-center p-0 cursor-not-allowed"
+        >
+          <ChevronRight size={16} strokeWidth={2} />
+        </button>
+      )}
     </div>
   );
 };

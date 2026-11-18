@@ -11,7 +11,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, GetWindowRect, IsChild, SetForegroundWindow,
 };
 
-const FLYOUT_IDLE_DESTROY_SECS: u64 = 90;
+const FLYOUT_IDLE_DESTROY_SECS: u64 = 60;
 
 static FLYOUT_OPEN: AtomicBool = AtomicBool::new(false);
 static FLYOUT_READY: AtomicBool = AtomicBool::new(false);

@@ -8,6 +8,7 @@ import {
   getLocalizedModuleMeta,
   localizePreviewHtml,
 } from "../../../modules/moduleI18n";
+import type { NavbarModuleCategory } from "../../../modules/types";
 import {
   MODULE_CATALOG,
   getCatalogModule,
@@ -30,12 +31,13 @@ interface AddModuleDialogProps {
   optLanguage?: Language;
 }
 
-type CategoryFilter =
-  | "Semua"
-  | "Produktif"
-  | "Sistem"
-  | "Media & estetika"
-  | "Gaya hidup";
+const CATEGORY_ORDER: NavbarModuleCategory[] = [
+  "all",
+  "Produktif",
+  "Sistem",
+  "Media & estetika",
+  "Gaya hidup",
+];
 
 const LocalizedModulePreview: React.FC<{
   moduleId: string;
@@ -308,22 +310,23 @@ export const AddModuleDialog: React.FC<AddModuleDialogProps> = ({
   const taskbarLang = useTaskbarLang();
   const lang: Language = optLanguage ?? taskbarLang;
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<CategoryFilter>("Semua");
+  const [activeCategory, setActiveCategory] = useState<NavbarModuleCategory>("all");
   const [selectedViews, setSelectedViews] = useState<
     Record<string, "compact" | "full">
   >({});
 
   const categoryCounts = useMemo(() => {
-    const counts: Record<CategoryFilter, number> = {
-      Semua: MODULE_CATALOG.length,
+    const counts: Record<NavbarModuleCategory, number> = {
+      all: MODULE_CATALOG.length,
       Produktif: 0,
       Sistem: 0,
       "Media & estetika": 0,
       "Gaya hidup": 0,
     };
     for (const m of MODULE_CATALOG) {
-      if (counts[m.category] !== undefined) {
-        counts[m.category]++;
+      const cat = m.category as NavbarModuleCategory;
+      if (counts[cat] !== undefined) {
+        counts[cat]++;
       }
     }
     return counts;
@@ -332,7 +335,7 @@ export const AddModuleDialog: React.FC<AddModuleDialogProps> = ({
   const filteredModules = useMemo(() => {
     return MODULE_CATALOG.filter((m) => {
       const matchCat =
-        activeCategory === "Semua" || m.category === activeCategory;
+        activeCategory === "all" || m.category === activeCategory;
       const q = searchQuery.toLowerCase().trim();
       if (!q) return matchCat;
       const localized = getLocalizedModuleMeta(
@@ -404,33 +407,11 @@ export const AddModuleDialog: React.FC<AddModuleDialogProps> = ({
     (m) => !BUILTIN_MODULE_ID_SET.has(m.id)
   ).length;
 
-  const categories: { id: CategoryFilter; label: string; count: number }[] = [
-    {
-      id: "Semua",
-      label: getLocalizedCategoryLabel("Semua", lang),
-      count: categoryCounts.Semua,
-    },
-    {
-      id: "Produktif",
-      label: getLocalizedCategoryLabel("Produktif", lang),
-      count: categoryCounts.Produktif,
-    },
-    {
-      id: "Sistem",
-      label: getLocalizedCategoryLabel("Sistem", lang),
-      count: categoryCounts.Sistem,
-    },
-    {
-      id: "Media & estetika",
-      label: getLocalizedCategoryLabel("Media & estetika", lang),
-      count: categoryCounts["Media & estetika"],
-    },
-    {
-      id: "Gaya hidup",
-      label: getLocalizedCategoryLabel("Gaya hidup", lang),
-      count: categoryCounts["Gaya hidup"],
-    },
-  ];
+  const categories = CATEGORY_ORDER.map((id) => ({
+    id,
+    label: getLocalizedCategoryLabel(id, lang),
+    count: categoryCounts[id],
+  }));
 
   const modalContent = (
     <div
