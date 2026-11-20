@@ -80,21 +80,21 @@ pub fn widget_catalog() -> Vec<WidgetCatalogEntry> {
         entry("screen_time", "C", "Sistem", "Screen Time Harian", "Durasi layar aktif hari ini, waktu nyala perangkat, dan ringkasan proses aktif.", &[Medium, Large], Medium, "compute_windows_screen_time & top proses baca-saja Gili", false, Some("system_monitor")),
 
         // Group D: Estetik & Gaya Hidup
-        entry("styled_clock", "D", "Estetik & Gaya Hidup", "Jam Bergaya (8 Gaya)", "8 gaya jam termasuk analog, digital tipis, dan tipografi kata Bahasa Indonesia.", &[Small, Medium, Large], Medium, "Jam sistem lokal Windows", false, None),
+        entry("styled_clock", "D", "Estetik & Gaya Hidup", "Jam Bergaya (8 Gaya)", "8 gaya jam termasuk analog, digital tipis, dan tipografi kata.", &[Small, Medium, Large], Medium, "Jam sistem lokal Windows", false, None),
         entry("world_clock", "D", "Estetik & Gaya Hidup", "Jam Dunia Multi-Zona", "Pantau hingga 4 zona waktu kota dunia sekaligus beserta indikator siang/malam.", &[Medium, Large], Medium, "Waktu UTC sistem (GetSystemTime) + offset zona", false, None),
         entry("photo_frame", "D", "Estetik & Gaya Hidup", "Bingkai Foto / Polaroid", "Bingkai foto kotak bersih dengan slideshow otomatis 5 detik, klik langsung untuk menambah foto.", &[Small, Medium, Large], Large, "Folder foto lokal baca-saja", true, None),
         entry("live_mascot", "D", "Estetik & Gaya Hidup", "Maskot Hidup Gili", "Karakter vektor orisinal ringan (8-12 fps) yang merespons klik & waktu.", &[Small, Medium], Small, "Animasi vektor native Direct2D", false, None),
         entry("audio_visualizer", "D", "Estetik & Gaya Hidup", "Visualizer Audio", "Spektrum audio langsung dari WASAPI loopback dengan FFT ringan.", &[Medium], Medium, "Windows WASAPI loopback + FFT 256-point", false, Some("media")),
         entry("quote_poster", "D", "Estetik & Gaya Hidup", "Poster Kutipan", "Tipografi kutipan harian atau teks sendiri dengan tata letak editorial.", &[Small, Medium, Large], Medium, "KutipanHarianNavbarModule + teks sendiri", false, None),
 
-        // Group E: Fokus Indonesia & Tambahan
-        entry("prayer_times", "E", "Indonesia & Tambahan", "Jadwal Sholat (Kemenag RI)", "Kalkulator jadwal sholat offline metode Kemenag RI + mode Ramadan.", &[Small, Medium, Large], Medium, "Kalkulator astronomis offline Kemenag RI (Subuh 20, Isya 18)", false, Some("prayer")),
-        entry("air_quality", "E", "Indonesia & Tambahan", "Kualitas Udara (AQI & UV)", "Indeks AQI, PM2.5, PM10, dan Indeks UV real-time untuk lokasi Anda.", &[Small, Medium], Medium, "Open-Meteo Air Quality API (air-quality-api.open-meteo.com)", false, Some("weather")),
-        entry("currency_gold", "E", "Indonesia & Tambahan", "Kurs & Harga Emas", "Kurs mata uang (open.er-api.com ber-cache) & antarmuka harga emas.", &[Small, Medium], Medium, "open.er-api.com (kurs) + kontrak GoldPriceProvider", false, Some("currency")),
-        entry("hijri_holidays", "E", "Indonesia & Tambahan", "Kalender Hijriyah & Libur", "Tanggal Hijriyah offline (+/-1 hari) & daftar libur dari berkas SKB 3 Menteri.", &[Small, Medium], Medium, "Konverter Hijriyah offline + berkas JSON SKB 3 Menteri", false, None),
-        entry("quick_expense", "E", "Indonesia & Tambahan", "Catat Pengeluaran Cepat", "Catatan pengeluaran lokal terenkripsi DPAPI dengan bar anggaran bulanan.", &[Small, Medium], Medium, "Penyimpanan lokal terenkripsi Windows DPAPI (nol telemetri)", false, None),
-        entry("football_scores", "E", "Indonesia & Tambahan", "Papan Skor Bola", "Skor pertandingan melalui antarmuka penyedia data berlisensi.", &[Medium], Medium, "Kontrak FootballScoreProvider (butuh API berlisensi)", true, None),
-        entry("ai_quick_ask", "E", "Indonesia & Tambahan", "Tanya Cepat AI", "Kirim pertanyaan singkat lewat router & kunci API BYOK Gili.", &[Medium], Medium, "aiRouterService & Windows Credential Manager Gili", true, Some("ai_chat")),
+        // Global extensions redistributed across A, B, D
+        entry("prayer_times", "A", "Modul Gili", "Jadwal Sholat", "Kalkulator jadwal sholat astronomis offline + mode Ramadan.", &[Small, Medium, Large], Medium, "Kalkulator astronomis offline (Subuh 20, Isya 18)", false, Some("prayer")),
+        entry("air_quality", "A", "Modul Gili", "Kualitas Udara (AQI & UV)", "Indeks AQI, PM2.5, PM10, dan Indeks UV real-time untuk lokasi Anda.", &[Small, Medium], Medium, "Open-Meteo Air Quality API (air-quality-api.open-meteo.com)", false, Some("weather")),
+        entry("currency_gold", "B", "Produktif", "Kurs & Harga Emas", "Kurs mata uang (open.er-api.com ber-cache) & antarmuka harga emas.", &[Small, Medium], Medium, "open.er-api.com (kurs) + kontrak GoldPriceProvider", false, Some("currency")),
+        entry("hijri_holidays", "D", "Estetik & Gaya Hidup", "Kalender Hijriyah & Libur", "Tanggal Hijriyah offline (+/-1 hari) & daftar hari libur.", &[Small, Medium], Medium, "Konverter Hijriyah offline + berkas JSON hari libur", false, None),
+        entry("quick_expense", "B", "Produktif", "Catat Pengeluaran Cepat", "Catatan pengeluaran lokal terenkripsi DPAPI dengan bar anggaran bulanan.", &[Small, Medium], Medium, "Penyimpanan lokal terenkripsi Windows DPAPI (nol telemetri)", false, None),
+        entry("football_scores", "D", "Estetik & Gaya Hidup", "Papan Skor Bola", "Skor pertandingan melalui antarmuka penyedia data berlisensi.", &[Medium], Medium, "Kontrak FootballScoreProvider (butuh API berlisensi)", true, None),
+        entry("ai_quick_ask", "A", "Modul Gili", "Tanya Cepat AI", "Kirim pertanyaan singkat lewat router & kunci API BYOK Gili.", &[Medium], Medium, "aiRouterService & Windows Credential Manager Gili", true, Some("ai_chat")),
     ]
 }
 

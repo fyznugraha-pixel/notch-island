@@ -56,8 +56,7 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
       { id: "A", label: tr("Modul Gili", "Gili Modules") },
       { id: "B", label: tr("Produktif", "Productivity") },
       { id: "C", label: tr("Sistem", "System") },
-      { id: "D", label: tr("Estetik", "Aesthetic") },
-      { id: "E", label: "Indonesia" },
+      { id: "D", label: tr("Gaya Hidup", "Lifestyle") },
     ],
     [isId, catalog.length]
   );

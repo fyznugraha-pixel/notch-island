@@ -112,7 +112,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
               22:15
             </div>
             <span className={`text-[11px] ${sub}`}>
-              {tr("8 gaya termasuk kata Indonesia", "8 styles including word clock")}
+              {tr("8 gaya termasuk jam kata", "8 styles including word clock")}
             </span>
           </div>
         );
@@ -212,7 +212,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-[12px] font-semibold">Jakarta</span>
+              <span className="text-[12px] font-semibold">{tr("Jakarta", "London")}</span>
               <CloudSun size={18} className="text-amber-400" />
             </div>
             <div className="flex items-end justify-between">
@@ -271,12 +271,12 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-              {tr("Sholat . Jakarta", "Prayer . Jakarta")}
+              {tr("Sholat . Jakarta", "Prayer . London")}
             </span>
             <div>
               <div className="text-[32px] font-bold leading-none tabular-nums">17:58</div>
               <div className={`text-[11.5px] mt-1 ${sub}`}>
-                {tr("Maghrib . Kemenag RI Offline", "Maghrib . Offline Kemenag Method")}
+                {tr("Maghrib . Kalkulator Offline", "Maghrib . Offline Calculator")}
               </div>
             </div>
             {size !== "small" && (
@@ -500,7 +500,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
-              AQI . Jakarta
+              {tr("AQI . Jakarta", "AQI . London")}
             </span>
             <div className="flex items-end justify-between">
               <div>

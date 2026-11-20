@@ -425,18 +425,20 @@ export function renderExtraWidgetPreviewBody(ctx: WidgetPreviewBodyContext): Rea
       return (
         <div className="h-full flex flex-col justify-between">
           <span className={`text-[9.5px] font-bold uppercase tracking-wider ${accentLabel}`}>
-            {tr("KURS USD / IDR", "USD / IDR RATE")}
+            {tr("KURS USD / IDR", "USD / EUR RATE")}
           </span>
           <div>
-            <div className="text-[26px] font-bold leading-none tabular-nums">Rp16.250</div>
+            <div className="text-[26px] font-bold leading-none tabular-nums">
+              {tr("Rp16.250", "0.92 EUR")}
+            </div>
             {size === "medium" && (
               <div className={`text-[10px] mt-1 tabular-nums ${sub}`}>
-                EUR Rp17.640  SGD Rp12.110
+                {tr("EUR Rp17.640  SGD Rp12.110", "GBP 0.79  JPY 154.2")}
               </div>
             )}
           </div>
           <div className="text-[10px] font-semibold text-amber-400 truncate">
-            {tr("Emas/gr: Rp1.540.000", "Gold/gr: Rp1.540.000")}
+            {tr("Emas/gr: Rp1.540.000", "Gold/oz: $2,640")}
           </div>
         </div>
       );
@@ -451,7 +453,7 @@ export function renderExtraWidgetPreviewBody(ctx: WidgetPreviewBodyContext): Rea
             {tr("11 Jumadil Akhir 1448", "11 Jumada al-Akhirah 1448")}
           </div>
           <div className={`text-[10.5px] truncate ${sub}`}>
-            {tr("25 Des . Hari Natal", "25 Dec . Public Holiday")}
+            {tr("25 Des . Hari Libur", "25 Dec . Public Holiday")}
           </div>
         </div>
       );
@@ -463,13 +465,15 @@ export function renderExtraWidgetPreviewBody(ctx: WidgetPreviewBodyContext): Rea
             {tr("PENGELUARAN", "EXPENSES")}
           </span>
           <div>
-            <div className="text-[22px] font-bold leading-none tabular-nums">Rp1.250.000</div>
+            <div className="text-[22px] font-bold leading-none tabular-nums">
+              {tr("Rp1.250.000", "$840")}
+            </div>
             <div className={`h-1.5 w-full rounded-full mt-2 overflow-hidden ${trackBg}`}>
               <div className="h-full w-[42%] rounded-full bg-blue-400" />
             </div>
           </div>
           <div className={`text-[10px] tabular-nums truncate ${sub}`}>
-            {tr("Anggaran Rp3.000.000 (42%)", "Budget Rp3.000.000 (42%)")}
+            {tr("Anggaran Rp3.000.000 (42%)", "Budget $2,000 (42%)")}
           </div>
         </div>
       );
@@ -482,9 +486,9 @@ export function renderExtraWidgetPreviewBody(ctx: WidgetPreviewBodyContext): Rea
           </span>
           <div className="flex flex-col gap-1.5">
             {[
-              ["Garuda FC vs Timur Utd", "2 - 1"],
-              ["Nusantara vs Barat FC", "1 - 1"],
-              ["Bandung vs Surabaya", "3 - 0"],
+              ["Arsenal vs Chelsea", "2 - 1"],
+              ["Madrid vs Barca", "1 - 1"],
+              ["Inter vs Milan", "3 - 0"],
             ].map(([teams, score]) => (
               <div key={teams} className="flex items-center justify-between gap-2 text-[11px]">
                 <span className="font-semibold truncate">{teams}</span>

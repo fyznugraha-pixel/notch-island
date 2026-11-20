@@ -391,7 +391,7 @@ pub fn build_hijri_holidays(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 if en {
                     "Public holiday data not loaded yet."
                 } else {
-                    "Data libur SKB 3 Menteri belum dimuat."
+                    "Data hari libur belum dimuat."
                 }
             } else {
                 &hh.holiday_source_note

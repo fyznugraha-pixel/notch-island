@@ -7,8 +7,7 @@ const GROUP_LABELS_EN: Record<string, string> = {
   A: "Gili Modules",
   B: "Productivity",
   C: "System",
-  D: "Aesthetics & Lifestyle",
-  E: "Indonesia & Extras",
+  D: "Lifestyle",
 };
 
 const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
@@ -98,7 +97,7 @@ const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
   },
   styled_clock: {
     name: "Styled Clock (8 Styles)",
-    description: "8 clock styles including analog, thin editorial, and Indonesian word clock.",
+    description: "8 clock styles including analog, thin editorial, and typographic word clock.",
   },
   world_clock: {
     name: "Multi-Zone World Clock",
@@ -121,8 +120,8 @@ const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
     description: "Daily quote or custom text displayed in editorial typography.",
   },
   prayer_times: {
-    name: "Prayer Times (Kemenag RI)",
-    description: "Offline Kemenag RI prayer time calculator + Ramadan mode.",
+    name: "Prayer Times",
+    description: "Offline astronomical prayer time calculator with Ramadan mode.",
   },
   air_quality: {
     name: "Air Quality (AQI & UV)",
@@ -134,7 +133,7 @@ const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
   },
   hijri_holidays: {
     name: "Hijri Calendar & Holidays",
-    description: "Offline Hijri date (+/-1 day) & Indonesian national holiday list.",
+    description: "Offline Hijri date (+/-1 day) & configurable public holiday list.",
   },
   quick_expense: {
     name: "Quick Expense Log",
@@ -190,7 +189,7 @@ export function getClockStyleOptions(isId: boolean) {
   if (isId) {
     return [
       { value: "minimal_digital", label: "Digital Minimal" },
-      { value: "kata_indonesia", label: "Tipografi Kata Indonesia" },
+      { value: "kata_indonesia", label: "Tipografi Kata" },
       { value: "analog_classic", label: "Analog Klasik" },
       { value: "analog_skeleton", label: "Analog Rangka" },
       { value: "stacked_bold", label: "Tumpuk Vertikal" },
@@ -201,7 +200,7 @@ export function getClockStyleOptions(isId: boolean) {
   }
   return [
     { value: "minimal_digital", label: "Minimal Digital" },
-    { value: "kata_indonesia", label: "Indonesian Word Clock" },
+    { value: "kata_indonesia", label: "Typographic Word Clock" },
     { value: "analog_classic", label: "Classic Analog" },
     { value: "analog_skeleton", label: "Skeleton Analog" },
     { value: "stacked_bold", label: "Vertical Stacked" },
