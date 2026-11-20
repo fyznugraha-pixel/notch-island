@@ -1,12 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, X, Plus, ChevronLeft, ChevronRight } from "lucide-react";
-import {
-  WidgetCatalogEntry,
-  WidgetSize,
-} from "../../../../services/desktopWidgetsService";
+import { Search, X } from "lucide-react";
+import { WidgetCatalogEntry, WidgetSize } from "../../../../services/desktopWidgetsService";
 import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
-import { WidgetPreviewCard } from "./WidgetPreviewCard";
+import { WidgetGalleryTile } from "./WidgetGalleryTile";
 import { localizeCatalogEntry } from "./desktopWidgetsI18n";
 
 interface WidgetGalleryModalProps {
@@ -14,20 +12,16 @@ interface WidgetGalleryModalProps {
   catalog: WidgetCatalogEntry[];
   isLightMode: boolean;
   isId?: boolean;
+  activeWidgetTypes?: string[];
   onClose: () => void;
   onAddWidget: (entry: WidgetCatalogEntry, size: WidgetSize) => void;
 }
 
-const SIZE_LABEL_ID: Record<WidgetSize, string> = {
-  small: "Kecil . 160 x 160 dp",
-  medium: "Sedang . 336 x 160 dp",
-  large: "Besar . 336 x 336 dp",
-};
-
-const SIZE_LABEL_EN: Record<WidgetSize, string> = {
-  small: "Small . 160 x 160 dp",
-  medium: "Medium . 336 x 160 dp",
-  large: "Large . 336 x 336 dp",
+const resolveDefaultSize = (entry: WidgetCatalogEntry): WidgetSize => {
+  if (entry.supported_sizes.includes(entry.default_size)) {
+    return entry.default_size;
+  }
+  return entry.supported_sizes[0] ?? "medium";
 };
 
 export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
@@ -35,65 +29,74 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
   catalog,
   isLightMode,
   isId = true,
+  activeWidgetTypes = [],
   onClose,
   onAddWidget,
 }) => {
   const tr = (idText: string, enText: string) => (isId ? idText : enText);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState("ALL");
-  const [selected, setSelected] = useState<WidgetCatalogEntry | null>(null);
-  const [sizeIdx, setSizeIdx] = useState(0);
   const [sampleLightBg, setSampleLightBg] = useState(false);
+  const [sizeByType, setSizeByType] = useState<Record<string, WidgetSize>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  const installedSet = useMemo(() => new Set(activeWidgetTypes), [activeWidgetTypes]);
 
   const groupFilters = useMemo(
     () => [
-      { id: "ALL", label: tr("Semua (34)", "All (34)") },
+      { id: "ALL", label: tr(`Semua (${catalog.length})`, `All (${catalog.length})`) },
       { id: "A", label: tr("Modul Gili", "Gili Modules") },
       { id: "B", label: tr("Produktif", "Productivity") },
       { id: "C", label: tr("Sistem", "System") },
       { id: "D", label: tr("Estetik", "Aesthetic") },
       { id: "E", label: "Indonesia" },
     ],
-    [isId]
+    [isId, catalog.length]
   );
 
-  const localizedCatalog = useMemo(
-    () => catalog.map((item) => localizeCatalogEntry(item, isId)),
+  const catalogPairs = useMemo(
+    () => catalog.map((raw) => ({ raw, localized: localizeCatalogEntry(raw, isId) })),
     [catalog, isId]
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return localizedCatalog.filter((item, idx) => {
-      if (group !== "ALL" && item.group !== group) return false;
+    return catalogPairs.filter(({ raw, localized }) => {
+      if (group !== "ALL" && localized.group !== group) return false;
       if (!q) return true;
-      const raw = catalog[idx];
       return (
-        item.name.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
-        item.group_label.toLowerCase().includes(q) ||
-        (raw &&
-          (raw.name.toLowerCase().includes(q) ||
-            raw.description.toLowerCase().includes(q)))
+        localized.name.toLowerCase().includes(q) ||
+        localized.description.toLowerCase().includes(q) ||
+        localized.group_label.toLowerCase().includes(q) ||
+        raw.name.toLowerCase().includes(q) ||
+        raw.description.toLowerCase().includes(q)
       );
     });
-  }, [localizedCatalog, catalog, query, group]);
-
-  const activeEntry =
-    (selected ? localizeCatalogEntry(selected, isId) : null) ??
-    filtered[0] ??
-    localizedCatalog[0] ??
-    null;
-  const sizes = activeEntry?.supported_sizes ?? ["medium"];
-  const activeSize = sizes[sizeIdx % sizes.length] ?? "medium";
-  const sizeLabels = isId ? SIZE_LABEL_ID : SIZE_LABEL_EN;
+  }, [catalogPairs, query, group]);
 
   const surfaceCls = isLightMode
     ? "bg-[#f5f5f7] text-neutral-900 border-black/10"
     : "bg-[#121318] text-zinc-100 border-white/12";
-  const mutedCls = isLightMode ? "text-neutral-500" : "text-zinc-400";
+  const borderCls = isLightMode ? "border-black/[0.08]" : "border-white/[0.08]";
+  const mutedCls = isLightMode ? "text-neutral-600" : "text-zinc-400";
 
-  return (
+  const countLabel =
+    filtered.length === catalog.length
+      ? tr(`${catalog.length} widget tersedia`, `${catalog.length} widgets available`)
+      : tr(
+          `${filtered.length} dari ${catalog.length} widget`,
+          `${filtered.length} of ${catalog.length} widgets`
+        );
+
+  const modalNode = (
     <AnimatePresence>
       {open && (
         <motion.div
@@ -102,76 +105,98 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.16 }}
           onClick={onClose}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-md p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-3 sm:p-5"
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={tr("Galeri Widget Desktop", "Desktop Widget Gallery")}
+            initial={{ opacity: 0, scale: 0.97, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            exit={{ opacity: 0, scale: 0.97, y: 8 }}
             transition={{ type: "spring", stiffness: 380, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
-            className={`w-full max-w-4xl max-h-[86vh] rounded-[24px] border shadow-[0_24px_70px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden ${surfaceCls}`}
+            className={`w-full max-w-[1060px] h-[88vh] max-h-[760px] rounded-[22px] border shadow-[0_24px_70px_rgba(0,0,0,0.55)] flex flex-col overflow-hidden ${surfaceCls}`}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
-              <div>
+            <div className={`px-5 py-3.5 border-b ${borderCls} flex flex-wrap items-center justify-between gap-3 shrink-0`}>
+              <div className="min-w-0">
                 <h3 className="text-[15.5px] font-semibold tracking-tight">
                   {tr("Galeri Widget Desktop", "Desktop Widget Gallery")}
                 </h3>
-                <p className={`text-[11.5px] ${mutedCls}`}>
-                  {tr(
-                    "Pilih dari 34 widget native Direct2D, geser ukuran S / M / L sebelum menambahkan.",
-                    "Choose from 34 native Direct2D widgets and preview S / M / L sizes before adding."
-                  )}
-                </p>
+                <p className={`text-[11.5px] mt-0.5 ${mutedCls}`}>{countLabel}</p>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label={tr("Tutup galeri", "Close gallery")}
-                className="w-8 h-8 rounded-full bg-white/[0.08] hover:bg-white/[0.15] flex items-center justify-center cursor-pointer"
-              >
-                <X size={15} />
-              </button>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <IosSegmentedControl
+                  value={sampleLightBg ? "light" : "dark"}
+                  onChange={(v) => setSampleLightBg(v === "light")}
+                  options={[
+                    { value: "dark", label: tr("Gelap", "Dark") },
+                    { value: "light", label: tr("Terang", "Light") },
+                  ]}
+                />
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label={tr("Tutup galeri", "Close gallery")}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
+                    isLightMode
+                      ? "bg-black/[0.07] hover:bg-black/[0.13] text-neutral-800"
+                      : "bg-white/[0.08] hover:bg-white/[0.15] text-zinc-100"
+                  }`}
+                >
+                  <X size={15} aria-hidden="true" />
+                </button>
+              </div>
             </div>
 
-            {/* Search & Category pills */}
-            <div className="px-5 py-3 border-b border-white/[0.08] flex flex-col gap-2.5">
+            {/* Search & Category filters */}
+            <div className={`px-5 py-2.5 border-b ${borderCls} flex flex-col gap-2 shrink-0`}>
               <div className="relative">
                 <Search
                   size={14}
+                  aria-hidden="true"
                   className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${mutedCls}`}
                 />
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  aria-label={tr("Cari widget", "Search widgets")}
                   placeholder={tr(
                     "Cari widget (jam, cuaca, sholat, kanban, lirik, performa...)",
                     "Search widgets (clock, weather, prayer, kanban, lyrics, performance...)"
                   )}
-                  className={`w-full h-9 pl-9 pr-3 rounded-[11px] border text-[12.5px] outline-none focus:border-[#0a84ff] ${
+                  className={`w-full h-9 pl-9 pr-9 rounded-[11px] border text-[12.5px] outline-none focus:border-[#0a84ff] ${
                     isLightMode
-                      ? "bg-white border-black/10 text-neutral-900"
-                      : "bg-[#1a1b22] border-white/10 text-white"
+                      ? "bg-white border-black/10 text-neutral-900 placeholder:text-neutral-500"
+                      : "bg-[#1a1b22] border-white/10 text-white placeholder:text-zinc-500"
                   }`}
                 />
+                {query.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    aria-label={tr("Hapus pencarian", "Clear search")}
+                    className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${mutedCls}`}
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                )}
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {groupFilters.map((g) => (
                   <button
                     key={g.id}
                     type="button"
-                    onClick={() => {
-                      setGroup(g.id);
-                      setSizeIdx(0);
-                    }}
-                    className={`px-3 py-1 rounded-full text-[11.5px] font-medium cursor-pointer transition-colors ${
+                    aria-pressed={group === g.id}
+                    onClick={() => setGroup(g.id)}
+                    className={`px-3 py-1 rounded-full text-[11.5px] font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
                       group === g.id
                         ? "bg-[#0a84ff] text-white"
                         : isLightMode
-                        ? "bg-black/[0.06] hover:bg-black/[0.1]"
-                        : "bg-white/[0.07] hover:bg-white/[0.13]"
+                        ? "bg-black/[0.06] hover:bg-black/[0.11] text-neutral-800"
+                        : "bg-white/[0.07] hover:bg-white/[0.13] text-zinc-200"
                     }`}
                   >
                     {g.label}
@@ -180,149 +205,67 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
               </div>
             </div>
 
-            {/* Two-column body */}
-            <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-12 overflow-hidden">
-              <div className="md:col-span-5 overflow-y-auto p-3 border-r border-white/[0.08] flex flex-col gap-1">
-                {filtered.map((entry) => {
-                  const isSel = activeEntry?.widget_type === entry.widget_type;
-                  return (
-                    <button
-                      key={entry.widget_type}
-                      type="button"
-                      onClick={() => {
-                        setSelected(entry);
-                        setSizeIdx(0);
-                      }}
-                      className={`w-full text-left px-3 py-2.5 rounded-[12px] transition-all cursor-pointer ${
-                        isSel
-                          ? "bg-[#0a84ff]/18 border border-[#0a84ff]/45"
-                          : "border border-transparent hover:bg-white/[0.05]"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[12.5px] font-semibold truncate">{entry.name}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/10 uppercase font-medium">
-                          {entry.supported_sizes.map((s) => s[0]).join(" . ")}
-                        </span>
-                      </div>
-                      <p className={`text-[11px] line-clamp-1 mt-0.5 ${mutedCls}`}>
-                        {entry.description}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="md:col-span-7 p-5 flex flex-col gap-4 overflow-hidden min-h-0">
-                {activeEntry && (
-                  <>
-                    <div className="shrink-0 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-[#0a84ff]">
-                          {tr("Grup", "Group")} {activeEntry.group} . {activeEntry.group_label}
-                        </span>
-                        <h4 className="text-[17px] font-semibold mt-0.5 truncate">
-                          {activeEntry.name}
-                        </h4>
-                        <p className={`text-[12px] mt-0.5 line-clamp-2 ${mutedCls}`}>
-                          {activeEntry.description}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onAddWidget(activeEntry, activeSize)}
-                        className="shrink-0 h-9 px-4 rounded-full bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12.5px] font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-[0_6px_18px_rgba(10,132,255,0.35)]"
-                      >
-                        <Plus size={14} /> {tr("Tambah Widget", "Add Widget")}
-                      </button>
-                    </div>
-
-                    {/* Visual preview stage with horizontal S/M/L pager + dots */}
-                    <div
-                      className="flex-1 min-h-[260px] rounded-[20px] p-5 flex flex-col items-center justify-between gap-3 transition-all overflow-y-auto"
-                      style={{
-                        background: sampleLightBg
-                          ? "linear-gradient(135deg, #e0f2fe 0%, #e2e8f0 50%, #f8fafc 100%)"
-                          : "linear-gradient(135deg, #0b1120 0%, #1e293b 55%, #09090b 100%)",
-                      }}
-                    >
-                      <div className="w-full flex items-center justify-between gap-2">
-                        <span
-                          className={`text-[11px] font-medium ${
-                            sampleLightBg ? "text-slate-600" : "text-white/70"
-                          }`}
-                        >
-                          {sizeLabels[activeSize]}
-                        </span>
-                        <IosSegmentedControl
-                          value={sampleLightBg ? "light" : "dark"}
-                          onChange={(v) => setSampleLightBg(v === "light")}
-                          options={[
-                            { value: "dark", label: tr("Gelap", "Dark") },
-                            { value: "light", label: tr("Terang", "Light") },
-                          ]}
-                        />
-                      </div>
-
-                      <motion.div
-                        key={`${activeEntry.widget_type}_${activeSize}`}
-                        initial={{ opacity: 0, scale: 0.96 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ type: "spring", stiffness: 360, damping: 30 }}
-                      >
-                        <WidgetPreviewCard
-                          entry={activeEntry}
-                          size={activeSize}
-                          lightWallpaper={sampleLightBg}
-                          isId={isId}
-                        />
-                      </motion.div>
-
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          disabled={sizes.length <= 1}
-                          onClick={() =>
-                            setSizeIdx((i) => (i - 1 + sizes.length) % sizes.length)
-                          }
-                          className="w-7 h-7 rounded-full bg-black/30 hover:bg-black/45 text-white flex items-center justify-center disabled:opacity-30 cursor-pointer"
-                        >
-                          <ChevronLeft size={14} />
-                        </button>
-                        <div className="flex items-center gap-1.5">
-                          {sizes.map((sz, idx) => (
-                            <button
-                              key={sz}
-                              type="button"
-                              onClick={() => setSizeIdx(idx)}
-                              aria-label={sizeLabels[sz]}
-                              className={`h-2 rounded-full transition-all cursor-pointer ${
-                                idx === sizeIdx % sizes.length
-                                  ? "w-5 bg-[#0a84ff]"
-                                  : sampleLightBg
-                                  ? "w-2 bg-slate-900/25"
-                                  : "w-2 bg-white/35"
-                              }`}
-                            />
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          disabled={sizes.length <= 1}
-                          onClick={() => setSizeIdx((i) => (i + 1) % sizes.length)}
-                          className="w-7 h-7 rounded-full bg-black/30 hover:bg-black/45 text-white flex items-center justify-center disabled:opacity-30 cursor-pointer"
-                        >
-                          <ChevronRight size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+            {/* Pure Visual Gallery Grid (no sidebar / navbar) */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+              {filtered.length === 0 ? (
+                <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center gap-3">
+                  <p className={`text-[13px] ${mutedCls}`}>
+                    {query.trim()
+                      ? tr(
+                          `Tidak ada widget yang cocok dengan "${query.trim()}".`,
+                          `No widgets match "${query.trim()}".`
+                        )
+                      : tr(
+                          "Tidak ada widget pada kategori ini.",
+                          "No widgets found in this category."
+                        )}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery("");
+                      setGroup("ALL");
+                    }}
+                    className="h-8 px-4 rounded-[10px] bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff]"
+                  >
+                    {tr("Reset Filter", "Reset Filters")}
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 min-[1060px]:grid-cols-3 gap-4 items-stretch">
+                  {filtered.map(({ raw, localized }) => {
+                    const chosenSize =
+                      sizeByType[localized.widget_type] ?? resolveDefaultSize(localized);
+                    return (
+                      <WidgetGalleryTile
+                        key={localized.widget_type}
+                        entry={localized}
+                        selectedSize={chosenSize}
+                        sampleLightBg={sampleLightBg}
+                        isLightMode={isLightMode}
+                        isId={isId}
+                        installed={installedSet.has(localized.widget_type)}
+                        onSelectSize={(sz) =>
+                          setSizeByType((prev) => ({
+                            ...prev,
+                            [localized.widget_type]: sz,
+                          }))
+                        }
+                        onAdd={() => onAddWidget(raw, chosenSize)}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
   );
+
+  if (typeof document !== "undefined") {
+    return createPortal(modalNode, document.body);
+  }
+  return modalNode;
 };

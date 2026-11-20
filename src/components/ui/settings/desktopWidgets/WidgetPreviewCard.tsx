@@ -10,6 +10,7 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import { WidgetCatalogEntry, WidgetSize } from "../../../../services/desktopWidgetsService";
+import { renderExtraWidgetPreviewBody } from "./WidgetPreviewExtraBodies";
 
 interface WidgetPreviewCardProps {
   entry: WidgetCatalogEntry;
@@ -44,8 +45,43 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
           ? ["M", "S", "S", "R", "K", "J", "S"]
           : ["S", "M", "T", "W", "T", "F", "S"];
         const days = Array.from({ length: 30 }, (_, i) => i + 1);
+        if (size === "medium") {
+          const agendas = isId
+            ? [
+                ["09:30", "Standup Tim"],
+                ["14:00", "Review UI"],
+              ]
+            : [
+                ["09:30", "Team Standup"],
+                ["14:00", "UI Review"],
+              ];
+          return (
+            <div className="h-full flex items-stretch gap-3">
+              <div className="w-[38%] flex flex-col justify-between">
+                <div>
+                  <div className={`text-[9.5px] font-bold uppercase ${accentLabel}`}>
+                    {tr("Jumat", "Friday")}
+                  </div>
+                  <div className="text-[36px] font-bold leading-none tabular-nums">20</div>
+                </div>
+                <div className={`text-[10px] ${sub}`}>November 2026</div>
+              </div>
+              <div className="flex-1 flex flex-col justify-center gap-1.5">
+                {agendas.map(([tm, title]) => (
+                  <div key={title} className={`rounded-[9px] px-2.5 py-1.5 ${chip}`}>
+                    <div className="text-[10.5px] font-semibold truncate">{title}</div>
+                    <div className={`text-[9.5px] tabular-nums ${sub}`}>{tm}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
         return (
           <div className="h-full flex flex-col justify-between">
+            {size === "large" && (
+              <div className="text-[12px] font-bold">November 2026</div>
+            )}
             <div className="grid grid-cols-7 gap-y-0.5 text-center text-[9.5px] font-bold opacity-90">
               {headers.map((h, i) => (
                 <div key={i}>{h}</div>
@@ -70,13 +106,13 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <span className={`text-[10px] font-semibold uppercase tracking-wider ${accentLabel}`}>
-              {tr("Jumat, 20 November", "Friday, 20 November")}
+              {tr("Jumat, 20 November", "Friday, November 20")}
             </span>
             <div className="text-[40px] font-bold tracking-tight tabular-nums leading-none">
               22:15
             </div>
             <span className={`text-[11px] ${sub}`}>
-              {tr("8 gaya termasuk kata Indonesia", "8 styles incl. Indonesian word clock")}
+              {tr("8 gaya termasuk kata Indonesia", "8 styles including word clock")}
             </span>
           </div>
         );
@@ -161,7 +197,18 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             </div>
           </div>
         );
-      case "weather_forecast":
+      case "weather_forecast": {
+        const daily = isId
+          ? [
+              ["Sabtu", "25°", "30°", "w-[55%]"],
+              ["Minggu", "24°", "32°", "w-[72%]"],
+              ["Senin", "24°", "30°", "w-[60%]"],
+            ]
+          : [
+              ["Sat", "25°", "30°", "w-[55%]"],
+              ["Sun", "24°", "32°", "w-[72%]"],
+              ["Mon", "24°", "30°", "w-[60%]"],
+            ];
         return (
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between">
@@ -185,12 +232,42 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
                 </div>
               )}
             </div>
+            {size === "large" && (
+              <div className="flex flex-col gap-1.5 border-t border-current/10 pt-2">
+                {daily.map(([day, lo, hi, barW]) => (
+                  <div key={day} className="flex items-center gap-2 text-[10.5px]">
+                    <span className="w-12 truncate font-medium">{day}</span>
+                    <span className={`tabular-nums ${sub}`}>{lo}</span>
+                    <div className={`flex-1 h-1 rounded-full ${lightWallpaper ? "bg-slate-900/12" : "bg-white/15"}`}>
+                      <div className={`h-full rounded-full bg-amber-400 ${barW}`} />
+                    </div>
+                    <span className="tabular-nums font-semibold">{hi}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <span className={`text-[11px] ${sub}`}>
               {tr("Cerah Berawan . Open-Meteo", "Partly Cloudy . Open-Meteo")}
             </span>
           </div>
         );
-      case "prayer_times":
+      }
+      case "prayer_times": {
+        const prayerRows = isId
+          ? [
+              ["Sbh", "04:12"],
+              ["Dzh", "11:46"],
+              ["Ash", "15:09"],
+              ["Mgh", "17:58"],
+              ["Isy", "19:11"],
+            ]
+          : [
+              ["Fajr", "04:12"],
+              ["Dhr", "11:46"],
+              ["Asr", "15:09"],
+              ["Mgh", "17:58"],
+              ["Ish", "19:11"],
+            ];
         return (
           <div className="h-full flex flex-col justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
@@ -198,17 +275,13 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             </span>
             <div>
               <div className="text-[32px] font-bold leading-none tabular-nums">17:58</div>
-              <div className={`text-[11.5px] mt-1 ${sub}`}>Maghrib . Kemenag RI Offline</div>
+              <div className={`text-[11.5px] mt-1 ${sub}`}>
+                {tr("Maghrib . Kemenag RI Offline", "Maghrib . Offline Kemenag Method")}
+              </div>
             </div>
             {size !== "small" && (
               <div className="grid grid-cols-5 gap-1 text-center text-[10px]">
-                {[
-                  ["Sbh", "04:12"],
-                  ["Dzh", "11:46"],
-                  ["Ash", "15:09"],
-                  ["Mgh", "17:58"],
-                  ["Isy", "19:11"],
-                ].map(([k, v]) => (
+                {prayerRows.map(([k, v]) => (
                   <div key={k} className={`rounded-lg py-1 ${chip}`}>
                     <div className={sub}>{k}</div>
                     <div className="font-semibold tabular-nums">{v}</div>
@@ -218,6 +291,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             )}
           </div>
         );
+      }
       case "quick_controls":
         return (
           <div className="h-full flex flex-col justify-between">
@@ -455,7 +529,19 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             </div>
           </div>
         );
-      default:
+      default: {
+        const extraBody = renderExtraWidgetPreviewBody({
+          entry,
+          size,
+          lightWallpaper,
+          isId,
+          fg,
+          sub,
+          chip,
+          accentBar,
+          accentLabel,
+        });
+        if (extraBody) return extraBody;
         return (
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between gap-2">
@@ -471,6 +557,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             <div className={`text-[10px] truncate ${sub}`}>{entry.group_label}</div>
           </div>
         );
+      }
     }
   };
 

@@ -683,6 +683,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         catalog={catalog}
         isLightMode={isLightMode}
         isId={isId}
+        activeWidgetTypes={config.slots.flatMap((s) => s.widgets.map((w) => w.widget_type))}
         onClose={() => setGalleryOpen(false)}
         onAddWidget={handleAddWidget}
       />
