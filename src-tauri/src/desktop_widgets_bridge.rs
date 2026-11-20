@@ -282,6 +282,16 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                         let _ = crate::smtc_action("toggle".to_string()).await;
                     });
                     return;
+                } else if act == "media_prev" {
+                    tauri::async_runtime::spawn(async {
+                        let _ = crate::smtc_action("prev".to_string()).await;
+                    });
+                    return;
+                } else if act == "media_next" {
+                    tauri::async_runtime::spawn(async {
+                        let _ = crate::smtc_action("next".to_string()).await;
+                    });
+                    return;
                 } else if act == "mascot_poke" {
                     engine().with_hub_mut(|h| {
                         h.mascot_poke_count = h.mascot_poke_count.wrapping_add(1);
@@ -526,15 +536,20 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                     let mut qc_wifi = None;
                     let mut qc_bt = None;
                     let mut qc_mute = None;
-                    if has_widget("quick_controls") && last_qc_poll.elapsed() >= Duration::from_secs(10) {
+                    if has_widget("quick_controls")
+                        && last_qc_poll.elapsed() >= Duration::from_secs(10)
+                    {
                         last_qc_poll = Instant::now();
                         qc_mute = with_windows_master_mute(false);
-                        qc_wifi = tauri::async_runtime::block_on(crate::connectivity::get_wifi_status())
-                            .ok()
-                            .map(|s| s.enabled);
-                        qc_bt = tauri::async_runtime::block_on(crate::connectivity::get_bluetooth_status())
-                            .ok()
-                            .map(|s| s.enabled);
+                        qc_wifi =
+                            tauri::async_runtime::block_on(crate::connectivity::get_wifi_status())
+                                .ok()
+                                .map(|s| s.enabled);
+                        qc_bt = tauri::async_runtime::block_on(
+                            crate::connectivity::get_bluetooth_status(),
+                        )
+                        .ok()
+                        .map(|s| s.enabled);
                     }
                     engine().update_system_telemetry(
                         gpu_name,
@@ -570,11 +585,13 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                 }
 
                 // Refresh recent files metadata when opted-in
-                if has_widget("recent_files") && last_recent_scan.elapsed() >= Duration::from_secs(30)
+                if has_widget("recent_files")
+                    && last_recent_scan.elapsed() >= Duration::from_secs(30)
                 {
                     last_recent_scan = Instant::now();
                     engine().with_hub_mut(|h| {
-                        if h.recent_files.opt_in_enabled && !h.recent_files.watched_folders.is_empty()
+                        if h.recent_files.opt_in_enabled
+                            && !h.recent_files.watched_folders.is_empty()
                         {
                             scan_recent_files_metadata_only(&mut h.recent_files, 16);
                         }

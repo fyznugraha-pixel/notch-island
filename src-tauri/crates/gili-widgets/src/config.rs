@@ -2,13 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 2;
+pub const CONFIG_SCHEMA_VERSION: u32 = 3;
 pub const GRID_SMALL_DP: f32 = 160.0;
 pub const GRID_MEDIUM_W_DP: f32 = 336.0;
 pub const GRID_LARGE_DP: f32 = 336.0;
 pub const GRID_GAP_DP: f32 = 16.0;
-pub const CARD_RADIUS_DP: f32 = 24.0;
-pub const CARD_CORNER_SMOOTHING: f32 = 0.60;
+pub const CARD_RADIUS_DP: f32 = 26.0;
+pub const CARD_CORNER_SMOOTHING: f32 = 0.65;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -147,19 +147,19 @@ pub struct WidgetStyleConfig {
 impl Default for WidgetStyleConfig {
     fn default() -> Self {
         Self {
-            background_mode: BackgroundMode::None,
-            tint_opacity: 0.18,
+            background_mode: BackgroundMode::Glass,
+            tint_opacity: 0.20,
             text_primary: ColorRoleSource::AutoContrast,
             text_secondary: ColorRoleSource::AutoContrast,
             accent: ColorRoleSource::AutoContrast,
             card_color: ColorRoleSource::Custom {
-                color: RgbaColor::new(0x14, 0x15, 0x1A, 0.85),
+                color: RgbaColor::new(0x16, 0x18, 0x20, 0.88),
             },
             shadow_color: RgbaColor::new(0, 0, 0, 0.55),
             shadow_enabled: true,
             halo_enabled: false,
             font_family: "Segoe UI Variable".to_string(),
-            font_weight: 600,
+            font_weight: 500,
             text_scale: 1.0,
         }
     }
@@ -293,15 +293,34 @@ impl Default for DesktopWidgetsConfig {
 pub fn default_presets() -> Vec<ColorPreset> {
     vec![
         ColorPreset {
-            id: "oled_clear".into(),
-            name: "Bening Adaptif".into(),
+            id: "frosted_dark".into(),
+            name: "Kaca Gelap (Default)".into(),
             style: WidgetStyleConfig::default(),
         },
         ColorPreset {
-            id: "monochrome_white".into(),
-            name: "Putih Murni (Semua Putih)".into(),
+            id: "frosted_light".into(),
+            name: "Kaca Terang".into(),
             style: WidgetStyleConfig {
-                background_mode: BackgroundMode::None,
+                background_mode: BackgroundMode::Glass,
+                card_color: ColorRoleSource::Custom {
+                    color: RgbaColor::new(0xF4, 0xF6, 0xFA, 0.90),
+                },
+                text_primary: ColorRoleSource::Custom {
+                    color: RgbaColor::new(0x11, 0x13, 0x18, 0.96),
+                },
+                text_secondary: ColorRoleSource::Custom {
+                    color: RgbaColor::new(0x11, 0x13, 0x18, 0.68),
+                },
+                accent: ColorRoleSource::AutoContrast,
+                shadow_enabled: false,
+                ..WidgetStyleConfig::default()
+            },
+        },
+        ColorPreset {
+            id: "monochrome_white".into(),
+            name: "Putih Murni (Kaca)".into(),
+            style: WidgetStyleConfig {
+                background_mode: BackgroundMode::Glass,
                 text_primary: ColorRoleSource::Custom {
                     color: RgbaColor::new(0xFF, 0xFF, 0xFF, 1.0),
                 },
@@ -315,27 +334,10 @@ pub fn default_presets() -> Vec<ColorPreset> {
             },
         },
         ColorPreset {
-            id: "frosted_glass".into(),
-            name: "Kaca Halus".into(),
+            id: "oled_clear".into(),
+            name: "Bening Tanpa Kartu".into(),
             style: WidgetStyleConfig {
-                background_mode: BackgroundMode::Glass,
-                tint_opacity: 0.20,
-                shadow_enabled: false,
-                ..WidgetStyleConfig::default()
-            },
-        },
-        ColorPreset {
-            id: "emerald_tint".into(),
-            name: "Tint Zamrud".into(),
-            style: WidgetStyleConfig {
-                background_mode: BackgroundMode::SubtleTint,
-                tint_opacity: 0.18,
-                accent: ColorRoleSource::Custom {
-                    color: RgbaColor::new(0x34, 0xC3, 0xA0, 1.0),
-                },
-                card_color: ColorRoleSource::Custom {
-                    color: RgbaColor::new(0x0D, 0x24, 0x1F, 1.0),
-                },
+                background_mode: BackgroundMode::None,
                 ..WidgetStyleConfig::default()
             },
         },
@@ -511,6 +513,9 @@ pub fn migrate_config_value(raw: serde_json::Value) -> DesktopWidgetsConfig {
                 }
             }
         }
+    }
+    if version < 3 && parsed.global_theme.background_mode == BackgroundMode::None {
+        parsed.global_theme.background_mode = BackgroundMode::Glass;
     }
     normalize_config(parsed)
 }

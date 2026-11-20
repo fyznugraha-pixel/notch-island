@@ -217,6 +217,8 @@ pub struct WidgetRenderItem {
     pub frame: RectF,
     pub background_mode: BackgroundMode,
     pub card_fill: Option<RgbaColor>,
+    #[serde(default)]
+    pub card_gradient: Option<(RgbaColor, RgbaColor)>,
     pub inner_border: Option<RgbaColor>,
     pub shadow_enabled: bool,
     pub halo_enabled: bool,
@@ -468,6 +470,7 @@ mod tests {
             frame: RectF::new(100.0, 100.0, 336.0, 160.0),
             background_mode: BackgroundMode::None,
             card_fill: None,
+            card_gradient: None,
             inner_border: None,
             shadow_enabled: true,
             halo_enabled: false,

@@ -80,24 +80,57 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
               <span className={`text-[10px] font-bold uppercase tracking-wider ${sub}`}>
                 Performa Sistem
               </span>
-              <span className="text-[11px] font-semibold text-emerald-400 tabular-nums">
-                RAM 48%
+              <span className={`text-[10.5px] font-semibold tabular-nums ${sub}`}>
+                RAM 7.7/16 GB
               </span>
             </div>
-            <div className="flex items-end gap-3">
-              <span className="text-[34px] font-bold leading-none tabular-nums">18%</span>
-              <div className="flex-1 flex items-end gap-1 h-9">
-                {[30, 55, 22, 68, 40, 28, 52, 35].map((h, i) => (
-                  <div
-                    key={i}
-                    className={`flex-1 rounded-full ${accentBar} opacity-85`}
-                    style={{ height: `${h}%` }}
-                  />
-                ))}
-              </div>
+            <div className="flex items-center gap-2.5">
+              {[
+                { label: "CPU", val: "18%", pct: 18, color: lightWallpaper ? "#0f172a" : "#ffffff" },
+                { label: "RAM", val: "48%", pct: 48, color: "#34d399" },
+              ].map((ring) => (
+                <div key={ring.label} className="flex flex-col items-center">
+                  <div className="relative w-11 h-11 flex items-center justify-center">
+                    <svg viewBox="0 0 36 36" className="w-11 h-11 -rotate-90">
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="14.5"
+                        fill="none"
+                        stroke={lightWallpaper ? "rgba(15,23,42,0.12)" : "rgba(255,255,255,0.14)"}
+                        strokeWidth="3.5"
+                      />
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="14.5"
+                        fill="none"
+                        stroke={ring.color}
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                        strokeDasharray={`${ring.pct * 0.91} 91`}
+                      />
+                    </svg>
+                    <span className="absolute text-[10px] font-bold tabular-nums">{ring.val}</span>
+                  </div>
+                  <span className={`text-[9px] font-semibold mt-0.5 ${sub}`}>{ring.label}</span>
+                </div>
+              ))}
+              {size !== "small" && (
+                <div className="flex-1 flex items-end gap-1 h-11 pb-2">
+                  {[30, 55, 22, 68, 40, 28, 52, 35].map((h, i) => (
+                    <div
+                      key={i}
+                      className={`flex-1 rounded-full ${accentBar} opacity-85`}
+                      style={{ height: `${h}%` }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="h-1.5 w-full rounded-full bg-white/15 overflow-hidden">
-              <div className="h-full w-[48%] rounded-full bg-emerald-400" />
+            <div className={`flex items-center justify-between text-[10px] tabular-nums ${sub}`}>
+              <span>GPU 12%</span>
+              <span>D 2.4 Mbps</span>
             </div>
           </div>
         );
@@ -278,6 +311,25 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             <div className="text-[12.5px] font-semibold truncate">Target Rilis Proyek</div>
           </div>
         );
+      case "photo_frame":
+        return (
+          <div
+            className="h-full w-full rounded-[18px] overflow-hidden relative flex items-center justify-center"
+            style={{
+              background: lightWallpaper
+                ? "linear-gradient(160deg, #e2e8f0 0%, #cbd5e1 65%, #94a3b8 100%)"
+                : "linear-gradient(160deg, #1e293b 0%, #334155 60%, #0f172a 100%)",
+            }}
+          >
+            <svg viewBox="0 0 120 96" className="w-full h-full opacity-85">
+              <circle cx="88" cy="26" r="9" fill={lightWallpaper ? "#f8fafc" : "#e2e8f0"} opacity="0.8" />
+              <path
+                d="M0 78 L34 46 L62 72 L86 52 L120 82 L120 96 L0 96 Z"
+                fill={lightWallpaper ? "rgba(15,23,42,0.22)" : "rgba(255,255,255,0.16)"}
+              />
+            </svg>
+          </div>
+        );
       case "world_clock":
         return (
           <div className="h-full flex flex-col justify-between">
@@ -286,15 +338,42 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             </span>
             <div className="grid grid-cols-4 gap-1.5 text-center">
               {[
-                ["JKT", "22:30", "WIB"],
-                ["TYO", "00:30", "JST"],
-                ["LDN", "15:30", "UTC"],
-                ["NYC", "10:30", "EST"],
-              ].map(([c, t, z]) => (
-                <div key={c} className={`rounded-[12px] py-2 px-1 ${chip}`}>
-                  <div className="text-[13px] font-bold tabular-nums">{t}</div>
-                  <div className="text-[10px] font-semibold mt-0.5">{c}</div>
-                  <div className={`text-[9px] ${sub}`}>{z}</div>
+                ["Jakarta", "22:30", 315, 180],
+                ["Tokyo", "00:30", 15, 180],
+                ["London", "15:30", 105, 180],
+                ["New York", "10:30", 315, 180],
+              ].map(([city, t, hDeg, mDeg]) => (
+                <div key={String(city)} className={`rounded-[14px] py-2 px-1 flex flex-col items-center ${chip}`}>
+                  <svg viewBox="0 0 36 36" className="w-7 h-7 mb-1">
+                    <circle
+                      cx="18"
+                      cy="18"
+                      r="15"
+                      fill={lightWallpaper ? "rgba(15,23,42,0.06)" : "rgba(255,255,255,0.08)"}
+                      stroke={lightWallpaper ? "rgba(15,23,42,0.45)" : "rgba(255,255,255,0.55)"}
+                      strokeWidth="1.3"
+                    />
+                    <line
+                      x1="18"
+                      y1="18"
+                      x2={18 + 7.5 * Math.cos(((Number(hDeg) - 90) * Math.PI) / 180)}
+                      y2={18 + 7.5 * Math.sin(((Number(hDeg) - 90) * Math.PI) / 180)}
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                    <line
+                      x1="18"
+                      y1="18"
+                      x2={18 + 11 * Math.cos(((Number(mDeg) - 90) * Math.PI) / 180)}
+                      y2={18 + 11 * Math.sin(((Number(mDeg) - 90) * Math.PI) / 180)}
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="text-[10.5px] font-semibold truncate max-w-full">{city}</div>
+                  <div className={`text-[10px] font-bold tabular-nums ${sub}`}>{t}</div>
                 </div>
               ))}
             </div>
@@ -363,11 +442,29 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
     }
   };
 
+  const surfaceStyle: React.CSSProperties =
+    entry.widget_type === "photo_frame"
+      ? {
+          width: dim.height,
+          height: dim.height,
+          boxShadow: "0 12px 28px rgba(0,0,0,0.22)",
+        }
+      : {
+          ...dim,
+          background: lightWallpaper
+            ? "linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(241,245,249,0.56) 100%)"
+            : "linear-gradient(180deg, rgba(34,37,48,0.62) 0%, rgba(20,22,30,0.48) 100%)",
+          backdropFilter: "blur(20px)",
+          boxShadow: lightWallpaper
+            ? "0 10px 26px rgba(15,23,42,0.10), inset 0 1px 0 rgba(255,255,255,0.65)"
+            : "0 12px 28px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.20)",
+        };
+
   return (
     <div
-      style={dim}
-      className={`rounded-[24px] p-4 transition-all border border-dashed ${fg} ${
-        lightWallpaper ? "border-slate-900/20" : "border-white/20"
+      style={surfaceStyle}
+      className={`rounded-[26px] ${entry.widget_type === "photo_frame" ? "p-0" : "p-4"} transition-all border ${fg} ${
+        lightWallpaper ? "border-slate-900/12" : "border-white/22"
       }`}
     >
       {renderInner()}

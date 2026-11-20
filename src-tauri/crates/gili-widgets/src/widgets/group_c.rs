@@ -26,7 +26,12 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             false,
         ),
         text_node(
-            RectF::new(inner.x + inner.w * 0.65, inner.y + 2.0, inner.w * 0.35, 16.0),
+            RectF::new(
+                inner.x + inner.w * 0.65,
+                inner.y + 2.0,
+                inner.w * 0.35,
+                16.0,
+            ),
             "Hanya-baca",
             11.0,
             500,
@@ -37,7 +42,11 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ];
 
     let max_rows = if ctx.size == WidgetSize::Large { 5 } else { 3 };
-    let row_h = if ctx.size == WidgetSize::Large { 52.0 } else { 32.0 };
+    let row_h = if ctx.size == WidgetSize::Large {
+        52.0
+    } else {
+        32.0
+    };
     for (i, p) in procs.iter().take(max_rows).enumerate() {
         let y = inner.y + 28.0 + i as f32 * row_h;
         nodes.push(text_node(
@@ -82,9 +91,9 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 17. Kontrol cepat: HANYA API publik stabil (Wi-Fi, Bluetooth, Mode Gelap, Bisukan Audio) (S, M)
 pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let qc = &ctx.hub.quick_controls;
-    let mut nodes = vec![text_node(
+    let mut nodes = vec![crate::widgets::text_node_line(
         RectF::new(inner.x, inner.y, inner.w, 18.0),
         "Kontrol Cepat",
         14.0,
@@ -101,7 +110,12 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     if let Some(bt) = qc.bluetooth_enabled {
         tiles.push(("\u{E702}", "Bluetooth", "quick_toggle:bluetooth", bt));
     }
-    tiles.push(("\u{E708}", "Mode Gelap", "quick_toggle:dark_mode", qc.dark_mode_enabled));
+    tiles.push((
+        "\u{E708}",
+        "Mode Gelap",
+        "quick_toggle:dark_mode",
+        qc.dark_mode_enabled,
+    ));
     if let Some(muted) = qc.audio_muted {
         tiles.push((
             if muted { "\u{E74F}" } else { "\u{E767}" },
@@ -118,41 +132,46 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     };
     let gap = 8.0;
     let cw = (inner.w - gap * (cols as f32 - 1.0)) / cols as f32;
-    let ch = ((inner.h - 28.0) - gap * (rows as f32 - 1.0)) / rows as f32;
+    let ch = ((inner.h - 26.0) - gap * (rows as f32 - 1.0)) / rows as f32;
 
     for (idx, (glyph, label, act, on)) in tiles.iter().take(cols * rows).enumerate() {
         let c = idx % cols;
         let r = idx / cols;
         let x = inner.x + c as f32 * (cw + gap);
-        let y = inner.y + 26.0 + r as f32 * (ch + gap);
+        let y = inner.y + 24.0 + r as f32 * (ch + gap);
         let fill = if *on {
-            ctx.pal.accent.with_alpha(0.28)
+            ctx.pal.accent.with_alpha(0.26)
         } else {
             ctx.pal.surface_chip
         };
+        let border = if *on {
+            ctx.pal.accent.with_alpha(0.65)
+        } else {
+            ctx.pal
+                .inner_border
+                .map(|b| b.with_alpha(b.a * 0.65))
+                .unwrap_or_else(|| ctx.pal.secondary.with_alpha(0.20))
+        };
         nodes.push(SceneNode::RoundedRect {
             rect: RectF::new(x, y, cw, ch),
-            radius: 14.0,
-            smoothing: 0.60,
+            radius: 16.0,
+            smoothing: 0.65,
             fill: Some(fill),
-            stroke: Some((
-                if *on {
-                    ctx.pal.accent.with_alpha(0.70)
-                } else {
-                    ctx.pal.secondary.with_alpha(0.18)
-                },
-                1.0,
-            )),
+            stroke: Some((border, 0.85)),
             interactive_action: Some((*act).to_string()),
         });
         nodes.push(SceneNode::IconGlyph {
-            rect: RectF::new(x, y + ch * 0.14, cw, 22.0),
+            rect: RectF::new(x, y + ch * 0.13, cw, 24.0),
             glyph: (*glyph).to_string(),
-            size: 16.0,
-            color: if *on { ctx.pal.primary } else { ctx.pal.secondary },
+            size: 18.0,
+            color: if *on {
+                ctx.pal.primary
+            } else {
+                ctx.pal.secondary
+            },
             interactive_action: Some((*act).to_string()),
         });
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(x + 6.0, y + ch * 0.50, cw - 12.0, 16.0),
             *label,
             11.5,
@@ -161,12 +180,16 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Center,
             false,
         ));
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(x + 6.0, y + ch * 0.50 + 15.0, cw - 12.0, 14.0),
             if *on { "Aktif" } else { "Mati" },
             10.0,
             500,
-            if *on { ctx.pal.accent } else { ctx.pal.secondary },
+            if *on {
+                ctx.pal.accent
+            } else {
+                ctx.pal.secondary
+            },
             TextAlign::Center,
             false,
         ));
@@ -188,17 +211,15 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let inner = ctx.frame.inset(14.0);
     let total_gb = tm.total_scanned_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
 
-    let mut nodes = vec![
-        text_node(
-            RectF::new(inner.x, inner.y, inner.w - 76.0, 18.0),
-            format!("Peta Penyimpanan ({:.1} GB)", total_gb),
-            13.5,
-            600,
-            ctx.pal.primary,
-            TextAlign::Left,
-            true,
-        ),
-    ];
+    let mut nodes = vec![text_node(
+        RectF::new(inner.x, inner.y, inner.w - 76.0, 18.0),
+        format!("Peta Penyimpanan ({:.1} GB)", total_gb),
+        13.5,
+        600,
+        ctx.pal.primary,
+        TextAlign::Left,
+        true,
+    )];
     nodes.extend(action_pill(
         RectF::new(inner.x + inner.w - 72.0, inner.y - 2.0, 72.0, 22.0),
         if tm.scanning { "Memindai" } else { "Pindai" },
@@ -276,7 +297,7 @@ fn format_duration_hm(total_secs: u64) -> String {
 
 /// 32. Screen Time Harian: durasi layar aktif hari ini & aktivitas proses (M, L)
 pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let st = &ctx.hub.screen_time;
     let limit = if st.daily_limit_secs > 0 {
         st.daily_limit_secs
@@ -293,7 +314,7 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             color: ctx.pal.secondary,
             interactive_action: None,
         },
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
             "SCREEN TIME HARI INI",
             10.5,
@@ -302,8 +323,8 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ),
-        text_node(
-            RectF::new(inner.x, inner.y + 18.0, inner.w * 0.65, 44.0),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 18.0, inner.w * 0.60, 44.0),
             format_duration_hm(st.today_secs),
             36.0,
             700,
@@ -311,8 +332,13 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             true,
         ),
-        text_node(
-            RectF::new(inner.x + inner.w * 0.58, inner.y + 34.0, inner.w * 0.42, 18.0),
+        crate::widgets::text_node_line(
+            RectF::new(
+                inner.x + inner.w * 0.60,
+                inner.y + 34.0,
+                inner.w * 0.40,
+                18.0,
+            ),
             format!("Nyala {}", format_duration_hm(st.uptime_secs)),
             11.5,
             500,
@@ -321,14 +347,18 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             true,
         ),
         SceneNode::ProgressBar {
-            rect: RectF::new(inner.x, inner.y + 70.0, inner.w, 7.0),
+            rect: RectF::new(inner.x, inner.y + 68.0, inner.w, 6.5),
             progress: ratio,
             track_color: ctx.pal.surface_chip,
-            fill_color: if ratio > 0.90 { ctx.pal.warning } else { ctx.pal.accent },
+            fill_color: if ratio > 0.90 {
+                ctx.pal.warning
+            } else {
+                ctx.pal.accent
+            },
             interactive_action: None,
         },
-        text_node(
-            RectF::new(inner.x, inner.y + 82.0, inner.w, 16.0),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 80.0, inner.w, 16.0),
             format!(
                 "Batas harian {} ({:.0}%)",
                 format_duration_hm(limit),
@@ -343,8 +373,8 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ];
 
     if ctx.size == WidgetSize::Large {
-        let mut y = inner.y + 114.0;
-        nodes.push(text_node(
+        let mut y = inner.y + 112.0;
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, y, inner.w, 16.0),
             "PROSES AKTIF SAAT INI (BACA-SAJA)",
             10.5,
@@ -355,8 +385,8 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ));
         y += 22.0;
         for p in ctx.hub.top_processes.iter().take(4) {
-            nodes.push(text_node(
-                RectF::new(inner.x, y, inner.w - 72.0, 16.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, y, inner.w - 76.0, 16.0),
                 &p.name,
                 12.5,
                 600,

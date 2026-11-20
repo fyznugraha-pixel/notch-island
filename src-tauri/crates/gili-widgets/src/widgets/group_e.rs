@@ -22,7 +22,7 @@ fn format_idr(amount: i64) -> String {
 
 /// 24. Jadwal sholat offline Kemenag RI + mode Ramadan (S, M, L)
 pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let p = &ctx.hub.prayer;
     let city = if p.city_name.is_empty() { "Jakarta" } else { &p.city_name };
 
@@ -34,7 +34,7 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             color: ctx.pal.positive,
             interactive_action: None,
         },
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
             format!("SHOLAT . {}", city.to_uppercase()),
             10.5,
@@ -43,8 +43,8 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ),
-        text_node(
-            RectF::new(inner.x, inner.y + 16.0, inner.w * 0.60, 42.0),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 16.0, inner.w * 0.60, 40.0),
             if p.next_time.is_empty() { "--:--" } else { &p.next_time },
             34.0,
             700,
@@ -52,10 +52,10 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             true,
         ),
-        text_node(
-            RectF::new(inner.x, inner.y + 56.0, inner.w, 18.0),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 56.0, inner.w, 16.0),
             format!("{} . {}", p.next_name, p.countdown_label),
-            12.5,
+            12.0,
             600,
             ctx.pal.secondary,
             TextAlign::Left,
@@ -64,7 +64,7 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ];
 
     if p.ramadan_mode {
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(
                 inner.x + inner.w * 0.42,
                 inner.y,
@@ -89,24 +89,46 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ("Isya", &p.times.isya),
         ];
         if ctx.size == WidgetSize::Medium {
-            let col_w = inner.w / 5.0;
-            let base_y = inner.y + 84.0;
+            let gap = 5.0;
+            let col_w = (inner.w - gap * 4.0) / 5.0;
+            let pill_h = 42.0;
+            let base_y = (inner.y + inner.h - pill_h).max(inner.y + 74.0);
+            let subtle_stroke = ctx
+                .pal
+                .inner_border
+                .map(|b| (b.with_alpha(b.a * 0.55), 0.7));
             for (i, (lbl, val)) in rows.iter().enumerate() {
-                let x = inner.x + i as f32 * col_w;
+                let x = inner.x + i as f32 * (col_w + gap);
                 let active = *lbl == p.next_name;
-                nodes.push(text_node(
-                    RectF::new(x, base_y, col_w, 14.0),
+                nodes.push(SceneNode::RoundedRect {
+                    rect: RectF::new(x, base_y, col_w, pill_h),
+                    radius: 12.0,
+                    smoothing: 0.60,
+                    fill: Some(if active {
+                        ctx.pal.positive.with_alpha(0.18)
+                    } else {
+                        ctx.pal.surface_chip
+                    }),
+                    stroke: if active {
+                        Some((ctx.pal.positive.with_alpha(0.55), 0.85))
+                    } else {
+                        subtle_stroke
+                    },
+                    interactive_action: None,
+                });
+                nodes.push(crate::widgets::text_node_line(
+                    RectF::new(x + 2.0, base_y + 6.0, col_w - 4.0, 14.0),
                     *lbl,
-                    10.5,
+                    10.0,
                     if active { 700 } else { 500 },
                     if active { ctx.pal.positive } else { ctx.pal.secondary },
                     TextAlign::Center,
                     false,
                 ));
-                nodes.push(text_node(
-                    RectF::new(x, base_y + 16.0, col_w, 18.0),
+                nodes.push(crate::widgets::text_node_line(
+                    RectF::new(x + 2.0, base_y + 21.0, col_w - 4.0, 16.0),
                     *val,
-                    12.5,
+                    12.0,
                     700,
                     ctx.pal.primary,
                     TextAlign::Center,
@@ -485,7 +507,7 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             "refresh_air_quality",
         );
     }
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let badge_col = match aq.us_aqi {
         0..=50 => ctx.pal.positive,
         51..=100 => ctx.pal.warning,
@@ -500,7 +522,7 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     };
 
     let mut nodes = vec![
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 28.0, 16.0),
             format!("AQI . {}", aq.location_name.to_uppercase()),
             10.5,
@@ -516,7 +538,7 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             color: badge_col,
             interactive_action: None,
         },
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 16.0, 110.0, 44.0),
             format!("{}", aq.us_aqi),
             38.0,
@@ -525,7 +547,7 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             true,
         ),
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 62.0, inner.w, 18.0),
             &aq.category_label,
             13.0,
@@ -544,7 +566,7 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ];
 
     if ctx.size == WidgetSize::Small {
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + inner.h - 18.0, inner.w, 16.0),
             format!("PM2.5 {:.0} . UV {:.1}", aq.pm2_5, aq.uv_index),
             11.0,
@@ -562,17 +584,21 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         let start_x = inner.x + 114.0;
         let gap = 6.0;
         let pw = (inner.w - 114.0 - gap * 2.0) / 3.0;
+        let pill_stroke = ctx
+            .pal
+            .inner_border
+            .map(|b| (b.with_alpha(b.a * 0.60), 0.75));
         for (i, (lbl, val)) in pills.iter().enumerate() {
             let x = start_x + i as f32 * (pw + gap);
             nodes.push(SceneNode::RoundedRect {
                 rect: RectF::new(x, inner.y + 20.0, pw, 48.0),
-                radius: 10.0,
-                smoothing: 0.45,
+                radius: 12.0,
+                smoothing: 0.60,
                 fill: Some(ctx.pal.surface_chip),
-                stroke: None,
+                stroke: pill_stroke,
                 interactive_action: None,
             });
-            nodes.push(text_node(
+            nodes.push(crate::widgets::text_node_line(
                 RectF::new(x + 2.0, inner.y + 25.0, pw - 4.0, 14.0),
                 *lbl,
                 9.5,
@@ -581,7 +607,7 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 TextAlign::Center,
                 false,
             ));
-            nodes.push(text_node(
+            nodes.push(crate::widgets::text_node_line(
                 RectF::new(x + 2.0, inner.y + 41.0, pw - 4.0, 18.0),
                 val,
                 14.0,
@@ -591,7 +617,7 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 true,
             ));
         }
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + inner.h - 16.0, inner.w, 14.0),
             "Sumber: Open-Meteo Air Quality",
             10.0,

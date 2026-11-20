@@ -115,7 +115,7 @@ fn push_month_grid_nodes(
 
 /// 1. Kalender multi-tipe (Bulan Minimalis, Bulan + Judul, Tanggal Fokus, Tanggal + Agenda)
 pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let (year, month, day, _, _, _, dow) = local_datetime_parts();
     let style = ctx
         .instance
@@ -264,7 +264,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             match ctx.size {
                 WidgetSize::Small => {
                     if let Some(ev) = events.first() {
-                        nodes.push(text_node(
+                        nodes.push(crate::widgets::text_node_line(
                             RectF::new(inner.x, inner.y + inner.h - 38.0, inner.w, 16.0),
                             &ev.time,
                             11.0,
@@ -273,7 +273,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                             TextAlign::Left,
                             true,
                         ));
-                        nodes.push(text_node(
+                        nodes.push(crate::widgets::text_node_line(
                             RectF::new(inner.x, inner.y + inner.h - 22.0, inner.w, 20.0),
                             &ev.title,
                             12.5,
@@ -297,7 +297,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 WidgetSize::Medium | WidgetSize::Large => {
                     let right_x = inner.x + inner.w * 0.42;
                     let right_w = inner.w * 0.58;
-                    nodes.push(text_node(
+                    nodes.push(crate::widgets::text_node_line(
                         RectF::new(inner.x, inner.y + 56.0, inner.w * 0.38, 18.0),
                         format!("{} {}", indonesian_month_name(month), year),
                         11.5,
@@ -319,32 +319,44 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                         ));
                     } else {
                         let max_items = if ctx.size == WidgetSize::Large { 6 } else { 3 };
+                        let pill_stroke = ctx
+                            .pal
+                            .inner_border
+                            .map(|b| (b.with_alpha(b.a * 0.55), 0.7));
                         for (i, ev) in events.iter().take(max_items).enumerate() {
-                            let y = inner.y + 14.0 + i as f32 * 32.0;
-                            if y + 28.0 > inner.y + inner.h {
+                            let y = inner.y + 8.0 + i as f32 * 34.0;
+                            if y + 30.0 > inner.y + inner.h {
                                 break;
                             }
+                            nodes.push(SceneNode::RoundedRect {
+                                rect: RectF::new(right_x, y, right_w, 30.0),
+                                radius: 10.0,
+                                smoothing: 0.60,
+                                fill: Some(ctx.pal.surface_chip),
+                                stroke: pill_stroke,
+                                interactive_action: None,
+                            });
                             nodes.push(SceneNode::Line {
-                                x1: right_x,
-                                y1: y + 4.0,
-                                x2: right_x,
+                                x1: right_x + 7.0,
+                                y1: y + 6.0,
+                                x2: right_x + 7.0,
                                 y2: y + 24.0,
                                 color: ctx.pal.accent,
                                 width: 2.5,
                             });
-                            nodes.push(text_node(
-                                RectF::new(right_x + 8.0, y, right_w - 8.0, 16.0),
+                            nodes.push(crate::widgets::text_node_line(
+                                RectF::new(right_x + 14.0, y + 2.0, right_w - 20.0, 15.0),
                                 &ev.title,
-                                12.5,
+                                12.0,
                                 600,
                                 ctx.pal.primary,
                                 TextAlign::Left,
                                 false,
                             ));
-                            nodes.push(text_node(
-                                RectF::new(right_x + 8.0, y + 15.0, right_w - 8.0, 14.0),
+                            nodes.push(crate::widgets::text_node_line(
+                                RectF::new(right_x + 14.0, y + 16.0, right_w - 20.0, 13.0),
                                 &ev.time,
-                                10.5,
+                                10.0,
                                 500,
                                 ctx.pal.secondary,
                                 TextAlign::Left,
@@ -545,33 +557,34 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 4. Performa sistem: CPU per core, RAM, GPU, disk, jaringan (S, M, L)
 pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let sys = &ctx.hub.system;
     let mut nodes = Vec::new();
 
     match ctx.size {
         WidgetSize::Small => {
-            nodes.push(text_node(
+            nodes.push(crate::widgets::text_node_line(
                 RectF::new(inner.x, inner.y, inner.w, 16.0),
                 "CPU & RAM",
-                11.5,
-                600,
+                11.0,
+                700,
                 ctx.pal.secondary,
                 TextAlign::Left,
                 false,
             ));
             let cx = inner.x + inner.w * 0.5;
-            let cy = inner.y + 62.0;
+            let ring_r = (inner.h * 0.27).clamp(28.0, 35.0);
+            let cy = inner.y + inner.h * 0.50;
             nodes.push(SceneNode::ProgressRing {
                 cx,
                 cy,
-                radius: 34.0,
-                stroke_width: 6.0,
+                radius: ring_r,
+                stroke_width: 7.5,
                 progress: sys.cpu_total_pct / 100.0,
                 track_color: ctx.pal.surface_chip,
                 fill_color: ctx.pal.accent,
             });
-            nodes.push(text_node(
+            nodes.push(crate::widgets::text_node_line(
                 RectF::new(cx - 28.0, cy - 11.0, 56.0, 22.0),
                 format!("{:.0}%", sys.cpu_total_pct),
                 17.0,
@@ -580,10 +593,10 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 TextAlign::Center,
                 true,
             ));
-            nodes.push(text_node(
-                RectF::new(inner.x, inner.y + inner.h - 18.0, inner.w, 16.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, inner.y + inner.h - 16.0, inner.w, 16.0),
                 format!("RAM {:.1}/{:.0} GB", sys.ram_used_gb, sys.ram_total_gb),
-                11.5,
+                11.0,
                 500,
                 ctx.pal.secondary,
                 TextAlign::Center,
@@ -591,23 +604,85 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ));
         }
         WidgetSize::Medium | WidgetSize::Large => {
-            nodes.push(text_node(
-                RectF::new(inner.x, inner.y, 130.0, 16.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, inner.y, inner.w * 0.52, 16.0),
                 "PERFORMA SISTEM",
-                11.0,
+                10.5,
                 700,
                 ctx.pal.secondary,
                 TextAlign::Left,
                 false,
             ));
-            nodes.push(text_node(
-                RectF::new(inner.x, inner.y + 16.0, 110.0, 40.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x + inner.w * 0.52, inner.y, inner.w * 0.48, 16.0),
+                format!("RAM {:.1}/{:.0} GB", sys.ram_used_gb, sys.ram_total_gb),
+                10.5,
+                600,
+                ctx.pal.secondary,
+                TextAlign::Right,
+                true,
+            ));
+
+            let area_y = inner.y + 20.0;
+            let ring_r = if inner.h < 108.0 { 22.0 } else { 25.0 };
+            let cy = area_y + ring_r + 2.0;
+            let cx1 = inner.x + ring_r + 2.0;
+            let cx2 = cx1 + ring_r * 2.0 + 12.0;
+
+            nodes.push(SceneNode::ProgressRing {
+                cx: cx1,
+                cy,
+                radius: ring_r,
+                stroke_width: 6.0,
+                progress: sys.cpu_total_pct / 100.0,
+                track_color: ctx.pal.surface_chip,
+                fill_color: ctx.pal.accent,
+            });
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(cx1 - ring_r + 4.0, cy - 9.0, (ring_r - 4.0) * 2.0, 18.0),
                 format!("{:.0}%", sys.cpu_total_pct),
-                36.0,
+                13.5,
                 700,
                 ctx.pal.primary,
-                TextAlign::Left,
+                TextAlign::Center,
                 true,
+            ));
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(cx1 - ring_r, cy + ring_r + 3.0, ring_r * 2.0, 13.0),
+                "CPU",
+                9.5,
+                600,
+                ctx.pal.secondary,
+                TextAlign::Center,
+                false,
+            ));
+
+            nodes.push(SceneNode::ProgressRing {
+                cx: cx2,
+                cy,
+                radius: ring_r,
+                stroke_width: 6.0,
+                progress: sys.ram_pct / 100.0,
+                track_color: ctx.pal.surface_chip,
+                fill_color: ctx.pal.positive,
+            });
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(cx2 - ring_r + 4.0, cy - 9.0, (ring_r - 4.0) * 2.0, 18.0),
+                format!("{:.0}%", sys.ram_pct),
+                13.5,
+                700,
+                ctx.pal.primary,
+                TextAlign::Center,
+                true,
+            ));
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(cx2 - ring_r, cy + ring_r + 3.0, ring_r * 2.0, 13.0),
+                "RAM",
+                9.5,
+                600,
+                ctx.pal.secondary,
+                TextAlign::Center,
+                false,
             ));
 
             // Real per-core CPU bars
@@ -620,33 +695,13 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     .map(|p| (p / 100.0).clamp(0.05, 1.0))
                     .collect()
             };
+            let bars_x = cx2 + ring_r + 14.0;
+            let bars_w = (inner.x + inner.w - bars_x).max(40.0);
             nodes.push(SceneNode::BarChart {
-                rect: RectF::new(inner.x + 114.0, inner.y + 18.0, inner.w - 114.0, 42.0),
+                rect: RectF::new(bars_x, area_y + 4.0, bars_w, ring_r * 2.0 - 2.0),
                 values: core_vals,
                 colors: vec![ctx.pal.accent],
                 gap: 3.0,
-            });
-
-            // RAM progress bar
-            let ram_y = inner.y + 72.0;
-            nodes.push(text_node(
-                RectF::new(inner.x, ram_y, inner.w, 15.0),
-                format!(
-                    "RAM {:.1} / {:.0} GB ({:.0}%)",
-                    sys.ram_used_gb, sys.ram_total_gb, sys.ram_pct
-                ),
-                11.5,
-                500,
-                ctx.pal.secondary,
-                TextAlign::Left,
-                true,
-            ));
-            nodes.push(SceneNode::ProgressBar {
-                rect: RectF::new(inner.x, ram_y + 17.0, inner.w, 6.0),
-                progress: sys.ram_pct / 100.0,
-                track_color: ctx.pal.surface_chip,
-                fill_color: ctx.pal.positive,
-                interactive_action: None,
             });
 
             // GPU & Network summary
@@ -666,25 +721,28 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                             .join(" ");
                         if cleaned.is_empty() {
                             "GPU aktif".to_string()
-                        } else if cleaned.chars().count() > 18 {
-                            format!("{}...", cleaned.chars().take(16).collect::<String>())
                         } else {
                             cleaned
                         }
                     })
                     .unwrap_or_else(|| "GPU aktif".to_string()),
             };
-            nodes.push(text_node(
-                RectF::new(inner.x, ram_y + 30.0, inner.w * 0.46, 16.0),
+            let footer_y = if ctx.size == WidgetSize::Large {
+                cy + ring_r + 24.0
+            } else {
+                inner.y + inner.h - 15.0
+            };
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, footer_y, inner.w * 0.46, 15.0),
                 gpu_label,
-                11.5,
+                11.0,
                 600,
                 ctx.pal.primary,
                 TextAlign::Left,
                 true,
             ));
-            nodes.push(text_node(
-                RectF::new(inner.x + inner.w * 0.48, ram_y + 30.0, inner.w * 0.52, 16.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x + inner.w * 0.48, footer_y, inner.w * 0.52, 15.0),
                 format!("D {:.1}  U {:.1} Mbps", sys.net_down_mbps, sys.net_up_mbps),
                 11.0,
                 500,
@@ -694,11 +752,11 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ));
 
             if ctx.size == WidgetSize::Large {
-                let mut dy = ram_y + 62.0;
-                nodes.push(text_node(
+                let mut dy = footer_y + 26.0;
+                nodes.push(crate::widgets::text_node_line(
                     RectF::new(inner.x, dy, inner.w, 16.0),
                     "PENYIMPANAN DISK",
-                    11.0,
+                    10.5,
                     700,
                     ctx.pal.secondary,
                     TextAlign::Left,
@@ -706,7 +764,7 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 ));
                 dy += 20.0;
                 for d in sys.disks.iter().take(4) {
-                    nodes.push(text_node(
+                    nodes.push(crate::widgets::text_node_line(
                         RectF::new(inner.x, dy, inner.w, 15.0),
                         format!(
                             "{}  {:.0} / {:.0} GB ({:.0}%)",
@@ -761,16 +819,20 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         WidgetSize::Large => 56.0,
     };
     let art_rect = RectF::new(inner.x, inner.y, art_sz, art_sz);
-    let art_radius = crate::layout::concentric_radius(24.0, 12.0);
-    let text_x = inner.x + art_sz + 12.0;
-    let text_w = (inner.x + inner.w - text_x - 26.0).max(40.0);
+    let art_radius = 14.0;
+    let ctrl_reserved = if ctx.size == WidgetSize::Small { 28.0 } else { 86.0 };
+    let text_x = inner.x + art_sz + 11.0;
+    let text_w = (inner.x + inner.w - text_x - ctrl_reserved).max(40.0);
 
     let mut nodes = vec![SceneNode::RoundedRect {
         rect: art_rect,
         radius: art_radius,
-        smoothing: 0.5,
+        smoothing: 0.65,
         fill: Some(ctx.pal.surface_chip),
-        stroke: None,
+        stroke: ctx
+            .pal
+            .inner_border
+            .map(|b| (b.with_alpha(b.a * 0.60), 0.75)),
         interactive_action: None,
     }];
     if let Some(src) = art_src {
@@ -798,48 +860,63 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let ctrl_color = ctx
         .pal
         .primary
-        .with_alpha((ctx.pal.primary.a * 0.90).clamp(0.0, 1.0));
-    if m.is_playing {
-        let px = inner.x + inner.w - 15.0;
-        let py = inner.y + 6.0;
+        .with_alpha((ctx.pal.primary.a * 0.92).clamp(0.0, 1.0));
+    let btn_sz = 24.0;
+    let btn_y = inner.y + ((art_sz - btn_sz) * 0.42).max(1.0);
+    let push_ctrl_btn = |nodes: &mut Vec<SceneNode>, x: f32, glyph: &str, size: f32, act: &str| {
         nodes.push(SceneNode::RoundedRect {
-            rect: RectF::new(px, py, 3.5, 13.0),
-            radius: 1.5,
-            smoothing: 0.0,
-            fill: Some(ctrl_color),
-            stroke: None,
-            interactive_action: Some("toggle_media_playback".into()),
+            rect: RectF::new(x, btn_y, btn_sz, btn_sz),
+            radius: btn_sz * 0.5,
+            smoothing: 0.65,
+            fill: Some(ctx.pal.surface_chip),
+            stroke: ctx
+                .pal
+                .inner_border
+                .map(|b| (b.with_alpha(b.a * 0.60), 0.7)),
+            interactive_action: Some(act.to_string()),
         });
-        nodes.push(SceneNode::RoundedRect {
-            rect: RectF::new(px + 6.5, py, 3.5, 13.0),
-            radius: 1.5,
-            smoothing: 0.0,
-            fill: Some(ctrl_color),
-            stroke: None,
-            interactive_action: Some("toggle_media_playback".into()),
-        });
-    } else {
         nodes.push(SceneNode::IconGlyph {
-            rect: RectF::new(inner.x + inner.w - 22.0, inner.y + 3.0, 22.0, 22.0),
-            glyph: "\u{E768}".into(),
-            size: 14.0,
+            rect: RectF::new(x, btn_y, btn_sz, btn_sz),
+            glyph: glyph.to_string(),
+            size,
             color: ctrl_color,
-            interactive_action: Some("toggle_media_playback".into()),
+            interactive_action: Some(act.to_string()),
         });
+    };
+    let play_glyph = if m.is_playing { "\u{E769}" } else { "\u{E768}" };
+    if ctx.size == WidgetSize::Small {
+        push_ctrl_btn(
+            &mut nodes,
+            inner.x + inner.w - btn_sz,
+            play_glyph,
+            11.0,
+            "toggle_media_playback",
+        );
+    } else {
+        let right_edge = inner.x + inner.w;
+        push_ctrl_btn(&mut nodes, right_edge - 80.0, "\u{E892}", 10.5, "media_prev");
+        push_ctrl_btn(
+            &mut nodes,
+            right_edge - 52.0,
+            play_glyph,
+            11.0,
+            "toggle_media_playback",
+        );
+        push_ctrl_btn(&mut nodes, right_edge - 24.0, "\u{E893}", 10.5, "media_next");
     }
 
-    let title_y = inner.y + ((art_sz - 34.0) * 0.4).max(2.0);
-    nodes.push(text_node(
-        RectF::new(text_x, title_y, text_w, 19.0),
+    let title_y = inner.y + ((art_sz - 34.0) * 0.4).max(1.0);
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(text_x, title_y, text_w, 18.0),
         &m.title,
-        14.0,
+        13.5,
         700,
         ctx.pal.primary,
         TextAlign::Left,
         false,
     ));
-    nodes.push(text_node(
-        RectF::new(text_x, title_y + 19.0, text_w, 16.0),
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(text_x, title_y + 18.0, text_w, 16.0),
         &m.artist,
         11.5,
         500,
@@ -856,7 +933,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     let bar_y = inner.y + inner.h - 5.0;
     let lyric_top = inner.y + art_sz + 7.0;
-    let lyrics_avail_h = (bar_y - 6.0 - lyric_top).max(16.0);
+    let lyrics_avail_h = (bar_y - 6.0 - lyric_top).max(15.0);
     let lyric_text = if !m.active_lyric_line.is_empty() {
         m.active_lyric_line.clone()
     } else if m.lyrics_state == "loading" {
@@ -867,8 +944,8 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     match ctx.size {
         WidgetSize::Small => {
-            nodes.push(text_node(
-                RectF::new(inner.x, lyric_top, inner.w, lyrics_avail_h),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, lyric_top, inner.w, lyrics_avail_h.min(20.0)),
                 lyric_text,
                 12.5,
                 600,
@@ -879,8 +956,8 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         }
         WidgetSize::Medium => {
             if lyrics_avail_h >= 42.0 && !m.next_lyric_line.is_empty() {
-                nodes.push(text_node(
-                    RectF::new(inner.x, lyric_top, inner.w, 21.0),
+                nodes.push(crate::widgets::text_node_line(
+                    RectF::new(inner.x, lyric_top, inner.w, 20.0),
                     lyric_text,
                     14.0,
                     700,
@@ -888,12 +965,12 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     TextAlign::Left,
                     false,
                 ));
-                nodes.push(text_node(
+                nodes.push(crate::widgets::text_node_line(
                     RectF::new(
                         inner.x,
-                        lyric_top + 22.0,
+                        lyric_top + 21.0,
                         inner.w,
-                        (lyrics_avail_h - 22.0).max(16.0),
+                        (bar_y - 6.0 - (lyric_top + 21.0)).max(15.0),
                     ),
                     &m.next_lyric_line,
                     12.0,
@@ -903,8 +980,8 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     false,
                 ));
             } else {
-                nodes.push(text_node(
-                    RectF::new(inner.x, lyric_top, inner.w, lyrics_avail_h),
+                nodes.push(crate::widgets::text_node_line(
+                    RectF::new(inner.x, lyric_top, inner.w, lyrics_avail_h.min(22.0)),
                     lyric_text,
                     14.0,
                     700,
@@ -996,37 +1073,42 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             "refresh_weather",
         );
     }
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
+    let icon_col = if ctx.pal.is_monochrome {
+        ctx.pal.primary
+    } else {
+        ctx.pal.warning
+    };
     let mut nodes = vec![
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 28.0, 16.0),
             &w.location_name,
-            13.0,
+            12.5,
             600,
             ctx.pal.primary,
             TextAlign::Left,
             false,
         ),
         SceneNode::IconGlyph {
-            rect: RectF::new(inner.x + inner.w - 26.0, inner.y - 2.0, 26.0, 26.0),
+            rect: RectF::new(inner.x + inner.w - 24.0, inner.y - 2.0, 24.0, 24.0),
             glyph: weather_code_fluent_glyph(w.current_code).to_string(),
             size: 18.0,
-            color: ctx.pal.warning,
+            color: icon_col,
             interactive_action: None,
         },
-        text_node(
-            RectF::new(inner.x, inner.y + 16.0, 120.0, 48.0),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 15.0, 108.0, 48.0),
             format!("{:.0}°", w.current_temp_c),
-            40.0,
-            700,
+            42.0,
+            300,
             ctx.pal.primary,
             TextAlign::Left,
             true,
         ),
-        text_node(
-            RectF::new(inner.x, inner.y + 64.0, 130.0, 16.0),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 62.0, 112.0, 16.0),
             weather_code_label(w.current_code),
-            12.5,
+            12.0,
             500,
             ctx.pal.secondary,
             TextAlign::Left,
@@ -1034,25 +1116,46 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
     ];
 
+    if let Some(today) = w.daily.first() {
+        if inner.y + 78.0 + 14.0 <= inner.y + inner.h {
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, inner.y + 78.0, 112.0, 14.0),
+                format!("T:{:.0}° R:{:.0}°", today.max_c, today.min_c),
+                10.5,
+                600,
+                ctx.pal.secondary,
+                TextAlign::Left,
+                true,
+            ));
+        }
+    }
+
     if ctx.size != WidgetSize::Small && !w.hourly.is_empty() {
         let cols = w.hourly.len().min(5);
-        let start_x = inner.x + 120.0;
-        let col_w = (inner.w - 120.0) / cols as f32;
+        let start_x = inner.x + 108.0;
+        let col_w = (inner.w - 108.0) / cols as f32;
         for (i, pt) in w.hourly.iter().take(cols).enumerate() {
             let x = start_x + i as f32 * col_w;
-            nodes.push(text_node(
-                RectF::new(x, inner.y + 22.0, col_w, 14.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(x, inner.y + 20.0, col_w, 14.0),
                 &pt.hour_label,
-                10.5,
+                10.0,
                 500,
                 ctx.pal.secondary,
                 TextAlign::Center,
                 true,
             ));
-            nodes.push(text_node(
-                RectF::new(x, inner.y + 42.0, col_w, 18.0),
+            nodes.push(SceneNode::IconGlyph {
+                rect: RectF::new(x + (col_w - 18.0) * 0.5, inner.y + 37.0, 18.0, 18.0),
+                glyph: weather_code_fluent_glyph(pt.code).to_string(),
+                size: 13.5,
+                color: icon_col,
+                interactive_action: None,
+            });
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(x, inner.y + 58.0, col_w, 17.0),
                 format!("{:.0}°", pt.temp_c),
-                13.5,
+                13.0,
                 700,
                 ctx.pal.primary,
                 TextAlign::Center,
@@ -1062,11 +1165,30 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
 
     if ctx.size == WidgetSize::Large && !w.daily.is_empty() {
+        let min_all = w
+            .daily
+            .iter()
+            .take(5)
+            .map(|d| d.min_c)
+            .fold(f32::INFINITY, f32::min);
+        let max_all = w
+            .daily
+            .iter()
+            .take(5)
+            .map(|d| d.max_c)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let span = (max_all - min_all).max(1.0);
+        let bar_col = if ctx.pal.is_monochrome {
+            ctx.pal.accent
+        } else {
+            ctx.pal.warning
+        };
+
         let mut y = inner.y + 104.0;
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, y, inner.w, 16.0),
             "PRAKIRAAN 5 HARI",
-            11.0,
+            10.5,
             700,
             ctx.pal.secondary,
             TextAlign::Left,
@@ -1074,8 +1196,13 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ));
         y += 22.0;
         for d in w.daily.iter().take(5) {
-            nodes.push(text_node(
-                RectF::new(inner.x, y, 100.0, 18.0),
+            let hi_x = inner.x + inner.w - 32.0;
+            let track_w = 54.0;
+            let track_x = hi_x - 6.0 - track_w;
+            let lo_x = track_x - 36.0;
+            let day_w = (lo_x - inner.x - 24.0).max(52.0);
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, y, day_w, 18.0),
                 &d.day_label,
                 12.5,
                 600,
@@ -1083,25 +1210,55 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 TextAlign::Left,
                 false,
             ));
-            nodes.push(text_node(
-                RectF::new(inner.x + 105.0, y, 90.0, 18.0),
-                weather_code_label(d.code),
-                11.5,
-                400,
+            nodes.push(SceneNode::IconGlyph {
+                rect: RectF::new(inner.x + day_w + 2.0, y + 1.0, 16.0, 16.0),
+                glyph: weather_code_fluent_glyph(d.code).to_string(),
+                size: 13.0,
+                color: icon_col,
+                interactive_action: None,
+            });
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(lo_x, y, 32.0, 18.0),
+                format!("{:.0}°", d.min_c),
+                12.0,
+                500,
                 ctx.pal.secondary,
-                TextAlign::Left,
-                false,
+                TextAlign::Right,
+                true,
             ));
-            nodes.push(text_node(
-                RectF::new(inner.x + inner.w - 92.0, y, 92.0, 18.0),
-                format!("{:.0}° / {:.0}°", d.min_c, d.max_c),
+            nodes.push(SceneNode::RoundedRect {
+                rect: RectF::new(track_x, y + 6.5, track_w, 5.0),
+                radius: 2.5,
+                smoothing: 0.5,
+                fill: Some(ctx.pal.surface_chip),
+                stroke: None,
+                interactive_action: None,
+            });
+            let lo_frac = ((d.min_c - min_all) / span).clamp(0.0, 0.90);
+            let hi_frac = ((d.max_c - min_all) / span).clamp(lo_frac + 0.10, 1.0);
+            nodes.push(SceneNode::RoundedRect {
+                rect: RectF::new(
+                    track_x + lo_frac * track_w,
+                    y + 6.5,
+                    ((hi_frac - lo_frac) * track_w).max(6.0),
+                    5.0,
+                ),
+                radius: 2.5,
+                smoothing: 0.5,
+                fill: Some(bar_col),
+                stroke: None,
+                interactive_action: None,
+            });
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(hi_x, y, 32.0, 18.0),
+                format!("{:.0}°", d.max_c),
                 12.5,
                 600,
                 ctx.pal.primary,
                 TextAlign::Right,
                 true,
             ));
-            y += 32.0;
+            y += 30.0;
         }
     }
 
@@ -1120,27 +1277,44 @@ pub fn build_todo_groups(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             "open_todo",
         );
     }
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let done = todos.iter().filter(|t| t.completed).count();
+    let count_str = format!("{}/{}", done, todos.len());
     let mut nodes = vec![
-        text_node(
-            RectF::new(inner.x, inner.y, inner.w * 0.7, 20.0),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y, inner.w - 50.0, 20.0),
             "Tugas",
             15.0,
-            600,
+            700,
             ctx.pal.primary,
             TextAlign::Left,
             false,
         ),
-        text_node(
-            RectF::new(inner.x + inner.w * 0.7, inner.y + 1.0, inner.w * 0.3, 18.0),
-            format!("{}/{}", done, todos.len()),
-            13.0,
-            600,
-            ctx.pal.secondary,
-            TextAlign::Right,
+        SceneNode::RoundedRect {
+            rect: RectF::new(inner.x + inner.w - 44.0, inner.y, 44.0, 20.0),
+            radius: 10.0,
+            smoothing: 0.65,
+            fill: Some(ctx.pal.surface_chip),
+            stroke: None,
+            interactive_action: None,
+        },
+        crate::widgets::text_node_line(
+            RectF::new(inner.x + inner.w - 44.0, inner.y + 2.0, 44.0, 16.0),
+            count_str,
+            11.5,
+            700,
+            ctx.pal.accent,
+            TextAlign::Center,
             true,
         ),
+        SceneNode::Line {
+            x1: inner.x,
+            y1: inner.y + 24.0,
+            x2: inner.x + inner.w,
+            y2: inner.y + 24.0,
+            color: ctx.pal.secondary.with_alpha(0.18),
+            width: 0.75,
+        },
     ];
 
     let max_rows = match ctx.size {
@@ -1150,7 +1324,7 @@ pub fn build_todo_groups(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     };
 
     for (i, t) in todos.iter().take(max_rows).enumerate() {
-        let y = inner.y + 28.0 + i as f32 * 26.0;
+        let y = inner.y + 30.0 + i as f32 * 25.0;
         if y + 20.0 > inner.y + inner.h {
             break;
         }
@@ -1160,7 +1334,7 @@ pub fn build_todo_groups(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             .as_deref()
             .map(|g| format!("[{}] ", g))
             .unwrap_or_default();
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, y, inner.w, 20.0),
             format!("{} {}{}", bullet, grp, t.text),
             12.5,

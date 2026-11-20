@@ -596,7 +596,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             "open_widget_settings",
         );
     }
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let (cy, cm, cd, _, _, _, _) = crate::widgets::local_datetime_parts();
     let first = &items[0];
     let diff = crate::providers::local_stores::countdown_days_diff(
@@ -648,7 +648,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             true,
         ),
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 62.0, left_w, 16.0),
             format!("{} . {}", suffix, first.target_date),
             11.5,
@@ -657,7 +657,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             true,
         ),
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + inner.h - 22.0, left_w, 20.0),
             &first.title,
             13.5,
@@ -671,8 +671,15 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     if has_right_list {
         let rx = inner.x + inner.w * 0.50;
         let rw = inner.w * 0.50;
+        let chip_stroke = ctx
+            .pal
+            .inner_border
+            .map(|b| (b.with_alpha(b.a * 0.60), 0.75));
         for (i, item) in items.iter().skip(1).take(3).enumerate() {
             let y = inner.y + 24.0 + i as f32 * 34.0;
+            if y + 28.0 > inner.y + inner.h {
+                break;
+            }
             let d = crate::providers::local_stores::countdown_days_diff(
                 cy,
                 cm as i32,
@@ -682,13 +689,13 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             .unwrap_or(0);
             nodes.push(SceneNode::RoundedRect {
                 rect: RectF::new(rx, y, rw, 28.0),
-                radius: 9.0,
-                smoothing: 0.45,
+                radius: 12.0,
+                smoothing: 0.60,
                 fill: Some(ctx.pal.surface_chip),
-                stroke: None,
+                stroke: chip_stroke,
                 interactive_action: None,
             });
-            nodes.push(text_node(
+            nodes.push(crate::widgets::text_node_line(
                 RectF::new(rx + 8.0, y + 6.0, rw - 54.0, 16.0),
                 &item.title,
                 11.5,
@@ -727,9 +734,9 @@ pub fn build_quick_snippets(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             "open_widget_settings",
         );
     }
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let mut nodes = vec![
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 26.0, 18.0),
             "Papan Snippet",
             14.5,
@@ -752,6 +759,11 @@ pub fn build_quick_snippets(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let gap = 7.0;
     let cw = (inner.w - gap * (cols as f32 - 1.0)) / cols as f32;
     let ch = ((inner.h - 26.0) - gap * (rows as f32 - 1.0)) / rows as f32;
+    let tile_stroke = ctx
+        .pal
+        .inner_border
+        .map(|b| (b.with_alpha(b.a * 0.65), 0.75))
+        .or_else(|| Some((ctx.pal.secondary.with_alpha(0.22), 0.75)));
 
     for (idx, sn) in items.iter().take(cols * rows).enumerate() {
         let c = idx % cols;
@@ -761,13 +773,13 @@ pub fn build_quick_snippets(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         let act = format!("copy_snippet:{}", sn.id);
         nodes.push(SceneNode::RoundedRect {
             rect: RectF::new(x, y, cw, ch),
-            radius: 10.0,
-            smoothing: 0.5,
+            radius: 12.0,
+            smoothing: 0.60,
             fill: Some(ctx.pal.surface_chip),
-            stroke: Some((ctx.pal.accent.with_alpha(0.25), 1.0)),
+            stroke: tile_stroke,
             interactive_action: Some(act.clone()),
         });
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(x + 8.0, y + (ch - 15.0) * 0.44, cw - 30.0, 16.0),
             &sn.label,
             12.0,

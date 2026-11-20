@@ -112,11 +112,7 @@ pub struct ResolvedPalette {
     pub is_monochrome: bool,
 }
 
-fn resolve_role(
-    role: &ColorRoleSource,
-    auto_color: RgbaColor,
-    dominant: RgbaColor,
-) -> RgbaColor {
+fn resolve_role(role: &ColorRoleSource, auto_color: RgbaColor, dominant: RgbaColor) -> RgbaColor {
     match role {
         ColorRoleSource::AutoContrast => auto_color,
         ColorRoleSource::WallpaperDominant => dominant,
@@ -150,14 +146,14 @@ pub fn resolve_palette(
             analysis.dominant_accent.with_alpha(0.72),
         ),
     };
-    let accent = resolve_role(
-        &style.accent,
-        primary,
-        analysis.dominant_accent,
-    );
+    let accent = resolve_role(&style.accent, primary, analysis.dominant_accent);
     let raw_card = resolve_role(
         &style.card_color,
-        RgbaColor::new(0x14, 0x15, 0x1A, 0.88),
+        if analysis.avg_luminance > 0.56 {
+            RgbaColor::new(0xF4, 0xF6, 0xFA, 0.90)
+        } else {
+            RgbaColor::new(0x16, 0x18, 0x20, 0.88)
+        },
         analysis.dominant_accent,
     );
 
@@ -165,22 +161,22 @@ pub fn resolve_palette(
         BackgroundMode::None => (None, None),
         BackgroundMode::SubtleTint => (
             Some(raw_card.with_alpha(style.tint_opacity.clamp(0.10, 0.25))),
-            Some(RgbaColor::new(255, 255, 255, 0.10)),
+            Some(RgbaColor::new(255, 255, 255, 0.14)),
         ),
         BackgroundMode::Glass => (
-            Some(raw_card.with_alpha(0.32)),
-            Some(RgbaColor::new(255, 255, 255, 0.12)),
+            Some(raw_card.with_alpha(0.52)),
+            Some(RgbaColor::new(255, 255, 255, 0.24)),
         ),
         BackgroundMode::Solid => (
             Some(raw_card.with_alpha(0.96)),
-            Some(RgbaColor::new(255, 255, 255, 0.08)),
+            Some(RgbaColor::new(255, 255, 255, 0.10)),
         ),
     };
 
     let surface_chip = if primary.r > 180 {
-        RgbaColor::new(255, 255, 255, 0.12)
+        RgbaColor::new(255, 255, 255, 0.14)
     } else {
-        RgbaColor::new(16, 18, 22, 0.10)
+        RgbaColor::new(17, 20, 28, 0.08)
     };
 
     let monochrome = is_achromatic_color(primary)
@@ -194,9 +190,21 @@ pub fn resolve_palette(
         card_fill,
         inner_border,
         surface_chip,
-        positive: if monochrome { primary } else { RgbaColor::new(0x34, 0xC3, 0xA0, 1.0) },
-        warning: if monochrome { secondary } else { RgbaColor::new(0xFB, 0xBF, 0x24, 1.0) },
-        danger: if monochrome { primary.with_alpha(0.90) } else { RgbaColor::new(0xF8, 0x71, 0x71, 1.0) },
+        positive: if monochrome {
+            primary
+        } else {
+            RgbaColor::new(0x34, 0xC3, 0xA0, 1.0)
+        },
+        warning: if monochrome {
+            secondary
+        } else {
+            RgbaColor::new(0xFB, 0xBF, 0x24, 1.0)
+        },
+        danger: if monochrome {
+            primary.with_alpha(0.90)
+        } else {
+            RgbaColor::new(0xF8, 0x71, 0x71, 1.0)
+        },
         is_monochrome: monochrome,
     }
 }
@@ -233,6 +241,29 @@ pub fn text_node(
     }
 }
 
+pub fn text_node_line(
+    rect: RectF,
+    content: impl Into<String>,
+    font_size: f32,
+    font_weight: u16,
+    color: RgbaColor,
+    align: TextAlign,
+    tabular: bool,
+) -> SceneNode {
+    SceneNode::Text {
+        rect,
+        content: content.into(),
+        font_size,
+        font_weight,
+        color,
+        align,
+        tabular_nums: tabular,
+        tight_kerning: font_size >= 30.0,
+        max_lines: 1,
+        interactive_action: None,
+    }
+}
+
 pub fn action_pill(
     rect: RectF,
     label: &str,
@@ -250,7 +281,12 @@ pub fn action_pill(
             interactive_action: Some(action_id.to_string()),
         },
         SceneNode::Text {
-            rect: RectF::new(rect.x + 6.0, rect.y + (rect.h - 14.0) * 0.42, rect.w - 12.0, 18.0),
+            rect: RectF::new(
+                rect.x + 6.0,
+                rect.y + (rect.h - 14.0) * 0.42,
+                rect.w - 12.0,
+                18.0,
+            ),
             content: label.to_string(),
             font_size: 11.5,
             font_weight: 600,
@@ -304,6 +340,58 @@ pub fn empty_state_nodes(
     nodes
 }
 
+fn resolve_widget_card_gradient(
+    widget_type: &str,
+    style: &WidgetStyleConfig,
+    pal: &ResolvedPalette,
+    hub: &WidgetDataHub,
+) -> Option<(RgbaColor, RgbaColor)> {
+    if pal.is_monochrome || widget_type == "photo_frame" {
+        return None;
+    }
+    let alpha = match style.background_mode {
+        BackgroundMode::Glass => 0.64,
+        BackgroundMode::Solid => 0.95,
+        _ => return None,
+    };
+    match widget_type {
+        "weather_forecast" => {
+            let (_, _, _, hour, _, _, _) = local_datetime_parts();
+            let is_night = !(6..18).contains(&hour);
+            let rainy = matches!(hub.weather.current_code, 45..=99);
+            if is_night {
+                Some((
+                    RgbaColor::new(0x11, 0x1C, 0x36, alpha),
+                    RgbaColor::new(0x24, 0x37, 0x5E, alpha),
+                ))
+            } else if rainy {
+                Some((
+                    RgbaColor::new(0x27, 0x38, 0x4E, alpha),
+                    RgbaColor::new(0x43, 0x58, 0x70, alpha),
+                ))
+            } else {
+                Some((
+                    RgbaColor::new(0x1E, 0x5B, 0xA8, alpha),
+                    RgbaColor::new(0x4A, 0x90, 0xD9, alpha),
+                ))
+            }
+        }
+        "air_quality" => Some((
+            RgbaColor::new(0x1A, 0x29, 0x3E, alpha),
+            RgbaColor::new(0x12, 0x1B, 0x2B, alpha),
+        )),
+        "prayer_times" => Some((
+            RgbaColor::new(0x11, 0x2C, 0x27, alpha),
+            RgbaColor::new(0x0C, 0x1B, 0x1A, alpha),
+        )),
+        "now_playing" => Some((
+            RgbaColor::new(0x22, 0x24, 0x30, alpha),
+            RgbaColor::new(0x12, 0x14, 0x1B, alpha),
+        )),
+        _ => None,
+    }
+}
+
 pub fn build_widget_render_item(
     slot: &WidgetStackSlot,
     frame: RectF,
@@ -316,6 +404,7 @@ pub fn build_widget_render_item(
     let inst = slot.active_widget().unwrap_or(&fallback);
     let style = inst.style_override.as_ref().unwrap_or(global_theme);
     let pal = resolve_palette(style, analysis);
+    let card_gradient = resolve_widget_card_gradient(&inst.widget_type, style, &pal, hub);
 
     let ctx = WidgetBuildCtx {
         frame,
@@ -391,6 +480,7 @@ pub fn build_widget_render_item(
         frame,
         background_mode: style.background_mode,
         card_fill: pal.card_fill,
+        card_gradient,
         inner_border: pal.inner_border,
         shadow_enabled: style.shadow_enabled,
         halo_enabled: style.halo_enabled,

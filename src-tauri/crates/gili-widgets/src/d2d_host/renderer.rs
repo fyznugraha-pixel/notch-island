@@ -9,26 +9,29 @@ pub mod render {
     use crate::spring::{DigitRollState, SpringParams, SpringValue};
     use std::collections::HashMap;
     use std::hash::{Hash, Hasher};
-    use windows::core::{HSTRING, PCWSTR};
+    use windows::core::{Interface, HSTRING, PCWSTR};
     use windows::Foundation::Numerics::Matrix3x2;
     use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Direct2D::Common::{
         D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
-        D2D1_FIGURE_END_CLOSED, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_U,
+        D2D1_FIGURE_END_CLOSED, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F,
+        D2D_SIZE_U,
     };
     use windows::Win32::Graphics::Direct2D::{
-        ID2D1Bitmap1, ID2D1PathGeometry, ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ARC_SEGMENT,
-        D2D1_ARC_SIZE_LARGE, D2D1_ARC_SIZE_SMALL, D2D1_BITMAP_OPTIONS_NONE,
-        D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_CAP_STYLE_ROUND,
-        D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE,
-        D2D1_INTERPOLATION_MODE_LINEAR, D2D1_LAYER_PARAMETERS1, D2D1_ROUNDED_RECT,
-        D2D1_STROKE_STYLE_PROPERTIES1, D2D1_SWEEP_DIRECTION_CLOCKWISE,
-        D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+        ID2D1Bitmap1, ID2D1LinearGradientBrush, ID2D1PathGeometry, ID2D1RenderTarget,
+        ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE,
+        D2D1_ARC_SIZE_SMALL, D2D1_BITMAP_OPTIONS_NONE, D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1_BITMAP_PROPERTIES1, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH,
+        D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP, D2D1_GAMMA_2_2,
+        D2D1_INTERPOLATION_MODE_LINEAR, D2D1_LAYER_PARAMETERS1,
+        D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES1,
+        D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
     };
     use windows::Win32::Graphics::DirectWrite::{
-        IDWriteTextFormat, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        IDWriteTextFormat, IDWriteTextLayout, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_WEIGHT, DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_TEXT_ALIGNMENT_CENTER,
         DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_RANGE,
+        DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
         DWRITE_WORD_WRAPPING_WRAP,
     };
     use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -62,6 +65,22 @@ pub mod render {
         (item.background_mode as u8).hash(&mut h);
         item.shadow_enabled.hash(&mut h);
         item.halo_enabled.hash(&mut h);
+        if let Some(cf) = item.card_fill {
+            cf.r.hash(&mut h);
+            cf.g.hash(&mut h);
+            cf.b.hash(&mut h);
+            cf.a.to_bits().hash(&mut h);
+        }
+        if let Some((gt, gb)) = item.card_gradient {
+            gt.r.hash(&mut h);
+            gt.g.hash(&mut h);
+            gt.b.hash(&mut h);
+            gt.a.to_bits().hash(&mut h);
+            gb.r.hash(&mut h);
+            gb.g.hash(&mut h);
+            gb.b.hash(&mut h);
+            gb.a.to_bits().hash(&mut h);
+        }
         item.font_family.hash(&mut h);
         item.text_scale.to_bits().hash(&mut h);
         item.stack_count.hash(&mut h);
@@ -247,6 +266,93 @@ pub mod render {
             }
             self.text_formats.insert(key, fmt.clone());
             Some(fmt)
+        }
+
+        fn create_vertical_gradient_brush(
+            &self,
+            res: &D2DDeviceResources,
+            rect: RectF,
+            top: RgbaColor,
+            bottom: RgbaColor,
+        ) -> Option<ID2D1LinearGradientBrush> {
+            let stops = [
+                D2D1_GRADIENT_STOP {
+                    position: 0.0,
+                    color: d2d_color(top),
+                },
+                D2D1_GRADIENT_STOP {
+                    position: 1.0,
+                    color: d2d_color(bottom),
+                },
+            ];
+            let props = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                startPoint: D2D_POINT_2F {
+                    x: rect.x,
+                    y: rect.y,
+                },
+                endPoint: D2D_POINT_2F {
+                    x: rect.x,
+                    y: rect.y + rect.h,
+                },
+            };
+            unsafe {
+                let rt: ID2D1RenderTarget = res.d2d_context.cast().ok()?;
+                let stop_col = rt
+                    .CreateGradientStopCollection(&stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)
+                    .ok()?;
+                res.d2d_context
+                    .CreateLinearGradientBrush(&props, None, &stop_col)
+                    .ok()
+            }
+        }
+
+        fn draw_card_elevation_shadow(
+            &self,
+            res: &D2DDeviceResources,
+            frame: RectF,
+            radius: f32,
+            smoothing: f32,
+        ) {
+            let layers = [(5.0f32, 1.5f32, 0.14f32), (12.0f32, 4.5f32, 0.08f32)];
+            for (dy, expand, alpha) in layers {
+                let r = RectF::new(
+                    frame.x - expand,
+                    frame.y + dy - expand * 0.5,
+                    frame.w + expand * 2.0,
+                    frame.h + expand * 2.0,
+                );
+                if let Some(geom) =
+                    self.build_superellipse_geometry(res, r, radius + expand, smoothing)
+                {
+                    unsafe {
+                        self.brush.SetColor(&D2D1_COLOR_F {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: alpha,
+                        });
+                        res.d2d_context.FillGeometry(&geom, &self.brush, None);
+                    }
+                }
+            }
+        }
+
+        fn apply_single_line_trimming(
+            res: &D2DDeviceResources,
+            fmt: &IDWriteTextFormat,
+            layout: &IDWriteTextLayout,
+        ) {
+            unsafe {
+                let _ = layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                if let Ok(sign) = res.dwrite_factory.CreateEllipsisTrimmingSign(fmt) {
+                    let trim = DWRITE_TRIMMING {
+                        granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                        delimiter: 0,
+                        delimiterCount: 0,
+                    };
+                    let _ = layout.SetTrimming(&trim, Some(&sign));
+                }
+            }
         }
 
         fn build_superellipse_geometry(
@@ -548,12 +654,44 @@ pub mod render {
                 item.background_mode
             };
 
-            if effective_bg != BackgroundMode::None {
+            let is_loaded_photo = item.widget_type == "photo_frame"
+                && item
+                    .nodes
+                    .iter()
+                    .any(|n| matches!(n, crate::layout::SceneNode::ImageRef { .. }));
+
+            if effective_bg != BackgroundMode::None && is_loaded_photo && !policy.high_contrast {
+                self.draw_card_elevation_shadow(res, item.frame, 24.0, 0.65);
+            } else if effective_bg != BackgroundMode::None {
+                if !policy.high_contrast {
+                    self.draw_card_elevation_shadow(
+                        res,
+                        item.frame,
+                        CARD_RADIUS_DP,
+                        CARD_CORNER_SMOOTHING,
+                    );
+                }
                 let fill = if policy.high_contrast {
                     RgbaColor::new(0, 0, 0, 0.96)
                 } else {
                     item.card_fill
-                        .unwrap_or_else(|| RgbaColor::new(20, 21, 26, 0.88))
+                        .unwrap_or_else(|| RgbaColor::new(22, 24, 32, 0.52))
+                };
+                let (top_col, bot_col) = if policy.high_contrast {
+                    (fill, fill)
+                } else if let Some((gt, gb)) = item.card_gradient {
+                    (gt, gb)
+                } else {
+                    let is_light_card = fill.r > 180 && fill.g > 180 && fill.b > 180;
+                    let lift = if is_light_card { 10 } else { 20 };
+                    let top = RgbaColor::new(
+                        fill.r.saturating_add(lift),
+                        fill.g.saturating_add(lift),
+                        fill.b
+                            .saturating_add(lift + if is_light_card { 0 } else { 4 }),
+                        fill.a,
+                    );
+                    (top, fill)
                 };
                 if let Some(geom) = self.build_superellipse_geometry(
                     res,
@@ -561,46 +699,84 @@ pub mod render {
                     CARD_RADIUS_DP,
                     CARD_CORNER_SMOOTHING,
                 ) {
-                    unsafe {
-                        self.brush.SetColor(&d2d_color(fill));
-                        ctx.FillGeometry(&geom, &self.brush, None);
-                        let border_col = if policy.high_contrast {
-                            RgbaColor::new(255, 255, 255, 0.95)
-                        } else {
-                            item.inner_border
-                                .unwrap_or_else(|| RgbaColor::new(255, 255, 255, 0.10))
-                        };
-                        self.brush.SetColor(&d2d_color(border_col));
-                        ctx.DrawGeometry(&geom, &self.brush, 1.0, None);
+                    if let Some(grad_brush) =
+                        self.create_vertical_gradient_brush(res, item.frame, top_col, bot_col)
+                    {
+                        unsafe {
+                            ctx.FillGeometry(&geom, &grad_brush, None);
+                        }
+                    } else {
+                        unsafe {
+                            self.brush.SetColor(&d2d_color(fill));
+                            ctx.FillGeometry(&geom, &self.brush, None);
+                        }
+                    }
 
-                        // Subtle specular top edge sheen for Glass and SubtleTint cards
-                        if !policy.high_contrast
-                            && (effective_bg == BackgroundMode::Glass
-                                || effective_bg == BackgroundMode::SubtleTint)
-                        {
-                            self.brush.SetColor(&D2D1_COLOR_F {
-                                r: 1.0,
-                                g: 1.0,
-                                b: 1.0,
-                                a: if effective_bg == BackgroundMode::Glass {
-                                    0.16
+                    if policy.high_contrast {
+                        unsafe {
+                            self.brush
+                                .SetColor(&d2d_color(RgbaColor::new(255, 255, 255, 0.95)));
+                            ctx.DrawGeometry(&geom, &self.brush, 1.2, None);
+                        }
+                    } else {
+                        let is_light_surface =
+                            bot_col.r > 180 && bot_col.g > 180 && bot_col.b > 180;
+                        let rim_top = match effective_bg {
+                            BackgroundMode::Glass => {
+                                if is_light_surface {
+                                    RgbaColor::new(255, 255, 255, 0.72)
                                 } else {
-                                    0.08
-                                },
-                            });
-                            ctx.DrawLine(
-                                D2D_POINT_2F {
-                                    x: item.frame.x + CARD_RADIUS_DP * 0.85,
-                                    y: item.frame.y + 1.0,
-                                },
-                                D2D_POINT_2F {
-                                    x: item.frame.x + item.frame.w - CARD_RADIUS_DP * 0.85,
-                                    y: item.frame.y + 1.0,
-                                },
-                                &self.brush,
-                                1.0,
-                                &self.round_stroke,
-                            );
+                                    RgbaColor::new(255, 255, 255, 0.34)
+                                }
+                            }
+                            BackgroundMode::SubtleTint => RgbaColor::new(255, 255, 255, 0.22),
+                            _ => RgbaColor::new(255, 255, 255, 0.14),
+                        };
+                        let rim_bot = RgbaColor::new(255, 255, 255, 0.08);
+                        if let Some(rim_brush) =
+                            self.create_vertical_gradient_brush(res, item.frame, rim_top, rim_bot)
+                        {
+                            unsafe {
+                                ctx.DrawGeometry(&geom, &rim_brush, 1.15, None);
+                            }
+                        } else {
+                            let border_col = item
+                                .inner_border
+                                .unwrap_or_else(|| RgbaColor::new(255, 255, 255, 0.20));
+                            unsafe {
+                                self.brush.SetColor(&d2d_color(border_col));
+                                ctx.DrawGeometry(&geom, &self.brush, 1.0, None);
+                            }
+                        }
+
+                        if effective_bg == BackgroundMode::Glass
+                            || effective_bg == BackgroundMode::SubtleTint
+                        {
+                            unsafe {
+                                self.brush.SetColor(&D2D1_COLOR_F {
+                                    r: 1.0,
+                                    g: 1.0,
+                                    b: 1.0,
+                                    a: if effective_bg == BackgroundMode::Glass {
+                                        0.20
+                                    } else {
+                                        0.10
+                                    },
+                                });
+                                ctx.DrawLine(
+                                    D2D_POINT_2F {
+                                        x: item.frame.x + CARD_RADIUS_DP * 0.85,
+                                        y: item.frame.y + 1.0,
+                                    },
+                                    D2D_POINT_2F {
+                                        x: item.frame.x + item.frame.w - CARD_RADIUS_DP * 0.85,
+                                        y: item.frame.y + 1.0,
+                                    },
+                                    &self.brush,
+                                    1.0,
+                                    &self.round_stroke,
+                                );
+                            }
                         }
                     }
                 }
@@ -645,6 +821,21 @@ pub mod render {
                     Some(&roll_key),
                     dt_sec,
                 );
+            }
+
+            if effective_bg != BackgroundMode::None && is_loaded_photo {
+                if let Some(geom) = self.build_superellipse_geometry(res, item.frame, 24.0, 0.65) {
+                    if let Some(rim_brush) = self.create_vertical_gradient_brush(
+                        res,
+                        item.frame,
+                        RgbaColor::new(255, 255, 255, 0.34),
+                        RgbaColor::new(255, 255, 255, 0.10),
+                    ) {
+                        unsafe {
+                            ctx.DrawGeometry(&geom, &rim_brush, 1.15, None);
+                        }
+                    }
+                }
             }
 
             // Stack indicator dots on right edge when slot holds >1 widget
@@ -996,6 +1187,7 @@ pub mod render {
                     color,
                     align,
                     tabular_nums,
+                    max_lines,
                     ..
                 } => {
                     let scaled_size = font_size * text_scale;
@@ -1034,6 +1226,9 @@ pub mod render {
                                         rect.h.max(1.0),
                                     )
                                 } {
+                                    if *max_lines == 1 {
+                                        Self::apply_single_line_trimming(res, &fmt, &prev_layout);
+                                    }
                                     let _ = unsafe {
                                         prev_layout.SetTypography(
                                             &res.tabular_typography,
@@ -1068,6 +1263,9 @@ pub mod render {
                                         rect.h.max(1.0),
                                     )
                                 } {
+                                    if *max_lines == 1 {
+                                        Self::apply_single_line_trimming(res, &fmt, &cur_layout);
+                                    }
                                     let _ = unsafe {
                                         cur_layout.SetTypography(
                                             &res.tabular_typography,
@@ -1110,6 +1308,9 @@ pub mod render {
                     }) else {
                         return;
                     };
+                    if *max_lines == 1 {
+                        Self::apply_single_line_trimming(res, &fmt, &layout);
+                    }
                     if *tabular_nums {
                         let _ = unsafe {
                             layout.SetTypography(
@@ -1411,68 +1612,157 @@ pub mod render {
                     hand_color,
                     accent_color,
                 } => unsafe {
-                    self.brush.SetColor(&d2d_color(*dial_color));
+                    let is_mini = *radius < 28.0;
+                    let dial_ellipse = D2D1_ELLIPSE {
+                        point: D2D_POINT_2F { x: *cx, y: *cy },
+                        radiusX: *radius,
+                        radiusY: *radius,
+                    };
+                    if !*skeleton {
+                        self.brush
+                            .SetColor(&d2d_color(dial_color.with_alpha(dial_color.a * 0.12)));
+                        ctx.FillEllipse(&dial_ellipse, &self.brush);
+                    }
+                    self.brush.SetColor(&d2d_color(
+                        dial_color.with_alpha(dial_color.a * if *skeleton { 0.45 } else { 0.62 }),
+                    ));
                     ctx.DrawEllipse(
-                        &D2D1_ELLIPSE {
-                            point: D2D_POINT_2F { x: *cx, y: *cy },
-                            radiusX: *radius,
-                            radiusY: *radius,
-                        },
+                        &dial_ellipse,
                         &self.brush,
-                        if *skeleton { 1.2 } else { 2.0 },
+                        if *skeleton {
+                            1.1
+                        } else if is_mini {
+                            1.25
+                        } else {
+                            1.6
+                        },
                         None,
                     );
-                    for i in 0..12 {
-                        let a =
-                            (i as f32) * std::f32::consts::TAU / 12.0 - std::f32::consts::FRAC_PI_2;
-                        let r_in = if i % 3 == 0 {
-                            radius * 0.80
-                        } else {
-                            radius * 0.88
+                    if !is_mini {
+                        for m in 0..60 {
+                            let is_hour = m % 5 == 0;
+                            let is_cardinal = m % 15 == 0;
+                            let a = (m as f32) * std::f32::consts::TAU / 60.0
+                                - std::f32::consts::FRAC_PI_2;
+                            let r_in = if is_cardinal {
+                                radius * 0.78
+                            } else if is_hour {
+                                radius * 0.83
+                            } else {
+                                radius * 0.89
+                            };
+                            let r_out = radius * 0.94;
+                            let alpha = if *skeleton {
+                                if is_hour {
+                                    0.55
+                                } else {
+                                    0.20
+                                }
+                            } else if is_cardinal {
+                                0.92
+                            } else if is_hour {
+                                0.72
+                            } else {
+                                0.26
+                            };
+                            self.brush
+                                .SetColor(&d2d_color(dial_color.with_alpha(dial_color.a * alpha)));
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: cx + r_in * a.cos(),
+                                    y: cy + r_in * a.sin(),
+                                },
+                                D2D_POINT_2F {
+                                    x: cx + r_out * a.cos(),
+                                    y: cy + r_out * a.sin(),
+                                },
+                                &self.brush,
+                                if is_cardinal {
+                                    2.1
+                                } else if is_hour {
+                                    1.4
+                                } else {
+                                    0.75
+                                },
+                                &self.round_stroke,
+                            );
+                        }
+                    } else {
+                        for i in 0..12 {
+                            let is_cardinal = i % 3 == 0;
+                            let a = (i as f32) * std::f32::consts::TAU / 12.0
+                                - std::f32::consts::FRAC_PI_2;
+                            let r_in = if is_cardinal {
+                                radius * 0.72
+                            } else {
+                                radius * 0.83
+                            };
+                            let r_out = radius * 0.92;
+                            self.brush.SetColor(&d2d_color(
+                                dial_color.with_alpha(
+                                    dial_color.a * if is_cardinal { 0.88 } else { 0.45 },
+                                ),
+                            ));
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: cx + r_in * a.cos(),
+                                    y: cy + r_in * a.sin(),
+                                },
+                                D2D_POINT_2F {
+                                    x: cx + r_out * a.cos(),
+                                    y: cy + r_out * a.sin(),
+                                },
+                                &self.brush,
+                                if is_cardinal { 1.35 } else { 0.8 },
+                                &self.round_stroke,
+                            );
+                        }
+                    }
+                    let draw_hand =
+                        |deg: f32, len_frac: f32, tail_frac: f32, width: f32, col: RgbaColor| {
+                            let rad = (deg - 90.0).to_radians();
+                            self.brush.SetColor(&d2d_color(col));
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: cx - radius * tail_frac * rad.cos(),
+                                    y: cy - radius * tail_frac * rad.sin(),
+                                },
+                                D2D_POINT_2F {
+                                    x: cx + radius * len_frac * rad.cos(),
+                                    y: cy + radius * len_frac * rad.sin(),
+                                },
+                                &self.brush,
+                                width,
+                                &self.round_stroke,
+                            );
                         };
-                        let r_out = radius * 0.94;
-                        ctx.DrawLine(
-                            D2D_POINT_2F {
-                                x: cx + r_in * a.cos(),
-                                y: cy + r_in * a.sin(),
-                            },
-                            D2D_POINT_2F {
-                                x: cx + r_out * a.cos(),
-                                y: cy + r_out * a.sin(),
-                            },
-                            &self.brush,
-                            if i % 3 == 0 { 2.0 } else { 1.0 },
-                            &self.round_stroke,
-                        );
-                    }
-                    let draw_hand = |deg: f32, len_frac: f32, width: f32, col: RgbaColor| {
-                        let rad = (deg - 90.0).to_radians();
-                        self.brush.SetColor(&d2d_color(col));
-                        ctx.DrawLine(
-                            D2D_POINT_2F { x: *cx, y: *cy },
-                            D2D_POINT_2F {
-                                x: cx + radius * len_frac * rad.cos(),
-                                y: cy + radius * len_frac * rad.sin(),
-                            },
-                            &self.brush,
-                            width,
-                            &self.round_stroke,
-                        );
-                    };
-                    draw_hand(*hour_deg, 0.52, 3.2, *hand_color);
-                    draw_hand(*minute_deg, 0.74, 2.2, *hand_color);
+                    let scale = if is_mini { 0.62 } else { 1.0 };
+                    draw_hand(*hour_deg, 0.50, 0.08, 3.4 * scale, *hand_color);
+                    draw_hand(*minute_deg, 0.76, 0.08, 2.3 * scale, *hand_color);
                     if let Some(sd) = second_deg {
-                        draw_hand(*sd, 0.82, 1.2, *accent_color);
+                        draw_hand(*sd, 0.84, 0.18, 1.3 * scale, *accent_color);
                     }
-                    self.brush.SetColor(&d2d_color(*accent_color));
+                    let pin_r = if is_mini { 1.9 } else { 3.2 };
+                    self.brush.SetColor(&d2d_color(*hand_color));
                     ctx.FillEllipse(
                         &D2D1_ELLIPSE {
                             point: D2D_POINT_2F { x: *cx, y: *cy },
-                            radiusX: 3.0,
-                            radiusY: 3.0,
+                            radiusX: pin_r,
+                            radiusY: pin_r,
                         },
                         &self.brush,
                     );
+                    if second_deg.is_some() || !is_mini {
+                        self.brush.SetColor(&d2d_color(*accent_color));
+                        ctx.FillEllipse(
+                            &D2D1_ELLIPSE {
+                                point: D2D_POINT_2F { x: *cx, y: *cy },
+                                radiusX: pin_r * 0.55,
+                                radiusY: pin_r * 0.55,
+                            },
+                            &self.brush,
+                        );
+                    }
                 },
                 SceneNode::Line {
                     x1,

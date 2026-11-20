@@ -53,7 +53,11 @@ pub fn format_indonesian_word_clock(hour24: u32, minute: u32) -> String {
             indonesian_number_word(next_h12),
             period
         ),
-        _ => format!("Pukul {} lewat {} menit", indonesian_number_word(h12), minute),
+        _ => format!(
+            "Pukul {} lewat {} menit",
+            indonesian_number_word(h12),
+            minute
+        ),
     }
 }
 
@@ -88,7 +92,11 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     let hour_deg = ((hour % 12) as f32 + min as f32 / 60.0) * 30.0;
     let minute_deg = (min as f32 + sec as f32 / 60.0) * 6.0;
-    let second_deg = if show_sec { Some(sec as f32 * 6.0) } else { None };
+    let second_deg = if show_sec {
+        Some(sec as f32 * 6.0)
+    } else {
+        None
+    };
 
     match style {
         // Gaya 1: Tipografi kata Bahasa Indonesia
@@ -105,7 +113,11 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             text_node(
                 RectF::new(inner.x, inner.y + 20.0, inner.w, inner.h - 42.0),
                 format_indonesian_word_clock(hour, min),
-                if ctx.size == WidgetSize::Small { 20.0 } else { 26.0 },
+                if ctx.size == WidgetSize::Small {
+                    20.0
+                } else {
+                    26.0
+                },
                 700,
                 ctx.pal.primary,
                 TextAlign::Left,
@@ -280,7 +292,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ),
         ],
         "dual_zone" => {
-            let utc_hour = (hour + 24 - 7) % 24;
+            let (utc_hour, utc_m) = crate::widgets::utc_hour_minute();
             let main_fs = if ctx.size == WidgetSize::Small && show_sec {
                 26.0
             } else if inner.h < 120.0 {
@@ -309,7 +321,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 ),
                 text_node(
                     RectF::new(inner.x, inner.y + 62.0, inner.w, 18.0),
-                    format!("UTC  {:02}:{:02}", utc_hour, min),
+                    format!("UTC  {:02}:{:02}", utc_hour, utc_m),
                     13.5,
                     600,
                     ctx.pal.secondary,
@@ -357,8 +369,8 @@ pub fn build_photo_frame(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         return vec![
             SceneNode::RoundedRect {
                 rect: ctx.frame,
-                radius: 20.0,
-                smoothing: 0.55,
+                radius: 24.0,
+                smoothing: 0.65,
                 fill: Some(
                     ctx.pal
                         .card_fill
@@ -396,7 +408,7 @@ pub fn build_photo_frame(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     vec![SceneNode::ImageRef {
         rect: ctx.frame,
-        radius: 20.0,
+        radius: 24.0,
         source_path: path.clone(),
         interactive_action: Some("photo_pick".into()),
     }]
@@ -537,7 +549,11 @@ pub fn build_audio_visualizer(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             if peak > 0.04 { "WASAPI" } else { "Hening" },
             10.5,
             600,
-            if peak > 0.04 { ctx.pal.positive } else { ctx.pal.secondary },
+            if peak > 0.04 {
+                ctx.pal.positive
+            } else {
+                ctx.pal.secondary
+            },
             TextAlign::Right,
             false,
         ),
@@ -558,7 +574,13 @@ pub fn build_quote_poster(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         .custom_text
         .as_deref()
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| if q.text.trim().is_empty() { None } else { Some(q.text.as_str()) })
+        .or_else(|| {
+            if q.text.trim().is_empty() {
+                None
+            } else {
+                Some(q.text.as_str())
+            }
+        })
         .unwrap_or("Langkah kecil yang konsisten selalu mengalahkan rencana besar yang ditunda.");
     let author = if q.author.trim().is_empty() {
         "Kutipan Harian Gili"
@@ -604,7 +626,7 @@ pub fn build_quote_poster(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 33. Jam Dunia Multi-Zona: hingga 4 kota dunia sekaligus dengan indikator siang/malam (M, L)
 pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let (utc_h, utc_m) = crate::widgets::utc_hour_minute();
     let utc_total = (utc_h * 60 + utc_m) as i32;
     let defaults = crate::providers::local_stores::default_world_clocks();
@@ -613,9 +635,13 @@ pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     } else {
         &ctx.hub.world_clocks
     };
+    let card_stroke = ctx
+        .pal
+        .inner_border
+        .map(|b| (b.with_alpha(b.a * 0.65), 0.75));
 
-    let mut nodes = vec![text_node(
-        RectF::new(inner.x, inner.y, inner.w, 18.0),
+    let mut nodes = vec![crate::widgets::text_node_line(
+        RectF::new(inner.x, inner.y, inner.w, 16.0),
         "JAM DUNIA",
         10.5,
         700,
@@ -634,53 +660,72 @@ pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             let mm = local_m % 60;
             let is_day = (6..18).contains(&hh);
             let x = inner.x + i as f32 * (cw + gap);
-            let y = inner.y + 24.0;
-            let h = inner.h - 26.0;
+            let y = inner.y + 20.0;
+            let h = (inner.h - 20.0).max(60.0);
 
             nodes.push(SceneNode::RoundedRect {
                 rect: RectF::new(x, y, cw, h),
-                radius: 14.0,
-                smoothing: 0.55,
+                radius: 16.0,
+                smoothing: 0.65,
                 fill: Some(ctx.pal.surface_chip),
-                stroke: None,
+                stroke: card_stroke,
                 interactive_action: None,
             });
-            nodes.push(SceneNode::IconGlyph {
-                rect: RectF::new(x, y + 10.0, cw, 18.0),
-                glyph: if is_day { "\u{E706}".into() } else { "\u{E708}".into() },
-                size: 14.0,
-                color: if is_day { ctx.pal.warning } else { ctx.pal.accent },
-                interactive_action: None,
+            let dial_r = (h * 0.22).min(cw * 0.31).clamp(14.0, 21.0);
+            let dial_cy = y + 7.0 + dial_r;
+            let hour_deg = ((hh % 12) as f32 + mm as f32 / 60.0) * 30.0;
+            let minute_deg = mm as f32 * 6.0;
+            nodes.push(SceneNode::AnalogClock {
+                cx: x + cw * 0.5,
+                cy: dial_cy,
+                radius: dial_r,
+                hour_deg,
+                minute_deg,
+                second_deg: None,
+                skeleton: false,
+                dial_color: if is_day {
+                    ctx.pal.primary.with_alpha(0.92)
+                } else {
+                    ctx.pal.secondary.with_alpha(0.85)
+                },
+                hand_color: ctx.pal.primary,
+                accent_color: ctx.pal.accent,
             });
-            nodes.push(text_node(
-                RectF::new(x + 4.0, y + 32.0, cw - 8.0, 26.0),
-                format!("{:02}:{:02}", hh, mm),
-                19.0,
-                700,
-                ctx.pal.primary,
-                TextAlign::Center,
-                true,
-            ));
-            nodes.push(text_node(
-                RectF::new(x + 4.0, y + 60.0, cw - 8.0, 16.0),
+            let city_y = dial_cy + dial_r + 5.0;
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(x + 4.0, city_y, cw - 8.0, 15.0),
                 &z.city,
-                11.0,
+                11.5,
                 600,
                 ctx.pal.primary,
                 TextAlign::Center,
                 false,
             ));
-            nodes.push(text_node(
-                RectF::new(x + 4.0, y + 76.0, cw - 8.0, 14.0),
-                &z.code,
-                10.0,
-                500,
-                ctx.pal.secondary,
+            let time_y = city_y + 15.0;
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(x + 4.0, time_y, cw - 8.0, 15.0),
+                format!("{:02}:{:02}", hh, mm),
+                11.5,
+                700,
+                ctx.pal.primary,
                 TextAlign::Center,
-                false,
+                true,
             ));
+            let code_y = time_y + 14.0;
+            if code_y + 13.0 <= y + h - 3.0 {
+                nodes.push(crate::widgets::text_node_line(
+                    RectF::new(x + 4.0, code_y, cw - 8.0, 13.0),
+                    &z.code,
+                    9.5,
+                    500,
+                    ctx.pal.secondary,
+                    TextAlign::Center,
+                    false,
+                ));
+            }
         }
     } else {
+        let row_h = ((inner.h - 22.0 - 24.0) / 4.0).clamp(50.0, 62.0);
         for (i, z) in zones.iter().take(4).enumerate() {
             let local_m = (utc_total + z.utc_offset_minutes).rem_euclid(24 * 60);
             let hh = local_m / 60;
@@ -692,24 +737,35 @@ pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             } else {
                 format!("UTC{:.0}", off_h)
             };
-            let y = inner.y + 28.0 + i as f32 * 66.0;
+            let y = inner.y + 22.0 + i as f32 * (row_h + 8.0);
             nodes.push(SceneNode::RoundedRect {
-                rect: RectF::new(inner.x, y, inner.w, 56.0),
-                radius: 14.0,
-                smoothing: 0.55,
+                rect: RectF::new(inner.x, y, inner.w, row_h),
+                radius: 16.0,
+                smoothing: 0.65,
                 fill: Some(ctx.pal.surface_chip),
-                stroke: None,
+                stroke: card_stroke,
                 interactive_action: None,
             });
-            nodes.push(SceneNode::IconGlyph {
-                rect: RectF::new(inner.x + 12.0, y + 18.0, 20.0, 20.0),
-                glyph: if is_day { "\u{E706}".into() } else { "\u{E708}".into() },
-                size: 16.0,
-                color: if is_day { ctx.pal.warning } else { ctx.pal.accent },
-                interactive_action: None,
+            nodes.push(SceneNode::AnalogClock {
+                cx: inner.x + 28.0,
+                cy: y + row_h * 0.5,
+                radius: 18.0,
+                hour_deg: ((hh % 12) as f32 + mm as f32 / 60.0) * 30.0,
+                minute_deg: mm as f32 * 6.0,
+                second_deg: None,
+                skeleton: false,
+                dial_color: if is_day {
+                    ctx.pal.primary.with_alpha(0.92)
+                } else {
+                    ctx.pal.secondary.with_alpha(0.85)
+                },
+                hand_color: ctx.pal.primary,
+                accent_color: ctx.pal.accent,
             });
-            nodes.push(text_node(
-                RectF::new(inner.x + 40.0, y + 10.0, inner.w - 140.0, 20.0),
+            let mid_x = inner.x + 56.0;
+            let mid_w = (inner.w - 156.0).max(40.0);
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(mid_x, y + row_h * 0.5 - 17.0, mid_w, 19.0),
                 &z.city,
                 14.5,
                 600,
@@ -717,8 +773,8 @@ pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 TextAlign::Left,
                 false,
             ));
-            nodes.push(text_node(
-                RectF::new(inner.x + 40.0, y + 30.0, inner.w - 140.0, 16.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(mid_x, y + row_h * 0.5 + 2.0, mid_w, 15.0),
                 format!("{} . {}", z.code, off_str),
                 11.0,
                 500,
@@ -726,10 +782,10 @@ pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 TextAlign::Left,
                 false,
             ));
-            nodes.push(text_node(
-                RectF::new(inner.x + inner.w - 96.0, y + 11.0, 84.0, 34.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x + inner.w - 94.0, y + row_h * 0.5 - 15.0, 82.0, 30.0),
                 format!("{:02}:{:02}", hh, mm),
-                26.0,
+                22.0,
                 700,
                 ctx.pal.primary,
                 TextAlign::Right,

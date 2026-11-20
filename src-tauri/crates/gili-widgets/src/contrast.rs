@@ -227,11 +227,34 @@ pub fn analyze_region_for_style(
         None => (0.06, vec![RgbaColor::new(0x38, 0x82, 0xF6, 1.0)], false),
     };
 
-    let (rec_primary, rec_secondary) = auto_text_colors_for_luminance(avg_lum);
     let dominant_accent = palette_colors
         .first()
         .copied()
         .unwrap_or(RgbaColor::new(0x38, 0x82, 0xF6, 1.0));
+
+    let card_base = match style.card_color {
+        ColorRoleSource::Custom { color } => color,
+        ColorRoleSource::WallpaperDominant => dominant_accent,
+        ColorRoleSource::AutoContrast => {
+            if avg_lum > 0.56 {
+                RgbaColor::new(0xF5, 0xF7, 0xFB, 0.88)
+            } else {
+                RgbaColor::new(0x16, 0x18, 0x20, 0.88)
+            }
+        }
+    };
+    let card_lum = relative_luminance(card_base);
+    let effective_lum = match style.background_mode {
+        crate::config::BackgroundMode::None => avg_lum,
+        crate::config::BackgroundMode::SubtleTint => {
+            let a = style.tint_opacity.clamp(0.10, 0.25);
+            card_lum * a + avg_lum * (1.0 - a)
+        }
+        crate::config::BackgroundMode::Glass => card_lum * 0.54 + avg_lum * 0.46,
+        crate::config::BackgroundMode::Solid => card_lum,
+    };
+
+    let (rec_primary, rec_secondary) = auto_text_colors_for_luminance(effective_lum);
 
     let chosen_primary = match style.text_primary {
         ColorRoleSource::AutoContrast => rec_primary,
@@ -239,13 +262,13 @@ pub fn analyze_region_for_style(
         ColorRoleSource::Custom { color } => color,
     };
 
-    let ratio = contrast_ratio_against_luminance(chosen_primary, avg_lum);
+    let ratio = contrast_ratio_against_luminance(chosen_primary, effective_lum);
     // Warn when text over frameless wallpaper drops below WCAG AA 4.5:1
     let low_contrast_warning =
         style.background_mode == crate::config::BackgroundMode::None && ratio < 4.5;
 
     WallpaperRegionAnalysis {
-        avg_luminance: avg_lum,
+        avg_luminance: effective_lum,
         recommended_text_primary: rec_primary,
         recommended_text_secondary: rec_secondary,
         dominant_accent,
@@ -292,8 +315,9 @@ mod tests {
             dominant_palette: vec![RgbaColor::new(56, 130, 246, 1.0)],
         };
 
-        // White text on top bright region must trigger low contrast warning
+        // White text on top bright region must trigger low contrast warning when frameless
         let bad_style = WidgetStyleConfig {
+            background_mode: crate::config::BackgroundMode::None,
             text_primary: ColorRoleSource::Custom {
                 color: RgbaColor::new(245, 245, 247, 1.0),
             },
@@ -304,7 +328,10 @@ mod tests {
         assert!(top.low_contrast_warning);
 
         // Auto contrast on top bright region picks dark text with no warning
-        let auto_style = WidgetStyleConfig::default();
+        let auto_style = WidgetStyleConfig {
+            background_mode: crate::config::BackgroundMode::None,
+            ..WidgetStyleConfig::default()
+        };
         let top_auto = analyze_region_for_style(Some(&sample), &auto_style, 0.0, 0.0, 1.0, 0.5);
         assert!(!top_auto.low_contrast_warning);
         assert!(top_auto.recommended_text_primary.r < 40);

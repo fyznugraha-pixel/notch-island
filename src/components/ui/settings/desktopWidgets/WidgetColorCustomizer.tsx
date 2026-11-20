@@ -77,7 +77,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
       .then((res) => {
         if (alive) setAnalysis(res);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       alive = false;
     };
@@ -91,8 +91,8 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
     currentRoleSource.mode === "custom"
       ? currentRoleSource.color
       : currentRoleSource.mode === "wallpaper_dominant" && analysis?.dominant_accent
-      ? analysis.dominant_accent
-      : { r: 245, g: 245, b: 247, a: 1 };
+        ? analysis.dominant_accent
+        : { r: 245, g: 245, b: 247, a: 1 };
 
   const handleWheelChange = (nextColor: RgbaColor) => {
     onChange({ ...style, [activeRole]: { mode: "custom", color: nextColor } }, rgbaToHex(nextColor));
@@ -146,11 +146,14 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
       };
     }
     if (style.background_mode === "glass") {
+      const topRgba = `rgba(${baseCard.r}, ${baseCard.g}, ${baseCard.b}, 0.56)`;
+      const botRgba = `rgba(${baseCard.r}, ${baseCard.g}, ${baseCard.b}, 0.42)`;
       return {
-        backgroundColor: `rgba(${baseCard.r}, ${baseCard.g}, ${baseCard.b}, 0.30)`,
-        backdropFilter: "blur(20px)",
-        border: "1px solid rgba(255,255,255,0.14)",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.16)",
+        background: `linear-gradient(180deg, ${topRgba} 0%, ${botRgba} 100%)`,
+        backdropFilter: "blur(22px)",
+        border: "1px solid rgba(255,255,255,0.24)",
+        boxShadow:
+          "0 12px 28px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.24)",
       };
     }
     return {
@@ -159,11 +162,10 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
     };
   };
 
-  const cardClass = `w-full rounded-[18px] p-4 flex flex-col gap-4 transition-colors ${
-    isLightMode
-      ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
-      : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
-  }`;
+  const cardClass = `w-full rounded-[18px] p-4 flex flex-col gap-4 transition-colors ${isLightMode
+    ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
+    }`;
   const mutedText = isLightMode ? "text-neutral-500" : "text-zinc-400";
 
   return (
@@ -195,12 +197,12 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
         className="rounded-[18px] p-5 flex items-center justify-center transition-all"
         style={{
           background: previewLightBg
-            ? "linear-gradient(135deg, #dbeafe 0%, #e2e8f0 50%, #f8fafc 100%)"
-            : "linear-gradient(135deg, #0b1120 0%, #1e1b4b 55%, #09090b 100%)",
+            ? "linear-gradient(135deg, #e0f2fe 0%, #e2e8f0 50%, #f8fafc 100%)"
+            : "linear-gradient(135deg, #0b1120 0%, #1e293b 55%, #09090b 100%)",
         }}
       >
         <div
-          className="w-[276px] rounded-[24px] p-4 transition-all"
+          className="w-[276px] rounded-[26px] p-4 transition-all"
           style={{
             ...previewCardStyle(),
             fontFamily: style.font_family,
@@ -262,7 +264,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
         iconBgClass="bg-[#0a84ff]/15"
         iconColorClass="text-[#0a84ff]"
         title="Mode Latar Widget"
-        subtitle="Tanpa latar adalah default agar widget menyatu dengan wallpaper"
+        subtitle="Kaca frosted adalah default agar widget tampil rapi dan kontras"
         isLightMode={isLightMode}
         control={
           <IosSegmentedControl<BackgroundMode>
@@ -318,37 +320,34 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           <button
             type="button"
             onClick={() => setRole(activeRole, { mode: "auto_contrast" })}
-            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
-              currentRoleSource.mode === "auto_contrast"
-                ? "border-[#16a34a] bg-[#34c759]/15 text-[#16a34a] dark:text-[#34c759]"
-                : isLightMode
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${currentRoleSource.mode === "auto_contrast"
+              ? "border-[#16a34a] bg-[#34c759]/15 text-[#16a34a] dark:text-[#34c759]"
+              : isLightMode
                 ? "border-black/15 text-neutral-800 hover:bg-black/[0.05]"
                 : "border-white/10 text-zinc-200 hover:bg-white/[0.06]"
-            }`}
+              }`}
           >
             Otomatis (Kontras Wallpaper)
           </button>
           <button
             type="button"
             onClick={() => setRole(activeRole, { mode: "wallpaper_dominant" })}
-            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
-              currentRoleSource.mode === "wallpaper_dominant"
-                ? "border-[#9333ea] bg-[#af52de]/15 text-[#7e22ce] dark:text-[#c084fc]"
-                : isLightMode
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${currentRoleSource.mode === "wallpaper_dominant"
+              ? "border-[#9333ea] bg-[#af52de]/15 text-[#7e22ce] dark:text-[#c084fc]"
+              : isLightMode
                 ? "border-black/15 text-neutral-800 hover:bg-black/[0.05]"
                 : "border-white/10 text-zinc-200 hover:bg-white/[0.06]"
-            }`}
+              }`}
           >
             <Sparkles size={12} aria-hidden="true" /> Ambil dari Wallpaper
           </button>
           <button
             type="button"
             onClick={() => applyMonochromeToAllRoles(activeRgba)}
-            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
-              isLightMode
-                ? "border-black/15 bg-black/[0.04] text-neutral-900 hover:bg-black/[0.08]"
-                : "border-white/15 bg-white/[0.06] text-white hover:bg-white/[0.12]"
-            }`}
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${isLightMode
+              ? "border-black/15 bg-black/[0.04] text-neutral-900 hover:bg-black/[0.08]"
+              : "border-white/15 bg-white/[0.06] text-white hover:bg-white/[0.12]"
+              }`}
             title="Menyamakan warna Utama, Sekunder, dan Aksen agar tidak ada warna biru/aksen terpisah"
           >
             Terapkan ke Semua (Seragam)
@@ -356,11 +355,10 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           <button
             type="button"
             onClick={() => applyMonochromeToAllRoles({ r: 255, g: 255, b: 255, a: 1 })}
-            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-semibold border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
-              isLightMode
-                ? "border-black/15 bg-neutral-900 text-white hover:bg-neutral-800"
-                : "border-white/25 bg-white/15 hover:bg-white/25 text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-semibold border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${isLightMode
+              ? "border-black/15 bg-neutral-900 text-white hover:bg-neutral-800"
+              : "border-white/25 bg-white/15 hover:bg-white/25 text-white"
+              }`}
           >
             Putih Semua
           </button>
@@ -498,11 +496,10 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
               key={p.id}
               type="button"
               onClick={() => onChange(p.style)}
-              className={`px-3 py-1.5 rounded-[10px] border text-[11.5px] font-medium cursor-pointer transition-colors ${
-                isLightMode
-                  ? "border-black/10 hover:border-[#0a84ff] bg-black/[0.03]"
-                  : "border-white/10 hover:border-[#0a84ff] bg-white/[0.04]"
-              }`}
+              className={`px-3 py-1.5 rounded-[10px] border text-[11.5px] font-medium cursor-pointer transition-colors ${isLightMode
+                ? "border-black/10 hover:border-[#0a84ff] bg-black/[0.03]"
+                : "border-white/10 hover:border-[#0a84ff] bg-white/[0.04]"
+                }`}
             >
               {p.name}
             </button>
@@ -514,11 +511,10 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
             placeholder="Simpan gaya ini sebagai preset..."
-            className={`flex-1 h-9 px-3 rounded-[10px] border text-[12px] outline-none focus:border-[#0a84ff] ${
-              isLightMode
-                ? "bg-black/[0.03] border-black/10 text-neutral-900"
-                : "bg-[#1a1b22] border-white/10 text-white"
-            }`}
+            className={`flex-1 h-9 px-3 rounded-[10px] border text-[12px] outline-none focus:border-[#0a84ff] ${isLightMode
+              ? "bg-black/[0.03] border-black/10 text-neutral-900"
+              : "bg-[#1a1b22] border-white/10 text-white"
+              }`}
           />
           <button
             type="button"

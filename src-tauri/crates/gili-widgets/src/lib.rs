@@ -958,4 +958,172 @@ mod tests {
         });
         assert!(!has_orange, "Mode monokrom tidak boleh menampilkan warna oranye keras pada AQI");
     }
+
+    #[test]
+    fn frosted_squircle_material_and_flagship_layouts_work_cleanly() {
+        // 1. Schema v3 defaults to frosted squircle Glass with 26dp corners
+        let cfg = DesktopWidgetsConfig::default();
+        assert_eq!(cfg.schema_version, config::CONFIG_SCHEMA_VERSION);
+        assert_eq!(cfg.global_theme.background_mode, config::BackgroundMode::Glass);
+        assert!((config::CARD_RADIUS_DP - 26.0).abs() < 0.01);
+        assert!(config::CARD_CORNER_SMOOTHING >= 0.65);
+
+        // Migration from v2 BackgroundMode::None upgrades cleanly to Glass, while preserving Solid
+        let v2_none = serde_json::json!({
+            "schema_version": 2,
+            "enabled": true,
+            "global_theme": { "background_mode": "none" },
+            "slots": []
+        });
+        let mig_none = config::migrate_config_value(v2_none);
+        assert_eq!(mig_none.schema_version, config::CONFIG_SCHEMA_VERSION);
+        assert_eq!(mig_none.global_theme.background_mode, config::BackgroundMode::Glass);
+
+        let v2_solid = serde_json::json!({
+            "schema_version": 2,
+            "enabled": true,
+            "global_theme": { "background_mode": "solid" },
+            "slots": []
+        });
+        let mig_solid = config::migrate_config_value(v2_solid);
+        assert_eq!(mig_solid.global_theme.background_mode, config::BackgroundMode::Solid);
+
+        // 2. Surface-aware contrast blends dark frosted glass over bright wallpaper -> keeps light text
+        let light_wp = contrast::CachedWallpaperSample {
+            path: std::path::PathBuf::from("bright.png"),
+            modified: None,
+            width: 8,
+            height: 8,
+            rgb: vec![240; 8 * 8 * 3],
+            dominant_palette: vec![config::RgbaColor::new(240, 240, 240, 1.0)],
+        };
+        let dark_glass = WidgetStyleConfig::default();
+        let res_dark = analyze_region_for_style(Some(&light_wp), &dark_glass, 0.0, 0.0, 1.0, 1.0);
+        assert!(
+            res_dark.recommended_text_primary.r > 200,
+            "Kaca frosted gelap di atas wallpaper terang harus merekomendasikan teks putih"
+        );
+
+        let light_glass = WidgetStyleConfig {
+            card_color: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(245, 245, 250, 1.0),
+            },
+            background_mode: config::BackgroundMode::Glass,
+            ..WidgetStyleConfig::default()
+        };
+        let res_light = analyze_region_for_style(None, &light_glass, 0.0, 0.0, 1.0, 1.0);
+        assert!(
+            res_light.recommended_text_primary.r < 60,
+            "Kaca frosted terang harus merekomendasikan teks gelap agar kontras"
+        );
+
+        // 3. Now Playing Medium exposes media_prev, toggle_media_playback, and media_next + card gradient
+        let mut hub = WidgetDataHub::default();
+        hub.media = MediaSnapshot {
+            title: "Superpowers".into(),
+            artist: "Daniel Caesar".into(),
+            duration_sec: 180.0,
+            position_sec: 45.0,
+            is_playing: true,
+            ..Default::default()
+        };
+        let np_slot = WidgetStackSlot {
+            slot_id: "np_glass".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "np1".into(),
+                widget_type: "now_playing".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let mut np_item = build_widget_render_item(
+            &np_slot,
+            RectF::new(0.0, 0.0, 320.0, 150.0),
+            &dark_glass,
+            &res_dark,
+            &hub,
+            0.0,
+        );
+        np_item.compute_hit_regions(false);
+        assert!(
+            np_item.card_gradient.is_none(),
+            "Mode monokrom menjaga kartu tetap netral tanpa gradien berwarna"
+        );
+        let accented_glass = WidgetStyleConfig {
+            accent: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(0x0A, 0x84, 0xFF, 1.0),
+            },
+            ..dark_glass.clone()
+        };
+        let np_tinted = build_widget_render_item(
+            &np_slot,
+            RectF::new(0.0, 0.0, 320.0, 150.0),
+            &accented_glass,
+            &res_dark,
+            &hub,
+            0.0,
+        );
+        assert!(
+            np_tinted.card_gradient.is_some(),
+            "Now Playing Glass dengan aksen aktif harus memiliki gradien permukaan"
+        );
+        for act in ["media_prev", "toggle_media_playback", "media_next"] {
+            assert!(
+                np_item
+                    .content_hit_rects
+                    .iter()
+                    .any(|r| r.action_id.as_deref() == Some(act)),
+                "Tombol {act} harus interaktif pada Now Playing Medium"
+            );
+        }
+
+        // 4. World Clock Medium renders 4 analog dials
+        let wc_slot = WidgetStackSlot {
+            slot_id: "wc_dials".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "wc1".into(),
+                widget_type: "world_clock".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let wc_item = build_widget_render_item(
+            &wc_slot,
+            RectF::new(0.0, 0.0, 320.0, 150.0),
+            &dark_glass,
+            &res_dark,
+            &hub,
+            0.0,
+        );
+        let dial_count = wc_item
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, layout::SceneNode::AnalogClock { .. }))
+            .count();
+        assert_eq!(dial_count, 4, "Jam Dunia Medium harus merender 4 dial jam analog");
+
+        // 5. Photo Frame renders full-bleed square image with 24dp corners
+        hub.photo_frame.photos = vec!["C:\\tmp\\sample.jpg".into()];
+        let pf_slot = WidgetStackSlot {
+            slot_id: "pf_sq".into(),
+            size: config::WidgetSize::Small,
+            widgets: vec![WidgetInstance {
+                instance_id: "pf1".into(),
+                widget_type: "photo_frame".into(),
+                style_override: None,
+                settings: serde_json::json!({ "polaroid": true }),
+            }],
+            ..Default::default()
+        };
+        let pf_rect = layout::slot_rect_dp(&pf_slot, 1.0, 0.0, 0.0);
+        let pf_item = build_widget_render_item(&pf_slot, pf_rect, &dark_glass, &res_dark, &hub, 0.0);
+        assert!(matches!(
+            pf_item.nodes.first(),
+            Some(layout::SceneNode::ImageRef { radius, .. }) if (*radius - 24.0).abs() < 0.01
+        ));
+    }
 }
