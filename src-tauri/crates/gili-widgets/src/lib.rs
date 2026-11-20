@@ -1364,4 +1364,87 @@ mod tests {
         );
         assert!(clk_texts.iter().any(|t| t == "LOCAL TIME"));
     }
+
+    #[test]
+    fn now_playing_control_glyphs_match_button_frames_and_align_with_art() {
+        let style = WidgetStyleConfig::default();
+        let region = analyze_region_for_style(None, &style, 0.0, 0.0, 1.0, 1.0);
+        let mut hub = WidgetDataHub::default();
+        hub.media = MediaSnapshot {
+            title: "Roommates".into(),
+            artist: "Malcolm Todd".into(),
+            duration_sec: 180.0,
+            position_sec: 12.0,
+            is_playing: true,
+            ..Default::default()
+        };
+        let slot = WidgetStackSlot {
+            slot_id: "np_ctrl_center".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "np1".into(),
+                widget_type: "now_playing".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let item = build_widget_render_item(
+            &slot,
+            RectF::new(0.0, 0.0, 336.0, 160.0),
+            &style,
+            &region,
+            &hub,
+            0.0,
+        );
+        let art_rect = item
+            .nodes
+            .iter()
+            .find_map(|n| match n {
+                layout::SceneNode::RoundedRect {
+                    rect,
+                    interactive_action: None,
+                    ..
+                } => Some(*rect),
+                _ => None,
+            })
+            .expect("Album art placeholder rect present");
+        let art_cy = art_rect.y + art_rect.h * 0.5;
+
+        for action in ["media_prev", "toggle_media_playback", "media_next"] {
+            let btn_rect = item
+                .nodes
+                .iter()
+                .find_map(|n| match n {
+                    layout::SceneNode::RoundedRect {
+                        rect,
+                        interactive_action: Some(act),
+                        ..
+                    } if act == action => Some(*rect),
+                    _ => None,
+                })
+                .expect("Control button frame present");
+            let glyph_rect = item
+                .nodes
+                .iter()
+                .find_map(|n| match n {
+                    layout::SceneNode::IconGlyph {
+                        rect,
+                        interactive_action: Some(act),
+                        ..
+                    } if act == action => Some(*rect),
+                    _ => None,
+                })
+                .expect("Control button glyph present");
+            assert_eq!(btn_rect.x, glyph_rect.x);
+            assert_eq!(btn_rect.y, glyph_rect.y);
+            assert_eq!(btn_rect.w, glyph_rect.w);
+            assert_eq!(btn_rect.h, glyph_rect.h);
+            let btn_cy = btn_rect.y + btn_rect.h * 0.5;
+            assert!(
+                (btn_cy - art_cy).abs() <= 1.0,
+                "Button center y {btn_cy} must match art center y {art_cy}"
+            );
+        }
+    }
 }

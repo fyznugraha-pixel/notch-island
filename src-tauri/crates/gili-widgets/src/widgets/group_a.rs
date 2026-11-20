@@ -910,7 +910,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         .primary
         .with_alpha((ctx.pal.primary.a * 0.92).clamp(0.0, 1.0));
     let btn_sz = 24.0;
-    let btn_y = inner.y + ((art_sz - btn_sz) * 0.42).max(1.0);
+    let btn_y = inner.y + ((art_sz - btn_sz) * 0.5).max(1.0);
     let push_ctrl_btn = |nodes: &mut Vec<SceneNode>, x: f32, glyph: &str, size: f32, act: &str| {
         nodes.push(SceneNode::RoundedRect {
             rect: RectF::new(x, btn_y, btn_sz, btn_sz),
@@ -953,7 +953,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         push_ctrl_btn(&mut nodes, right_edge - 24.0, "\u{E893}", 10.5, "media_next");
     }
 
-    let title_y = inner.y + ((art_sz - 34.0) * 0.4).max(1.0);
+    let title_y = inner.y + ((art_sz - 34.0) * 0.5).max(1.0);
     nodes.push(crate::widgets::text_node_line(
         RectF::new(text_x, title_y, text_w, 18.0),
         &m.title,

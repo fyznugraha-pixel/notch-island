@@ -22,14 +22,16 @@ pub mod render {
         ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE,
         D2D1_ARC_SIZE_SMALL, D2D1_BITMAP_OPTIONS_NONE, D2D1_BITMAP_OPTIONS_TARGET,
         D2D1_BITMAP_PROPERTIES1, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH,
-        D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP, D2D1_GAMMA_2_2,
+        D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
+        D2D1_EXTEND_MODE_CLAMP, D2D1_GAMMA_2_2,
         D2D1_INTERPOLATION_MODE_LINEAR, D2D1_LAYER_PARAMETERS1,
         D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES1,
         D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
     };
     use windows::Win32::Graphics::DirectWrite::{
         IDWriteTextFormat, IDWriteTextLayout, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_WEIGHT, DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_TEXT_ALIGNMENT_CENTER,
+        DWRITE_FONT_WEIGHT, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+        DWRITE_TEXT_ALIGNMENT_CENTER,
         DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_RANGE,
         DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
         DWRITE_WORD_WRAPPING_WRAP,
@@ -2124,15 +2126,30 @@ pub mod render {
                         )
                     } {
                         unsafe {
+                            let _ = layout.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                            let _ = layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                            let (dx, dy) = match layout.GetOverhangMetrics() {
+                                Ok(ov) => {
+                                    let ox = ((ov.left - ov.right) * 0.5)
+                                        .clamp(-rect.w * 0.35, rect.w * 0.35);
+                                    let oy = ((ov.top - ov.bottom) * 0.5)
+                                        .clamp(-rect.h * 0.35, rect.h * 0.35);
+                                    (
+                                        if ox.is_finite() { ox } else { 0.0 },
+                                        if oy.is_finite() { oy } else { 0.0 },
+                                    )
+                                }
+                                Err(_) => (0.0, 0.0),
+                            };
                             self.brush.SetColor(&d2d_color(*color));
                             ctx.DrawTextLayout(
                                 D2D_POINT_2F {
-                                    x: rect.x,
-                                    y: rect.y,
+                                    x: rect.x + dx,
+                                    y: rect.y + dy,
                                 },
                                 &layout,
                                 &self.brush,
-                                D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                                D2D1_DRAW_TEXT_OPTIONS_NONE,
                             );
                         }
                     }
