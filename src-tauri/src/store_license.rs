@@ -411,6 +411,10 @@ pub fn can_use_taskbar() -> bool {
     STORE_PRO_ACTIVE.load(Ordering::SeqCst)
 }
 
+pub fn can_use_pro_bundle() -> bool {
+    can_use_taskbar()
+}
+
 pub fn current_status_snapshot() -> TaskbarProStatus {
     let packaged = is_packaged_msix();
     if !packaged {
@@ -707,6 +711,12 @@ fn reconcile_taskbar_after_license_check(app: &AppHandle) {
     }
 }
 
+fn reconcile_pro_bundle_after_license_check(app: &AppHandle) {
+    reconcile_taskbar_after_license_check(app);
+    crate::standby_window::reconcile_pro_entitlement(app);
+    crate::desktop_widgets_bridge::reconcile_pro_entitlement();
+}
+
 /// Starts non-blocking license resolution on MSIX builds and reconciles persisted dock state once resolved.
 pub fn start_startup_license_sync(app: AppHandle) {
     if !is_packaged_msix() {
@@ -722,7 +732,7 @@ pub fn start_startup_license_sync(app: AppHandle) {
 
         let is_entitled = can_use_taskbar();
         if !is_entitled || !was_entitled {
-            reconcile_taskbar_after_license_check(&app);
+            reconcile_pro_bundle_after_license_check(&app);
         }
         emit_status_changed(&app);
 
@@ -745,11 +755,7 @@ fn refresh_blocking(app: &AppHandle) -> TaskbarProStatus {
     let _ = apply_product_meta(meta);
     mark_startup_sync_done();
 
-    if !can_use_taskbar() {
-        crate::taskbar_manager::set_taskbar_visible(true);
-        crate::navbar_window::hide_navbar_window(app);
-        crate::taskbar_safety::init_taskbar_switches_from_disk();
-    }
+    reconcile_pro_bundle_after_license_check(app);
 
     emit_status_changed(app);
     current_status_snapshot()
@@ -908,7 +914,7 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
     if refreshed.has_pro {
         return TaskbarProPurchaseOutcome {
             status: "already_purchased".to_string(),
-            message: "Lisensi Taskbar Pro sudah aktif pada akun Microsoft Store ini.".to_string(),
+            message: "Lisensi Gili Pro sudah aktif pada akun Microsoft Store ini.".to_string(),
             license_status: refreshed,
         };
     }
@@ -927,12 +933,13 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
                 if !final_status.has_pro {
                     STORE_PRO_ACTIVE.store(true, Ordering::SeqCst);
                     write_cached_license_to_disk(true);
+                    reconcile_pro_bundle_after_license_check(&app);
                     emit_status_changed(&app);
                     final_status = current_status_snapshot();
                 }
                 TaskbarProPurchaseOutcome {
                     status: "succeeded".to_string(),
-                    message: "Taskbar Pro berhasil diaktifkan.".to_string(),
+                    message: "Gili Pro berhasil diaktifkan.".to_string(),
                     license_status: final_status,
                 }
             }
@@ -945,12 +952,13 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
                 if !final_status.has_pro {
                     STORE_PRO_ACTIVE.store(true, Ordering::SeqCst);
                     write_cached_license_to_disk(true);
+                    reconcile_pro_bundle_after_license_check(&app);
                     emit_status_changed(&app);
                     final_status = current_status_snapshot();
                 }
                 TaskbarProPurchaseOutcome {
                     status: "already_purchased".to_string(),
-                    message: "Add-on Taskbar Pro sudah dimiliki akun Microsoft Anda.".to_string(),
+                    message: "Add-on Gili Pro sudah dimiliki akun Microsoft Anda.".to_string(),
                     license_status: final_status,
                 }
             }
@@ -1090,9 +1098,10 @@ mod tests {
             .is_none()
         );
 
-        // Test binary runs unpackaged (non-MSIX), so taskbar entitlement is open.
+        // Test binary runs unpackaged (non-MSIX), so pro bundle entitlement is open.
         if !is_packaged_msix() {
             assert!(can_use_taskbar());
+            assert_eq!(can_use_pro_bundle(), can_use_taskbar());
             let snap = current_status_snapshot();
             assert!(!snap.is_packaged_msix);
             assert!(snap.has_pro);

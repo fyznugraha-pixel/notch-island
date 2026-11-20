@@ -174,6 +174,14 @@ pub fn destroy_standby_on_exit(app: &AppHandle) {
     window_ops::destroy_standby_window(app);
 }
 
+pub fn reconcile_pro_entitlement(app: &AppHandle) {
+    if crate::store_license::can_use_pro_bundle() {
+        window_ops::reconcile_after_config_change(app, &get_config_snapshot());
+    } else {
+        window_ops::destroy_standby_window(app);
+    }
+}
+
 pub(crate) fn note_manual_dismiss_cooldown() {
     LAST_CONFIG_OVERRIDE_MS.store(window_ops::now_monotonic_ms(), Ordering::SeqCst);
 }
@@ -190,7 +198,11 @@ pub fn get_standby_config() -> StandbyConfig {
 
 #[tauri::command]
 pub fn save_standby_config(app: AppHandle, config: StandbyConfig) -> StandbyConfig {
-    let clean = normalize_config(config);
+    let mut clean = normalize_config(config);
+    let locked = !crate::store_license::can_use_pro_bundle();
+    if locked {
+        clean.activation_mode = "off".to_string();
+    }
     if clean.activation_mode == "secondary_permanent" {
         SECONDARY_USER_DISMISSED.store(false, Ordering::SeqCst);
     }
@@ -199,12 +211,21 @@ pub fn save_standby_config(app: AppHandle, config: StandbyConfig) -> StandbyConf
     }
     persist_config_to_disk(&clean);
     let _ = app.emit("standby:config-updated", &clean);
-    window_ops::reconcile_after_config_change(&app, &clean);
+    if locked {
+        window_ops::destroy_standby_window(&app);
+    } else {
+        window_ops::reconcile_after_config_change(&app, &clean);
+    }
     clean
 }
 
 #[tauri::command]
 pub fn open_standby_window(app: AppHandle, trigger: Option<String>) {
+    if !crate::store_license::can_use_pro_bundle() {
+        window_ops::destroy_standby_window(&app);
+        crate::show_or_create_settings_window(&app, Some("standby".to_string()));
+        return;
+    }
     let trig = trigger.unwrap_or_else(|| "manual".to_string());
     SECONDARY_USER_DISMISSED.store(false, Ordering::SeqCst);
     window_ops::open_standby_internal(&app, &trig);
@@ -230,6 +251,11 @@ pub fn notify_standby_ready(app: AppHandle) {
 
 #[tauri::command]
 pub fn toggle_standby_window(app: AppHandle) {
+    if !crate::store_license::can_use_pro_bundle() {
+        window_ops::destroy_standby_window(&app);
+        crate::show_or_create_settings_window(&app, Some("standby".to_string()));
+        return;
+    }
     if is_standby_open() {
         close_standby_window(app);
     } else {

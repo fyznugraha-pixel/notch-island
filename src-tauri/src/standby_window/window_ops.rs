@@ -242,6 +242,9 @@ pub fn select_target_monitor(
 }
 
 pub fn open_standby_internal(app: &AppHandle, trigger: &str) {
+    if !crate::store_license::can_use_pro_bundle() {
+        return;
+    }
     if STANDBY_BUSY
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -607,6 +610,10 @@ pub fn destroy_standby_window(app: &AppHandle) {
 }
 
 pub fn reconcile_after_config_change(app: &AppHandle, cfg: &StandbyConfig) {
+    if !crate::store_license::can_use_pro_bundle() {
+        destroy_standby_window(app);
+        return;
+    }
     if cfg.activation_mode == "secondary_permanent" {
         let monitors = enumerate_physical_monitors();
         if let Some(target) =
@@ -632,6 +639,12 @@ pub fn reconcile_after_config_change(app: &AppHandle, cfg: &StandbyConfig) {
 }
 
 pub fn reconcile_on_display_change(app: &AppHandle) {
+    if !crate::store_license::can_use_pro_bundle() {
+        if STANDBY_OPEN.load(Ordering::SeqCst) || app.get_webview_window(STANDBY_LABEL).is_some() {
+            destroy_standby_window(app);
+        }
+        return;
+    }
     let cfg = get_config_snapshot();
     if cfg.activation_mode != "secondary_permanent" {
         if let Some(win) = app.get_webview_window(STANDBY_LABEL) {

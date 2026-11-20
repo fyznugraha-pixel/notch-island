@@ -559,7 +559,7 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
     });
 
     AUDIO_LOOP_STOP.store(false, Ordering::Relaxed);
-    if eng.get_config().enabled {
+    if eng.get_config().enabled && crate::store_license::can_use_pro_bundle() {
         eng.start_host_if_needed();
     }
 
@@ -579,8 +579,10 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                         .map(|w| w.widget_type == "audio_visualizer")
                         .unwrap_or(false)
                 });
-                let active =
-                    (cfg.enabled || met.board_visible) && has_visualizer && met.paused_reason.is_none();
+                let active = crate::store_license::can_use_pro_bundle()
+                    && (cfg.enabled || met.board_visible)
+                    && has_visualizer
+                    && met.paused_reason.is_none();
 
                 if !active {
                     stream = None;
@@ -650,7 +652,7 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
             loop {
                 let cfg = engine().get_config();
                 let met = engine().metrics();
-                if !cfg.enabled && !met.board_visible {
+                if !crate::store_license::can_use_pro_bundle() || (!cfg.enabled && !met.board_visible) {
                     std::thread::sleep(Duration::from_secs(2));
                     continue;
                 }
@@ -936,6 +938,16 @@ pub fn shutdown_desktop_widgets_on_exit() {
     engine().shutdown();
 }
 
+pub fn reconcile_pro_entitlement() {
+    if crate::store_license::can_use_pro_bundle() {
+        if engine().get_config().enabled {
+            engine().start_host_if_needed();
+        }
+    } else {
+        engine().shutdown();
+    }
+}
+
 fn spawn_storage_scan_job(root_path: Option<String>) -> Result<(), String> {
     let root = root_path
         .map(PathBuf::from)
@@ -961,8 +973,11 @@ pub fn get_desktop_widgets_config() -> DesktopWidgetsConfig {
 
 #[tauri::command]
 pub fn save_desktop_widgets_config(
-    config: DesktopWidgetsConfig,
+    mut config: DesktopWidgetsConfig,
 ) -> Result<DesktopWidgetsConfig, String> {
+    if !crate::store_license::can_use_pro_bundle() {
+        config.enabled = false;
+    }
     engine().save_config(config)
 }
 
@@ -973,11 +988,17 @@ pub fn get_desktop_widgets_catalog() -> Vec<WidgetCatalogEntry> {
 
 #[tauri::command]
 pub fn toggle_desktop_widget_board(visible: Option<bool>) -> bool {
+    if !crate::store_license::can_use_pro_bundle() {
+        return false;
+    }
     engine().toggle_board(visible)
 }
 
 #[tauri::command]
 pub fn set_desktop_widget_edit_mode(enabled: bool) {
+    if !crate::store_license::can_use_pro_bundle() {
+        return;
+    }
     engine().set_edit_mode(enabled);
 }
 

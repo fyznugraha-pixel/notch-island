@@ -60,6 +60,8 @@ interface SidebarItemMeta {
   bgClass: string;
 }
 
+const PRO_SECTION_IDS = new Set<SettingsWindowSection>(["navbar", "standby", "widgets"]);
+
 const SIDEBAR_GROUPS: { id: SidebarGroupId; titleId: string; titleEn: string }[] = [
   { id: "info", titleId: "Informasi", titleEn: "Information" },
   { id: "island", titleId: "Notch & Island", titleEn: "Notch & Island" },
@@ -209,7 +211,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   const renderCollapsedItem = (item: SidebarItemMeta) => {
     const isActive = activeSection === item.id && !searchQuery.trim();
     const showUpdateDot = item.id === "system" && hasUpdate;
-    const showProBadge = item.id === "navbar" && isTaskbarProLocked;
+    const showProBadge = PRO_SECTION_IDS.has(item.id) && isTaskbarProLocked;
 
     const tooltipContent = (
       <div className="flex flex-col gap-0.5 text-left py-0.5 px-0.5 whitespace-normal max-w-[210px]">
@@ -397,7 +399,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                     {items.map((item) => {
                       const isActive = activeSection === item.id && !searchQuery.trim();
                       const showUpdateDot = item.id === "system" && hasUpdate;
-                      const showProBadge = item.id === "navbar" && isTaskbarProLocked;
+                      const showProBadge = PRO_SECTION_IDS.has(item.id) && isTaskbarProLocked;
 
                       return (
                         <button

@@ -5,6 +5,7 @@ import {
   Clock,
   Eye,
   LayoutGrid,
+  Lock,
   Monitor,
   Moon,
   MousePointerClick,
@@ -35,6 +36,8 @@ import {
   subscribeStandbyConfig,
   toggleStandbyWindow,
 } from "../../../services/standbyService";
+import { useGiliProLicense } from "../../../hooks/useGiliProLicense";
+import { TaskbarProBanner } from "../../settingsWindow/navbar/TaskbarProBanner";
 import { MonitorInfo } from "./MonitorSelector";
 
 interface StandbyTabProps {
@@ -49,6 +52,18 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
   const [config, setConfig] = useState<StandbyConfig>(DEFAULT_STANDBY_CONFIG);
   const [activeOpen, setActiveOpen] = useState(false);
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
+  const {
+    proStatus,
+    isProLocked,
+    isPurchasing,
+    isRefreshingLicense,
+    proFeedback,
+    bannerPulse,
+    proBannerRef,
+    handlePurchasePro,
+    handleRefreshLicense,
+    promptProUpgrade,
+  } = useGiliProLicense(optLanguage);
 
   const loadMonitors = useCallback(async () => {
     try {
@@ -89,17 +104,29 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
     };
   }, [loadMonitors]);
 
-  const updateConfig = useCallback(async (patch: Partial<StandbyConfig>) => {
-    setConfig((prev) => {
-      const next = { ...prev, ...patch };
-      saveStandbyConfig(next);
-      return next;
-    });
-  }, []);
+  const updateConfig = useCallback(
+    async (patch: Partial<StandbyConfig>) => {
+      setConfig((prev) => {
+        const next: StandbyConfig = {
+          ...prev,
+          ...patch,
+          ...(isProLocked && patch.activation_mode !== undefined
+            ? { activation_mode: "off" }
+            : {}),
+        };
+        saveStandbyConfig(next);
+        return next;
+      });
+    },
+    [isProLocked]
+  );
 
+  const effectiveActivationMode: StandbyActivationMode = isProLocked
+    ? "off"
+    : config.activation_mode;
   const secondaryMonitors = monitors.filter((m) => !m.is_primary);
   const selectableMonitors =
-    config.activation_mode === "secondary_permanent" ? secondaryMonitors : monitors;
+    effectiveActivationMode === "secondary_permanent" ? secondaryMonitors : monitors;
 
   const cardClass = `w-full rounded-[18px] p-3 flex flex-col gap-1 transition-colors ${
     isLightMode
@@ -112,7 +139,24 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
   }`;
 
   return (
-    <div className="flex flex-col gap-5 w-full">
+    <div className="flex flex-col gap-5 w-full pb-8">
+      {isProLocked && (
+        <div ref={proBannerRef}>
+          <TaskbarProBanner
+            context="standby"
+            proStatus={proStatus}
+            isPurchasing={isPurchasing}
+            isRefreshing={isRefreshingLicense}
+            feedback={proFeedback}
+            highlightPulse={bannerPulse}
+            onPurchase={() => handlePurchasePro()}
+            onRefreshLicense={() => handleRefreshLicense()}
+            isLightMode={isLightMode}
+            optLanguage={optLanguage}
+          />
+        </div>
+      )}
+
       {/* Live Runtime Status + Preview Launch */}
       <div
         className={`w-full rounded-[18px] p-4 flex items-center justify-between gap-4 border ${
@@ -124,8 +168,12 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
         <div className="flex items-center gap-3 min-w-0">
           <div
             className={`w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0 ${
-              activeOpen
+              activeOpen && !isProLocked
                 ? "bg-[#30d158]/20 text-[#30d158]"
+                : isProLocked
+                ? isLightMode
+                  ? "bg-[#eff6ff] text-[#1d4ed8]"
+                  : "bg-[#0a84ff]/15 text-[#93c5fd]"
                 : isLightMode
                 ? "bg-[#ff9f0a]/15 text-[#d97706]"
                 : "bg-[#2c2210] text-[#ff9f0a]"
@@ -134,33 +182,45 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
             <Clock size={19} />
           </div>
           <div className="flex flex-col min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span
                 className={`text-[14px] font-semibold ${
                   isLightMode ? "text-neutral-900" : "text-white"
                 }`}
               >
-                {activeOpen
+                {activeOpen && !isProLocked
                   ? isId
                     ? "StandBy Sedang Aktif"
                     : "StandBy Is Active"
+                  : isProLocked
+                  ? isId
+                    ? "StandBy Pro"
+                    : "StandBy Pro"
                   : isId
                   ? "WebView2 On-Demand Siaga"
                   : "On-Demand WebView2 Ready"}
               </span>
               <span
                 className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold ${
-                  activeOpen
+                  activeOpen && !isProLocked
                     ? "bg-[#30d158]/15 text-[#30d158]"
+                    : isProLocked
+                    ? isLightMode
+                      ? "bg-[#eff6ff] text-[#1d4ed8]"
+                      : "bg-[#0a84ff]/15 text-[#93c5fd]"
                     : isLightMode
                     ? "bg-black/[0.06] text-neutral-700"
                     : "bg-white/[0.08] text-zinc-300"
                 }`}
               >
-                {activeOpen
+                {activeOpen && !isProLocked
                   ? isId
                     ? "Hancur otomatis saat keluar"
                     : "Destroys on exit"
+                  : isProLocked
+                  ? isId
+                    ? "StandBy Pro · Mode Preview"
+                    : "StandBy Pro · Preview Only"
                   : isId
                   ? "0 MB tambahan"
                   : "0 MB idle footprint"}
@@ -180,16 +240,32 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
 
         <button
           type="button"
-          onClick={() => toggleStandbyWindow()}
+          onClick={() => {
+            if (isProLocked) {
+              promptProUpgrade(() => toggleStandbyWindow());
+              return;
+            }
+            toggleStandbyWindow();
+          }}
           className={`shrink-0 px-4 py-2 rounded-[11px] text-[12.5px] font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
-            activeOpen
+            activeOpen && !isProLocked
               ? "bg-[#ff453a] hover:bg-[#e0382e] text-white"
               : "bg-[#0a84ff] hover:bg-[#0071e3] text-white"
           }`}
         >
-          {activeOpen ? <Square size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}
+          {isProLocked ? (
+            <Lock size={13} strokeWidth={2.3} />
+          ) : activeOpen ? (
+            <Square size={13} fill="currentColor" />
+          ) : (
+            <Play size={13} fill="currentColor" />
+          )}
           <span>
-            {activeOpen
+            {isProLocked
+              ? isId
+                ? "Buka dengan Pro"
+                : "Unlock with Pro"
+              : activeOpen
               ? isId
                 ? "Tutup StandBy"
                 : "Close StandBy"
@@ -213,11 +289,11 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
             iconColorClass="text-[#0a84ff]"
             title={isId ? "Mode Aktivasi" : "Activation Mode"}
             subtitle={
-              config.activation_mode === "auto_idle"
+              effectiveActivationMode === "auto_idle"
                 ? isId
                   ? "Otomatis muncul saat PC idle, hancur seketika saat mouse bergerak"
                   : "Opens when PC is idle and destroys as soon as input resumes"
-                : config.activation_mode === "secondary_permanent"
+                : effectiveActivationMode === "secondary_permanent"
                 ? isId
                   ? "Tetap menyala di monitor ke-2 sebagai jam meja selama monitor tersambung"
                   : "Runs persistently on secondary display while attached"
@@ -227,8 +303,15 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
             }
             control={
               <IosSegmentedControl
-                value={config.activation_mode}
-                onChange={(val) => updateConfig({ activation_mode: val as StandbyActivationMode })}
+                value={effectiveActivationMode}
+                onChange={(val) => {
+                  const nextMode = val as StandbyActivationMode;
+                  if (isProLocked && nextMode !== "off") {
+                    promptProUpgrade(() => updateConfig({ activation_mode: nextMode }));
+                    return;
+                  }
+                  updateConfig({ activation_mode: nextMode });
+                }}
                 options={[
                   { value: "off", label: isId ? "Manual" : "Manual" },
                   { value: "auto_idle", label: isId ? "Auto Idle" : "Auto Idle" },
@@ -238,7 +321,7 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
             }
           />
 
-          {config.activation_mode === "auto_idle" && (
+          {effectiveActivationMode === "auto_idle" && (
             <>
               <SettingRow
                 isLightMode={isLightMode}
@@ -310,7 +393,7 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
             </>
           )}
 
-          {config.activation_mode === "secondary_permanent" && (
+          {effectiveActivationMode === "secondary_permanent" && (
             <>
               <SettingRow
                 isLightMode={isLightMode}
@@ -354,7 +437,7 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
             iconColorClass="text-[#32ade6]"
             title={isId ? "Monitor Target" : "Target Display"}
             subtitle={
-              config.activation_mode === "secondary_permanent"
+              effectiveActivationMode === "secondary_permanent"
                 ? isId
                   ? "Pilih monitor sekunder untuk tampilan meja permanen"
                   : "Choose which secondary display hosts permanent StandBy"
@@ -377,7 +460,7 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
                   {
                     value: "auto",
                     label:
-                      config.activation_mode === "secondary_permanent"
+                      effectiveActivationMode === "secondary_permanent"
                         ? isId
                           ? "Otomatis (Monitor Sekunder)"
                           : "Auto (First Secondary)"

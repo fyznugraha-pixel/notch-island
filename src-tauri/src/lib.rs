@@ -5027,7 +5027,11 @@ pub fn run() {
                             standby_window::toggle_standby_window(app.clone());
                         }
                         "toggle_widget_board" => {
-                            let _ = desktop_widgets_bridge::toggle_desktop_widget_board(None);
+                            if store_license::can_use_pro_bundle() {
+                                let _ = desktop_widgets_bridge::toggle_desktop_widget_board(None);
+                            } else {
+                                show_or_create_settings_window(app, Some("widgets".to_string()));
+                            }
                         }
                         "open_settings" => {
                             show_or_create_settings_window(app, None);
@@ -5052,6 +5056,7 @@ pub fn run() {
             let _tray = tray_builder.build(app)?;
 
             let app_h = app.handle().clone();
+            store_license::init_cached_license_from_disk();
             standby_window::start_standby_watcher(app.handle().clone());
             desktop_widgets_bridge::start_desktop_widgets_bridge(app.handle().clone());
             std::thread::spawn(move || {
@@ -6484,7 +6489,6 @@ pub fn run() {
                 }
             });
 
-            store_license::init_cached_license_from_disk();
             taskbar_flyout::init_flyout_manager(app.handle());
             taskbar_safety::init_taskbar_switches_from_disk();
             taskbar_hotkey::init_taskbar_hotkey_layer(app.handle().clone());

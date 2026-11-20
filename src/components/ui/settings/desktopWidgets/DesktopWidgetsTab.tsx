@@ -40,6 +40,8 @@ import { IosSelect } from "../../../ios/IosSelect";
 import { WidgetColorCustomizer } from "./WidgetColorCustomizer";
 import { WidgetGalleryModal } from "./WidgetGalleryModal";
 import { WidgetProvidersCard } from "./WidgetProvidersCard";
+import { useGiliProLicense } from "../../../../hooks/useGiliProLicense";
+import { TaskbarProBanner } from "../../../settingsWindow/navbar/TaskbarProBanner";
 import {
   getCalendarStyleOptions,
   getClockStyleOptions,
@@ -58,6 +60,18 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
 }) => {
   const isId = optLanguage === "id";
   const tr = (idText: string, enText: string) => (isId ? idText : enText);
+  const {
+    proStatus,
+    isProLocked,
+    isPurchasing,
+    isRefreshingLicense,
+    proFeedback,
+    bannerPulse,
+    proBannerRef,
+    handlePurchasePro,
+    handleRefreshLicense,
+    promptProUpgrade,
+  } = useGiliProLicense(optLanguage);
   const clockStyleOptions = getClockStyleOptions(isId);
   const calendarStyleOptions = getCalendarStyleOptions(isId);
   const [config, setConfig] = useState<DesktopWidgetsConfig | null>(null);
@@ -138,13 +152,14 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       | ((prev: DesktopWidgetsConfig) => DesktopWidgetsConfig)
   ) => {
     const base = configRef.current;
-    const next =
+    const rawNext =
       typeof nextOrUpdater === "function"
         ? base
           ? nextOrUpdater(base)
           : null
         : nextOrUpdater;
-    if (!next) return;
+    if (!rawNext) return;
+    const next = isProLocked ? { ...rawNext, enabled: false } : rawNext;
     configRef.current = next;
     setConfig(next);
     try {
@@ -171,6 +186,8 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       </div>
     );
   }
+
+  const effectiveEnabled = !isProLocked && config.enabled;
 
   const cardClass = `w-full rounded-[18px] p-3 flex flex-col gap-1 transition-colors ${isLightMode
     ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
@@ -212,6 +229,18 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         },
       ],
     };
+    if (isProLocked) {
+      persistConfig({ ...config, enabled: false, slots: [...config.slots, newSlot] });
+      setGalleryOpen(false);
+      promptProUpgrade(async () => {
+        const latest = configRef.current;
+        if (!latest) return;
+        const saved = await saveDesktopWidgetsConfig({ ...latest, enabled: true });
+        configRef.current = saved;
+        setConfig(saved);
+      });
+      return;
+    }
     persistConfig({ ...config, enabled: true, slots: [...config.slots, newSlot] });
     setGalleryOpen(false);
     const localized = localizeCatalogEntry(entry, isId);
@@ -312,6 +341,24 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         </div>
       )}
 
+      {/* Pro Upgrade Banner (MSIX Store builds when locked) */}
+      {isProLocked && (
+        <div ref={proBannerRef}>
+          <TaskbarProBanner
+            context="widgets"
+            proStatus={proStatus}
+            isPurchasing={isPurchasing}
+            isRefreshing={isRefreshingLicense}
+            feedback={proFeedback}
+            highlightPulse={bannerPulse}
+            onPurchase={() => handlePurchasePro()}
+            onRefreshLicense={() => handleRefreshLicense()}
+            isLightMode={isLightMode}
+            optLanguage={optLanguage}
+          />
+        </div>
+      )}
+
       {/* Hero Action Banner matching StandbyTab */}
       <div
         className={`w-full rounded-[18px] p-4 flex flex-wrap items-center justify-between gap-4 border ${isLightMode
@@ -320,14 +367,25 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           }`}
       >
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span
-              className={`w-2 h-2 rounded-full ${metrics?.running ? "bg-[#34c759]" : "bg-zinc-500"
+              className={`w-2 h-2 rounded-full ${!isProLocked && metrics?.running ? "bg-[#34c759]" : isProLocked ? "bg-[#60a5fa]" : "bg-zinc-500"
                 }`}
             />
             <span className="text-[14px] font-semibold">
               {tr("Widget Desktop Native Direct2D", "Native Direct2D Desktop Widgets")}
             </span>
+            {isProLocked && (
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold ${
+                  isLightMode
+                    ? "bg-[#eff6ff] text-[#1d4ed8]"
+                    : "bg-[#0a84ff]/15 text-[#93c5fd]"
+                }`}
+              >
+                {tr("Widget Pro · Mode Preview", "Widgets Pro · Preview Only")}
+              </span>
+            )}
           </div>
           <p className={`text-[12px] ${mutedCls}`}>
             {metrics
@@ -355,18 +413,32 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => toggleDesktopWidgetBoard().catch(() => { })}
+            onClick={() => {
+              if (isProLocked) {
+                promptProUpgrade(() => {
+                  toggleDesktopWidgetBoard().catch(() => { });
+                });
+                return;
+              }
+              toggleDesktopWidgetBoard().catch(() => { });
+            }}
             className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${isLightMode
               ? "border-black/10 hover:bg-black/[0.05]"
               : "border-white/12 hover:bg-white/[0.08]"
               }`}
           >
-            <AppWindow size={14} /> {tr("Papan Widget", "Widget Board")}
+            {isProLocked ? <Lock size={13} /> : <AppWindow size={14} />} {tr("Papan Widget", "Widget Board")}
           </button>
           <button
             type="button"
-            onClick={() => setDesktopWidgetEditMode(!(metrics?.edit_mode ?? false))}
-            className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${metrics?.edit_mode
+            onClick={() => {
+              if (isProLocked) {
+                promptProUpgrade();
+                return;
+              }
+              setDesktopWidgetEditMode(!(metrics?.edit_mode ?? false));
+            }}
+            className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${!isProLocked && metrics?.edit_mode
               ? "border-[#ff9f0a] bg-[#ff9f0a]/20 text-[#ff9f0a]"
               : isLightMode
                 ? "border-black/10 hover:bg-black/[0.05]"
@@ -374,7 +446,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
               }`}
           >
             <Pencil size={13} />{" "}
-            {metrics?.edit_mode ? tr("Selesai Edit", "Done") : tr("Edit", "Edit")}
+            {!isProLocked && metrics?.edit_mode ? tr("Selesai Edit", "Done") : tr("Edit", "Edit")}
           </button>
         </div>
       </div>
@@ -397,8 +469,20 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             isLightMode={isLightMode}
             control={
               <IosSwitch
-                checked={config.enabled}
-                onChange={(enabled) => persistConfig({ ...config, enabled })}
+                checked={effectiveEnabled}
+                onChange={(enabled) => {
+                  if (isProLocked) {
+                    promptProUpgrade(async () => {
+                      const latest = configRef.current;
+                      if (!latest) return;
+                      const saved = await saveDesktopWidgetsConfig({ ...latest, enabled: true });
+                      configRef.current = saved;
+                      setConfig(saved);
+                    });
+                    return;
+                  }
+                  persistConfig({ ...config, enabled });
+                }}
               />
             }
           />

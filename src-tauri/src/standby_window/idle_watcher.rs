@@ -83,6 +83,14 @@ pub fn start(app: AppHandle) {
                 let is_open = STANDBY_OPEN.load(Ordering::SeqCst)
                     || app.get_webview_window(STANDBY_LABEL).is_some();
 
+                if !crate::store_license::can_use_pro_bundle() {
+                    if is_open {
+                        destroy_standby_window(&app);
+                    }
+                    was_esc_down = false;
+                    continue;
+                }
+
                 if is_open {
                     if STANDBY_CLOSING.load(Ordering::SeqCst) {
                         continue;
