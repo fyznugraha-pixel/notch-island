@@ -36,8 +36,8 @@ pub fn query_system_visual_policy() -> SystemVisualPolicy {
             QUNS_RUNNING_D3D_FULL_SCREEN,
         };
         use windows::Win32::UI::WindowsAndMessaging::{
-            SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION, SPI_GETHIGHCONTRAST,
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+            GetClassNameW, GetForegroundWindow, SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION,
+            SPI_GETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
         };
 
         unsafe {
@@ -74,9 +74,32 @@ pub fn query_system_visual_policy() -> SystemVisualPolicy {
             }
 
             if let Ok(state) = SHQueryUserNotificationState() {
-                policy.fullscreen_or_game_active = state == QUNS_RUNNING_D3D_FULL_SCREEN
-                    || state == QUNS_BUSY
-                    || state == QUNS_PRESENTATION_MODE;
+                if state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE {
+                    policy.fullscreen_or_game_active = true;
+                } else if state == QUNS_BUSY {
+                    // Ignore desktop shell / taskbar / our own widget host so minimizing apps to desktop
+                    // never triggers a false-positive fullscreen pause.
+                    let fg = GetForegroundWindow();
+                    let mut is_desktop_shell = fg.0.is_null();
+                    if !fg.0.is_null() {
+                        let mut cls = [0u16; 64];
+                        let len = GetClassNameW(fg, &mut cls);
+                        if len > 0 {
+                            let name = String::from_utf16_lossy(&cls[..len as usize]);
+                            if matches!(
+                                name.as_str(),
+                                "Progman"
+                                    | "WorkerW"
+                                    | "Shell_TrayWnd"
+                                    | "Shell_SecondaryTrayWnd"
+                                    | "GiliDesktopWidgetsHostV1"
+                            ) {
+                                is_desktop_shell = true;
+                            }
+                        }
+                    }
+                    policy.fullscreen_or_game_active = !is_desktop_shell;
+                }
             }
         }
 

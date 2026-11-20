@@ -140,7 +140,14 @@ pub mod render {
             self.text_formats.clear();
             self.shadow_cache.clear();
             self.image_cache.clear();
+            self.digit_rolls.clear();
             self.prev_hashes.clear();
+        }
+
+        pub fn has_active_animations(&self) -> bool {
+            self.digit_rolls
+                .values()
+                .any(|r| !r.progress.is_settled() && r.prev_text != r.current_text)
         }
 
         fn get_text_format(
@@ -290,8 +297,11 @@ pub mod render {
             add_button_rect: Option<RectF>,
             policy: &SystemVisualPolicy,
             force_full: bool,
+            dt_sec: f32,
         ) -> (usize, windows::core::Result<()>) {
             let dpi_scale = swap.dpi / 96.0;
+            let rolls_active = self.has_active_animations();
+            let force_full = force_full || rolls_active;
             let mut dirty_rects_px: Vec<RECT> = Vec::new();
             let mut next_hashes: HashMap<String, (u64, RectF)> = HashMap::new();
 
@@ -370,7 +380,7 @@ pub mod render {
             }
 
             for item in items {
-                self.draw_widget_item(res, item, edit_mode, policy, dpi_scale);
+                self.draw_widget_item(res, item, edit_mode, policy, dpi_scale, dt_sec);
             }
 
             if edit_mode {
@@ -408,6 +418,7 @@ pub mod render {
             edit_mode: bool,
             policy: &SystemVisualPolicy,
             dpi_scale: f32,
+            dt_sec: f32,
         ) {
             let ctx = &res.d2d_context;
             let cx = item.frame.x + item.frame.w * 0.5;
@@ -530,6 +541,7 @@ pub mod render {
                     policy.text_scale_factor,
                     policy.reduced_motion,
                     Some(&roll_key),
+                    dt_sec,
                 );
             }
 
@@ -726,14 +738,26 @@ pub mod render {
                             let local_x = rect.x - ox;
                             let local_y = rect.y - oy;
                             if item.shadow_enabled {
-                                let mut sc = item.shadow_color;
-                                sc.a = (sc.a * 0.55).clamp(0.0, 0.75);
+                                let sc_near = item.shadow_color.with_alpha((item.shadow_color.a * 0.65).clamp(0.0, 0.72));
+                                let sc_soft = item.shadow_color.with_alpha((item.shadow_color.a * 0.30).clamp(0.0, 0.38));
                                 unsafe {
-                                    self.brush.SetColor(&d2d_color(sc));
+                                    self.brush.SetColor(&d2d_color(sc_soft));
+                                    for (dx, dy) in [(-1.0, 2.2), (1.0, 2.2), (0.0, 3.0)] {
+                                        res.d2d_context.DrawTextLayout(
+                                            D2D_POINT_2F {
+                                                x: local_x + dx,
+                                                y: local_y + dy,
+                                            },
+                                            &layout,
+                                            &self.brush,
+                                            D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                                        );
+                                    }
+                                    self.brush.SetColor(&d2d_color(sc_near));
                                     res.d2d_context.DrawTextLayout(
                                         D2D_POINT_2F {
-                                            x: local_x + 0.8,
-                                            y: local_y + 1.8,
+                                            x: local_x + 0.5,
+                                            y: local_y + 1.4,
                                         },
                                         &layout,
                                         &self.brush,
@@ -807,6 +831,7 @@ pub mod render {
             text_scale: f32,
             reduced_motion: bool,
             roll_key: Option<&str>,
+            dt_sec: f32,
         ) {
             let ctx = &res.d2d_context;
             match node {
@@ -876,11 +901,18 @@ pub mod render {
                                 .entry(rk.to_string())
                                 .or_insert_with(|| DigitRollState::new(content.clone()));
                             roll.update(content, reduced_motion);
-                            let _ = roll.tick(1.0 / 60.0, reduced_motion);
+                            let _ = roll.tick(dt_sec.clamp(0.008, 0.05), reduced_motion);
                             let p = roll.progress.value.clamp(0.0, 1.0);
-                            if p < 0.98 && roll.prev_text != roll.current_text {
-                                let shift = scaled_size * 0.36;
-                                // Previous digit sliding out upward
+                            if !roll.progress.is_settled() && roll.prev_text != roll.current_text {
+                                let shift = scaled_size * 0.42;
+                                let clip_r = d2d_rect(*rect);
+                                unsafe {
+                                    ctx.PushAxisAlignedClip(
+                                        &clip_r,
+                                        windows::Win32::Graphics::Direct2D::D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                                    );
+                                }
+                                // Previous digit sliding out upward and fading rapidly
                                 let prev_w: Vec<u16> = roll.prev_text.encode_utf16().collect();
                                 if let Ok(prev_layout) = unsafe {
                                     res.dwrite_factory.CreateTextLayout(
@@ -901,7 +933,7 @@ pub mod render {
                                     };
                                     unsafe {
                                         self.brush.SetColor(&d2d_color(
-                                            color.with_alpha(color.a * (1.0 - p)),
+                                            color.with_alpha(color.a * (1.0 - p * 1.4).max(0.0)),
                                         ));
                                         ctx.DrawTextLayout(
                                             D2D_POINT_2F {
@@ -914,7 +946,7 @@ pub mod render {
                                         );
                                     }
                                 }
-                                // Incoming digit rolling in from below
+                                // Incoming digit rolling in smoothly from below
                                 let cur_w: Vec<u16> = roll.current_text.encode_utf16().collect();
                                 if let Ok(cur_layout) = unsafe {
                                     res.dwrite_factory.CreateTextLayout(
@@ -946,6 +978,9 @@ pub mod render {
                                             D2D1_DRAW_TEXT_OPTIONS_CLIP,
                                         );
                                     }
+                                }
+                                unsafe {
+                                    ctx.PopAxisAlignedClip();
                                 }
                                 return;
                             }
@@ -1245,6 +1280,7 @@ pub mod render {
                                 text_scale,
                                 reduced_motion,
                                 None,
+                                dt_sec,
                             );
                         }
                         x_cursor += w + 3.0;
@@ -1456,6 +1492,7 @@ pub mod render {
                 1.0,
                 true,
                 None,
+                0.016,
             );
         }
     }

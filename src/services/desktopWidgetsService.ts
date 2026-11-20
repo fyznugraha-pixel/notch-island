@@ -51,6 +51,8 @@ export interface WidgetStackSlot {
   size: WidgetSize;
   grid_col: number;
   grid_row: number;
+  pos_x?: number | null;
+  pos_y?: number | null;
   active_index: number;
   auto_rotate_minutes: number;
   widgets: WidgetInstance[];

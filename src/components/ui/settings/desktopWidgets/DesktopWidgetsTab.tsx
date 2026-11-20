@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   Plus,
   Layers,
@@ -82,6 +83,14 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
 
     syncFrontendWidgetMirror().catch(() => {});
 
+    const unlistenPromise = listen("desktop-widgets-config-changed", () => {
+      getDesktopWidgetsConfig()
+        .then((fresh) => {
+          if (alive) setConfig(fresh);
+        })
+        .catch(() => {});
+    });
+
     const timer = window.setInterval(() => {
       getDesktopWidgetsRuntimeMetrics()
         .then((m) => {
@@ -93,6 +102,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     return () => {
       alive = false;
       window.clearInterval(timer);
+      unlistenPromise.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -130,14 +140,26 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   const mutedCls = isLightMode ? "text-neutral-500" : "text-zinc-400";
 
   const handleAddWidget = (entry: WidgetCatalogEntry, size: WidgetSize) => {
-    const nextRow = config.slots.reduce((mx, s) => Math.max(mx, s.grid_row + 1), 0);
+    // Auto-place into columns of at most 3 rows so new widgets never clip behind the taskbar
+    const usedCells = new Set(config.slots.map((s) => `${s.grid_col},${s.grid_row}`));
+    let chosenCol = 0;
+    let chosenRow = 0;
+    outer: for (let col = 0; col <= 8; col += 2) {
+      for (let row = 0; row < 3; row++) {
+        if (!usedCells.has(`${col},${row}`)) {
+          chosenCol = col;
+          chosenRow = row;
+          break outer;
+        }
+      }
+    }
     const id = `slot_${Date.now()}`;
     const newSlot: WidgetStackSlot = {
       slot_id: id,
       monitor_id: "primary",
       size,
-      grid_col: 0,
-      grid_row: nextRow,
+      grid_col: chosenCol,
+      grid_row: chosenRow,
       active_index: 0,
       auto_rotate_minutes: 0,
       widgets: [

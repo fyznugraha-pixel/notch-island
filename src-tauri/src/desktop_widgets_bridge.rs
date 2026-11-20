@@ -200,7 +200,11 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
 
     eng.set_event_handler(move |ev| match ev {
         WidgetHostEvent::ConfigMutated { config } => {
-            let _ = engine().save_config(config);
+            // Persist directly to disk without re-locking engine().shared (host thread already updated it).
+            let _ = gili_widgets::config::save_config_atomic(
+                &gili_widgets::config::config_path(),
+                &config,
+            );
             let _ = app_ev.emit("desktop-widgets-config-changed", ());
         }
         WidgetHostEvent::OpenGallery | WidgetHostEvent::OpenCustomizer { .. } => {
@@ -359,8 +363,10 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
             let mut uptime_backoff = BackoffState::new(MIN_UPTIME_INTERVAL_SECS, 600);
             let mut github_backoff = BackoffState::new(180, 1800);
             let mut last_sys = Instant::now() - Duration::from_secs(10);
+            let mut last_gpu = Instant::now() - Duration::from_secs(30);
             let mut last_screen_time = Instant::now() - Duration::from_secs(30);
             let mut last_media = Instant::now() - Duration::from_secs(10);
+            let mut cached_gpu: Option<(String, Option<u32>, Option<u32>)> = None;
             let mut bands = [0.0f32; 16];
 
             loop {
@@ -402,7 +408,28 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                     && last_sys.elapsed() >= Duration::from_millis(2500)
                 {
                     last_sys = Instant::now();
-                    engine().update_system_telemetry(None, None, None, 0.0, 0.0, None, None, None);
+                    let net_m = crate::system_monitor::get_system_metrics_internal();
+                    if last_gpu.elapsed() >= Duration::from_secs(6) {
+                        last_gpu = Instant::now();
+                        let g = tauri::async_runtime::block_on(
+                            crate::gpu_telemetry::get_gpu_telemetry(),
+                        );
+                        cached_gpu = Some((g.name, g.usage_pct, g.temp_c));
+                    }
+                    let (gpu_name, gpu_pct, gpu_temp) = match &cached_gpu {
+                        Some((n, u, t)) => (Some(n.clone()), *u, *t),
+                        None => (None, None, None),
+                    };
+                    engine().update_system_telemetry(
+                        gpu_name,
+                        gpu_pct,
+                        gpu_temp,
+                        net_m.wifi_down_mbps,
+                        net_m.wifi_up_mbps,
+                        None,
+                        None,
+                        None,
+                    );
                 }
 
                 // Screen time sync from Gili's existing compute_windows_screen_time (15s cadence)

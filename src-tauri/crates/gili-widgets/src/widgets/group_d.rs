@@ -323,18 +323,18 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         }
         _ => vec![
             text_node(
-                RectF::new(inner.x, inner.y + 6.0, inner.w, 54.0),
+                RectF::new(inner.x, inner.y + 4.0, inner.w, 68.0),
                 time_str,
-                44.0,
-                700,
+                56.0,
+                600,
                 ctx.pal.primary,
                 TextAlign::Left,
                 true,
             ),
             text_node(
-                RectF::new(inner.x, inner.y + 60.0, inner.w, 20.0),
+                RectF::new(inner.x + 2.0, inner.y + 74.0, inner.w, 22.0),
                 date_str,
-                13.5,
+                14.5,
                 500,
                 ctx.pal.secondary,
                 TextAlign::Left,

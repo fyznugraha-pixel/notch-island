@@ -60,14 +60,14 @@ pub fn contrast_ratio_against_luminance(fg: RgbaColor, bg_luminance: f32) -> f32
 }
 
 pub fn auto_text_colors_for_luminance(bg_luminance: f32) -> (RgbaColor, RgbaColor) {
-    let light_fg = RgbaColor::new(0xF5, 0xF5, 0xF7, 1.0);
-    let dark_fg = RgbaColor::new(0x11, 0x12, 0x16, 1.0);
-    let c_light = contrast_ratio_against_luminance(light_fg, bg_luminance);
-    let c_dark = contrast_ratio_against_luminance(dark_fg, bg_luminance);
-    if c_light >= c_dark {
-        (light_fg, RgbaColor::new(0xF5, 0xF5, 0xF7, 0.68))
+    // Prefer luminous white text (paired with soft drop shadow) over dark and mid-tone
+    // desktop photography; switch to dark ink only on genuinely bright light wallpapers.
+    let light_fg = RgbaColor::new(0xFF, 0xFF, 0xFF, 0.98);
+    let dark_fg = RgbaColor::new(0x11, 0x12, 0x16, 0.96);
+    if bg_luminance <= 0.52 {
+        (light_fg, RgbaColor::new(0xFF, 0xFF, 0xFF, 0.78))
     } else {
-        (dark_fg, RgbaColor::new(0x11, 0x12, 0x16, 0.68))
+        (dark_fg, RgbaColor::new(0x11, 0x12, 0x16, 0.72))
     }
 }
 

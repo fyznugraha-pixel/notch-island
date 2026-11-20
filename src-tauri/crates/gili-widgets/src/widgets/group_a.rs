@@ -14,7 +14,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     nodes.push(text_node(
         RectF::new(inner.x, inner.y, inner.w, 16.0),
-        format!("{} {}", indonesian_day_name(dow).to_uppercase(), indonesian_month_name(month).to_uppercase()),
+        format!("{}, {}", indonesian_day_name(dow).to_uppercase(), indonesian_month_name(month).to_uppercase()),
         11.0,
         700,
         ctx.pal.accent,
@@ -445,7 +445,26 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             let gpu_label = match (sys.gpu_pct, sys.gpu_temp_c) {
                 (Some(p), Some(t)) => format!("GPU {}% . {}C", p, t),
                 (Some(p), None) => format!("GPU {}%", p),
-                _ => "GPU siaga".to_string(),
+                _ => sys
+                    .gpu_name
+                    .as_deref()
+                    .map(|raw| {
+                        let cleaned = raw
+                            .replace("(R)", "")
+                            .replace("(TM)", "")
+                            .replace("Graphics", "")
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        if cleaned.is_empty() {
+                            "GPU aktif".to_string()
+                        } else if cleaned.chars().count() > 18 {
+                            format!("{}...", cleaned.chars().take(16).collect::<String>())
+                        } else {
+                            cleaned
+                        }
+                    })
+                    .unwrap_or_else(|| "GPU aktif".to_string()),
             };
             nodes.push(text_node(
                 RectF::new(inner.x, ram_y + 30.0, inner.w * 0.55, 16.0),
@@ -457,8 +476,8 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 true,
             ));
             nodes.push(text_node(
-                RectF::new(inner.x + inner.w * 0.55, ram_y + 30.0, inner.w * 0.45, 16.0),
-                format!("↓{:.1} ↑{:.1} Mbps", sys.net_down_mbps, sys.net_up_mbps),
+                RectF::new(inner.x + inner.w * 0.48, ram_y + 30.0, inner.w * 0.52, 16.0),
+                format!("D {:.1}  U {:.1} Mbps", sys.net_down_mbps, sys.net_up_mbps),
                 11.0,
                 500,
                 ctx.pal.secondary,
@@ -521,9 +540,9 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         .as_deref()
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false);
-    let art_sz = if ctx.size == WidgetSize::Small { 34.0 } else { 42.0 };
-    let text_x = if has_art { inner.x + art_sz + 10.0 } else { inner.x };
-    let text_w = (inner.x + inner.w - text_x - 24.0).max(40.0);
+    let art_sz = if ctx.size == WidgetSize::Small { 38.0 } else { 52.0 };
+    let text_x = if has_art { inner.x + art_sz + 12.0 } else { inner.x };
+    let text_w = (inner.x + inner.w - text_x - 26.0).max(40.0);
 
     let mut nodes = Vec::new();
     if let Some(src) = m.thumbnail_path_or_data.as_deref().filter(|s| !s.trim().is_empty()) {
@@ -534,14 +553,14 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         });
     }
     nodes.push(SceneNode::IconGlyph {
-        rect: RectF::new(inner.x + inner.w - 22.0, inner.y + 2.0, 22.0, 22.0),
+        rect: RectF::new(inner.x + inner.w - 22.0, inner.y + 4.0, 22.0, 22.0),
         glyph: if m.is_playing { "\u{E769}".into() } else { "\u{E768}".into() },
-        size: 14.0,
+        size: 15.0,
         color: ctx.pal.accent,
         interactive_action: Some("toggle_media_playback".into()),
     });
     nodes.push(text_node(
-        RectF::new(text_x, inner.y + 1.0, text_w, 20.0),
+        RectF::new(text_x, inner.y + 6.0, text_w, 20.0),
         &m.title,
         14.5,
         700,
@@ -550,7 +569,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         false,
     ));
     nodes.push(text_node(
-        RectF::new(text_x, inner.y + 21.0, text_w, 16.0),
+        RectF::new(text_x, inner.y + 27.0, text_w, 16.0),
         &m.artist,
         12.0,
         500,
@@ -565,7 +584,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         0.0
     };
 
-    let lyric_top = inner.y + art_sz + 10.0;
+    let lyric_top = inner.y + art_sz + 12.0;
     let lyric_text = if !m.active_lyric_line.is_empty() {
         m.active_lyric_line.clone()
     } else if m.lyrics_state == "loading" {

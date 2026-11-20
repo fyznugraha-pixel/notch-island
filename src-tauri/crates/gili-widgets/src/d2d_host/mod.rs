@@ -8,15 +8,14 @@ use crate::contrast::{
 };
 use crate::d2d_host::device::{query_system_visual_policy, SystemVisualPolicy};
 use crate::layout::{
-    hit_test_scene, resolve_grid_collisions, slot_rect_dp, snap_position_to_grid, HitTestResult,
-    RectF, WidgetRenderItem,
+    hit_test_scene, slot_rect_dp, snap_position_to_grid, HitTestResult, RectF, WidgetRenderItem,
 };
 use crate::providers::WidgetDataHub;
 use crate::spring::{edit_jiggle_degrees, SpringParams, SpringValue};
 use crate::widgets::build_widget_render_item;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -259,22 +258,23 @@ mod win_host {
         GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        ReleaseCapture, SetCapture, SetFocus, VK_ESCAPE, VK_RETURN,
+        GetAsyncKeyState, ReleaseCapture, SetFocus, VK_ESCAPE, VK_LBUTTON, VK_RETURN,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-        DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GetCursorPos,
-        GetWindowTextLengthW, GetWindowTextW, MsgWaitForMultipleObjects, PeekMessageW,
-        RegisterClassExW, SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu,
-        TranslateMessage, CS_DBLCLKS, ES_AUTOHSCROLL, ES_MULTILINE, GWLP_HWNDPARENT, HTCLIENT,
-        HTTRANSPARENT, HWND_BOTTOM, HWND_TOPMOST, MF_SEPARATOR, MF_STRING, MSG, PM_REMOVE,
-        QS_ALLINPUT, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
-        SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOWPOS,
-        WM_CAPTURECHANGED, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETOBJECT,
-        WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
-        WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SHOWWINDOW, WM_WINDOWPOSCHANGING,
-        WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE,
-        WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
+        DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GetCursorPos, GetWindow,
+        GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindowVisible,
+        MsgWaitForMultipleObjects, PeekMessageW, RegisterClassExW, SetWindowLongPtrW, SetWindowPos,
+        ShowWindow, TrackPopupMenu, TranslateMessage, CS_DBLCLKS, ES_AUTOHSCROLL, ES_MULTILINE,
+        GWLP_HWNDPARENT, GWL_EXSTYLE, GW_HWNDPREV, HTCLIENT, HTTRANSPARENT, HWND_BOTTOM, HWND_TOP,
+        HWND_TOPMOST, MF_SEPARATOR, MF_STRING, MSG, PM_REMOVE, QS_ALLINPUT, SET_WINDOW_POS_FLAGS,
+        SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        SW_HIDE, SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOWPOS,
+        WM_CAPTURECHANGED, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETOBJECT, WM_KEYDOWN,
+        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_POWERBROADCAST,
+        WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SHOWWINDOW, WM_WINDOWPOSCHANGING, WNDCLASSEXW,
+        WS_BORDER, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
+        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
     };
 
     const CMD_EDIT_TOGGLE: i32 = 1001;
@@ -284,24 +284,32 @@ mod win_host {
     const CMD_CUSTOMIZE: i32 = 1005;
     const CMD_STACK_NEXT: i32 = 1006;
     const CMD_DELETE: i32 = 1007;
-    const DRAG_THRESHOLD_DP: f32 = 6.0;
+    const DRAG_THRESHOLD_DP: f32 = 5.0;
 
     /// Lock-free atomic flags read by synchronous Win32 callbacks so `wnd_proc` never panics on re-entry.
     static STAY_BOTTOM_MODE: AtomicBool = AtomicBool::new(true);
+    static WANT_VISIBLE_MODE: AtomicBool = AtomicBool::new(false);
+    static DESKTOP_OWNER_RAW: AtomicIsize = AtomicIsize::new(0);
     static FORCE_REDRAW_FLAG: AtomicBool = AtomicBool::new(true);
     static SHOULD_EXIT_FLAG: AtomicBool = AtomicBool::new(false);
     static REFRESH_ENV_FLAG: AtomicBool = AtomicBool::new(false);
     static SCREEN_OFF_FLAG: AtomicBool = AtomicBool::new(false);
 
     struct ActiveDrag {
+        hwnd: HWND,
         slot_id: String,
         offset_x: f32,
         offset_y: f32,
         cur_x: f32,
         cur_y: f32,
+        item_w: f32,
+        item_h: f32,
+        work_w_dip: f32,
+        work_h_dip: f32,
     }
 
     struct PendingPress {
+        hwnd: HWND,
         since: Instant,
         slot_id: String,
         action_id: Option<String>,
@@ -309,6 +317,10 @@ mod win_host {
         start_y: f32,
         item_x: f32,
         item_y: f32,
+        item_w: f32,
+        item_h: f32,
+        work_w_dip: f32,
+        work_h_dip: f32,
         can_drag: bool,
     }
 
@@ -326,7 +338,7 @@ mod win_host {
         add_btn_rect: Option<RectF>,
         last_visible: bool,
         last_board_mode: bool,
-        last_owner_attached: bool,
+        last_owner_hwnd: isize,
     }
 
     struct HostThreadState {
@@ -341,6 +353,168 @@ mod win_host {
 
     thread_local! {
         static HOST_STATE: RefCell<Option<HostThreadState>> = const { RefCell::new(None) };
+    }
+
+    /// Invokes the host event callback strictly AFTER releasing `shared.lock()` and `HOST_STATE` borrows.
+    /// Prevents any synchronous event handler from deadlocking on `HostSharedState`.
+    fn emit_detached(shared: &Arc<Mutex<HostSharedState>>, ev: WidgetHostEvent) {
+        let cb = shared.lock().ok().and_then(|s| s.on_event.clone());
+        if let Some(f) = cb {
+            f(ev);
+        }
+    }
+
+    /// Finds the `hwndInsertAfter` handle that seats `my_hwnd` strictly ABOVE `desktop_host`
+    /// (`Progman` or `WorkerW` hosting `SHELLDLL_DefView`) and strictly BELOW all normal app windows.
+    /// During Win+D (Show Desktop), Windows raises `desktop_host` to the top of the non-topmost band,
+    /// so walking upward hits a `WS_EX_TOPMOST` window (or NULL) and returns `HWND_TOP`, keeping
+    /// widgets visible above the desktop wallpaper and below topmost surfaces (Taskbar, Gili Notch).
+    fn find_z_insert_after_above_desktop(desktop_host: Option<HWND>, my_hwnd: HWND) -> HWND {
+        let Some(host) = desktop_host else {
+            return HWND_BOTTOM;
+        };
+        unsafe {
+            let mut cur = host;
+            for _ in 0..256 {
+                let Ok(prev) = GetWindow(cur, GW_HWNDPREV) else {
+                    return HWND_TOP;
+                };
+                if prev.0.is_null() {
+                    return HWND_TOP;
+                }
+                if prev == my_hwnd {
+                    cur = prev;
+                    continue;
+                }
+                let ex = GetWindowLongPtrW(prev, GWL_EXSTYLE) as u32;
+                if (ex & WS_EX_TOPMOST.0) != 0 {
+                    return HWND_TOP;
+                }
+                return prev;
+            }
+            HWND_TOP
+        }
+    }
+
+    /// Checks whether `my_hwnd` currently sits immediately above `desktop_host` in Z-order.
+    fn is_seated_above_desktop(desktop_host: HWND, my_hwnd: HWND, max_hops: usize) -> bool {
+        unsafe {
+            let mut cur = desktop_host;
+            for _ in 0..max_hops.max(1) {
+                let Ok(prev) = GetWindow(cur, GW_HWNDPREV) else {
+                    return false;
+                };
+                if prev.0.is_null() {
+                    return false;
+                }
+                if prev == my_hwnd {
+                    return true;
+                }
+                cur = prev;
+            }
+            false
+        }
+    }
+
+    fn is_lbutton_down() -> bool {
+        unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 }
+    }
+
+    fn cursor_pos_dip(hwnd: HWND) -> Option<(f32, f32)> {
+        unsafe {
+            let mut pt = POINT::default();
+            if GetCursorPos(&mut pt).is_err() {
+                return None;
+            }
+            let _ = ScreenToClient(hwnd, &mut pt);
+            let dpi = (GetDpiForWindow(hwnd) as f32).max(96.0);
+            Some((pt.x as f32 * 96.0 / dpi, pt.y as f32 * 96.0 / dpi))
+        }
+    }
+
+    fn finalize_drag_or_press(
+        st: &mut HostThreadState,
+        fallback_hwnd: HWND,
+    ) -> Option<(Arc<Mutex<HostSharedState>>, WidgetHostEvent)> {
+        if let Some(drag) = st.dragging.take() {
+            let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
+            let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
+            let final_x = ((drag.cur_x / 16.0).round() * 16.0).clamp(8.0, max_x);
+            let final_y = ((drag.cur_y / 16.0).round() * 16.0).clamp(8.0, max_y);
+
+            let mutated_cfg = if let Ok(mut sh) = st.shared.lock() {
+                let scale = sh.config.grid_scale;
+                let (col, row) = snap_position_to_grid(final_x, final_y, scale, 32.0, 48.0);
+                if let Some(slot) = sh
+                    .config
+                    .slots
+                    .iter_mut()
+                    .find(|s| s.slot_id == drag.slot_id)
+                {
+                    slot.pos_x = Some(final_x);
+                    slot.pos_y = Some(final_y);
+                    slot.grid_col = col.max(0);
+                    slot.grid_row = row.max(0);
+                }
+                Some(sh.config.clone())
+            } else {
+                None
+            };
+
+            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+            return mutated_cfg
+                .map(|config| (st.shared.clone(), WidgetHostEvent::ConfigMutated { config }));
+        }
+
+        if let Some(press) = st.pending_press.take() {
+            if press.since.elapsed() >= Duration::from_millis(550) {
+                if let Ok(mut sh) = st.shared.lock() {
+                    sh.edit_mode = !sh.edit_mode;
+                }
+                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                return None;
+            }
+            if let Some(act) = press.action_id {
+                if let Some(ctrl) = act.strip_prefix("quick_toggle:") {
+                    return Some((
+                        st.shared.clone(),
+                        WidgetHostEvent::ToggleQuickControl {
+                            control: ctrl.to_string(),
+                        },
+                    ));
+                }
+                if let Some(surf) = st
+                    .surfaces
+                    .iter()
+                    .find(|s| s.hwnd == press.hwnd || s.hwnd == fallback_hwnd)
+                {
+                    if let Some(item) = surf.items.iter().find(|i| i.slot_id == press.slot_id) {
+                        return Some((
+                            st.shared.clone(),
+                            WidgetHostEvent::OpenFeature {
+                                widget_type: item.widget_type.clone(),
+                                action_id: Some(act),
+                            },
+                        ));
+                    }
+                }
+            } else if let Some(surf) = st
+                .surfaces
+                .iter()
+                .find(|s| s.hwnd == press.hwnd || s.hwnd == fallback_hwnd)
+            {
+                if let Some(item) = surf.items.iter().find(|i| i.slot_id == press.slot_id) {
+                    return Some((
+                        st.shared.clone(),
+                        WidgetHostEvent::OpenFeature {
+                            widget_type: item.widget_type.clone(),
+                            action_id: None,
+                        },
+                    ));
+                }
+            }
+        }
+        None
     }
 
     /// Read-only lookup for the top-level shell window hosting the Windows desktop icons (`SHELLDLL_DefView`).
@@ -502,7 +676,19 @@ mod win_host {
             WM_WINDOWPOSCHANGING => {
                 if STAY_BOTTOM_MODE.load(Ordering::Relaxed) && lparam.0 != 0 {
                     let wp = &mut *(lparam.0 as *mut WINDOWPOS);
-                    wp.hwndInsertAfter = HWND_BOTTOM;
+                    let owner_raw = DESKTOP_OWNER_RAW.load(Ordering::Relaxed);
+                    let desktop_host = if owner_raw != 0 {
+                        Some(HWND(owner_raw as *mut std::ffi::c_void))
+                    } else {
+                        None
+                    };
+                    if (wp.flags.0 & SWP_NOZORDER.0) == 0 {
+                        wp.hwndInsertAfter =
+                            find_z_insert_after_above_desktop(desktop_host, hwnd);
+                    }
+                    if WANT_VISIBLE_MODE.load(Ordering::Relaxed) {
+                        wp.flags = SET_WINDOW_POS_FLAGS(wp.flags.0 & !SWP_HIDEWINDOW.0);
+                    }
                 }
                 return LRESULT(0);
             }
@@ -529,15 +715,19 @@ mod win_host {
                 return LRESULT(0);
             }
             WM_CAPTURECHANGED => {
-                HOST_STATE.with(|cell| {
-                    if let Ok(mut b) = cell.try_borrow_mut() {
-                        if let Some(st) = b.as_mut() {
-                            st.dragging = None;
-                            st.pending_press = None;
-                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                        }
+                // Keep active drag alive if LBUTTON is still physically held (WS_EX_NOACTIVATE).
+                if !is_lbutton_down() {
+                    let deferred = HOST_STATE.with(|cell| {
+                        let Ok(mut b) = cell.try_borrow_mut() else {
+                            return None;
+                        };
+                        let st = b.as_mut()?;
+                        finalize_drag_or_press(st, hwnd)
+                    });
+                    if let Some((sh, ev)) = deferred {
+                        emit_detached(&sh, ev);
                     }
-                });
+                }
                 return LRESULT(0);
             }
             WM_NCHITTEST => {
@@ -556,7 +746,7 @@ mod win_host {
                     let Some(st) = b.as_ref() else {
                         return HitTestResult::Transparent;
                     };
-                    if st.dragging.is_some() {
+                    if st.dragging.is_some() || st.pending_press.is_some() {
                         return HitTestResult::WidgetContent {
                             slot_id: "__dragging__".into(),
                             action_id: None,
@@ -593,9 +783,9 @@ mod win_host {
                 let px = px_raw * 96.0 / dpi;
                 let py = py_raw * 96.0 / dpi;
 
-                let mut need_capture = false;
                 let mut spawn_editor_req: Option<(RectF, String, String)> = None;
                 let mut close_prev_editor: Option<InlineEditor> = None;
+                let mut deferred_ev: Option<(Arc<Mutex<HostSharedState>>, WidgetHostEvent)> = None;
 
                 HOST_STATE.with(|cell| {
                     let Ok(mut b) = cell.try_borrow_mut() else {
@@ -623,15 +813,19 @@ mod win_host {
                             }
                         }
                         HitTestResult::GalleryAddButton => {
-                            if let Ok(sh) = st.shared.lock() {
-                                sh.emit(WidgetHostEvent::OpenGallery);
-                            }
+                            deferred_ev =
+                                Some((st.shared.clone(), WidgetHostEvent::OpenGallery));
                         }
                         HitTestResult::RemoveBadge { slot_id } => {
-                            if let Ok(mut sh) = st.shared.lock() {
+                            let cfg_opt = st.shared.lock().ok().map(|mut sh| {
                                 sh.config.slots.retain(|s| s.slot_id != slot_id);
-                                let cfg = sh.config.clone();
-                                sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
+                                sh.config.clone()
+                            });
+                            if let Some(config) = cfg_opt {
+                                deferred_ev = Some((
+                                    st.shared.clone(),
+                                    WidgetHostEvent::ConfigMutated { config },
+                                ));
                             }
                             FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                         }
@@ -660,21 +854,27 @@ mod win_host {
                             }
 
                             if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
+                                let work_w_dip = surf.info.work_w as f32 * 96.0 / dpi;
+                                let work_h_dip = surf.info.work_h as f32 * 96.0 / dpi;
                                 if let Some(item) = surf.items.iter().find(|i| i.slot_id == slot_id)
                                 {
                                     if edit_mode && !locked {
                                         st.dragging = Some(ActiveDrag {
+                                            hwnd,
                                             slot_id: slot_id.clone(),
                                             offset_x: px - item.frame.x,
                                             offset_y: py - item.frame.y,
                                             cur_x: item.frame.x,
                                             cur_y: item.frame.y,
+                                            item_w: item.frame.w,
+                                            item_h: item.frame.h,
+                                            work_w_dip,
+                                            work_h_dip,
                                         });
-                                        need_capture = true;
                                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                                     } else {
-                                        // Allow direct click-and-drag anytime when positions are not locked!
                                         st.pending_press = Some(PendingPress {
+                                            hwnd,
                                             since: Instant::now(),
                                             slot_id: slot_id.clone(),
                                             action_id,
@@ -682,9 +882,13 @@ mod win_host {
                                             start_y: py,
                                             item_x: item.frame.x,
                                             item_y: item.frame.y,
+                                            item_w: item.frame.w,
+                                            item_h: item.frame.h,
+                                            work_w_dip,
+                                            work_h_dip,
                                             can_drag: !locked,
                                         });
-                                        need_capture = true;
+                                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                                     }
                                 }
                             }
@@ -692,7 +896,7 @@ mod win_host {
                     }
                 });
 
-                // Execute Win32 window calls strictly OUTSIDE any HOST_STATE borrow
+                // Execute Win32 calls & host events strictly OUTSIDE HOST_STATE borrow and shared lock
                 if let Some(prev) = close_prev_editor {
                     let _ = read_and_close_inline_editor(prev);
                 }
@@ -706,8 +910,9 @@ mod win_host {
                             }
                         }
                     });
-                } else if need_capture {
-                    let _ = SetCapture(hwnd);
+                }
+                if let Some((sh, ev)) = deferred_ev {
+                    emit_detached(&sh, ev);
                 }
                 return LRESULT(0);
             }
@@ -724,7 +929,6 @@ mod win_host {
                     };
                     let Some(st) = b.as_mut() else { return };
 
-                    // Promote pending press to smooth direct desktop drag once cursor moves > 6dp
                     if st.dragging.is_none() {
                         let should_promote = st.pending_press.as_ref().map(|p| {
                             let dx = px - p.start_x;
@@ -733,12 +937,21 @@ mod win_host {
                         });
                         if should_promote == Some(true) {
                             if let Some(p) = st.pending_press.take() {
+                                let off_x = p.start_x - p.item_x;
+                                let off_y = p.start_y - p.item_y;
+                                let max_x = (p.work_w_dip - p.item_w - 8.0).max(8.0);
+                                let max_y = (p.work_h_dip - p.item_h - 8.0).max(8.0);
                                 st.dragging = Some(ActiveDrag {
+                                    hwnd: p.hwnd,
                                     slot_id: p.slot_id,
-                                    offset_x: p.start_x - p.item_x,
-                                    offset_y: p.start_y - p.item_y,
-                                    cur_x: px - (p.start_x - p.item_x),
-                                    cur_y: py - (p.start_y - p.item_y),
+                                    offset_x: off_x,
+                                    offset_y: off_y,
+                                    cur_x: (px - off_x).clamp(8.0, max_x),
+                                    cur_y: (py - off_y).clamp(8.0, max_y),
+                                    item_w: p.item_w,
+                                    item_h: p.item_h,
+                                    work_w_dip: p.work_w_dip,
+                                    work_h_dip: p.work_h_dip,
                                 });
                                 FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                             }
@@ -746,8 +959,10 @@ mod win_host {
                     }
 
                     if let Some(drag) = st.dragging.as_mut() {
-                        drag.cur_x = px - drag.offset_x;
-                        drag.cur_y = py - drag.offset_y;
+                        let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
+                        let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
+                        drag.cur_x = (px - drag.offset_x).clamp(8.0, max_x);
+                        drag.cur_y = (py - drag.offset_y).clamp(8.0, max_y);
                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
                 });
@@ -755,86 +970,16 @@ mod win_host {
             }
             WM_LBUTTONUP => {
                 let _ = ReleaseCapture();
-
-                HOST_STATE.with(|cell| {
+                let deferred = HOST_STATE.with(|cell| {
                     let Ok(mut b) = cell.try_borrow_mut() else {
-                        return;
+                        return None;
                     };
-                    let Some(st) = b.as_mut() else { return };
-                    if let Some(drag) = st.dragging.take() {
-                        let dpi = (GetDpiForWindow(hwnd) as f32).max(96.0);
-                        let (mon_w_dip, mon_h_dip) = st
-                            .surfaces
-                            .iter()
-                            .find(|s| s.hwnd == hwnd)
-                            .map(|s| {
-                                (
-                                    s.info.work_w as f32 * 96.0 / dpi,
-                                    s.info.work_h as f32 * 96.0 / dpi,
-                                )
-                            })
-                            .unwrap_or((1280.0, 720.0));
-
-                        if let Ok(mut sh) = st.shared.lock() {
-                            let scale = sh.config.grid_scale;
-                            let step = (GRID_SMALL_DP + GRID_GAP_DP) * scale;
-                            let (raw_col, raw_row) =
-                                snap_position_to_grid(drag.cur_x, drag.cur_y, scale, 32.0, 48.0);
-                            if let Some(slot) =
-                                sh.config.slots.iter_mut().find(|s| s.slot_id == drag.slot_id)
-                            {
-                                let (sw, sh_cells) = slot.size.grid_span();
-                                let max_col =
-                                    (((mon_w_dip - 48.0) / step).floor() as i32 - sw).max(0);
-                                let max_row =
-                                    (((mon_h_dip - 64.0) / step).floor() as i32 - sh_cells).max(0);
-                                slot.grid_col = raw_col.clamp(0, max_col);
-                                slot.grid_row = raw_row.clamp(0, max_row);
-                            }
-                            resolve_grid_collisions(&mut sh.config.slots, &drag.slot_id);
-                            let cfg = sh.config.clone();
-                            sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
-                        }
-                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                    } else if let Some(press) = st.pending_press.take() {
-                        if press.since.elapsed() >= Duration::from_millis(550) {
-                            if let Ok(mut sh) = st.shared.lock() {
-                                sh.edit_mode = !sh.edit_mode;
-                            }
-                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                        } else if let Some(act) = press.action_id {
-                            if let Some(ctrl) = act.strip_prefix("quick_toggle:") {
-                                if let Ok(sh) = st.shared.lock() {
-                                    sh.emit(WidgetHostEvent::ToggleQuickControl {
-                                        control: ctrl.to_string(),
-                                    });
-                                }
-                            } else if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
-                                if let Some(item) =
-                                    surf.items.iter().find(|i| i.slot_id == press.slot_id)
-                                {
-                                    if let Ok(sh) = st.shared.lock() {
-                                        sh.emit(WidgetHostEvent::OpenFeature {
-                                            widget_type: item.widget_type.clone(),
-                                            action_id: Some(act),
-                                        });
-                                    }
-                                }
-                            }
-                        } else if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
-                            if let Some(item) =
-                                surf.items.iter().find(|i| i.slot_id == press.slot_id)
-                            {
-                                if let Ok(sh) = st.shared.lock() {
-                                    sh.emit(WidgetHostEvent::OpenFeature {
-                                        widget_type: item.widget_type.clone(),
-                                        action_id: None,
-                                    });
-                                }
-                            }
-                        }
-                    }
+                    let st = b.as_mut()?;
+                    finalize_drag_or_press(st, hwnd)
                 });
+                if let Some((sh, ev)) = deferred {
+                    emit_detached(&sh, ev);
+                }
                 return LRESULT(0);
             }
             WM_MOUSEWHEEL => {
@@ -846,33 +991,33 @@ mod win_host {
                 let px = pt.x as f32 * 96.0 / dpi;
                 let py = pt.y as f32 * 96.0 / dpi;
 
-                HOST_STATE.with(|cell| {
+                let deferred = HOST_STATE.with(|cell| {
                     let Ok(mut b) = cell.try_borrow_mut() else {
-                        return;
+                        return None;
                     };
-                    let Some(st) = b.as_mut() else { return };
+                    let st = b.as_mut()?;
                     let edit_mode = st.shared.lock().map(|s| s.edit_mode).unwrap_or(false);
-                    let slot_opt = st.surfaces.iter().find(|s| s.hwnd == hwnd).and_then(|surf| {
+                    let slot_id = st.surfaces.iter().find(|s| s.hwnd == hwnd).and_then(|surf| {
                         match hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py) {
                             HitTestResult::WidgetContent { slot_id, .. } => Some(slot_id),
                             _ => None,
                         }
-                    });
-                    if let Some(slot_id) = slot_opt {
-                        if let Ok(mut sh) = st.shared.lock() {
-                            if let Some(slot) =
-                                sh.config.slots.iter_mut().find(|s| s.slot_id == slot_id)
-                            {
-                                if slot.widgets.len() > 1 {
-                                    slot.step_stack(if delta < 0 { 1 } else { -1 });
-                                    let cfg = sh.config.clone();
-                                    sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
-                                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                                }
-                            }
+                    })?;
+                    let cfg_opt = st.shared.lock().ok().and_then(|mut sh| {
+                        let slot = sh.config.slots.iter_mut().find(|s| s.slot_id == slot_id)?;
+                        if slot.widgets.len() > 1 {
+                            slot.step_stack(if delta < 0 { 1 } else { -1 });
+                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                            Some(sh.config.clone())
+                        } else {
+                            None
                         }
-                    }
+                    });
+                    cfg_opt.map(|config| (st.shared.clone(), WidgetHostEvent::ConfigMutated { config }))
                 });
+                if let Some((sh, ev)) = deferred {
+                    emit_detached(&sh, ev);
+                }
                 return LRESULT(0);
             }
             WM_RBUTTONUP => {
@@ -923,15 +1068,16 @@ mod win_host {
                         .0;
                         let _ = DestroyMenu(menu);
 
-                        HOST_STATE.with(|cell| {
+                        let deferred = HOST_STATE.with(|cell| {
                             let Ok(mut b) = cell.try_borrow_mut() else {
-                                return;
+                                return None;
                             };
-                            let Some(st) = b.as_mut() else { return };
-                            if let Ok(mut sh) = st.shared.lock() {
+                            let st = b.as_mut()?;
+                            let ev_opt = if let Ok(mut sh) = st.shared.lock() {
                                 match cmd {
                                     CMD_EDIT_TOGGLE => {
                                         sh.edit_mode = !sh.edit_mode;
+                                        None
                                     }
                                     CMD_SIZE_S | CMD_SIZE_M | CMD_SIZE_L => {
                                         let sz = match cmd {
@@ -947,14 +1093,13 @@ mod win_host {
                                         {
                                             s.size = sz;
                                         }
-                                        let cfg = sh.config.clone();
-                                        sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
+                                        Some(WidgetHostEvent::ConfigMutated {
+                                            config: sh.config.clone(),
+                                        })
                                     }
-                                    CMD_CUSTOMIZE => {
-                                        sh.emit(WidgetHostEvent::OpenCustomizer {
-                                            slot_id: slot_id.clone(),
-                                        });
-                                    }
+                                    CMD_CUSTOMIZE => Some(WidgetHostEvent::OpenCustomizer {
+                                        slot_id: slot_id.clone(),
+                                    }),
                                     CMD_STACK_NEXT => {
                                         if let Some(s) = sh
                                             .config
@@ -964,19 +1109,27 @@ mod win_host {
                                         {
                                             s.step_stack(1);
                                         }
-                                        let cfg = sh.config.clone();
-                                        sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
+                                        Some(WidgetHostEvent::ConfigMutated {
+                                            config: sh.config.clone(),
+                                        })
                                     }
                                     CMD_DELETE => {
                                         sh.config.slots.retain(|s| s.slot_id != slot_id);
-                                        let cfg = sh.config.clone();
-                                        sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
+                                        Some(WidgetHostEvent::ConfigMutated {
+                                            config: sh.config.clone(),
+                                        })
                                     }
-                                    _ => {}
+                                    _ => None,
                                 }
-                            }
+                            } else {
+                                None
+                            };
                             FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                            ev_opt.map(|ev| (st.shared.clone(), ev))
                         });
+                        if let Some((sh, ev)) = deferred {
+                            emit_detached(&sh, ev);
+                        }
                     }
                 }
                 return LRESULT(0);
@@ -1007,27 +1160,28 @@ mod win_host {
                     }
                     return LRESULT(0);
                 } else if vk == VK_RETURN.0 {
-                    let ed_to_commit = HOST_STATE.with(|cell| {
+                    let (ed_to_commit, shared_opt) = HOST_STATE.with(|cell| {
                         cell.try_borrow_mut()
                             .ok()
-                            .and_then(|mut b| b.as_mut().and_then(|st| st.inline_editor.take()))
+                            .and_then(|mut b| {
+                                b.as_mut()
+                                    .map(|st| (st.inline_editor.take(), Some(st.shared.clone())))
+                            })
+                            .unwrap_or((None, None))
                     });
                     if let Some(ed) = ed_to_commit {
                         let (slot_id, widget_type, text) = read_and_close_inline_editor(ed);
                         if !text.trim().is_empty() {
-                            HOST_STATE.with(|cell| {
-                                if let Ok(b) = cell.try_borrow() {
-                                    if let Some(st) = b.as_ref() {
-                                        if let Ok(sh) = st.shared.lock() {
-                                            sh.emit(WidgetHostEvent::TextInputSubmitted {
-                                                slot_id,
-                                                widget_type,
-                                                text,
-                                            });
-                                        }
-                                    }
-                                }
-                            });
+                            if let Some(sh) = shared_opt {
+                                emit_detached(
+                                    &sh,
+                                    WidgetHostEvent::TextInputSubmitted {
+                                        slot_id,
+                                        widget_type,
+                                        text,
+                                    },
+                                );
+                            }
                         }
                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
@@ -1076,7 +1230,7 @@ mod win_host {
             add_btn_rect: None,
             last_visible: false,
             last_board_mode: false,
-            last_owner_attached: desktop_owner.is_some(),
+            last_owner_hwnd: desktop_owner.map(|h| h.0 as isize).unwrap_or(0),
         })
     }
 
@@ -1105,6 +1259,10 @@ mod win_host {
         }
 
         let desktop_owner = find_desktop_shell_owner_hwnd();
+        DESKTOP_OWNER_RAW.store(
+            desktop_owner.map(|h| h.0 as isize).unwrap_or(0),
+            Ordering::Relaxed,
+        );
         let monitors = enumerate_monitors();
         let mut surfaces = Vec::new();
         for mon in monitors {
@@ -1133,6 +1291,7 @@ mod win_host {
 
         let mut last_tick = Instant::now();
         let mut last_policy_check = Instant::now();
+        let mut last_zorder_check = Instant::now() - Duration::from_secs(1);
         let mut last_minute_bucket: u64 = 0;
 
         loop {
@@ -1143,6 +1302,75 @@ mod win_host {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
+            }
+
+            // Poll active direct-desktop drag via GetAsyncKeyState so WS_EX_NOACTIVATE never drops drag!
+            let drag_deferred = HOST_STATE.with(|cell| {
+                let Ok(mut b) = cell.try_borrow_mut() else {
+                    return None;
+                };
+                let st = b.as_mut()?;
+                if st.dragging.is_none() && st.pending_press.is_none() {
+                    return None;
+                }
+                let down = is_lbutton_down();
+                if down {
+                    if let Some(p_hwnd) = st.pending_press.as_ref().map(|p| p.hwnd) {
+                        if let Some((px, py)) = cursor_pos_dip(p_hwnd) {
+                            let should_promote = st.pending_press.as_ref().map(|p| {
+                                let dx = px - p.start_x;
+                                let dy = py - p.start_y;
+                                p.can_drag && (dx * dx + dy * dy).sqrt() >= DRAG_THRESHOLD_DP
+                            });
+                            if should_promote == Some(true) {
+                                if let Some(p) = st.pending_press.take() {
+                                    let off_x = p.start_x - p.item_x;
+                                    let off_y = p.start_y - p.item_y;
+                                    let max_x = (p.work_w_dip - p.item_w - 8.0).max(8.0);
+                                    let max_y = (p.work_h_dip - p.item_h - 8.0).max(8.0);
+                                    st.dragging = Some(ActiveDrag {
+                                        hwnd: p.hwnd,
+                                        slot_id: p.slot_id,
+                                        offset_x: off_x,
+                                        offset_y: off_y,
+                                        cur_x: (px - off_x).clamp(8.0, max_x),
+                                        cur_y: (py - off_y).clamp(8.0, max_y),
+                                        item_w: p.item_w,
+                                        item_h: p.item_h,
+                                        work_w_dip: p.work_w_dip,
+                                        work_h_dip: p.work_h_dip,
+                                    });
+                                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(drag) = st.dragging.as_mut() {
+                        if let Some((px, py)) = cursor_pos_dip(drag.hwnd) {
+                            let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
+                            let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
+                            let nx = (px - drag.offset_x).clamp(8.0, max_x);
+                            let ny = (py - drag.offset_y).clamp(8.0, max_y);
+                            if (nx - drag.cur_x).abs() > 0.25 || (ny - drag.cur_y).abs() > 0.25 {
+                                drag.cur_x = nx;
+                                drag.cur_y = ny;
+                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                    None
+                } else {
+                    let target_hwnd = st
+                        .dragging
+                        .as_ref()
+                        .map(|d| d.hwnd)
+                        .or_else(|| st.pending_press.as_ref().map(|p| p.hwnd))
+                        .unwrap_or_default();
+                    finalize_drag_or_press(st, target_hwnd)
+                }
+            });
+            if let Some((sh, ev)) = drag_deferred {
+                emit_detached(&sh, ev);
             }
 
             // Process incoming commands from Tauri bridge
@@ -1213,6 +1441,7 @@ mod win_host {
             }
 
             if should_exit {
+                WANT_VISIBLE_MODE.store(false, Ordering::Relaxed);
                 let hwnds_to_destroy: Vec<HWND> = HOST_STATE.with(|cell| {
                     cell.borrow_mut()
                         .take()
@@ -1250,52 +1479,88 @@ mod win_host {
 
             let visible_now = !screen_off
                 && ((cfg.enabled && cfg.display_mode == DisplayMode::DesktopAttached)
-                    || board_visible)
-                && !(cfg.auto_pause_fullscreen
-                    && policy.fullscreen_or_game_active
-                    && !board_visible);
+                    || board_visible);
+            let render_paused = cfg.auto_pause_fullscreen
+                && policy.fullscreen_or_game_active
+                && !board_visible;
 
             STAY_BOTTOM_MODE.store(!board_visible, Ordering::Relaxed);
+            WANT_VISIBLE_MODE.store(visible_now, Ordering::Relaxed);
 
-            // Step 1: Collect Win32 window visibility/owner updates WITHOUT calling ShowWindow inside RefCell borrow!
+            // Step 1: Collect Win32 window visibility/owner/Z-order updates WITHOUT calling Win32 APIs inside RefCell borrow!
             struct WindowUpdate {
                 hwnd: HWND,
                 visible: bool,
                 board_mode: bool,
                 owner_change: Option<isize>,
+                desktop_host: Option<HWND>,
+                needs_redraw: bool,
             }
             let mut win_updates: Vec<WindowUpdate> = Vec::new();
-            let current_desktop_owner = find_desktop_shell_owner_hwnd();
+            let do_zorder_check = last_zorder_check.elapsed() >= Duration::from_millis(200);
+            let current_desktop_owner = if do_zorder_check {
+                last_zorder_check = Instant::now();
+                let found = find_desktop_shell_owner_hwnd();
+                DESKTOP_OWNER_RAW.store(
+                    found.map(|h| h.0 as isize).unwrap_or(0),
+                    Ordering::Relaxed,
+                );
+                found
+            } else {
+                let raw = DESKTOP_OWNER_RAW.load(Ordering::Relaxed);
+                if raw != 0 {
+                    Some(HWND(raw as *mut std::ffi::c_void))
+                } else {
+                    find_desktop_shell_owner_hwnd()
+                }
+            };
+            let desired_owner_raw = if !board_visible {
+                current_desktop_owner.map(|h| h.0 as isize).unwrap_or(0)
+            } else {
+                0
+            };
 
             HOST_STATE.with(|cell| {
                 if let Ok(mut b) = cell.try_borrow_mut() {
                     if let Some(st) = b.as_mut() {
+                        let surf_count = st.surfaces.len();
                         for surf in &mut st.surfaces {
-                            let want_owner = !board_visible && current_desktop_owner.is_some();
-                            let owner_changed = surf.last_owner_attached != want_owner;
+                            let owner_changed = surf.last_owner_hwnd != desired_owner_raw;
                             let vis_changed = surf.last_visible != visible_now;
                             let mode_changed = surf.last_board_mode != board_visible;
 
-                            if vis_changed || mode_changed || owner_changed {
-                                let owner_change = if owner_changed {
-                                    Some(if want_owner {
-                                        current_desktop_owner
-                                            .map(|h| h.0 as isize)
-                                            .unwrap_or(0)
-                                    } else {
-                                        0
+                            let mut needs_z_restore = false;
+                            if visible_now && !board_visible && do_zorder_check {
+                                let hidden_or_min = unsafe {
+                                    !IsWindowVisible(surf.hwnd).as_bool()
+                                        || IsIconic(surf.hwnd).as_bool()
+                                };
+                                let z_drifted = current_desktop_owner
+                                    .map(|dh| {
+                                        !is_seated_above_desktop(dh, surf.hwnd, surf_count + 2)
                                     })
+                                    .unwrap_or(false);
+                                if hidden_or_min || z_drifted {
+                                    needs_z_restore = true;
+                                }
+                            }
+
+                            if vis_changed || mode_changed || owner_changed || needs_z_restore {
+                                let owner_change = if owner_changed {
+                                    Some(desired_owner_raw)
                                 } else {
                                     None
                                 };
                                 surf.last_visible = visible_now;
                                 surf.last_board_mode = board_visible;
-                                surf.last_owner_attached = want_owner;
+                                surf.last_owner_hwnd = desired_owner_raw;
                                 win_updates.push(WindowUpdate {
                                     hwnd: surf.hwnd,
                                     visible: visible_now,
                                     board_mode: board_visible,
                                     owner_change,
+                                    desktop_host: current_desktop_owner,
+                                    needs_redraw: vis_changed || mode_changed,
                                 });
                             }
                         }
@@ -1313,7 +1578,7 @@ mod win_host {
                         let z_target = if upd.board_mode {
                             HWND_TOPMOST
                         } else {
-                            HWND_BOTTOM
+                            find_z_insert_after_above_desktop(upd.desktop_host, upd.hwnd)
                         };
                         let _ = ShowWindow(upd.hwnd, SW_SHOWNOACTIVATE);
                         let _ = SetWindowPos(
@@ -1329,7 +1594,9 @@ mod win_host {
                         let _ = ShowWindow(upd.hwnd, SW_HIDE);
                     }
                 }
-                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                if upd.needs_redraw {
+                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                }
             }
 
             // Step 3: Build scene graph, advance springs, and render Direct2D frames
@@ -1347,11 +1614,11 @@ mod win_host {
                 };
                 let Some(st) = b.as_mut() else { return };
 
-                let mut any_spring_active = st.dragging.is_some();
+                let mut any_spring_active = st.dragging.is_some() || st.pending_press.is_some();
                 let elapsed_secs = st.start_time.elapsed().as_secs_f32();
                 let mut total_dirty = 0usize;
 
-                if visible_now {
+                if visible_now && !render_paused {
                     for surf in &mut st.surfaces {
                         let dpi = unsafe { (GetDpiForWindow(surf.hwnd) as f32).max(96.0) };
                         let _ = surf
@@ -1359,6 +1626,9 @@ mod win_host {
                             .resize(&gpu_res, surf.info.width_px, surf.info.height_px, dpi);
                         let mon_w_dip = surf.info.width_px as f32 * 96.0 / dpi;
                         let mon_h_dip = surf.info.height_px as f32 * 96.0 / dpi;
+                        let work_w_dip = surf.info.work_w as f32 * 96.0 / dpi;
+                        let work_h_dip = surf.info.work_h as f32 * 96.0 / dpi;
+                        let cell_step = (GRID_SMALL_DP + GRID_GAP_DP) * cfg.grid_scale.clamp(0.8, 1.35);
 
                         let mut built = Vec::new();
                         for slot in &cfg.slots {
@@ -1369,6 +1639,23 @@ mod win_host {
                             }
                             let mut target_rect =
                                 slot_rect_dp(slot, cfg.grid_scale, 32.0, 48.0);
+                            // Keep legacy auto-grid slots from ever clipping behind the taskbar
+                            if slot.pos_x.is_none()
+                                && slot.pos_y.is_none()
+                                && target_rect.y + target_rect.h > work_h_dip - 12.0
+                            {
+                                let max_rows =
+                                    (((work_h_dip - 60.0) / cell_step).floor() as i32).max(1);
+                                let overflow_col = slot.grid_row / max_rows;
+                                let wrapped_row = slot.grid_row % max_rows;
+                                target_rect.x += (overflow_col as f32) * 2.0 * cell_step;
+                                target_rect.y = 48.0 + (wrapped_row as f32) * cell_step;
+                            }
+                            let max_x = (work_w_dip - target_rect.w - 8.0).max(8.0);
+                            let max_y = (work_h_dip - target_rect.h - 8.0).max(8.0);
+                            target_rect.x = target_rect.x.clamp(8.0, max_x);
+                            target_rect.y = target_rect.y.clamp(8.0, max_y);
+
                             let is_dragging = st
                                 .dragging
                                 .as_ref()
@@ -1460,6 +1747,7 @@ mod win_host {
                             surf.add_btn_rect,
                             &policy,
                             full_frame,
+                            dt,
                         );
                         total_dirty += dirty_cnt;
                         if let Err(err) = pres_res {
@@ -1467,6 +1755,9 @@ mod win_host {
                                 device_lost = true;
                             }
                         }
+                    }
+                    if renderer.has_active_animations() {
+                        any_spring_active = true;
                     }
                     unsafe {
                         let _ = gpu_res.dcomp_device.Commit();

@@ -44,7 +44,7 @@ pub fn concentric_radius(outer_radius: f32, inset_dp: f32) -> f32 {
     (outer_radius - inset_dp).max(4.0)
 }
 
-/// Generates polygon points approximating a continuous superellipse corner (~60% smoothing).
+/// Generates clockwise polygon points approximating a continuous superellipse corner (~60% smoothing).
 pub fn build_superellipse_points(rect: RectF, radius: f32, smoothing: f32) -> Vec<(f32, f32)> {
     let r = radius.min(rect.w * 0.5).min(rect.h * 0.5).max(0.0);
     if r <= 0.5 {
@@ -55,35 +55,34 @@ pub fn build_superellipse_points(rect: RectF, radius: f32, smoothing: f32) -> Ve
             (rect.x, rect.y + rect.h),
         ];
     }
-    // Superellipse exponent n blends circle (n=2.0) toward squircle (~n=3.6 at smoothing=0.60)
+    // Superellipse exponent n blends circle (n=2.0) toward squircle (~n=3.56 at smoothing=0.60)
     let n = 2.0 + smoothing.clamp(0.0, 1.0) * 2.6;
     let inv_n = 2.0 / n;
     let steps = 10usize;
     let mut pts = Vec::with_capacity((steps + 1) * 4);
 
+    // Strictly clockwise traversal in screen coordinates (+x right, +y down):
+    // 0: top-right    (top -> right)
+    // 1: bottom-right (right -> bottom)
+    // 2: bottom-left  (bottom -> left)
+    // 3: top-left     (left -> top)
     let corners = [
-        (rect.x + rect.w - r, rect.y + r, 1.0f32, -1.0f32, 0usize), // top-right
-        (rect.x + rect.w - r, rect.y + rect.h - r, 1.0, 1.0, 1),    // bottom-right
-        (rect.x + r, rect.y + rect.h - r, -1.0, 1.0, 2),            // bottom-left
-        (rect.x + r, rect.y + r, -1.0, -1.0, 3),                    // top-left
+        (rect.x + rect.w - r, rect.y + r, 0usize),
+        (rect.x + rect.w - r, rect.y + rect.h - r, 1usize),
+        (rect.x + r, rect.y + rect.h - r, 2usize),
+        (rect.x + r, rect.y + r, 3usize),
     ];
 
-    for (cx, cy, sx, sy, quad) in corners {
+    for (cx, cy, quad) in corners {
         for i in 0..=steps {
-            let t = i as f32 / steps as f32;
-            let theta = match quad {
-                0 => t * std::f32::consts::FRAC_PI_2,
-                1 => (1.0 - t) * std::f32::consts::FRAC_PI_2,
-                2 => t * std::f32::consts::FRAC_PI_2,
-                _ => (1.0 - t) * std::f32::consts::FRAC_PI_2,
-            };
-            let cos_t = theta.cos().abs().powf(inv_n);
-            let sin_t = theta.sin().abs().powf(inv_n);
+            let theta = (i as f32 / steps as f32) * std::f32::consts::FRAC_PI_2;
+            let c = theta.cos().abs().powf(inv_n) * r;
+            let s = theta.sin().abs().powf(inv_n) * r;
             let (dx, dy) = match quad {
-                0 => (sin_t * r * sx, cos_t * r * sy),
-                1 => (sin_t * r * sx, cos_t * r * sy),
-                2 => (cos_t * r * sx, sin_t * r * sy),
-                _ => (cos_t * r * sx, sin_t * r * sy),
+                0 => (s, -c),  // (0, -r) -> (+r, 0)
+                1 => (c, s),   // (+r, 0) -> (0, +r)
+                2 => (-s, c),  // (0, +r) -> (-r, 0)
+                _ => (-c, -s), // (-r, 0) -> (0, -r)
             };
             pts.push((cx + dx, cy + dy));
         }
@@ -364,8 +363,12 @@ pub fn slot_rect_dp(slot: &WidgetStackSlot, grid_scale: f32, origin_x: f32, orig
     let cell = GRID_SMALL_DP * grid_scale;
     let gap = GRID_GAP_DP * grid_scale;
     let (w, h) = slot.size.dimensions_dp(grid_scale);
-    let x = origin_x + (slot.grid_col as f32) * (cell + gap);
-    let y = origin_y + (slot.grid_row as f32) * (cell + gap);
+    let x = slot
+        .pos_x
+        .unwrap_or_else(|| origin_x + (slot.grid_col as f32) * (cell + gap));
+    let y = slot
+        .pos_y
+        .unwrap_or_else(|| origin_y + (slot.grid_row as f32) * (cell + gap));
     RectF::new(x, y, w, h)
 }
 
@@ -501,6 +504,16 @@ mod tests {
         resolve_grid_collisions(&mut slots, "a");
         assert_eq!(slots[1].grid_row, 1);
         assert_eq!(concentric_radius(24.0, 12.0), 12.0);
-        assert_eq!(build_superellipse_points(RectF::new(0.0, 0.0, 160.0, 160.0), 24.0, 0.6).len(), 44);
+        let pts = build_superellipse_points(RectF::new(0.0, 0.0, 160.0, 160.0), 24.0, 0.6);
+        assert_eq!(pts.len(), 44);
+        // Verify strictly clockwise non-self-intersecting polygon (positive shoelace area in screen coords)
+        let mut area2 = 0.0f32;
+        for i in 0..pts.len() {
+            let (x1, y1) = pts[i];
+            let (x2, y2) = pts[(i + 1) % pts.len()];
+            area2 += x1 * y2 - x2 * y1;
+        }
+        let area = area2 * 0.5;
+        assert!(area > 24_000.0 && area < 25_600.0, "Superellipse area invalid: {area}");
     }
 }

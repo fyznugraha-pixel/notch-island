@@ -202,6 +202,11 @@ pub struct WidgetStackSlot {
     pub size: WidgetSize,
     pub grid_col: i32,
     pub grid_row: i32,
+    /// Optional free desktop placement (DIP, magnetically aligned to 16dp) set when user drags directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pos_x: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pos_y: Option<f32>,
     pub active_index: usize,
     pub auto_rotate_minutes: u32,
     pub widgets: Vec<WidgetInstance>,
@@ -215,6 +220,8 @@ impl Default for WidgetStackSlot {
             size: WidgetSize::Medium,
             grid_col: 0,
             grid_row: 0,
+            pos_x: None,
+            pos_y: None,
             active_index: 0,
             auto_rotate_minutes: 0,
             widgets: Vec::new(),
@@ -345,6 +352,8 @@ pub fn default_starter_slots() -> Vec<WidgetStackSlot> {
             size: WidgetSize::Medium,
             grid_col: 0,
             grid_row: 0,
+            pos_x: None,
+            pos_y: None,
             active_index: 0,
             auto_rotate_minutes: 0,
             widgets: vec![WidgetInstance {
@@ -360,6 +369,8 @@ pub fn default_starter_slots() -> Vec<WidgetStackSlot> {
             size: WidgetSize::Medium,
             grid_col: 0,
             grid_row: 1,
+            pos_x: None,
+            pos_y: None,
             active_index: 0,
             auto_rotate_minutes: 0,
             widgets: vec![WidgetInstance {
@@ -375,6 +386,8 @@ pub fn default_starter_slots() -> Vec<WidgetStackSlot> {
             size: WidgetSize::Medium,
             grid_col: 0,
             grid_row: 2,
+            pos_x: None,
+            pos_y: None,
             active_index: 0,
             auto_rotate_minutes: 0,
             widgets: vec![WidgetInstance {
