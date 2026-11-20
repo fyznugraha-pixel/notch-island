@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+pub const CONFIG_SCHEMA_VERSION: u32 = 2;
 pub const GRID_SMALL_DP: f32 = 160.0;
 pub const GRID_MEDIUM_W_DP: f32 = 336.0;
 pub const GRID_LARGE_DP: f32 = 336.0;
@@ -151,9 +151,7 @@ impl Default for WidgetStyleConfig {
             tint_opacity: 0.18,
             text_primary: ColorRoleSource::AutoContrast,
             text_secondary: ColorRoleSource::AutoContrast,
-            accent: ColorRoleSource::Custom {
-                color: RgbaColor::new(0x38, 0x82, 0xF6, 1.0),
-            },
+            accent: ColorRoleSource::AutoContrast,
             card_color: ColorRoleSource::Custom {
                 color: RgbaColor::new(0x14, 0x15, 0x1A, 0.85),
             },
@@ -279,12 +277,13 @@ impl Default for DesktopWidgetsConfig {
             global_theme: WidgetStyleConfig::default(),
             presets: default_presets(),
             recent_colors: vec![
+                "#FFFFFF".into(),
+                "#F5F5F7".into(),
                 "#3882F6".into(),
                 "#34C3A0".into(),
                 "#EC4899".into(),
                 "#FBBF24".into(),
                 "#F87171".into(),
-                "#F5F5F7".into(),
             ],
             slots: default_starter_slots(),
         }
@@ -297,6 +296,23 @@ pub fn default_presets() -> Vec<ColorPreset> {
             id: "oled_clear".into(),
             name: "Bening Adaptif".into(),
             style: WidgetStyleConfig::default(),
+        },
+        ColorPreset {
+            id: "monochrome_white".into(),
+            name: "Putih Murni (Semua Putih)".into(),
+            style: WidgetStyleConfig {
+                background_mode: BackgroundMode::None,
+                text_primary: ColorRoleSource::Custom {
+                    color: RgbaColor::new(0xFF, 0xFF, 0xFF, 1.0),
+                },
+                text_secondary: ColorRoleSource::Custom {
+                    color: RgbaColor::new(0xFF, 0xFF, 0xFF, 0.80),
+                },
+                accent: ColorRoleSource::Custom {
+                    color: RgbaColor::new(0xFF, 0xFF, 0xFF, 1.0),
+                },
+                ..WidgetStyleConfig::default()
+            },
         },
         ColorPreset {
             id: "frosted_glass".into(),
@@ -444,6 +460,11 @@ pub fn normalize_config(mut cfg: DesktopWidgetsConfig) -> DesktopWidgetsConfig {
         for p in &mut cfg.presets {
             p.style = normalize_style(p.style.clone());
         }
+        for builtin in default_presets() {
+            if !cfg.presets.iter().any(|p| p.id == builtin.id) {
+                cfg.presets.push(builtin);
+            }
+        }
     }
     cfg.recent_colors.truncate(16);
     cfg.slots.retain(|slot| !slot.widgets.is_empty());
@@ -462,21 +483,35 @@ pub fn normalize_config(mut cfg: DesktopWidgetsConfig) -> DesktopWidgetsConfig {
     cfg
 }
 
+fn strip_legacy_default_blue(style: &mut WidgetStyleConfig) {
+    let legacy_blue = RgbaColor::new(0x38, 0x82, 0xF6, 1.0);
+    if matches!(style.accent, ColorRoleSource::Custom { color } if color == legacy_blue) {
+        style.accent = ColorRoleSource::AutoContrast;
+    }
+}
+
 pub fn migrate_config_value(raw: serde_json::Value) -> DesktopWidgetsConfig {
     let version = raw
         .get("schema_version")
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u32;
 
-    if version == 0 {
-        // Legacy v0 fallback: attempt direct deserialization with defaults for missing fields
-        let mut parsed: DesktopWidgetsConfig =
-            serde_json::from_value(raw).unwrap_or_default();
-        parsed.schema_version = CONFIG_SCHEMA_VERSION;
-        return normalize_config(parsed);
+    let mut parsed: DesktopWidgetsConfig = serde_json::from_value(raw).unwrap_or_default();
+    if version < 2 {
+        strip_legacy_default_blue(&mut parsed.global_theme);
+        for p in &mut parsed.presets {
+            if matches!(p.id.as_str(), "oled_clear" | "frosted_glass" | "graphite_solid") {
+                strip_legacy_default_blue(&mut p.style);
+            }
+        }
+        for slot in &mut parsed.slots {
+            for w in &mut slot.widgets {
+                if let Some(ov) = w.style_override.as_mut() {
+                    strip_legacy_default_blue(ov);
+                }
+            }
+        }
     }
-
-    let parsed: DesktopWidgetsConfig = serde_json::from_value(raw).unwrap_or_default();
     normalize_config(parsed)
 }
 

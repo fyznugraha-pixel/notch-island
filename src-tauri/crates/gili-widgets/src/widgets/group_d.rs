@@ -99,7 +99,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 date_str.to_uppercase(),
                 10.5,
                 700,
-                ctx.pal.accent,
+                ctx.pal.secondary,
                 TextAlign::Left,
                 false,
             ),
@@ -184,7 +184,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 format!("{:02}", min),
                 44.0,
                 800,
-                ctx.pal.accent,
+                ctx.pal.secondary,
                 TextAlign::Center,
                 true,
             ),
@@ -236,7 +236,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     format!("{:02}", min),
                     38.0,
                     700,
-                    ctx.pal.accent,
+                    ctx.pal.primary,
                     TextAlign::Center,
                     true,
                 ),
@@ -282,29 +282,36 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ],
         "dual_zone" => {
             let utc_hour = (hour + 24 - 7) % 24;
+            let main_fs = if ctx.size == WidgetSize::Small && show_sec {
+                26.0
+            } else if inner.h < 120.0 {
+                32.0
+            } else {
+                38.0
+            };
             vec![
                 text_node(
                     RectF::new(inner.x, inner.y, inner.w, 16.0),
                     "WIB (LOKAL)",
                     10.5,
-                    700,
-                    ctx.pal.accent,
+                    600,
+                    ctx.pal.secondary,
                     TextAlign::Left,
                     false,
                 ),
                 text_node(
-                    RectF::new(inner.x, inner.y + 14.0, inner.w, 46.0),
+                    RectF::new(inner.x, inner.y + 15.0, inner.w, 44.0),
                     time_str,
-                    38.0,
+                    main_fs,
                     700,
                     ctx.pal.primary,
                     TextAlign::Left,
                     true,
                 ),
                 text_node(
-                    RectF::new(inner.x, inner.y + 68.0, inner.w, 18.0),
+                    RectF::new(inner.x, inner.y + 62.0, inner.w, 18.0),
                     format!("UTC  {:02}:{:02}", utc_hour, min),
-                    14.0,
+                    13.5,
                     600,
                     ctx.pal.secondary,
                     TextAlign::Left,
@@ -591,7 +598,7 @@ pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         "JAM DUNIA",
         10.5,
         700,
-        ctx.pal.accent,
+        ctx.pal.secondary,
         TextAlign::Left,
         false,
     )];

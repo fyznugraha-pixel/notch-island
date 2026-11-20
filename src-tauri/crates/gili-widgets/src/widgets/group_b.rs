@@ -596,7 +596,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
             glyph: "\u{E787}".into(),
             size: 15.0,
-            color: ctx.pal.accent,
+            color: ctx.pal.secondary,
             interactive_action: None,
         },
         text_node(
@@ -604,7 +604,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             "HITUNG MUNDUR",
             10.5,
             700,
-            ctx.pal.accent,
+            ctx.pal.secondary,
             TextAlign::Left,
             false,
         ),
@@ -707,7 +707,7 @@ pub fn build_quick_snippets(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 1.0, 22.0, 22.0),
             glyph: "\u{E8C8}".into(),
             size: 14.0,
-            color: ctx.pal.accent,
+            color: ctx.pal.secondary,
             interactive_action: None,
         },
     ];

@@ -204,6 +204,10 @@ pub enum TextAlign {
     Right,
 }
 
+fn default_text_scale() -> f32 {
+    1.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WidgetRenderItem {
     pub slot_id: String,
@@ -216,6 +220,8 @@ pub struct WidgetRenderItem {
     pub halo_enabled: bool,
     pub shadow_color: RgbaColor,
     pub font_family: String,
+    #[serde(default = "default_text_scale")]
+    pub text_scale: f32,
     pub nodes: Vec<SceneNode>,
     pub content_hit_rects: Vec<HitRegion>,
     pub stack_count: usize,
@@ -441,6 +447,7 @@ mod tests {
             halo_enabled: false,
             shadow_color: RgbaColor::new(0, 0, 0, 0.5),
             font_family: "Segoe UI Variable".into(),
+            text_scale: 1.0,
             nodes: vec![SceneNode::Text {
                 rect: RectF::new(116.0, 116.0, 140.0, 48.0),
                 content: "21:30".into(),

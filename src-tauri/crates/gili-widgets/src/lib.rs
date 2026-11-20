@@ -554,7 +554,7 @@ mod tests {
         assert!(m1.running, "Host Direct2D harus berjalan tanpa panic/crash");
         assert!(m1.monitor_count >= 1, "Harus mendeteksi minimal 1 monitor");
 
-        // Toggle Board mode & Edit mode and verify no RefCell re-entrancy crash
+        let eng = DesktopWidgetEngine::new();
         eng.toggle_board(Some(true));
         eng.set_edit_mode(true);
         std::thread::sleep(std::time::Duration::from_millis(250));
@@ -565,5 +565,193 @@ mod tests {
         eng.shutdown();
         let m2 = eng.metrics();
         assert!(!m2.running, "Host harus berhenti bersih setelah shutdown");
+    }
+
+    #[test]
+    fn calendar_types_and_monochrome_palette_and_compact_now_playing_behave_cleanly() {
+        use widgets::group_a::{days_in_month, first_weekday_of_month};
+
+        assert_eq!(days_in_month(2024, 2), 29);
+        assert_eq!(days_in_month(2026, 2), 28);
+        assert_eq!(days_in_month(2026, 11), 30);
+        // Nov 1, 2026 is Sunday (0)
+        assert_eq!(first_weekday_of_month(2026, 11), 0);
+
+        let mut hub = WidgetDataHub::default();
+        hub.media = MediaSnapshot {
+            title: "Superpowers".into(),
+            artist: "Daniel Caesar".into(),
+            album: String::new(),
+            thumbnail_path_or_data: None,
+            position_sec: 45.0,
+            duration_sec: 160.0,
+            is_playing: true,
+            active_lyric_line: "Lift your head to the sky (Sky)".into(),
+            next_lyric_line: "It's crazy to say this".into(),
+            lyrics_lines: Vec::new(),
+            lyrics_state: "synced".into(),
+        };
+
+        let white_theme = WidgetStyleConfig {
+            text_primary: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 1.0),
+            },
+            text_secondary: config::ColorRoleSource::AutoContrast,
+            accent: config::ColorRoleSource::AutoContrast,
+            font_weight: 300,
+            text_scale: 1.1,
+            ..WidgetStyleConfig::default()
+        };
+        let analysis = analyze_region_for_style(None, &white_theme, 0.0, 0.0, 0.25, 0.25);
+
+        // Now Playing at 0.85x scale (285.6 x 136): no text rect may overlap the ProgressBar rect,
+        // and no node may carry the old default blue (#3882F6).
+        let np_slot = WidgetStackSlot {
+            slot_id: "np_compact".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "np1".into(),
+                widget_type: "now_playing".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let np_item = build_widget_render_item(
+            &np_slot,
+            RectF::new(16.0, 16.0, 285.6, 136.0),
+            &white_theme,
+            &analysis,
+            &hub,
+            0.0,
+        );
+        assert!((np_item.text_scale - 1.1).abs() < 1e-4);
+        let bar_rect = np_item
+            .nodes
+            .iter()
+            .find_map(|n| match n {
+                layout::SceneNode::ProgressBar { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("ProgressBar harus ada");
+        for node in &np_item.nodes {
+            match node {
+                layout::SceneNode::Text {
+                    rect,
+                    color,
+                    font_weight,
+                    ..
+                } => {
+                    assert!(
+                        rect.y + rect.h <= bar_rect.y + 0.5,
+                        "Teks ({}, h={}) menabrak ProgressBar (y={})",
+                        rect.y,
+                        rect.h,
+                        bar_rect.y
+                    );
+                    assert_eq!(color.r, 255);
+                    assert_eq!(color.g, 255);
+                    assert_eq!(color.b, 255);
+                    assert!(*font_weight <= 500, "font_weight 300 harus meringankan teks");
+                }
+                layout::SceneNode::RoundedRect {
+                    fill: Some(c), ..
+                } => {
+                    assert_eq!(c.r, c.g, "Monokrom putih tidak boleh bocor warna biru");
+                }
+                _ => {}
+            }
+        }
+
+        // All 4 calendar styles build cleanly across S/M/L; bulan_minimal bolds today without a blue box
+        let default_cfg = DesktopWidgetsConfig::default();
+        assert_eq!(
+            default_cfg.global_theme.accent,
+            config::ColorRoleSource::AutoContrast
+        );
+
+        let v1_with_old_blue = serde_json::json!({
+            "schema_version": 1,
+            "enabled": true,
+            "global_theme": {
+                "accent": { "mode": "custom", "color": { "r": 56, "g": 130, "b": 246, "a": 1.0 } }
+            },
+            "slots": []
+        });
+        let migrated = config::migrate_config_value(v1_with_old_blue);
+        assert_eq!(migrated.schema_version, config::CONFIG_SCHEMA_VERSION);
+        assert_eq!(
+            migrated.global_theme.accent,
+            config::ColorRoleSource::AutoContrast
+        );
+
+        let cal_min_slot = WidgetStackSlot {
+            slot_id: "cal_min".into(),
+            size: config::WidgetSize::Small,
+            widgets: vec![WidgetInstance {
+                instance_id: "cm".into(),
+                widget_type: "calendar_agenda".into(),
+                style_override: None,
+                settings: serde_json::json!({ "calendar_style": "bulan_minimal" }),
+            }],
+            ..Default::default()
+        };
+        let cal_min_item = build_widget_render_item(
+            &cal_min_slot,
+            RectF::new(0.0, 0.0, 136.0, 136.0),
+            &white_theme,
+            &analysis,
+            &hub,
+            0.0,
+        );
+        assert!(
+            !cal_min_item
+                .nodes
+                .iter()
+                .any(|n| matches!(n, layout::SceneNode::RoundedRect { .. })),
+            "Bulan Minimalis hanya menebalkan tanggal hari ini tanpa kotak/pil latar"
+        );
+        let has_bold_today = cal_min_item.nodes.iter().any(|n| {
+            matches!(
+                n,
+                layout::SceneNode::Text { font_weight, .. } if *font_weight >= 650
+            )
+        });
+        assert!(has_bold_today, "Tanggal hari ini harus tampil bold");
+
+        for cal_st in [
+            "bulan_minimal",
+            "bulan_header",
+            "tanggal_fokus",
+            "tanggal_agenda",
+        ] {
+            for sz in [
+                config::WidgetSize::Small,
+                config::WidgetSize::Medium,
+                config::WidgetSize::Large,
+            ] {
+                let (w, h) = sz.dimensions_dp(0.85);
+                let cal_slot = WidgetStackSlot {
+                    slot_id: format!("cal_{cal_st}"),
+                    size: sz,
+                    widgets: vec![WidgetInstance {
+                        instance_id: "c1".into(),
+                        widget_type: "calendar_agenda".into(),
+                        style_override: None,
+                        settings: serde_json::json!({ "calendar_style": cal_st }),
+                    }],
+                    ..Default::default()
+                };
+                let item = build_widget_render_item(
+                    &cal_slot,
+                    RectF::new(0.0, 0.0, w, h),
+                    &white_theme,
+                    &analysis,
+                    &hub,
+                    0.0,
+                );
+                assert!(!item.nodes.is_empty(), "Tipe kalender {cal_st} tidak boleh kosong");
+            }
+        }
     }
 }

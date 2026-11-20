@@ -56,6 +56,13 @@ const CLOCK_STYLE_OPTIONS = [
   { value: "dual_zone", label: "Jam Dunia Ganda" },
 ];
 
+const CALENDAR_STYLE_OPTIONS = [
+  { value: "bulan_minimal", label: "Bulan Minimalis" },
+  { value: "bulan_header", label: "Bulan + Judul" },
+  { value: "tanggal_fokus", label: "Tanggal Fokus" },
+  { value: "tanggal_agenda", label: "Tanggal + Agenda" },
+];
+
 export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   isLightMode,
 }) => {
@@ -470,6 +477,16 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    {active?.widget_type === "calendar_agenda" && (
+                      <IosSelect
+                        value={String(active.settings?.calendar_style ?? "bulan_minimal")}
+                        options={CALENDAR_STYLE_OPTIONS}
+                        onChange={(v) => handleUpdateWidgetSetting(slot.slot_id, "calendar_style", v)}
+                        isLightMode={isLightMode}
+                        ariaLabel="Tipe kalender"
+                        minWidthClass="min-w-[140px]"
+                      />
+                    )}
                     {active?.widget_type === "styled_clock" && (
                       <IosSelect
                         value={String(active.settings?.clock_style ?? "minimal_digital")}

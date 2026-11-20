@@ -54,7 +54,7 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             format!("{:.1}%", p.cpu_pct),
             12.0,
             600,
-            ctx.pal.accent,
+            ctx.pal.primary,
             TextAlign::Right,
             true,
         ));
@@ -279,7 +279,7 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
             glyph: "\u{E7F4}".into(),
             size: 15.0,
-            color: ctx.pal.accent,
+            color: ctx.pal.secondary,
             interactive_action: None,
         },
         text_node(
@@ -287,7 +287,7 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             "SCREEN TIME HARI INI",
             10.5,
             700,
-            ctx.pal.accent,
+            ctx.pal.secondary,
             TextAlign::Left,
             false,
         ),

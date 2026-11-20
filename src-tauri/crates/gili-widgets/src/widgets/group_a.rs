@@ -5,164 +5,352 @@ use crate::widgets::{
     local_datetime_parts, text_node, WidgetBuildCtx,
 };
 
-/// 1. Kalender bulan + agenda (S, M, L)
+pub fn days_in_month(year: i32, month: u32) -> u32 {
+    let leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 30,
+    }
+}
+
+/// Returns Sunday-based index (`0 = Minggu .. 6 = Sabtu`) for day 1 of `(year, month)`.
+pub fn first_weekday_of_month(year: i32, month: u32) -> u32 {
+    const OFFSETS: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let mut y = year;
+    if month < 3 {
+        y -= 1;
+    }
+    let m_idx = (month as usize).saturating_sub(1).min(11);
+    ((y + y / 4 - y / 100 + y / 400 + OFFSETS[m_idx] + 1).rem_euclid(7)) as u32
+}
+
+fn push_month_grid_nodes(
+    ctx: &WidgetBuildCtx<'_>,
+    nodes: &mut Vec<SceneNode>,
+    grid_rect: RectF,
+    year: i32,
+    month: u32,
+    today: u32,
+    mark_events: bool,
+) {
+    let total_days = days_in_month(year, month);
+    let first_dow = first_weekday_of_month(year, month);
+    let week_rows = ((first_dow + total_days + 6) / 7).clamp(4, 6);
+    let total_rows = week_rows + 1; // +1 for weekday header
+
+    let col_w = grid_rect.w / 7.0;
+    let row_h = grid_rect.h / total_rows as f32;
+    let cell_scale = col_w.min(row_h);
+    let header_fs = (cell_scale * 0.56).clamp(9.5, 14.5);
+    let day_fs = (cell_scale * 0.58).clamp(9.5, 15.0);
+
+    let labels = ["M", "S", "S", "R", "K", "J", "S"];
+    for (i, lbl) in labels.iter().enumerate() {
+        let x = grid_rect.x + i as f32 * col_w;
+        let y = grid_rect.y + (row_h - header_fs * 1.25) * 0.5;
+        nodes.push(text_node(
+            RectF::new(x, y, col_w, row_h),
+            *lbl,
+            header_fs,
+            700,
+            ctx.pal.secondary,
+            TextAlign::Center,
+            false,
+        ));
+    }
+
+    let dim_day = ctx.pal.primary.with_alpha((ctx.pal.primary.a * 0.72).clamp(0.0, 1.0));
+    for d in 1..=total_days {
+        let slot_idx = first_dow + (d - 1);
+        let col = slot_idx % 7;
+        let row = 1 + slot_idx / 7;
+        let cx = grid_rect.x + col as f32 * col_w;
+        let cy = grid_rect.y + row as f32 * row_h;
+
+        let is_today = d == today;
+        let cur_fs = if is_today { day_fs + 1.4 } else { day_fs };
+        let text_y = cy + (row_h - cur_fs * 1.25) * 0.46;
+        nodes.push(text_node(
+            RectF::new(cx, text_y, col_w, row_h),
+            format!("{}", d),
+            cur_fs,
+            if is_today { 900 } else { 400 },
+            if is_today { ctx.pal.accent } else { dim_day },
+            TextAlign::Center,
+            true,
+        ));
+
+        if mark_events && !is_today && !ctx.hub.frontend.events.is_empty() {
+            let day_suffix = format!("-{:02}-{:02}", month, d);
+            let has_ev = ctx.hub.frontend.events.iter().any(|ev| {
+                ev.date_key
+                    .as_deref()
+                    .map(|k| k.ends_with(&day_suffix))
+                    .unwrap_or(false)
+            });
+            if has_ev {
+                nodes.push(SceneNode::RoundedRect {
+                    rect: RectF::new(cx + col_w * 0.5 - 1.5, cy + row_h - 3.5, 3.0, 3.0),
+                    radius: 1.5,
+                    smoothing: 0.0,
+                    fill: Some(ctx.pal.accent),
+                    stroke: None,
+                    interactive_action: None,
+                });
+            }
+        }
+    }
+}
+
+/// 1. Kalender multi-tipe (Bulan Minimalis, Bulan + Judul, Tanggal Fokus, Tanggal + Agenda)
 pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let inner = ctx.frame.inset(14.0);
     let (year, month, day, _, _, _, dow) = local_datetime_parts();
+    let style = ctx
+        .instance
+        .settings
+        .get("calendar_style")
+        .and_then(|v| v.as_str())
+        .unwrap_or("bulan_minimal");
     let events = &ctx.hub.frontend.events;
     let mut nodes = Vec::new();
 
-    nodes.push(text_node(
-        RectF::new(inner.x, inner.y, inner.w, 16.0),
-        format!("{}, {}", indonesian_day_name(dow).to_uppercase(), indonesian_month_name(month).to_uppercase()),
-        11.0,
-        700,
-        ctx.pal.accent,
-        TextAlign::Left,
-        false,
-    ));
-    nodes.push(text_node(
-        RectF::new(inner.x, inner.y + 14.0, 72.0, 44.0),
-        format!("{}", day),
-        38.0,
-        700,
-        ctx.pal.primary,
-        TextAlign::Left,
-        true,
-    ));
-
-    match ctx.size {
-        WidgetSize::Small => {
-            if let Some(ev) = events.first() {
+    match style {
+        "bulan_minimal" => {
+            if ctx.size == WidgetSize::Medium {
+                let left_w = (inner.w * 0.34).clamp(74.0, 108.0);
                 nodes.push(text_node(
-                    RectF::new(inner.x, inner.y + 70.0, inner.w, 18.0),
-                    &ev.time,
-                    11.5,
+                    RectF::new(inner.x, inner.y + 4.0, left_w, 16.0),
+                    indonesian_day_name(dow).to_uppercase(),
+                    10.5,
                     600,
-                    ctx.pal.accent,
+                    ctx.pal.secondary,
+                    TextAlign::Left,
+                    false,
+                ));
+                nodes.push(text_node(
+                    RectF::new(inner.x, inner.y + 18.0, left_w, 46.0),
+                    format!("{}", day),
+                    38.0,
+                    700,
+                    ctx.pal.primary,
                     TextAlign::Left,
                     true,
                 ));
                 nodes.push(text_node(
-                    RectF::new(inner.x, inner.y + 88.0, inner.w, 36.0),
-                    &ev.title,
-                    13.0,
-                    600,
-                    ctx.pal.primary,
-                    TextAlign::Left,
-                    false,
-                ));
-            } else {
-                nodes.push(text_node(
-                    RectF::new(inner.x, inner.y + 76.0, inner.w, 36.0),
-                    "Tidak ada agenda hari ini",
-                    12.5,
-                    400,
+                    RectF::new(inner.x, inner.y + 66.0, left_w, 18.0),
+                    indonesian_month_name(month),
+                    11.5,
+                    500,
                     ctx.pal.secondary,
                     TextAlign::Left,
                     false,
                 ));
+                let grid_x = inner.x + left_w + 6.0;
+                let grid_rect = RectF::new(grid_x, inner.y, inner.w - left_w - 6.0, inner.h);
+                push_month_grid_nodes(ctx, &mut nodes, grid_rect, year, month, day, false);
+            } else {
+                let grid_pad = if ctx.size == WidgetSize::Large { 6.0 } else { 0.0 };
+                push_month_grid_nodes(
+                    ctx,
+                    &mut nodes,
+                    inner.inset(grid_pad),
+                    year,
+                    month,
+                    day,
+                    false,
+                );
             }
         }
-        WidgetSize::Medium | WidgetSize::Large => {
-            let right_x = inner.x + inner.w * 0.44;
-            let right_w = inner.w * 0.56;
+        "bulan_header" => {
+            let head_h = if inner.h < 120.0 { 18.0 } else { 24.0 };
             nodes.push(text_node(
-                RectF::new(inner.x, inner.y + 62.0, inner.w * 0.40, 18.0),
+                RectF::new(inner.x + 2.0, inner.y, inner.w - 4.0, head_h),
                 format!("{} {}", indonesian_month_name(month), year),
+                if ctx.size == WidgetSize::Large { 16.0 } else { 12.5 },
+                700,
+                ctx.pal.primary,
+                TextAlign::Left,
+                false,
+            ));
+            let grid_rect = RectF::new(
+                inner.x,
+                inner.y + head_h + 2.0,
+                inner.w,
+                (inner.h - head_h - 2.0).max(40.0),
+            );
+            push_month_grid_nodes(ctx, &mut nodes, grid_rect, year, month, day, true);
+        }
+        "tanggal_fokus" => {
+            let big_num_fs = if ctx.size == WidgetSize::Large {
+                92.0
+            } else if inner.h < 120.0 {
+                44.0
+            } else {
+                54.0
+            };
+            nodes.push(text_node(
+                RectF::new(inner.x, inner.y + 4.0, inner.w, 18.0),
+                indonesian_day_name(dow).to_uppercase(),
                 12.0,
+                600,
+                ctx.pal.secondary,
+                TextAlign::Center,
+                false,
+            ));
+            nodes.push(text_node(
+                RectF::new(inner.x, inner.y + 22.0, inner.w, big_num_fs * 1.1),
+                format!("{}", day),
+                big_num_fs,
+                700,
+                ctx.pal.primary,
+                TextAlign::Center,
+                true,
+            ));
+            nodes.push(text_node(
+                RectF::new(inner.x, inner.y + inner.h - 20.0, inner.w, 18.0),
+                format!("{} {}", indonesian_month_name(month), year),
+                12.5,
                 500,
+                ctx.pal.secondary,
+                TextAlign::Center,
+                false,
+            ));
+        }
+        _ => {
+            // "tanggal_agenda": Tanggal & daftar agenda dari modul Kalender Gili
+            nodes.push(text_node(
+                RectF::new(inner.x, inner.y, inner.w, 16.0),
+                format!(
+                    "{}, {}",
+                    indonesian_day_name(dow).to_uppercase(),
+                    indonesian_month_name(month).to_uppercase()
+                ),
+                11.0,
+                600,
                 ctx.pal.secondary,
                 TextAlign::Left,
                 false,
             ));
+            nodes.push(text_node(
+                RectF::new(inner.x, inner.y + 15.0, 72.0, 44.0),
+                format!("{}", day),
+                if inner.h < 120.0 { 32.0 } else { 38.0 },
+                700,
+                ctx.pal.primary,
+                TextAlign::Left,
+                true,
+            ));
 
-            if events.is_empty() {
-                nodes.push(text_node(
-                    RectF::new(right_x, inner.y + 18.0, right_w, 36.0),
-                    "Agenda kosong. Ketuk untuk menambah di Gili.",
-                    12.5,
-                    400,
-                    ctx.pal.secondary,
-                    TextAlign::Left,
-                    false,
-                ));
-            } else {
-                let max_items = if ctx.size == WidgetSize::Large { 6 } else { 3 };
-                for (i, ev) in events.iter().take(max_items).enumerate() {
-                    let y = inner.y + 14.0 + i as f32 * 36.0;
-                    if y + 30.0 > inner.y + inner.h {
-                        break;
+            match ctx.size {
+                WidgetSize::Small => {
+                    if let Some(ev) = events.first() {
+                        nodes.push(text_node(
+                            RectF::new(inner.x, inner.y + inner.h - 38.0, inner.w, 16.0),
+                            &ev.time,
+                            11.0,
+                            600,
+                            ctx.pal.secondary,
+                            TextAlign::Left,
+                            true,
+                        ));
+                        nodes.push(text_node(
+                            RectF::new(inner.x, inner.y + inner.h - 22.0, inner.w, 20.0),
+                            &ev.title,
+                            12.5,
+                            600,
+                            ctx.pal.primary,
+                            TextAlign::Left,
+                            false,
+                        ));
+                    } else {
+                        nodes.push(text_node(
+                            RectF::new(inner.x, inner.y + inner.h - 28.0, inner.w, 26.0),
+                            "Tidak ada agenda hari ini",
+                            11.5,
+                            400,
+                            ctx.pal.secondary,
+                            TextAlign::Left,
+                            false,
+                        ));
                     }
-                    nodes.push(SceneNode::Line {
-                        x1: right_x,
-                        y1: y + 4.0,
-                        x2: right_x,
-                        y2: y + 26.0,
-                        color: ctx.pal.accent,
-                        width: 2.5,
-                    });
+                }
+                WidgetSize::Medium | WidgetSize::Large => {
+                    let right_x = inner.x + inner.w * 0.42;
+                    let right_w = inner.w * 0.58;
                     nodes.push(text_node(
-                        RectF::new(right_x + 8.0, y, right_w - 8.0, 16.0),
-                        &ev.title,
-                        13.0,
-                        600,
-                        ctx.pal.primary,
-                        TextAlign::Left,
-                        false,
-                    ));
-                    nodes.push(text_node(
-                        RectF::new(right_x + 8.0, y + 16.0, right_w - 8.0, 14.0),
-                        &ev.time,
-                        11.0,
+                        RectF::new(inner.x, inner.y + 56.0, inner.w * 0.38, 18.0),
+                        format!("{} {}", indonesian_month_name(month), year),
+                        11.5,
                         500,
                         ctx.pal.secondary,
                         TextAlign::Left,
-                        true,
-                    ));
-                }
-            }
-
-            if ctx.size == WidgetSize::Large {
-                // Mini month day strip at bottom left
-                let labels = ["M", "S", "S", "R", "K", "J", "S"];
-                let start_y = inner.y + 104.0;
-                let cell = 18.0;
-                for (i, lbl) in labels.iter().enumerate() {
-                    nodes.push(text_node(
-                        RectF::new(inner.x + i as f32 * cell, start_y, cell, 14.0),
-                        *lbl,
-                        10.0,
-                        600,
-                        ctx.pal.secondary,
-                        TextAlign::Center,
                         false,
                     ));
-                }
-                for d in 1..=30u32 {
-                    let col = (d - 1) % 7;
-                    let row = (d - 1) / 7;
-                    let cx = inner.x + col as f32 * cell;
-                    let cy = start_y + 18.0 + row as f32 * 22.0;
-                    if d == day {
-                        nodes.push(SceneNode::RoundedRect {
-                            rect: RectF::new(cx, cy - 1.0, cell - 1.0, 18.0),
-                            radius: 9.0,
-                            smoothing: 0.4,
-                            fill: Some(ctx.pal.accent),
-                            stroke: None,
-                            interactive_action: None,
-                        });
+
+                    if events.is_empty() {
+                        nodes.push(text_node(
+                            RectF::new(right_x, inner.y + 18.0, right_w, 36.0),
+                            "Agenda kosong. Ketuk untuk menambah di Gili.",
+                            12.0,
+                            400,
+                            ctx.pal.secondary,
+                            TextAlign::Left,
+                            false,
+                        ));
+                    } else {
+                        let max_items = if ctx.size == WidgetSize::Large { 6 } else { 3 };
+                        for (i, ev) in events.iter().take(max_items).enumerate() {
+                            let y = inner.y + 14.0 + i as f32 * 32.0;
+                            if y + 28.0 > inner.y + inner.h {
+                                break;
+                            }
+                            nodes.push(SceneNode::Line {
+                                x1: right_x,
+                                y1: y + 4.0,
+                                x2: right_x,
+                                y2: y + 24.0,
+                                color: ctx.pal.accent,
+                                width: 2.5,
+                            });
+                            nodes.push(text_node(
+                                RectF::new(right_x + 8.0, y, right_w - 8.0, 16.0),
+                                &ev.title,
+                                12.5,
+                                600,
+                                ctx.pal.primary,
+                                TextAlign::Left,
+                                false,
+                            ));
+                            nodes.push(text_node(
+                                RectF::new(right_x + 8.0, y + 15.0, right_w - 8.0, 14.0),
+                                &ev.time,
+                                10.5,
+                                500,
+                                ctx.pal.secondary,
+                                TextAlign::Left,
+                                true,
+                            ));
+                        }
                     }
-                    nodes.push(text_node(
-                        RectF::new(cx, cy, cell - 1.0, 16.0),
-                        format!("{}", d),
-                        10.5,
-                        if d == day { 700 } else { 400 },
-                        ctx.pal.primary,
-                        TextAlign::Center,
-                        true,
-                    ));
+
+                    if ctx.size == WidgetSize::Large {
+                        let grid_rect = RectF::new(
+                            inner.x,
+                            inner.y + 88.0,
+                            (inner.w * 0.44).max(120.0),
+                            (inner.h - 90.0).max(96.0),
+                        );
+                        push_month_grid_nodes(ctx, &mut nodes, grid_rect, year, month, day, false);
+                    }
                 }
             }
         }
@@ -540,8 +728,12 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         .as_deref()
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false);
-    let art_sz = if ctx.size == WidgetSize::Small { 38.0 } else { 52.0 };
-    let text_x = if has_art { inner.x + art_sz + 12.0 } else { inner.x };
+    let art_sz = match ctx.size {
+        WidgetSize::Small => 36.0,
+        WidgetSize::Medium => (inner.h * 0.38).clamp(38.0, 48.0),
+        WidgetSize::Large => 54.0,
+    };
+    let text_x = if has_art { inner.x + art_sz + 11.0 } else { inner.x };
     let text_w = (inner.x + inner.w - text_x - 26.0).max(40.0);
 
     let mut nodes = Vec::new();
@@ -552,26 +744,51 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             source_path: src.to_string(),
         });
     }
-    nodes.push(SceneNode::IconGlyph {
-        rect: RectF::new(inner.x + inner.w - 22.0, inner.y + 4.0, 22.0, 22.0),
-        glyph: if m.is_playing { "\u{E769}".into() } else { "\u{E768}".into() },
-        size: 15.0,
-        color: ctx.pal.accent,
-        interactive_action: Some("toggle_media_playback".into()),
-    });
+
+    let ctrl_color = ctx.pal.primary.with_alpha((ctx.pal.primary.a * 0.90).clamp(0.0, 1.0));
+    if m.is_playing {
+        let px = inner.x + inner.w - 15.0;
+        let py = inner.y + 6.0;
+        nodes.push(SceneNode::RoundedRect {
+            rect: RectF::new(px, py, 3.5, 13.0),
+            radius: 1.5,
+            smoothing: 0.0,
+            fill: Some(ctrl_color),
+            stroke: None,
+            interactive_action: Some("toggle_media_playback".into()),
+        });
+        nodes.push(SceneNode::RoundedRect {
+            rect: RectF::new(px + 6.5, py, 3.5, 13.0),
+            radius: 1.5,
+            smoothing: 0.0,
+            fill: Some(ctrl_color),
+            stroke: None,
+            interactive_action: Some("toggle_media_playback".into()),
+        });
+    } else {
+        nodes.push(SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 22.0, inner.y + 3.0, 22.0, 22.0),
+            glyph: "\u{E768}".into(),
+            size: 14.0,
+            color: ctrl_color,
+            interactive_action: Some("toggle_media_playback".into()),
+        });
+    }
+
+    let title_y = inner.y + ((art_sz - 34.0) * 0.4).max(2.0);
     nodes.push(text_node(
-        RectF::new(text_x, inner.y + 6.0, text_w, 20.0),
+        RectF::new(text_x, title_y, text_w, 19.0),
         &m.title,
-        14.5,
+        14.0,
         700,
         ctx.pal.primary,
         TextAlign::Left,
         false,
     ));
     nodes.push(text_node(
-        RectF::new(text_x, inner.y + 27.0, text_w, 16.0),
+        RectF::new(text_x, title_y + 19.0, text_w, 16.0),
         &m.artist,
-        12.0,
+        11.5,
         500,
         ctx.pal.secondary,
         TextAlign::Left,
@@ -584,7 +801,9 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         0.0
     };
 
-    let lyric_top = inner.y + art_sz + 12.0;
+    let bar_y = inner.y + inner.h - 5.0;
+    let lyric_top = inner.y + art_sz + 8.0;
+    let lyrics_avail_h = (bar_y - 6.0 - lyric_top).max(16.0);
     let lyric_text = if !m.active_lyric_line.is_empty() {
         m.active_lyric_line.clone()
     } else if m.lyrics_state == "loading" {
@@ -596,32 +815,42 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     match ctx.size {
         WidgetSize::Small => {
             nodes.push(text_node(
-                RectF::new(inner.x, lyric_top, inner.w, 52.0),
+                RectF::new(inner.x, lyric_top, inner.w, lyrics_avail_h),
                 lyric_text,
-                13.0,
+                12.5,
                 600,
-                ctx.pal.accent,
+                ctx.pal.primary,
                 TextAlign::Left,
                 false,
             ));
         }
         WidgetSize::Medium => {
-            nodes.push(text_node(
-                RectF::new(inner.x, lyric_top, inner.w, 26.0),
-                lyric_text,
-                14.5,
-                700,
-                ctx.pal.primary,
-                TextAlign::Left,
-                false,
-            ));
-            if !m.next_lyric_line.is_empty() {
+            if lyrics_avail_h >= 42.0 && !m.next_lyric_line.is_empty() {
                 nodes.push(text_node(
-                    RectF::new(inner.x, lyric_top + 28.0, inner.w, 22.0),
+                    RectF::new(inner.x, lyric_top, inner.w, 21.0),
+                    lyric_text,
+                    14.0,
+                    700,
+                    ctx.pal.primary,
+                    TextAlign::Left,
+                    false,
+                ));
+                nodes.push(text_node(
+                    RectF::new(inner.x, lyric_top + 22.0, inner.w, (lyrics_avail_h - 22.0).max(16.0)),
                     &m.next_lyric_line,
-                    12.5,
+                    12.0,
                     400,
                     ctx.pal.secondary,
+                    TextAlign::Left,
+                    false,
+                ));
+            } else {
+                nodes.push(text_node(
+                    RectF::new(inner.x, lyric_top, inner.w, lyrics_avail_h),
+                    lyric_text,
+                    14.0,
+                    700,
+                    ctx.pal.primary,
                     TextAlign::Left,
                     false,
                 ));
@@ -630,7 +859,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         WidgetSize::Large => {
             if m.lyrics_lines.is_empty() {
                 nodes.push(text_node(
-                    RectF::new(inner.x, lyric_top + 8.0, inner.w, 40.0),
+                    RectF::new(inner.x, lyric_top + 6.0, inner.w, 40.0),
                     lyric_text,
                     14.5,
                     600,
@@ -640,11 +869,15 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 ));
             } else {
                 for (i, line) in m.lyrics_lines.iter().take(7).enumerate() {
+                    let y = lyric_top + i as f32 * 28.0;
+                    if y + 24.0 > bar_y - 4.0 {
+                        break;
+                    }
                     let is_active = line == &m.active_lyric_line;
                     nodes.push(text_node(
-                        RectF::new(inner.x, lyric_top + i as f32 * 30.0, inner.w, 26.0),
+                        RectF::new(inner.x, y, inner.w, 24.0),
                         line,
-                        if is_active { 15.0 } else { 13.0 },
+                        if is_active { 14.5 } else { 12.5 },
                         if is_active { 700 } else { 400 },
                         if is_active { ctx.pal.primary } else { ctx.pal.secondary },
                         TextAlign::Left,
@@ -656,7 +889,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
 
     nodes.push(SceneNode::ProgressBar {
-        rect: RectF::new(inner.x, inner.y + inner.h - 8.0, inner.w, 5.0),
+        rect: RectF::new(inner.x, bar_y, inner.w, 4.5),
         progress,
         track_color: ctx.pal.surface_chip,
         fill_color: ctx.pal.accent,
@@ -841,8 +1074,8 @@ pub fn build_todo_groups(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             RectF::new(inner.x + inner.w * 0.7, inner.y + 1.0, inner.w * 0.3, 18.0),
             format!("{}/{}", done, todos.len()),
             13.0,
-            700,
-            ctx.pal.accent,
+            600,
+            ctx.pal.secondary,
             TextAlign::Right,
             true,
         ),
@@ -907,8 +1140,8 @@ pub fn build_drop_zone(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             RectF::new(inner.x + inner.w * 0.7, inner.y, inner.w * 0.3, 20.0),
             format!("{} berkas", files.len()),
             12.0,
-            600,
-            ctx.pal.accent,
+            500,
+            ctx.pal.secondary,
             TextAlign::Right,
             true,
         ),

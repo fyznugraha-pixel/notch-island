@@ -53,7 +53,7 @@ pub fn widget_catalog() -> Vec<WidgetCatalogEntry> {
 
     vec![
         // Group A: Versi besar modul Gili
-        entry("calendar_agenda", "A", "Modul Gili", "Kalender & Agenda", "Kalender bulan ringkas beserta agenda harian dari modul Kalender Gili.", &[Small, Medium, Large], Medium, "EventNavbarModule (gili_navbar_events_v1)", false, Some("calendar")),
+        entry("calendar_agenda", "A", "Modul Gili", "Kalender & Agenda", "4 tipe kalender (Bulan Minimalis, Bulan + Judul, Tanggal Fokus, Agenda Gili).", &[Small, Medium, Large], Small, "EventNavbarModule (gili_navbar_events_v1)", false, Some("calendar")),
         entry("class_schedule", "A", "Modul Gili", "Jadwal Kuliah Mingguan", "Daftar mata kuliah mingguan, jam, dan ruang belajar.", &[Medium, Large], Medium, "ClassScheduleNavbarModule (gili_class_schedule_v1)", false, Some("class_schedule")),
         entry("habit_heatmap", "A", "Modul Gili", "Heatmap Kebiasaan", "Grafik konsistensi kebiasaan harian bergaya kontribusi matriks.", &[Medium, Large], Medium, "StreakNavbarModule (riwayat harian kompatibel mundur)", false, Some("streak")),
         entry("system_performance", "A", "Modul Gili", "Performa Sistem", "Beban CPU per-core asli, RAM, GPU, disk, dan kecepatan jaringan.", &[Small, Medium, Large], Medium, "NtQuerySystemInformation, GlobalMemoryStatusEx, NVML/WMI", false, Some("system_monitor")),
@@ -123,6 +123,10 @@ fn resolve_role(
     }
 }
 
+fn is_achromatic_color(c: RgbaColor) -> bool {
+    c.r.abs_diff(c.g) <= 14 && c.g.abs_diff(c.b) <= 14 && c.r.abs_diff(c.b) <= 14
+}
+
 pub fn resolve_palette(
     style: &WidgetStyleConfig,
     analysis: &WallpaperRegionAnalysis,
@@ -132,14 +136,22 @@ pub fn resolve_palette(
         analysis.recommended_text_primary,
         analysis.dominant_accent,
     );
-    let secondary = resolve_role(
-        &style.text_secondary,
-        analysis.recommended_text_secondary,
-        analysis.dominant_accent.with_alpha(0.70),
-    );
+    let secondary = match (&style.text_secondary, &style.text_primary) {
+        (ColorRoleSource::AutoContrast, ColorRoleSource::Custom { color }) => {
+            color.with_alpha(0.78)
+        }
+        (ColorRoleSource::AutoContrast, ColorRoleSource::WallpaperDominant) => {
+            analysis.dominant_accent.with_alpha(0.78)
+        }
+        _ => resolve_role(
+            &style.text_secondary,
+            analysis.recommended_text_secondary,
+            analysis.dominant_accent.with_alpha(0.72),
+        ),
+    };
     let accent = resolve_role(
         &style.accent,
-        RgbaColor::new(0x38, 0x82, 0xF6, 1.0),
+        primary,
         analysis.dominant_accent,
     );
     let raw_card = resolve_role(
@@ -170,6 +182,10 @@ pub fn resolve_palette(
         RgbaColor::new(16, 18, 22, 0.10)
     };
 
+    let monochrome = is_achromatic_color(primary)
+        && is_achromatic_color(secondary)
+        && is_achromatic_color(accent);
+
     ResolvedPalette {
         primary,
         secondary,
@@ -177,9 +193,9 @@ pub fn resolve_palette(
         card_fill,
         inner_border,
         surface_chip,
-        positive: RgbaColor::new(0x34, 0xC3, 0xA0, 1.0),
-        warning: RgbaColor::new(0xFB, 0xBF, 0x24, 1.0),
-        danger: RgbaColor::new(0xF8, 0x71, 0x71, 1.0),
+        positive: if monochrome { primary } else { RgbaColor::new(0x34, 0xC3, 0xA0, 1.0) },
+        warning: if monochrome { secondary } else { RgbaColor::new(0xFB, 0xBF, 0x24, 1.0) },
+        danger: if monochrome { primary.with_alpha(0.90) } else { RgbaColor::new(0xF8, 0x71, 0x71, 1.0) },
     }
 }
 
@@ -308,7 +324,7 @@ pub fn build_widget_render_item(
         elapsed_secs,
     };
 
-    let nodes = match inst.widget_type.as_str() {
+    let mut nodes = match inst.widget_type.as_str() {
         "calendar_agenda" => group_a::build_calendar_agenda(&ctx),
         "class_schedule" => group_a::build_class_schedule(&ctx),
         "habit_heatmap" => group_a::build_habit_heatmap(&ctx),
@@ -357,6 +373,16 @@ pub fn build_widget_render_item(
         ),
     };
 
+    // Honor user-configured font_weight across all widgets relative to the 600 baseline
+    let weight_delta = ((style.font_weight as i32 - 600) * 3) / 4;
+    if weight_delta != 0 {
+        for n in &mut nodes {
+            if let SceneNode::Text { font_weight, .. } = n {
+                *font_weight = (*font_weight as i32 + weight_delta).clamp(200, 900) as u16;
+            }
+        }
+    }
+
     WidgetRenderItem {
         slot_id: slot.slot_id.clone(),
         widget_type: inst.widget_type.clone(),
@@ -368,6 +394,7 @@ pub fn build_widget_render_item(
         halo_enabled: style.halo_enabled,
         shadow_color: style.shadow_color,
         font_family: style.font_family.clone(),
+        text_scale: style.text_scale.clamp(0.85, 1.40),
         nodes,
         content_hit_rects: Vec::new(),
         stack_count: slot.widgets.len(),

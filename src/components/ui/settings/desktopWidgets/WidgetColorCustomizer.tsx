@@ -100,6 +100,19 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
     onRecordRecentColor(rgbaToHex(nextColor));
   };
 
+  const applyMonochromeToAllRoles = (baseColor: RgbaColor) => {
+    onChange({
+      ...style,
+      text_primary: { mode: "custom", color: { ...baseColor, a: 1 } },
+      text_secondary: {
+        mode: "custom",
+        color: { ...baseColor, a: Number((baseColor.a * 0.8).toFixed(2)) || 0.8 },
+      },
+      accent: { mode: "custom", color: { ...baseColor, a: 1 } },
+    });
+    onRecordRecentColor(rgbaToHex(baseColor));
+  };
+
   const resolvedPreviewColor = (src: ColorRoleSource, fallback: string): string => {
     if (src.mode === "custom") {
       const c = src.color;
@@ -109,8 +122,15 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
       const c = analysis.dominant_accent;
       return `rgba(${c.r}, ${c.g}, ${c.b}, 1)`;
     }
-    if (previewLightBg) return fallback === "primary" ? "#111216" : "rgba(17,18,22,0.62)";
-    return fallback === "primary" ? "#F5F5F7" : "rgba(245,245,247,0.65)";
+    if (fallback === "accent") {
+      return resolvedPreviewColor(style.text_primary, "primary");
+    }
+    if (fallback === "secondary" && style.text_primary.mode === "custom") {
+      const c = style.text_primary.color;
+      return `rgba(${c.r}, ${c.g}, ${c.b}, 0.78)`;
+    }
+    if (previewLightBg) return fallback === "primary" ? "#111216" : "rgba(17,18,22,0.70)";
+    return fallback === "primary" ? "#FFFFFF" : "rgba(255,255,255,0.78)";
   };
 
   const previewCardStyle = (): React.CSSProperties => {
@@ -188,7 +208,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
         >
           <div
             className="text-[10.5px] font-bold tracking-wider uppercase"
-            style={{ color: resolvedPreviewColor(style.accent, "accent") }}
+            style={{ color: resolvedPreviewColor(style.text_secondary, "secondary") }}
           >
             Jumat, 20 November
           </div>
@@ -210,6 +230,12 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             style={{ color: resolvedPreviewColor(style.text_secondary, "secondary") }}
           >
             29° Cerah Berawan . Jakarta
+          </div>
+          <div className="mt-2.5 h-1 w-full rounded-full bg-white/15 overflow-hidden">
+            <div
+              className="h-full w-2/3 rounded-full"
+              style={{ backgroundColor: resolvedPreviewColor(style.accent, "accent") }}
+            />
           </div>
         </div>
       </div>
@@ -292,10 +318,12 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           <button
             type="button"
             onClick={() => setRole(activeRole, { mode: "auto_contrast" })}
-            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer transition-colors ${
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
               currentRoleSource.mode === "auto_contrast"
-                ? "border-[#34c759] bg-[#34c759]/15 text-[#34c759]"
-                : "border-white/10 hover:bg-white/[0.06]"
+                ? "border-[#16a34a] bg-[#34c759]/15 text-[#16a34a] dark:text-[#34c759]"
+                : isLightMode
+                ? "border-black/15 text-neutral-800 hover:bg-black/[0.05]"
+                : "border-white/10 text-zinc-200 hover:bg-white/[0.06]"
             }`}
           >
             Otomatis (Kontras Wallpaper)
@@ -303,13 +331,38 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           <button
             type="button"
             onClick={() => setRole(activeRole, { mode: "wallpaper_dominant" })}
-            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer flex items-center gap-1.5 transition-colors ${
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
               currentRoleSource.mode === "wallpaper_dominant"
-                ? "border-[#af52de] bg-[#af52de]/15 text-[#c084fc]"
-                : "border-white/10 hover:bg-white/[0.06]"
+                ? "border-[#9333ea] bg-[#af52de]/15 text-[#7e22ce] dark:text-[#c084fc]"
+                : isLightMode
+                ? "border-black/15 text-neutral-800 hover:bg-black/[0.05]"
+                : "border-white/10 text-zinc-200 hover:bg-white/[0.06]"
             }`}
           >
-            <Sparkles size={12} /> Ambil dari Wallpaper
+            <Sparkles size={12} aria-hidden="true" /> Ambil dari Wallpaper
+          </button>
+          <button
+            type="button"
+            onClick={() => applyMonochromeToAllRoles(activeRgba)}
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
+              isLightMode
+                ? "border-black/15 bg-black/[0.04] text-neutral-900 hover:bg-black/[0.08]"
+                : "border-white/15 bg-white/[0.06] text-white hover:bg-white/[0.12]"
+            }`}
+            title="Menyamakan warna Utama, Sekunder, dan Aksen agar tidak ada warna biru/aksen terpisah"
+          >
+            Terapkan ke Semua (Seragam)
+          </button>
+          <button
+            type="button"
+            onClick={() => applyMonochromeToAllRoles({ r: 255, g: 255, b: 255, a: 1 })}
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-semibold border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a84ff] ${
+              isLightMode
+                ? "border-black/15 bg-neutral-900 text-white hover:bg-neutral-800"
+                : "border-white/25 bg-white/15 hover:bg-white/25 text-white"
+            }`}
+          >
+            Putih Semua
           </button>
         </div>
 

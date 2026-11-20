@@ -284,6 +284,7 @@ mod win_host {
     const CMD_CUSTOMIZE: i32 = 1005;
     const CMD_STACK_NEXT: i32 = 1006;
     const CMD_DELETE: i32 = 1007;
+    const CMD_CYCLE_STYLE: i32 = 1008;
     const DRAG_THRESHOLD_DP: f32 = 5.0;
 
     /// Lock-free atomic flags read by synchronous Win32 callbacks so `wnd_proc` never panics on re-entry.
@@ -1029,7 +1030,7 @@ mod win_host {
                 let px = client_pt.x as f32 * 96.0 / dpi;
                 let py = client_pt.y as f32 * 96.0 / dpi;
 
-                let hit_slot = HOST_STATE.with(|cell| {
+                let hit_info = HOST_STATE.with(|cell| {
                     let Ok(b) = cell.try_borrow() else {
                         return None;
                     };
@@ -1037,18 +1038,29 @@ mod win_host {
                     let edit_mode = st.shared.lock().map(|s| s.edit_mode).unwrap_or(false);
                     let surf = st.surfaces.iter().find(|s| s.hwnd == hwnd)?;
                     match hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py) {
-                        HitTestResult::WidgetContent { slot_id, .. } => Some(slot_id),
+                        HitTestResult::WidgetContent { slot_id, .. } => {
+                            let wtype = surf
+                                .items
+                                .iter()
+                                .find(|i| i.slot_id == slot_id)
+                                .map(|i| i.widget_type.clone())
+                                .unwrap_or_default();
+                            Some((slot_id, wtype))
+                        }
                         _ => None,
                     }
                 });
 
-                if let Some(slot_id) = hit_slot {
+                if let Some((slot_id, wtype)) = hit_info {
                     if let Ok(menu) = CreatePopupMenu() {
                         let _ = AppendMenuW(menu, MF_STRING, CMD_EDIT_TOGGLE as usize, w!("Mode Edit (Goyang & Hapus)"));
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                         let _ = AppendMenuW(menu, MF_STRING, CMD_SIZE_S as usize, w!("Ukuran Kecil (S)"));
                         let _ = AppendMenuW(menu, MF_STRING, CMD_SIZE_M as usize, w!("Ukuran Sedang (M)"));
                         let _ = AppendMenuW(menu, MF_STRING, CMD_SIZE_L as usize, w!("Ukuran Besar (L)"));
+                        if wtype == "calendar_agenda" || wtype == "styled_clock" {
+                            let _ = AppendMenuW(menu, MF_STRING, CMD_CYCLE_STYLE as usize, w!("Ganti tipe / gaya tampilan"));
+                        }
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                         let _ = AppendMenuW(menu, MF_STRING, CMD_CUSTOMIZE as usize, w!("Latar dan warna"));
                         let _ = AppendMenuW(menu, MF_STRING, CMD_STACK_NEXT as usize, w!("Ganti widget di tumpukan"));
@@ -1078,6 +1090,67 @@ mod win_host {
                                     CMD_EDIT_TOGGLE => {
                                         sh.edit_mode = !sh.edit_mode;
                                         None
+                                    }
+                                    CMD_CYCLE_STYLE => {
+                                        if let Some(s) = sh
+                                            .config
+                                            .slots
+                                            .iter_mut()
+                                            .find(|s| s.slot_id == slot_id)
+                                        {
+                                            let idx = s.active_index % s.widgets.len().max(1);
+                                            if let Some(w) = s.widgets.get_mut(idx) {
+                                                if !w.settings.is_object() {
+                                                    w.settings = serde_json::json!({});
+                                                }
+                                                if w.widget_type == "calendar_agenda" {
+                                                    const CAL: [&str; 4] = [
+                                                        "bulan_minimal",
+                                                        "bulan_header",
+                                                        "tanggal_fokus",
+                                                        "tanggal_agenda",
+                                                    ];
+                                                    let cur = w
+                                                        .settings
+                                                        .get("calendar_style")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("bulan_minimal");
+                                                    let next_i = CAL
+                                                        .iter()
+                                                        .position(|&c| c == cur)
+                                                        .map(|i| (i + 1) % CAL.len())
+                                                        .unwrap_or(0);
+                                                    w.settings["calendar_style"] =
+                                                        serde_json::json!(CAL[next_i]);
+                                                } else if w.widget_type == "styled_clock" {
+                                                    const CLK: [&str; 8] = [
+                                                        "minimal_digital",
+                                                        "kata_indonesia",
+                                                        "analog_classic",
+                                                        "analog_skeleton",
+                                                        "stacked_bold",
+                                                        "retro_flip",
+                                                        "editorial_thin",
+                                                        "dual_zone",
+                                                    ];
+                                                    let cur = w
+                                                        .settings
+                                                        .get("clock_style")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("minimal_digital");
+                                                    let next_i = CLK
+                                                        .iter()
+                                                        .position(|&c| c == cur)
+                                                        .map(|i| (i + 1) % CLK.len())
+                                                        .unwrap_or(0);
+                                                    w.settings["clock_style"] =
+                                                        serde_json::json!(CLK[next_i]);
+                                                }
+                                            }
+                                        }
+                                        Some(WidgetHostEvent::ConfigMutated {
+                                            config: sh.config.clone(),
+                                        })
                                     }
                                     CMD_SIZE_S | CMD_SIZE_M | CMD_SIZE_L => {
                                         let sz = match cmd {

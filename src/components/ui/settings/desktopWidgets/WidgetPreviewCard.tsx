@@ -25,6 +25,8 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
   const fg = lightWallpaper ? "text-slate-900" : "text-white";
   const sub = lightWallpaper ? "text-slate-600" : "text-white/60";
   const chip = lightWallpaper ? "bg-slate-900/[0.08]" : "bg-white/[0.11]";
+  const accentBar = lightWallpaper ? "bg-slate-900" : "bg-white";
+  const accentLabel = lightWallpaper ? "text-slate-700" : "text-white/85";
   const dim =
     size === "small"
       ? { width: 158, height: 158 }
@@ -34,10 +36,35 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
 
   const renderInner = () => {
     switch (entry.widget_type) {
+      case "calendar_agenda": {
+        const headers = ["M", "S", "S", "R", "K", "J", "S"];
+        const days = Array.from({ length: 30 }, (_, i) => i + 1);
+        return (
+          <div className="h-full flex flex-col justify-between">
+            <div className="grid grid-cols-7 gap-y-0.5 text-center text-[9.5px] font-bold opacity-90">
+              {headers.map((h, i) => (
+                <div key={i}>{h}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-y-0.5 text-center text-[10px] tabular-nums">
+              {days.map((d) => (
+                <div
+                  key={d}
+                  className={`mx-auto w-4 h-4 flex items-center justify-center leading-none ${
+                    d === 20 ? "font-extrabold scale-110 opacity-100" : "font-normal opacity-75"
+                  }`}
+                >
+                  {d}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
       case "styled_clock":
         return (
           <div className="h-full flex flex-col justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-400">
+            <span className={`text-[10px] font-semibold uppercase tracking-wider ${accentLabel}`}>
               Jumat, 20 November
             </span>
             <div className="text-[40px] font-bold tracking-tight tabular-nums leading-none">
@@ -63,7 +90,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
                 {[30, 55, 22, 68, 40, 28, 52, 35].map((h, i) => (
                   <div
                     key={i}
-                    className="flex-1 rounded-full bg-blue-500/85"
+                    className={`flex-1 rounded-full ${accentBar} opacity-85`}
                     style={{ height: `${h}%` }}
                   />
                 ))}
@@ -90,7 +117,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
               Give me reasons we should be complete
             </div>
             <div className="h-1 w-full rounded-full bg-white/15 overflow-hidden">
-              <div className="h-full w-[62%] rounded-full bg-blue-400" />
+              <div className={`h-full w-[62%] rounded-full ${accentBar}`} />
             </div>
           </div>
         );
@@ -224,7 +251,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${accentLabel}`}>
                 Screen Time Hari Ini
               </span>
               <span className={`text-[10.5px] tabular-nums ${sub}`}>Batas 8j</span>
@@ -234,14 +261,14 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
               <span className={`text-[11px] tabular-nums ${sub}`}>56%</span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-white/15 overflow-hidden">
-              <div className="h-full w-[56%] rounded-full bg-blue-400" />
+              <div className={`h-full w-[56%] rounded-full ${accentBar}`} />
             </div>
           </div>
         );
       case "countdown_moment":
         return (
           <div className="h-full flex flex-col justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${accentLabel}`}>
               Hitung Mundur
             </span>
             <div>
@@ -254,7 +281,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
       case "world_clock":
         return (
           <div className="h-full flex flex-col justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${accentLabel}`}>
               Jam Dunia
             </span>
             <div className="grid grid-cols-4 gap-1.5 text-center">
@@ -321,10 +348,10 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-blue-400">
+              <span className={`text-[10.5px] font-semibold uppercase tracking-wide ${accentLabel}`}>
                 Grup {entry.group}
               </span>
-              <Sparkles size={13} className="text-blue-400" />
+              <Sparkles size={13} className={accentLabel} />
             </div>
             <div>
               <div className="text-[14px] font-semibold leading-snug">{entry.name}</div>

@@ -63,6 +63,7 @@ pub mod render {
         item.shadow_enabled.hash(&mut h);
         item.halo_enabled.hash(&mut h);
         item.font_family.hash(&mut h);
+        item.text_scale.to_bits().hash(&mut h);
         item.stack_count.hash(&mut h);
         item.stack_index.hash(&mut h);
         item.edit_jiggle_deg.to_bits().hash(&mut h);
@@ -529,7 +530,12 @@ pub mod render {
 
             // Cached shadow / halo bitmap pass for frameless legibility
             if (item.shadow_enabled || item.halo_enabled) && effective_bg == BackgroundMode::None {
-                self.draw_cached_text_shadow(res, item, policy.text_scale_factor, dpi_scale);
+                self.draw_cached_text_shadow(
+                    res,
+                    item,
+                    policy.text_scale_factor * item.text_scale,
+                    dpi_scale,
+                );
             }
 
             for (idx, node) in item.nodes.iter().enumerate() {
@@ -538,7 +544,7 @@ pub mod render {
                     res,
                     node,
                     &item.font_family,
-                    policy.text_scale_factor,
+                    policy.text_scale_factor * item.text_scale,
                     policy.reduced_motion,
                     Some(&roll_key),
                     dt_sec,
@@ -632,12 +638,14 @@ pub mod render {
                 if let SceneNode::Text {
                     content,
                     font_size,
+                    font_weight,
                     rect,
                     ..
                 } = node
                 {
                     content.hash(&mut h);
                     font_size.to_bits().hash(&mut h);
+                    font_weight.hash(&mut h);
                     rect.x.to_bits().hash(&mut h);
                     rect.y.to_bits().hash(&mut h);
                 }
@@ -1172,7 +1180,7 @@ pub mod render {
                                 .get(i)
                                 .or_else(|| colors.first())
                                 .copied()
-                                .unwrap_or(RgbaColor::new(56, 130, 246, 0.9));
+                                .unwrap_or(RgbaColor::new(255, 255, 255, 0.9));
                             self.brush.SetColor(&d2d_color(col));
                             ctx.FillRoundedRectangle(
                                 &D2D1_ROUNDED_RECT {
