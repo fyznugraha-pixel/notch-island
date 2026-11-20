@@ -220,6 +220,103 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             </div>
           </div>
         );
+      case "screen_time":
+        return (
+          <div className="h-full flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
+                Screen Time Hari Ini
+              </span>
+              <span className={`text-[10.5px] tabular-nums ${sub}`}>Batas 8j</span>
+            </div>
+            <div className="flex items-baseline justify-between">
+              <span className="text-[34px] font-bold leading-none tabular-nums">4j 32m</span>
+              <span className={`text-[11px] tabular-nums ${sub}`}>56%</span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-white/15 overflow-hidden">
+              <div className="h-full w-[56%] rounded-full bg-blue-400" />
+            </div>
+          </div>
+        );
+      case "countdown_moment":
+        return (
+          <div className="h-full flex flex-col justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
+              Hitung Mundur
+            </span>
+            <div>
+              <div className="text-[38px] font-bold leading-none tabular-nums">42</div>
+              <div className={`text-[11px] mt-1 ${sub}`}>hari lagi . 2027-01-01</div>
+            </div>
+            <div className="text-[12.5px] font-semibold truncate">Target Rilis Proyek</div>
+          </div>
+        );
+      case "world_clock":
+        return (
+          <div className="h-full flex flex-col justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
+              Jam Dunia
+            </span>
+            <div className="grid grid-cols-4 gap-1.5 text-center">
+              {[
+                ["JKT", "22:30", "WIB"],
+                ["TYO", "00:30", "JST"],
+                ["LDN", "15:30", "UTC"],
+                ["NYC", "10:30", "EST"],
+              ].map(([c, t, z]) => (
+                <div key={c} className={`rounded-[12px] py-2 px-1 ${chip}`}>
+                  <div className="text-[13px] font-bold tabular-nums">{t}</div>
+                  <div className="text-[10px] font-semibold mt-0.5">{c}</div>
+                  <div className={`text-[9px] ${sub}`}>{z}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case "quick_snippets":
+        return (
+          <div className="h-full flex flex-col justify-between">
+            <span className="text-[12px] font-semibold">Papan Snippet (1 Klik Salin)</span>
+            <div className={`grid gap-1.5 ${size === "small" ? "grid-cols-1" : "grid-cols-2"}`}>
+              {["Alamat Kantor", "Email Kerja", "Perintah Build", "Salam Pembuka"].slice(0, size === "small" ? 3 : 4).map((s) => (
+                <div key={s} className={`rounded-[10px] px-2.5 py-1.5 text-[11px] font-medium truncate ${chip}`}>
+                  {s}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case "air_quality":
+        return (
+          <div className="h-full flex flex-col justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+              AQI . Jakarta
+            </span>
+            <div className="flex items-end justify-between">
+              <div>
+                <div className="text-[36px] font-bold leading-none tabular-nums">74</div>
+                <div className="text-[11.5px] font-semibold text-amber-400 mt-0.5">Sedang</div>
+              </div>
+              {size !== "small" && (
+                <div className="flex gap-1.5 text-center">
+                  {[
+                    ["PM2.5", "22.4"],
+                    ["PM10", "38.0"],
+                    ["UV", "4.2"],
+                  ].map(([k, v]) => (
+                    <div key={k} className={`rounded-[10px] px-2 py-1.5 ${chip}`}>
+                      <div className={`text-[9px] ${sub}`}>{k}</div>
+                      <div className="text-[11.5px] font-bold tabular-nums">{v}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-white/15 overflow-hidden">
+              <div className="h-full w-[38%] rounded-full bg-amber-400" />
+            </div>
+          </div>
+        );
       default:
         return (
           <div className="h-full flex flex-col justify-between">

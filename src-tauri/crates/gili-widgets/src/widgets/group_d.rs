@@ -573,3 +573,141 @@ pub fn build_quote_poster(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
     ]
 }
+
+/// 33. Jam Dunia Multi-Zona: hingga 4 kota dunia sekaligus dengan indikator siang/malam (M, L)
+pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let inner = ctx.frame.inset(14.0);
+    let (utc_h, utc_m) = crate::widgets::utc_hour_minute();
+    let utc_total = (utc_h * 60 + utc_m) as i32;
+    let defaults = crate::providers::local_stores::default_world_clocks();
+    let zones = if ctx.hub.world_clocks.is_empty() {
+        &defaults
+    } else {
+        &ctx.hub.world_clocks
+    };
+
+    let mut nodes = vec![text_node(
+        RectF::new(inner.x, inner.y, inner.w, 18.0),
+        "JAM DUNIA",
+        10.5,
+        700,
+        ctx.pal.accent,
+        TextAlign::Left,
+        false,
+    )];
+
+    if ctx.size == WidgetSize::Medium {
+        let count = zones.len().clamp(1, 4);
+        let gap = 8.0;
+        let cw = (inner.w - gap * (count as f32 - 1.0)) / count as f32;
+        for (i, z) in zones.iter().take(count).enumerate() {
+            let local_m = (utc_total + z.utc_offset_minutes).rem_euclid(24 * 60);
+            let hh = local_m / 60;
+            let mm = local_m % 60;
+            let is_day = (6..18).contains(&hh);
+            let x = inner.x + i as f32 * (cw + gap);
+            let y = inner.y + 24.0;
+            let h = inner.h - 26.0;
+
+            nodes.push(SceneNode::RoundedRect {
+                rect: RectF::new(x, y, cw, h),
+                radius: 14.0,
+                smoothing: 0.55,
+                fill: Some(ctx.pal.surface_chip),
+                stroke: None,
+                interactive_action: None,
+            });
+            nodes.push(SceneNode::IconGlyph {
+                rect: RectF::new(x, y + 10.0, cw, 18.0),
+                glyph: if is_day { "\u{E706}".into() } else { "\u{E708}".into() },
+                size: 14.0,
+                color: if is_day { ctx.pal.warning } else { ctx.pal.accent },
+                interactive_action: None,
+            });
+            nodes.push(text_node(
+                RectF::new(x + 4.0, y + 32.0, cw - 8.0, 26.0),
+                format!("{:02}:{:02}", hh, mm),
+                19.0,
+                700,
+                ctx.pal.primary,
+                TextAlign::Center,
+                true,
+            ));
+            nodes.push(text_node(
+                RectF::new(x + 4.0, y + 60.0, cw - 8.0, 16.0),
+                &z.city,
+                11.0,
+                600,
+                ctx.pal.primary,
+                TextAlign::Center,
+                false,
+            ));
+            nodes.push(text_node(
+                RectF::new(x + 4.0, y + 76.0, cw - 8.0, 14.0),
+                &z.code,
+                10.0,
+                500,
+                ctx.pal.secondary,
+                TextAlign::Center,
+                false,
+            ));
+        }
+    } else {
+        for (i, z) in zones.iter().take(4).enumerate() {
+            let local_m = (utc_total + z.utc_offset_minutes).rem_euclid(24 * 60);
+            let hh = local_m / 60;
+            let mm = local_m % 60;
+            let is_day = (6..18).contains(&hh);
+            let off_h = z.utc_offset_minutes as f32 / 60.0;
+            let off_str = if off_h >= 0.0 {
+                format!("UTC+{:.0}", off_h)
+            } else {
+                format!("UTC{:.0}", off_h)
+            };
+            let y = inner.y + 28.0 + i as f32 * 66.0;
+            nodes.push(SceneNode::RoundedRect {
+                rect: RectF::new(inner.x, y, inner.w, 56.0),
+                radius: 14.0,
+                smoothing: 0.55,
+                fill: Some(ctx.pal.surface_chip),
+                stroke: None,
+                interactive_action: None,
+            });
+            nodes.push(SceneNode::IconGlyph {
+                rect: RectF::new(inner.x + 12.0, y + 18.0, 20.0, 20.0),
+                glyph: if is_day { "\u{E706}".into() } else { "\u{E708}".into() },
+                size: 16.0,
+                color: if is_day { ctx.pal.warning } else { ctx.pal.accent },
+                interactive_action: None,
+            });
+            nodes.push(text_node(
+                RectF::new(inner.x + 40.0, y + 10.0, inner.w - 140.0, 20.0),
+                &z.city,
+                14.5,
+                600,
+                ctx.pal.primary,
+                TextAlign::Left,
+                false,
+            ));
+            nodes.push(text_node(
+                RectF::new(inner.x + 40.0, y + 30.0, inner.w - 140.0, 16.0),
+                format!("{} . {}", z.code, off_str),
+                11.0,
+                500,
+                ctx.pal.secondary,
+                TextAlign::Left,
+                false,
+            ));
+            nodes.push(text_node(
+                RectF::new(inner.x + inner.w - 96.0, y + 11.0, 84.0, 34.0),
+                format!("{:02}:{:02}", hh, mm),
+                26.0,
+                700,
+                ctx.pal.primary,
+                TextAlign::Right,
+                true,
+            ));
+        }
+    }
+    nodes
+}

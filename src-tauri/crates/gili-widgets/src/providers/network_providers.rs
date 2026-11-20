@@ -8,9 +8,92 @@ pub const GITHUB_CRED_TARGET: &str = "GiliNotch/DesktopWidget/github_pat";
 /// Strict domain allowlist for built-in network providers.
 pub const BUILTIN_ALLOWED_HOSTS: &[&str] = &[
     "api.open-meteo.com",
+    "air-quality-api.open-meteo.com",
     "open.er-api.com",
     "api.github.com",
 ];
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AirQualitySnapshot {
+    pub available: bool,
+    pub location_name: String,
+    pub us_aqi: u32,
+    pub pm2_5: f32,
+    pub pm10: f32,
+    pub uv_index: f32,
+    pub category_label: String,
+    pub updated_label: String,
+    pub error: Option<String>,
+}
+
+pub fn aqi_category_indonesian(us_aqi: u32) -> &'static str {
+    match us_aqi {
+        0..=50 => "Baik",
+        51..=100 => "Sedang",
+        101..=150 => "Sensitif",
+        151..=200 => "Tidak Sehat",
+        201..=300 => "Sangat Tidak Sehat",
+        _ => "Berbahaya",
+    }
+}
+
+pub fn fetch_open_meteo_air_quality(
+    location_name: &str,
+    lat: f64,
+    lon: f64,
+) -> AirQualitySnapshot {
+    let url = format!(
+        "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat:.4}&longitude={lon:.4}&current=us_aqi,pm2_5,pm10,uv_index&timezone=auto"
+    );
+    if validate_https_url_with_allowlist(&url, BUILTIN_ALLOWED_HOSTS).is_err() {
+        return AirQualitySnapshot {
+            available: false,
+            error: Some("URL AQI tidak valid".into()),
+            ..Default::default()
+        };
+    }
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(8))
+        .build();
+    match agent.get(&url).call() {
+        Ok(resp) => match resp
+            .into_string()
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        {
+            Some(v) => {
+                let us_aqi = v["current"]["us_aqi"].as_f64().unwrap_or(0.0).round().max(0.0) as u32;
+                let pm2_5 = v["current"]["pm2_5"].as_f64().unwrap_or(0.0) as f32;
+                let pm10 = v["current"]["pm10"].as_f64().unwrap_or(0.0) as f32;
+                let uv_index = v["current"]["uv_index"].as_f64().unwrap_or(0.0) as f32;
+                AirQualitySnapshot {
+                    available: true,
+                    location_name: location_name.to_string(),
+                    us_aqi,
+                    pm2_5,
+                    pm10,
+                    uv_index,
+                    category_label: aqi_category_indonesian(us_aqi).to_string(),
+                    updated_label: "Open-Meteo AQI".to_string(),
+                    error: None,
+                }
+            }
+            None => AirQualitySnapshot {
+                available: false,
+                location_name: location_name.to_string(),
+                error: Some("Format data AQI tidak valid".into()),
+                ..Default::default()
+            },
+        },
+        Err(_) => AirQualitySnapshot {
+            available: false,
+            location_name: location_name.to_string(),
+            error: Some("Offline atau layanan kualitas udara tidak terjangkau".into()),
+            ..Default::default()
+        },
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HourlyWeatherPoint {

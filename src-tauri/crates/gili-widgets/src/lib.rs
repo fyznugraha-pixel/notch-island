@@ -14,9 +14,10 @@ use crate::d2d_host::{
     spawn_native_host_thread, HostCommand, HostSharedState, WidgetHostEvent, WidgetRuntimeMetrics,
 };
 use crate::providers::local_stores::{
-    expenses_dpapi_path, load_expenses_encrypted, local_widget_store_path, save_expenses_encrypted,
-    ExpenseLedger, KanbanBoard, PhotoSlideshowState, RecentFilesState, ShortcutEntry, StickyNote,
-    TimeTrackerState,
+    default_world_clocks, expenses_dpapi_path, load_expenses_encrypted, local_widget_store_path,
+    save_expenses_encrypted, CountdownMoment, ExpenseLedger, KanbanBoard, PhotoSlideshowState,
+    QuickSnippetItem, RecentFilesState, ShortcutEntry, StickyNote, TimeTrackerState,
+    WorldClockZone,
 };
 use crate::providers::prayer_calc::{build_hijri_holiday_snapshot, build_prayer_snapshot};
 use crate::providers::system_data::{
@@ -70,6 +71,14 @@ impl DesktopWidgetEngine {
         state.hub.shortcuts = load_json_store::<Vec<ShortcutEntry>>("desktop_shortcuts.json");
         state.hub.recent_files = load_json_store::<RecentFilesState>("desktop_recent_files.json");
         state.hub.photo_frame = load_json_store::<PhotoSlideshowState>("desktop_photo_frame.json");
+        state.hub.countdowns = load_json_store::<Vec<CountdownMoment>>("desktop_countdowns.json");
+        state.hub.snippets = load_json_store::<Vec<QuickSnippetItem>>("desktop_snippets.json");
+        let saved_wc = load_json_store::<Vec<WorldClockZone>>("desktop_world_clocks.json");
+        state.hub.world_clocks = if saved_wc.is_empty() {
+            default_world_clocks()
+        } else {
+            saved_wc
+        };
 
         // Hydrate offline Indonesian providers immediately (Jakarta default unless user customizes)
         let (year, month, day, hour, min, _, _) = widgets::local_datetime_parts();
@@ -310,6 +319,33 @@ impl DesktopWidgetEngine {
         save_json_store("desktop_photo_frame.json", &pf)
     }
 
+    pub fn persist_countdowns(&self) -> Result<(), String> {
+        let items = self
+            .shared
+            .lock()
+            .map(|s| s.hub.countdowns.clone())
+            .map_err(|_| "Lock gagal".to_string())?;
+        save_json_store("desktop_countdowns.json", &items)
+    }
+
+    pub fn persist_snippets(&self) -> Result<(), String> {
+        let items = self
+            .shared
+            .lock()
+            .map(|s| s.hub.snippets.clone())
+            .map_err(|_| "Lock gagal".to_string())?;
+        save_json_store("desktop_snippets.json", &items)
+    }
+
+    pub fn persist_world_clocks(&self) -> Result<(), String> {
+        let items = self
+            .shared
+            .lock()
+            .map(|s| s.hub.world_clocks.clone())
+            .map_err(|_| "Lock gagal".to_string())?;
+        save_json_store("desktop_world_clocks.json", &items)
+    }
+
     pub fn analyze_style_contrast(
         &self,
         style: &config::WidgetStyleConfig,
@@ -349,9 +385,9 @@ mod tests {
     use crate::widgets::{build_widget_render_item, widget_catalog};
 
     #[test]
-    fn catalog_contains_all_29_widgets_and_all_build_cleanly_in_every_supported_size() {
+    fn catalog_contains_all_34_widgets_and_all_build_cleanly_in_every_supported_size() {
         let catalog = widget_catalog();
-        assert_eq!(catalog.len(), 29, "Harus tepat 29 jenis widget");
+        assert_eq!(catalog.len(), 34, "Harus tepat 34 jenis widget");
 
         let hub = WidgetDataHub::default();
         let theme = WidgetStyleConfig::default();
@@ -480,5 +516,21 @@ mod tests {
         );
         assert!(scene_us < 10_000.0);
         assert!(fft_us < 5_000.0);
+    }
+
+    #[test]
+    fn countdown_days_and_aqi_categories_compute_accurately() {
+        use providers::local_stores::countdown_days_diff;
+        use providers::network_providers::aqi_category_indonesian;
+
+        assert_eq!(countdown_days_diff(2026, 11, 20, "2026-11-30"), Some(10));
+        assert_eq!(countdown_days_diff(2026, 11, 20, "2026-11-20"), Some(0));
+        assert_eq!(countdown_days_diff(2026, 11, 20, "2026-11-15"), Some(-5));
+        assert_eq!(countdown_days_diff(2026, 11, 20, "invalid"), None);
+
+        assert_eq!(aqi_category_indonesian(35), "Baik");
+        assert_eq!(aqi_category_indonesian(80), "Sedang");
+        assert_eq!(aqi_category_indonesian(130), "Sensitif");
+        assert_eq!(aqi_category_indonesian(180), "Tidak Sehat");
     }
 }

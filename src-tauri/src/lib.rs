@@ -2959,7 +2959,7 @@ extern "system" {
     fn GetLocalTime(lp_system_time: *mut LocalSystemTime);
 }
 
-fn compute_windows_screen_time() -> WindowsScreenTimeInfo {
+pub(crate) fn compute_windows_screen_time() -> WindowsScreenTimeInfo {
     use windows::Win32::System::Power::{CallNtPowerInformation, LastWakeTime};
 
     let mut lt = LocalSystemTime::default();
@@ -4969,7 +4969,10 @@ pub fn run() {
             desktop_widgets_bridge::add_widget_time_project,
             desktop_widgets_bridge::add_widget_shortcut,
             desktop_widgets_bridge::configure_widget_photo_folder,
-            desktop_widgets_bridge::configure_widget_recent_folders
+            desktop_widgets_bridge::configure_widget_recent_folders,
+            desktop_widgets_bridge::add_widget_countdown,
+            desktop_widgets_bridge::add_widget_snippet,
+            desktop_widgets_bridge::add_widget_world_clock
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());

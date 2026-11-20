@@ -216,6 +216,22 @@ export async function configureWidgetRecentFolders(
   await invoke("configure_widget_recent_folders", { enabled, folders, excluded });
 }
 
+export async function addWidgetCountdown(title: string, targetDate: string): Promise<void> {
+  await invoke("add_widget_countdown", { title, targetDate });
+}
+
+export async function addWidgetSnippet(label: string, content: string): Promise<void> {
+  await invoke("add_widget_snippet", { label, content });
+}
+
+export async function addWidgetWorldClock(
+  city: string,
+  code: string,
+  utcOffsetHours: number
+): Promise<void> {
+  await invoke("add_widget_world_clock", { city, code, utcOffsetHours });
+}
+
 /**
  * Mirrors existing Gili localStorage module state into the Rust WidgetDataHub
  * so desktop widgets reuse the exact same user data without duplicating business logic.

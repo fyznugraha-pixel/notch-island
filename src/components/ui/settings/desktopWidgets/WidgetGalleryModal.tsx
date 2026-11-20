@@ -17,7 +17,7 @@ interface WidgetGalleryModalProps {
 }
 
 const GROUP_FILTERS = [
-  { id: "ALL", label: "Semua (29)" },
+  { id: "ALL", label: "Semua (34)" },
   { id: "A", label: "Modul Gili" },
   { id: "B", label: "Produktif" },
   { id: "C", label: "Sistem" },
@@ -90,7 +90,7 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
               <div>
                 <h3 className="text-[15.5px] font-semibold tracking-tight">Galeri Widget Desktop</h3>
                 <p className={`text-[11.5px] ${mutedCls}`}>
-                  Pilih dari 29 widget native Direct2D, geser ukuran S / M / L sebelum menambahkan.
+                  Pilih dari 34 widget native Direct2D, geser ukuran S / M / L sebelum menambahkan.
                 </p>
               </div>
               <button

@@ -90,14 +90,25 @@ pub struct FrontendMirrorSnapshot {
     pub custom_lon: Option<f64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScreenTimeSnapshot {
+    pub today_secs: u64,
+    pub uptime_secs: u64,
+    pub daily_limit_secs: u64,
+    pub date_key: String,
+    pub active_processes_count: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct WidgetDataHub {
     pub system: system_data::SystemPerfSnapshot,
     pub top_processes: Vec<system_data::ProcessUsageItem>,
     pub quick_controls: system_data::QuickControlsSnapshot,
     pub storage_treemap: Option<system_data::StorageTreemapSnapshot>,
+    pub screen_time: ScreenTimeSnapshot,
     pub media: MediaSnapshot,
     pub weather: network_providers::WeatherForecastSnapshot,
+    pub air_quality: network_providers::AirQualitySnapshot,
     pub uptime_sites: Vec<network_providers::SiteStatusSnapshot>,
     pub github: network_providers::GitHubStatusSnapshot,
     pub currency_gold: network_providers::CurrencyGoldSnapshot,
@@ -113,4 +124,7 @@ pub struct WidgetDataHub {
     pub shortcuts: Vec<local_stores::ShortcutEntry>,
     pub recent_files: local_stores::RecentFilesState,
     pub photo_frame: local_stores::PhotoSlideshowState,
+    pub countdowns: Vec<local_stores::CountdownMoment>,
+    pub snippets: Vec<local_stores::QuickSnippetItem>,
+    pub world_clocks: Vec<local_stores::WorldClockZone>,
 }

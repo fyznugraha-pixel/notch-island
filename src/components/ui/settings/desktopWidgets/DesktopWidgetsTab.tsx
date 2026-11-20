@@ -258,7 +258,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             onClick={() => setGalleryOpen(true)}
             className="h-9 px-4 rounded-full bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-[0_6px_18px_rgba(10,132,255,0.32)]"
           >
-            <Plus size={14} /> Galeri (29)
+            <Plus size={14} /> Galeri (34)
           </button>
           <button
             type="button"

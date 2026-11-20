@@ -1,6 +1,6 @@
-# Katalog 29 Widget Desktop Native Gili
+# Katalog 34 Widget Desktop Native Gili
 
-Seluruh 29 widget berikut tersedia di crate `gili-widgets` dan dapat ditambahkan dari Galeri Widget di Pengaturan Gili -> **Widget Desktop**. Semua widget mendukung mode Tanpa Latar (default), Tint Tipis, Kaca, dan Solid, serta pewarnaan Tema Global atau penimpaan per widget.
+Seluruh 34 widget berikut tersedia di crate `gili-widgets` dan dapat ditambahkan dari Galeri Widget di Pengaturan Gili -> **Widget Desktop**. Semua widget mendukung mode Tanpa Latar (default), Tint Tipis, Kaca, dan Solid, serta pewarnaan Tema Global atau penimpaan per widget.
 
 ---
 
@@ -65,3 +65,15 @@ Seluruh 29 widget berikut tersedia di crate `gili-widgets` dan dapat ditambahkan
 | 27 | `quick_expense` | Catat Pengeluaran Cepat | S, M | Lokal terenkripsi Windows DPAPI (`expenses_dpapi.bin`) | Input cepat format `Label nominal` lewat editor native + bar anggaran bulanan, nol telemetri |
 | 28 | `football_scores` | Papan Skor Bola | M | Trait `FootballScoreProvider` | Antarmuka penyedia berlisensi saja (tanpa scraping dan tanpa skor palsu) |
 | 29 | `ai_quick_ask` | Tanya Cepat AI | M | Router & BYOK Gili (`ai_credentials.rs`) | Kunci API tetap di Windows Credential Manager dan tidak pernah ditampilkan di log atau widget |
+
+---
+
+## Widget Tambahan Terpasang (30 sampai 34)
+
+| No | ID Widget | Nama Tampilan | Ukuran | Sumber Data | Pengaturan & Catatan |
+|---:|---|---|---|---|---|
+| 30 | `countdown_moment` | Hitung Mundur Momen | S, M | Lokal `desktop_countdowns.json` | Menghitung sisa hari eksak dari tanggal lokal sistem; mendukung banyak momen |
+| 31 | `quick_snippets` | Papan Snippet Cepat | S, M | Lokal `desktop_snippets.json` | Hanya template pilihan sendiri (bukan riwayat clipboard mentah), salin 1 klik lewat Win32 clipboard tanpa mencatat isi ke log |
+| 32 | `screen_time` | Screen Time Harian | M, L | `compute_windows_screen_time` & proses aktif baca-saja Gili | Menampilkan durasi aktif hari ini, waktu nyala perangkat, bar batas harian, dan daftar proses aktif |
+| 33 | `world_clock` | Jam Dunia Multi-Zona | M, L | Waktu UTC sistem (`GetSystemTime`) + `desktop_world_clocks.json` | Menampilkan hingga 4 kota dunia sekaligus beserta indikator siang/malam |
+| 34 | `air_quality` | Kualitas Udara (AQI & UV) | S, M | Open-Meteo Air Quality API (`air-quality-api.open-meteo.com`) | US AQI, PM2.5, PM10, Indeks UV, dan kategori kesehatan Bahasa Indonesia dengan backoff |

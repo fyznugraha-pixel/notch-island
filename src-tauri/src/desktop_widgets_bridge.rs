@@ -5,13 +5,15 @@ use gili_widgets::contrast::WallpaperRegionAnalysis;
 use gili_widgets::d2d_host::{WidgetHostEvent, WidgetRuntimeMetrics};
 use gili_widgets::providers::audio_fft::sample_wasapi_loopback_bands;
 use gili_widgets::providers::local_stores::{
-    scan_photo_folder_readonly, scan_recent_files_metadata_only, ExpenseItem, KanbanCard,
-    ShortcutEntry, StickyNote, TimeProject,
+    copy_text_to_clipboard_silently, parse_iso_ymd, scan_photo_folder_readonly,
+    scan_recent_files_metadata_only, CountdownMoment, ExpenseItem, KanbanCard, QuickSnippetItem,
+    ShortcutEntry, StickyNote, TimeProject, WorldClockZone,
 };
 use gili_widgets::providers::network_providers::{
-    fetch_currency_and_gold, fetch_github_repo_status, fetch_open_meteo_forecast, ping_user_site,
-    validate_https_url_with_allowlist, BackoffState, SiteMonitorConfig, UnconfiguredGoldProvider,
-    GITHUB_CRED_TARGET, MAX_UPTIME_SITES, MIN_UPTIME_INTERVAL_SECS,
+    fetch_currency_and_gold, fetch_github_repo_status, fetch_open_meteo_air_quality,
+    fetch_open_meteo_forecast, ping_user_site, validate_https_url_with_allowlist, BackoffState,
+    SiteMonitorConfig, UnconfiguredGoldProvider, GITHUB_CRED_TARGET, MAX_UPTIME_SITES,
+    MIN_UPTIME_INTERVAL_SECS,
 };
 use gili_widgets::providers::system_data::{
     default_treemap_user_root, read_windows_dark_mode, scan_storage_treemap_bounded,
@@ -225,6 +227,17 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                     });
                     let _ = engine().persist_time_tracker();
                     return;
+                } else if let Some(sid) = act.strip_prefix("copy_snippet:") {
+                    let content_opt = engine().with_hub_mut(|hub| {
+                        hub.snippets
+                            .iter()
+                            .find(|s| s.id == sid)
+                            .map(|s| s.content.clone())
+                    }).flatten();
+                    if let Some(content) = content_opt {
+                        let _ = copy_text_to_clipboard_silently(&content);
+                    }
+                    return;
                 } else if act == "trigger_storage_scan" {
                     let _ = spawn_storage_scan_job(None);
                     return;
@@ -341,10 +354,12 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
         .name("gili-widgets-feeder".into())
         .spawn(move || {
             let mut weather_backoff = BackoffState::new(900, 3600);
+            let mut aqi_backoff = BackoffState::new(900, 3600);
             let mut currency_backoff = BackoffState::new(3600, 14400);
             let mut uptime_backoff = BackoffState::new(MIN_UPTIME_INTERVAL_SECS, 600);
             let mut github_backoff = BackoffState::new(180, 1800);
             let mut last_sys = Instant::now() - Duration::from_secs(10);
+            let mut last_screen_time = Instant::now() - Duration::from_secs(30);
             let mut last_media = Instant::now() - Duration::from_secs(10);
             let mut bands = [0.0f32; 16];
 
@@ -382,23 +397,61 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                 // System performance & top processes (2.5s cadence when mounted)
                 if (has_widget("system_performance")
                     || has_widget("top_processes")
-                    || has_widget("quick_controls"))
+                    || has_widget("quick_controls")
+                    || has_widget("screen_time"))
                     && last_sys.elapsed() >= Duration::from_millis(2500)
                 {
                     last_sys = Instant::now();
                     engine().update_system_telemetry(None, None, None, 0.0, 0.0, None, None, None);
                 }
 
+                // Screen time sync from Gili's existing compute_windows_screen_time (15s cadence)
+                if has_widget("screen_time") && last_screen_time.elapsed() >= Duration::from_secs(15) {
+                    last_screen_time = Instant::now();
+                    let info = crate::compute_windows_screen_time();
+                    engine().with_hub_mut(|h| {
+                        h.screen_time.today_secs = info.active_seconds;
+                        h.screen_time.uptime_secs = info.uptime_awake_seconds;
+                        h.screen_time.date_key = info.date_key;
+                        if h.screen_time.daily_limit_secs == 0 {
+                            h.screen_time.daily_limit_secs = 8 * 3600;
+                        }
+                    });
+                }
+
                 // Network pollers with strict backoff
                 let now = Instant::now();
+                let (loc_name, loc_lat, loc_lon) = engine()
+                    .with_hub_mut(|h| {
+                        (
+                            h.frontend
+                                .custom_city_name
+                                .clone()
+                                .unwrap_or_else(|| "Jakarta".into()),
+                            h.frontend.custom_lat.unwrap_or(-6.2088),
+                            h.frontend.custom_lon.unwrap_or(106.8456),
+                        )
+                    })
+                    .unwrap_or_else(|| ("Jakarta".into(), -6.2088, 106.8456));
+
                 if has_widget("weather_forecast") && weather_backoff.can_run(now) {
-                    let snap = fetch_open_meteo_forecast("Jakarta", -6.2088, 106.8456);
+                    let snap = fetch_open_meteo_forecast(&loc_name, loc_lat, loc_lon);
                     if snap.available {
                         weather_backoff.record_success(now);
                     } else {
                         weather_backoff.record_failure(now);
                     }
                     engine().with_hub_mut(|h| h.weather = snap);
+                }
+
+                if has_widget("air_quality") && aqi_backoff.can_run(now) {
+                    let snap = fetch_open_meteo_air_quality(&loc_name, loc_lat, loc_lon);
+                    if snap.available {
+                        aqi_backoff.record_success(now);
+                    } else {
+                        aqi_backoff.record_failure(now);
+                    }
+                    engine().with_hub_mut(|h| h.air_quality = snap);
                 }
 
                 if has_widget("currency_gold") && currency_backoff.can_run(now) {
@@ -649,4 +702,62 @@ pub fn configure_widget_recent_folders(
         scan_recent_files_metadata_only(&mut h.recent_files, 16);
     });
     engine().persist_recent_files()
+}
+
+#[tauri::command]
+pub fn add_widget_countdown(title: String, target_date: String) -> Result<(), String> {
+    if parse_iso_ymd(&target_date).is_none() {
+        return Err("Format tanggal harus YYYY-MM-DD (contoh: 2026-12-31).".to_string());
+    }
+    engine().with_hub_mut(|h| {
+        h.countdowns.insert(
+            0,
+            CountdownMoment {
+                id: format!("cd_{}", now_epoch_secs()),
+                title: title.trim().to_string(),
+                target_date: target_date.trim().to_string(),
+                start_date: None,
+            },
+        );
+    });
+    engine().persist_countdowns()
+}
+
+#[tauri::command]
+pub fn add_widget_snippet(label: String, content: String) -> Result<(), String> {
+    if label.trim().is_empty() || content.trim().is_empty() {
+        return Err("Label dan isi snippet tidak boleh kosong.".to_string());
+    }
+    engine().with_hub_mut(|h| {
+        h.snippets.insert(
+            0,
+            QuickSnippetItem {
+                id: format!("sn_{}", now_epoch_secs()),
+                label: label.trim().to_string(),
+                content,
+            },
+        );
+    });
+    engine().persist_snippets()
+}
+
+#[tauri::command]
+pub fn add_widget_world_clock(
+    city: String,
+    code: String,
+    utc_offset_hours: f32,
+) -> Result<(), String> {
+    let mins = (utc_offset_hours.clamp(-12.0, 14.0) * 60.0).round() as i32;
+    engine().with_hub_mut(|h| {
+        h.world_clocks.push(WorldClockZone {
+            id: format!("wc_{}", now_epoch_secs()),
+            city: city.trim().to_string(),
+            code: code.trim().to_uppercase(),
+            utc_offset_minutes: mins,
+        });
+        if h.world_clocks.len() > 6 {
+            h.world_clocks.remove(0);
+        }
+    });
+    engine().persist_world_clocks()
 }

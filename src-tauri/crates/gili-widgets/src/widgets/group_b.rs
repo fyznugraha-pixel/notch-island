@@ -559,3 +559,195 @@ pub fn build_recent_files(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
     nodes
 }
+
+/// 30. Hitung mundur momen / Countdown (S, M)
+pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let items = &ctx.hub.countdowns;
+    if items.is_empty() {
+        return empty_state_nodes(
+            ctx,
+            "Hitung Mundur",
+            "Tambahkan momen penting (deadline, ujian, gajian, liburan) di Pengaturan Widget.",
+            "Tambah Momen",
+            "open_widget_settings",
+        );
+    }
+    let inner = ctx.frame.inset(14.0);
+    let (cy, cm, cd, _, _, _, _) = crate::widgets::local_datetime_parts();
+    let first = &items[0];
+    let diff = crate::providers::local_stores::countdown_days_diff(
+        cy,
+        cm as i32,
+        cd as i32,
+        &first.target_date,
+    )
+    .unwrap_or(0);
+
+    let (num_str, suffix) = if diff > 0 {
+        (format!("{}", diff), "hari lagi".to_string())
+    } else if diff == 0 {
+        ("H-0".to_string(), "Hari ini!".to_string())
+    } else {
+        (format!("+{}", diff.abs()), "hari lalu".to_string())
+    };
+
+    let mut nodes = vec![
+        SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
+            glyph: "\u{E787}".into(),
+            size: 15.0,
+            color: ctx.pal.accent,
+            interactive_action: None,
+        },
+        text_node(
+            RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
+            "HITUNG MUNDUR",
+            10.5,
+            700,
+            ctx.pal.accent,
+            TextAlign::Left,
+            false,
+        ),
+        text_node(
+            RectF::new(inner.x, inner.y + 18.0, inner.w * 0.65, 44.0),
+            num_str,
+            38.0,
+            700,
+            ctx.pal.primary,
+            TextAlign::Left,
+            true,
+        ),
+        text_node(
+            RectF::new(inner.x, inner.y + 62.0, inner.w, 16.0),
+            format!("{} . {}", suffix, first.target_date),
+            11.5,
+            500,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            true,
+        ),
+        text_node(
+            RectF::new(inner.x, inner.y + inner.h - 22.0, inner.w, 20.0),
+            &first.title,
+            13.5,
+            600,
+            ctx.pal.primary,
+            TextAlign::Left,
+            false,
+        ),
+    ];
+
+    if ctx.size == WidgetSize::Medium && items.len() > 1 {
+        let rx = inner.x + inner.w * 0.50;
+        let rw = inner.w * 0.50;
+        for (i, item) in items.iter().skip(1).take(3).enumerate() {
+            let y = inner.y + 24.0 + i as f32 * 34.0;
+            let d = crate::providers::local_stores::countdown_days_diff(
+                cy,
+                cm as i32,
+                cd as i32,
+                &item.target_date,
+            )
+            .unwrap_or(0);
+            nodes.push(SceneNode::RoundedRect {
+                rect: RectF::new(rx, y, rw, 28.0),
+                radius: 9.0,
+                smoothing: 0.45,
+                fill: Some(ctx.pal.surface_chip),
+                stroke: None,
+                interactive_action: None,
+            });
+            nodes.push(text_node(
+                RectF::new(rx + 8.0, y + 6.0, rw - 54.0, 16.0),
+                &item.title,
+                11.5,
+                600,
+                ctx.pal.primary,
+                TextAlign::Left,
+                false,
+            ));
+            nodes.push(text_node(
+                RectF::new(rx + rw - 46.0, y + 6.0, 40.0, 16.0),
+                if d >= 0 { format!("H-{}", d) } else { format!("+{}", d.abs()) },
+                11.0,
+                700,
+                ctx.pal.accent,
+                TextAlign::Right,
+                true,
+            ));
+        }
+    }
+    nodes
+}
+
+/// 31. Papan Snippet Cepat: template teks pilihan pengguna, 1 klik salin (S, M)
+pub fn build_quick_snippets(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let items = &ctx.hub.snippets;
+    if items.is_empty() {
+        return empty_state_nodes(
+            ctx,
+            "Papan Snippet",
+            "Simpan template teks pilihan Anda sendiri untuk disalin 1 klik (bukan riwayat clipboard).",
+            "Tambah Snippet",
+            "open_widget_settings",
+        );
+    }
+    let inner = ctx.frame.inset(14.0);
+    let mut nodes = vec![
+        text_node(
+            RectF::new(inner.x, inner.y, inner.w - 26.0, 18.0),
+            "Papan Snippet",
+            14.5,
+            600,
+            ctx.pal.primary,
+            TextAlign::Left,
+            false,
+        ),
+        SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 1.0, 22.0, 22.0),
+            glyph: "\u{E8C8}".into(),
+            size: 14.0,
+            color: ctx.pal.accent,
+            interactive_action: None,
+        },
+    ];
+
+    let cols = if ctx.size == WidgetSize::Small { 1 } else { 2 };
+    let rows = 3;
+    let gap = 7.0;
+    let cw = (inner.w - gap * (cols as f32 - 1.0)) / cols as f32;
+    let ch = ((inner.h - 26.0) - gap * (rows as f32 - 1.0)) / rows as f32;
+
+    for (idx, sn) in items.iter().take(cols * rows).enumerate() {
+        let c = idx % cols;
+        let r = idx / cols;
+        let x = inner.x + c as f32 * (cw + gap);
+        let y = inner.y + 24.0 + r as f32 * (ch + gap);
+        let act = format!("copy_snippet:{}", sn.id);
+        nodes.push(SceneNode::RoundedRect {
+            rect: RectF::new(x, y, cw, ch),
+            radius: 10.0,
+            smoothing: 0.5,
+            fill: Some(ctx.pal.surface_chip),
+            stroke: Some((ctx.pal.accent.with_alpha(0.25), 1.0)),
+            interactive_action: Some(act.clone()),
+        });
+        nodes.push(text_node(
+            RectF::new(x + 8.0, y + (ch - 15.0) * 0.44, cw - 30.0, 16.0),
+            &sn.label,
+            12.0,
+            600,
+            ctx.pal.primary,
+            TextAlign::Left,
+            false,
+        ));
+        nodes.push(SceneNode::IconGlyph {
+            rect: RectF::new(x + cw - 22.0, y + (ch - 14.0) * 0.44, 16.0, 16.0),
+            glyph: "\u{E8C8}".into(),
+            size: 11.5,
+            color: ctx.pal.secondary,
+            interactive_action: Some(act),
+        });
+    }
+    nodes
+}

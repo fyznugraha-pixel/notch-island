@@ -252,3 +252,125 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ));
     nodes
 }
+
+fn format_duration_hm(total_secs: u64) -> String {
+    let hours = total_secs / 3600;
+    let mins = (total_secs % 3600) / 60;
+    if hours > 0 {
+        format!("{}j {}m", hours, mins)
+    } else {
+        format!("{} mnt", mins)
+    }
+}
+
+/// 32. Screen Time Harian: durasi layar aktif hari ini & aktivitas proses (M, L)
+pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let inner = ctx.frame.inset(14.0);
+    let st = &ctx.hub.screen_time;
+    let limit = if st.daily_limit_secs > 0 {
+        st.daily_limit_secs
+    } else {
+        8 * 3600
+    };
+    let ratio = (st.today_secs as f32 / limit as f32).clamp(0.0, 1.0);
+
+    let mut nodes = vec![
+        SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
+            glyph: "\u{E7F4}".into(),
+            size: 15.0,
+            color: ctx.pal.accent,
+            interactive_action: None,
+        },
+        text_node(
+            RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
+            "SCREEN TIME HARI INI",
+            10.5,
+            700,
+            ctx.pal.accent,
+            TextAlign::Left,
+            false,
+        ),
+        text_node(
+            RectF::new(inner.x, inner.y + 18.0, inner.w * 0.65, 44.0),
+            format_duration_hm(st.today_secs),
+            36.0,
+            700,
+            ctx.pal.primary,
+            TextAlign::Left,
+            true,
+        ),
+        text_node(
+            RectF::new(inner.x + inner.w * 0.58, inner.y + 34.0, inner.w * 0.42, 18.0),
+            format!("Nyala {}", format_duration_hm(st.uptime_secs)),
+            11.5,
+            500,
+            ctx.pal.secondary,
+            TextAlign::Right,
+            true,
+        ),
+        SceneNode::ProgressBar {
+            rect: RectF::new(inner.x, inner.y + 70.0, inner.w, 7.0),
+            progress: ratio,
+            track_color: ctx.pal.surface_chip,
+            fill_color: if ratio > 0.90 { ctx.pal.warning } else { ctx.pal.accent },
+            interactive_action: None,
+        },
+        text_node(
+            RectF::new(inner.x, inner.y + 82.0, inner.w, 16.0),
+            format!(
+                "Batas harian {} ({:.0}%)",
+                format_duration_hm(limit),
+                ratio * 100.0
+            ),
+            11.0,
+            500,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            true,
+        ),
+    ];
+
+    if ctx.size == WidgetSize::Large {
+        let mut y = inner.y + 114.0;
+        nodes.push(text_node(
+            RectF::new(inner.x, y, inner.w, 16.0),
+            "PROSES AKTIF SAAT INI (BACA-SAJA)",
+            10.5,
+            700,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            false,
+        ));
+        y += 22.0;
+        for p in ctx.hub.top_processes.iter().take(4) {
+            nodes.push(text_node(
+                RectF::new(inner.x, y, inner.w - 72.0, 16.0),
+                &p.name,
+                12.5,
+                600,
+                ctx.pal.primary,
+                TextAlign::Left,
+                false,
+            ));
+            nodes.push(text_node(
+                RectF::new(inner.x + inner.w - 70.0, y, 70.0, 16.0),
+                format!("{:.0} MB", p.ram_mb),
+                11.5,
+                500,
+                ctx.pal.secondary,
+                TextAlign::Right,
+                true,
+            ));
+            nodes.push(SceneNode::ProgressBar {
+                rect: RectF::new(inner.x, y + 19.0, inner.w, 5.0),
+                progress: (p.cpu_pct / 100.0).clamp(0.04, 1.0),
+                track_color: ctx.pal.surface_chip,
+                fill_color: ctx.pal.positive,
+                interactive_action: None,
+            });
+            y += 38.0;
+        }
+    }
+    nodes
+}

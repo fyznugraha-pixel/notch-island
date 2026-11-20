@@ -70,14 +70,18 @@ pub fn widget_catalog() -> Vec<WidgetCatalogEntry> {
         entry("github_status", "B", "Produktif", "Status GitHub", "Ringkasan PR, issue, dan hasil Actions dengan ETag & token Credential Manager.", &[Medium, Large], Medium, "GitHub REST API (read-only fine-grained PAT)", true, None),
         entry("shortcuts_grid", "B", "Produktif", "Pintasan Cepat", "Grid aplikasi, folder, dan tautan pilihan dengan ikon sistem ber-cache.", &[Small, Medium, Large], Medium, "Penyimpanan lokal shortcuts.json + IShellItemImageFactory", false, None),
         entry("recent_files", "B", "Produktif", "Berkas Terbaru", "Daftar berkas terbaru secara opt-in (metadata saja, tanpa baca isi).", &[Medium, Large], Medium, "Pemindaian metadata folder opt-in", true, None),
+        entry("countdown_moment", "B", "Produktif", "Hitung Mundur Momen", "Hitung sisa hari menuju deadline, ujian, gajian, atau hari besar.", &[Small, Medium], Small, "Penyimpanan lokal desktop_countdowns.json", false, None),
+        entry("quick_snippets", "B", "Produktif", "Papan Snippet Cepat", "Daftar template teks pilihan sendiri dengan salin 1 klik (bukan riwayat clipboard).", &[Small, Medium], Medium, "Penyimpanan lokal desktop_snippets.json", false, None),
 
         // Group C: Sistem
         entry("top_processes", "C", "Sistem", "Proses Teratas (Baca-Saja)", "5 proses paling aktif menggunakan CPU & RAM tanpa tombol akhiri proses.", &[Medium, Large], Medium, "Win32 EnumProcesses & GetProcessMemoryInfo (hanya-baca)", false, Some("system_monitor")),
         entry("quick_controls", "C", "Sistem", "Kontrol Cepat", "Toggle stabil berbasis API publik: Wi-Fi, Bluetooth, Mode Gelap, Bisukan.", &[Small, Medium], Medium, "Control Center Gili (WinRT Radio, Themes\\Personalize, Core Audio)", false, Some("control_center")),
         entry("storage_treemap", "C", "Sistem", "Peta Penyimpanan", "Visualisasi treemap pemakaian folder on-demand prioritas rendah.", &[Medium, Large], Medium, "Pemindai folder lokal on-demand ber-cache", true, Some("storage")),
+        entry("screen_time", "C", "Sistem", "Screen Time Harian", "Durasi layar aktif hari ini, waktu nyala perangkat, dan ringkasan proses aktif.", &[Medium, Large], Medium, "compute_windows_screen_time & top proses baca-saja Gili", false, Some("system_monitor")),
 
         // Group D: Estetik & Gaya Hidup
         entry("styled_clock", "D", "Estetik & Gaya Hidup", "Jam Bergaya (8 Gaya)", "8 gaya jam termasuk analog, digital tipis, dan tipografi kata Bahasa Indonesia.", &[Small, Medium, Large], Medium, "Jam sistem lokal Windows", false, None),
+        entry("world_clock", "D", "Estetik & Gaya Hidup", "Jam Dunia Multi-Zona", "Pantau hingga 4 zona waktu kota dunia sekaligus beserta indikator siang/malam.", &[Medium, Large], Medium, "Waktu UTC sistem (GetSystemTime) + offset zona", false, None),
         entry("photo_frame", "D", "Estetik & Gaya Hidup", "Bingkai Foto / Polaroid", "Slideshow baca-saja dari folder foto pengguna dengan dukungan rotasi EXIF.", &[Small, Medium, Large], Small, "Folder foto lokal baca-saja", true, None),
         entry("live_mascot", "D", "Estetik & Gaya Hidup", "Maskot Hidup Gili", "Karakter vektor orisinal ringan (8-12 fps) yang merespons klik & waktu.", &[Small, Medium], Small, "Animasi vektor native Direct2D", false, None),
         entry("audio_visualizer", "D", "Estetik & Gaya Hidup", "Visualizer Audio", "Spektrum audio langsung dari WASAPI loopback dengan FFT ringan.", &[Medium], Medium, "Windows WASAPI loopback + FFT 256-point", false, Some("media")),
@@ -85,6 +89,7 @@ pub fn widget_catalog() -> Vec<WidgetCatalogEntry> {
 
         // Group E: Fokus Indonesia & Tambahan
         entry("prayer_times", "E", "Indonesia & Tambahan", "Jadwal Sholat (Kemenag RI)", "Kalkulator jadwal sholat offline metode Kemenag RI + mode Ramadan.", &[Small, Medium, Large], Medium, "Kalkulator astronomis offline Kemenag RI (Subuh 20, Isya 18)", false, Some("prayer")),
+        entry("air_quality", "E", "Indonesia & Tambahan", "Kualitas Udara (AQI & UV)", "Indeks AQI, PM2.5, PM10, dan Indeks UV real-time untuk lokasi Anda.", &[Small, Medium], Medium, "Open-Meteo Air Quality API (air-quality-api.open-meteo.com)", false, Some("weather")),
         entry("currency_gold", "E", "Indonesia & Tambahan", "Kurs & Harga Emas", "Kurs mata uang (open.er-api.com ber-cache) & antarmuka harga emas.", &[Small, Medium], Medium, "open.er-api.com (kurs) + kontrak GoldPriceProvider", false, Some("currency")),
         entry("hijri_holidays", "E", "Indonesia & Tambahan", "Kalender Hijriyah & Libur", "Tanggal Hijriyah offline (+/-1 hari) & daftar libur dari berkas SKB 3 Menteri.", &[Small, Medium], Medium, "Konverter Hijriyah offline + berkas JSON SKB 3 Menteri", false, None),
         entry("quick_expense", "E", "Indonesia & Tambahan", "Catat Pengeluaran Cepat", "Catatan pengeluaran lokal terenkripsi DPAPI dengan bar anggaran bulanan.", &[Small, Medium], Medium, "Penyimpanan lokal terenkripsi Windows DPAPI (nol telemetri)", false, None),
@@ -320,18 +325,23 @@ pub fn build_widget_render_item(
         "github_status" => group_b::build_github_status(&ctx),
         "shortcuts_grid" => group_b::build_shortcuts_grid(&ctx),
         "recent_files" => group_b::build_recent_files(&ctx),
+        "countdown_moment" => group_b::build_countdown_moment(&ctx),
+        "quick_snippets" => group_b::build_quick_snippets(&ctx),
 
         "top_processes" => group_c::build_top_processes(&ctx),
         "quick_controls" => group_c::build_quick_controls(&ctx),
         "storage_treemap" => group_c::build_storage_treemap(&ctx),
+        "screen_time" => group_c::build_screen_time(&ctx),
 
         "styled_clock" => group_d::build_styled_clock(&ctx),
+        "world_clock" => group_d::build_world_clock(&ctx),
         "photo_frame" => group_d::build_photo_frame(&ctx),
         "live_mascot" => group_d::build_live_mascot(&ctx),
         "audio_visualizer" => group_d::build_audio_visualizer(&ctx),
         "quote_poster" => group_d::build_quote_poster(&ctx),
 
         "prayer_times" => group_e::build_prayer_times(&ctx),
+        "air_quality" => group_e::build_air_quality(&ctx),
         "currency_gold" => group_e::build_currency_gold(&ctx),
         "hijri_holidays" => group_e::build_hijri_holidays(&ctx),
         "quick_expense" => group_e::build_quick_expense(&ctx),
@@ -386,6 +396,19 @@ pub fn local_datetime_parts() -> (i32, u32, u32, u32, u32, u32, u32) {
     #[cfg(not(windows))]
     {
         (2026, 1, 1, 8, 0, 0, 4)
+    }
+}
+
+pub fn utc_hour_minute() -> (u32, u32) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::SystemInformation::GetSystemTime;
+        let st = unsafe { GetSystemTime() };
+        return (st.wHour as u32, st.wMinute as u32);
+    }
+    #[cfg(not(windows))]
+    {
+        (12, 0)
     }
 }
 

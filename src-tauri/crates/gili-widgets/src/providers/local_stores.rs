@@ -454,6 +454,116 @@ pub fn local_widget_store_path(name: &str) -> PathBuf {
     gili_data_dir().join(format!("desktop_widgets_{name}.json"))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountdownMoment {
+    pub id: String,
+    pub title: String,
+    pub target_date: String,
+    pub start_date: Option<String>,
+}
+
+pub fn parse_iso_ymd(s: &str) -> Option<(i32, i32, i32)> {
+    let mut sp = s.trim().split('-');
+    let y = sp.next()?.parse::<i32>().ok()?;
+    let m = sp.next()?.parse::<i32>().ok()?;
+    let d = sp.next()?.parse::<i32>().ok()?;
+    if (1..=12).contains(&m) && (1..=31).contains(&d) {
+        Some((y, m, d))
+    } else {
+        None
+    }
+}
+
+pub fn countdown_days_diff(
+    cur_y: i32,
+    cur_m: i32,
+    cur_d: i32,
+    target_iso: &str,
+) -> Option<i64> {
+    let (ty, tm, td) = parse_iso_ymd(target_iso)?;
+    let jd_now = crate::providers::prayer_calc::julian_day(cur_y, cur_m, cur_d).floor() as i64;
+    let jd_target = crate::providers::prayer_calc::julian_day(ty, tm, td).floor() as i64;
+    Some(jd_target - jd_now)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuickSnippetItem {
+    pub id: String,
+    pub label: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldClockZone {
+    pub id: String,
+    pub city: String,
+    pub code: String,
+    pub utc_offset_minutes: i32,
+}
+
+pub fn default_world_clocks() -> Vec<WorldClockZone> {
+    vec![
+        WorldClockZone {
+            id: "wib".into(),
+            city: "Jakarta".into(),
+            code: "WIB".into(),
+            utc_offset_minutes: 7 * 60,
+        },
+        WorldClockZone {
+            id: "jst".into(),
+            city: "Tokyo".into(),
+            code: "JST".into(),
+            utc_offset_minutes: 9 * 60,
+        },
+        WorldClockZone {
+            id: "gmt".into(),
+            city: "London".into(),
+            code: "UTC".into(),
+            utc_offset_minutes: 0,
+        },
+        WorldClockZone {
+            id: "est".into(),
+            city: "New York".into(),
+            code: "EST".into(),
+            utc_offset_minutes: -5 * 60,
+        },
+    ]
+}
+
+#[cfg(windows)]
+pub fn copy_text_to_clipboard_silently(text: &str) -> Result<(), String> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    const CF_UNICODETEXT: u32 = 13;
+
+    let utf16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+    let byte_len = utf16.len() * 2;
+    unsafe {
+        OpenClipboard(None).map_err(|_| "Gagal membuka clipboard".to_string())?;
+        let _ = EmptyClipboard();
+        let hmem = GlobalAlloc(GMEM_MOVEABLE, byte_len).map_err(|_| {
+            let _ = CloseClipboard();
+            "Alokasi clipboard gagal".to_string()
+        })?;
+        let ptr = GlobalLock(hmem) as *mut u16;
+        if !ptr.is_null() {
+            std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr, utf16.len());
+            let _ = GlobalUnlock(hmem);
+            let _ = SetClipboardData(CF_UNICODETEXT, HANDLE(hmem.0));
+        }
+        let _ = CloseClipboard();
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn copy_text_to_clipboard_silently(_text: &str) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

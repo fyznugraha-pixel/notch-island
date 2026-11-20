@@ -465,3 +465,130 @@ pub fn build_ai_quick_ask(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ));
     nodes
 }
+
+/// 34. Kualitas Udara (AQI) & Indeks UV via Open-Meteo Air Quality API (S, M)
+pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let aq = &ctx.hub.air_quality;
+    if !aq.available {
+        return empty_state_nodes(
+            ctx,
+            "Kualitas Udara",
+            aq.error
+                .as_deref()
+                .unwrap_or("Data AQI dan Indeks UV belum termuat dari Open-Meteo."),
+            "Coba Lagi",
+            "refresh_air_quality",
+        );
+    }
+    let inner = ctx.frame.inset(14.0);
+    let badge_col = match aq.us_aqi {
+        0..=50 => ctx.pal.positive,
+        51..=100 => ctx.pal.warning,
+        101..=150 => crate::config::RgbaColor::new(0xFB, 0x92, 0x3C, 1.0),
+        _ => ctx.pal.danger,
+    };
+
+    let mut nodes = vec![
+        text_node(
+            RectF::new(inner.x, inner.y, inner.w - 28.0, 16.0),
+            format!("AQI . {}", aq.location_name.to_uppercase()),
+            10.5,
+            700,
+            badge_col,
+            TextAlign::Left,
+            false,
+        ),
+        SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
+            glyph: "\u{E9CA}".into(),
+            size: 15.0,
+            color: badge_col,
+            interactive_action: None,
+        },
+        text_node(
+            RectF::new(inner.x, inner.y + 16.0, 110.0, 44.0),
+            format!("{}", aq.us_aqi),
+            38.0,
+            700,
+            ctx.pal.primary,
+            TextAlign::Left,
+            true,
+        ),
+        text_node(
+            RectF::new(inner.x, inner.y + 62.0, inner.w, 18.0),
+            &aq.category_label,
+            13.0,
+            600,
+            badge_col,
+            TextAlign::Left,
+            false,
+        ),
+        SceneNode::ProgressBar {
+            rect: RectF::new(inner.x, inner.y + 84.0, inner.w, 6.0),
+            progress: (aq.us_aqi as f32 / 250.0).clamp(0.05, 1.0),
+            track_color: ctx.pal.surface_chip,
+            fill_color: badge_col,
+            interactive_action: None,
+        },
+    ];
+
+    if ctx.size == WidgetSize::Small {
+        nodes.push(text_node(
+            RectF::new(inner.x, inner.y + inner.h - 18.0, inner.w, 16.0),
+            format!("PM2.5 {:.0} . UV {:.1}", aq.pm2_5, aq.uv_index),
+            11.0,
+            500,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            true,
+        ));
+    } else {
+        let pills = [
+            ("PM2.5", format!("{:.1}", aq.pm2_5)),
+            ("PM10", format!("{:.1}", aq.pm10)),
+            ("Indeks UV", format!("{:.1}", aq.uv_index)),
+        ];
+        let start_x = inner.x + 114.0;
+        let gap = 6.0;
+        let pw = (inner.w - 114.0 - gap * 2.0) / 3.0;
+        for (i, (lbl, val)) in pills.iter().enumerate() {
+            let x = start_x + i as f32 * (pw + gap);
+            nodes.push(SceneNode::RoundedRect {
+                rect: RectF::new(x, inner.y + 20.0, pw, 48.0),
+                radius: 10.0,
+                smoothing: 0.45,
+                fill: Some(ctx.pal.surface_chip),
+                stroke: None,
+                interactive_action: None,
+            });
+            nodes.push(text_node(
+                RectF::new(x + 2.0, inner.y + 25.0, pw - 4.0, 14.0),
+                *lbl,
+                9.5,
+                600,
+                ctx.pal.secondary,
+                TextAlign::Center,
+                false,
+            ));
+            nodes.push(text_node(
+                RectF::new(x + 2.0, inner.y + 41.0, pw - 4.0, 18.0),
+                val,
+                14.0,
+                700,
+                ctx.pal.primary,
+                TextAlign::Center,
+                true,
+            ));
+        }
+        nodes.push(text_node(
+            RectF::new(inner.x, inner.y + inner.h - 16.0, inner.w, 14.0),
+            "Sumber: Open-Meteo Air Quality",
+            10.0,
+            400,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            false,
+        ));
+    }
+    nodes
+}
