@@ -1178,5 +1178,45 @@ mod tests {
             ),
             "Nominal kurs Small 0.85x harus mengecil < 24pt & 1 baris"
         );
+
+        // 7. Weather forecast rain codes emit valid Windows glyph U+EB42 instead of missing U+E9C0
+        hub.weather.available = true;
+        hub.weather.location_name = "Jakarta".into();
+        hub.weather.current_code = 61;
+        hub.weather.daily = vec![providers::network_providers::DailyWeatherPoint {
+            day_label: "2026-11-21".into(),
+            min_c: 25.0,
+            max_c: 30.0,
+            code: 61,
+        }];
+        let wf_slot = WidgetStackSlot {
+            slot_id: "wf_rain".into(),
+            size: config::WidgetSize::Large,
+            widgets: vec![WidgetInstance {
+                instance_id: "w1".into(),
+                widget_type: "weather_forecast".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let wf_item = build_widget_render_item(
+            &wf_slot,
+            RectF::new(0.0, 0.0, 320.0, 320.0),
+            &dark_glass,
+            &res_dark,
+            &hub,
+            0.0,
+        );
+        let glyphs: Vec<&str> = wf_item
+            .nodes
+            .iter()
+            .filter_map(|n| match n {
+                layout::SceneNode::IconGlyph { glyph, .. } => Some(glyph.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(!glyphs.contains(&"\u{E9C0}"), "Kode U+E9C0 tidak tersedia di font ikon Windows");
+        assert!(glyphs.contains(&"\u{EB42}"), "Ikon hujan harus memakai glyph valid U+EB42");
     }
 }
