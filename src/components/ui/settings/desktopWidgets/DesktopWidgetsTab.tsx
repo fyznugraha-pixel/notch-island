@@ -88,16 +88,16 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         setCatalog(cat);
         setMetrics(met);
       })
-      .catch(() => {});
+      .catch(() => { });
 
-    syncFrontendWidgetMirror().catch(() => {});
+    syncFrontendWidgetMirror().catch(() => { });
 
     const unlistenPromise = listen("desktop-widgets-config-changed", () => {
       getDesktopWidgetsConfig()
         .then((fresh) => {
           if (alive) setConfig(fresh);
         })
-        .catch(() => {});
+        .catch(() => { });
     });
 
     const timer = window.setInterval(() => {
@@ -105,13 +105,13 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         .then((m) => {
           if (alive) setMetrics(m);
         })
-        .catch(() => {});
+        .catch(() => { });
     }, 3000);
 
     return () => {
       alive = false;
       window.clearInterval(timer);
-      unlistenPromise.then((fn) => fn()).catch(() => {});
+      unlistenPromise.then((fn) => fn()).catch(() => { });
     };
   }, []);
 
@@ -152,14 +152,12 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     );
   }
 
-  const cardClass = `w-full rounded-[18px] p-3 flex flex-col gap-1 transition-colors ${
-    isLightMode
-      ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
-      : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
-  }`;
-  const sectionLabelClass = `px-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${
-    isLightMode ? "text-neutral-500" : "text-zinc-500"
-  }`;
+  const cardClass = `w-full rounded-[18px] p-3 flex flex-col gap-1 transition-colors ${isLightMode
+    ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+    : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
+    }`;
+  const sectionLabelClass = `px-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${isLightMode ? "text-neutral-500" : "text-zinc-500"
+    }`;
   const mutedCls = isLightMode ? "text-neutral-500" : "text-zinc-400";
 
   const handleAddWidget = (entry: WidgetCatalogEntry, size: WidgetSize) => {
@@ -290,18 +288,16 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
 
       {/* Hero Action Banner matching StandbyTab */}
       <div
-        className={`w-full rounded-[18px] p-4 flex flex-wrap items-center justify-between gap-4 border ${
-          isLightMode
-            ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
-            : "bg-gradient-to-br from-[#141720] to-[#111216] border-white/[0.08]"
-        }`}
+        className={`w-full rounded-[18px] p-4 flex flex-wrap items-center justify-between gap-4 border ${isLightMode
+          ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+          : "bg-gradient-to-br from-[#141720] to-[#111216] border-white/[0.08]"
+          }`}
       >
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <span
-              className={`w-2 h-2 rounded-full ${
-                metrics?.running ? "bg-[#34c759]" : "bg-zinc-500"
-              }`}
+              className={`w-2 h-2 rounded-full ${metrics?.running ? "bg-[#34c759]" : "bg-zinc-500"
+                }`}
             />
             <span className="text-[14px] font-semibold">
               Widget Desktop Native Direct2D
@@ -327,25 +323,23 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => toggleDesktopWidgetBoard().catch(() => {})}
-            className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${
-              isLightMode
-                ? "border-black/10 hover:bg-black/[0.05]"
-                : "border-white/12 hover:bg-white/[0.08]"
-            }`}
+            onClick={() => toggleDesktopWidgetBoard().catch(() => { })}
+            className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${isLightMode
+              ? "border-black/10 hover:bg-black/[0.05]"
+              : "border-white/12 hover:bg-white/[0.08]"
+              }`}
           >
             <AppWindow size={14} /> Papan Widget
           </button>
           <button
             type="button"
             onClick={() => setDesktopWidgetEditMode(!(metrics?.edit_mode ?? false))}
-            className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${
-              metrics?.edit_mode
-                ? "border-[#ff9f0a] bg-[#ff9f0a]/20 text-[#ff9f0a]"
-                : isLightMode
+            className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${metrics?.edit_mode
+              ? "border-[#ff9f0a] bg-[#ff9f0a]/20 text-[#ff9f0a]"
+              : isLightMode
                 ? "border-black/10 hover:bg-black/[0.05]"
                 : "border-white/12 hover:bg-white/[0.08]"
-            }`}
+              }`}
           >
             <Pencil size={13} /> {metrics?.edit_mode ? "Selesai Edit" : "Edit"}
           </button>
@@ -485,11 +479,10 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
               return (
                 <div
                   key={slot.slot_id}
-                  className={`flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-[12px] ${
-                    isLightMode ? "hover:bg-black/[0.025]" : "hover:bg-white/[0.03]"
-                  }`}
+                  className={`flex flex-nowrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-[12px] ${isLightMode ? "hover:bg-black/[0.025]" : "hover:bg-white/[0.03]"
+                    }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="w-8 h-8 rounded-[9px] bg-[#34c3a0]/15 text-[#34c3a0] flex items-center justify-center shrink-0">
                       <Layers size={15} />
                     </div>
@@ -502,14 +495,14 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                           </span>
                         )}
                       </div>
-                      <div className={`text-[11px] ${mutedCls}`}>
+                      <div className={`text-[11px] truncate ${mutedCls}`}>
                         Kolom {slot.grid_col + 1}, Baris {slot.grid_row + 1} .{" "}
                         {active?.style_override ? "Penimpaan gaya aktif" : "Ikut Tema Global"}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-nowrap items-center justify-end gap-1.5 shrink-0">
                     {active?.widget_type === "calendar_agenda" && (
                       <IosSelect
                         value={String(active.settings?.calendar_style ?? "bulan_minimal")}
@@ -517,7 +510,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                         onChange={(v) => handleUpdateWidgetSetting(slot.slot_id, "calendar_style", v)}
                         isLightMode={isLightMode}
                         ariaLabel="Tipe kalender"
-                        minWidthClass="min-w-[140px]"
+                        minWidthClass="w-[126px]"
                       />
                     )}
                     {active?.widget_type === "styled_clock" && (
@@ -527,7 +520,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                         onChange={(v) => handleUpdateWidgetSetting(slot.slot_id, "clock_style", v)}
                         isLightMode={isLightMode}
                         ariaLabel="Gaya jam"
-                        minWidthClass="min-w-[140px]"
+                        minWidthClass="w-[126px]"
                       />
                     )}
                     <IosSegmentedControl<WidgetSize>
@@ -543,11 +536,12 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                       onClick={() =>
                         setEditingSlotId((cur) => (cur === slot.slot_id ? null : slot.slot_id))
                       }
-                      className={`h-8 px-2.5 rounded-[10px] border text-[11.5px] font-medium flex items-center gap-1 cursor-pointer ${
-                        editingSlotId === slot.slot_id
-                          ? "border-[#0a84ff] bg-[#0a84ff]/15 text-[#0a84ff]"
-                          : "border-white/10 hover:bg-white/10"
-                      }`}
+                      className={`h-8 px-2.5 rounded-[10px] border text-[11.5px] font-medium flex items-center gap-1 shrink-0 whitespace-nowrap cursor-pointer ${editingSlotId === slot.slot_id
+                        ? "border-[#0a84ff] bg-[#0a84ff]/15 text-[#0a84ff]"
+                        : isLightMode
+                        ? "border-black/10 hover:bg-black/5"
+                        : "border-white/10 hover:bg-white/10"
+                        }`}
                     >
                       <Sliders size={12} /> Gaya
                     </button>
@@ -555,7 +549,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                       type="button"
                       onClick={() => handleRemoveSlot(slot.slot_id)}
                       aria-label="Hapus widget"
-                      className="w-8 h-8 rounded-[10px] hover:bg-red-500/20 text-red-400 flex items-center justify-center cursor-pointer"
+                      className="w-8 h-8 rounded-[10px] hover:bg-red-500/20 text-red-400 flex items-center justify-center shrink-0 cursor-pointer"
                     >
                       <Trash2 size={14} />
                     </button>
