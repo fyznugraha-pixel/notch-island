@@ -11,7 +11,6 @@ import {
   Palette,
   Play,
   Shield,
-  Sparkles,
   Square,
   Timer,
 } from "lucide-react";
@@ -455,7 +454,7 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
 
           <SettingRow
             isLightMode={isLightMode}
-            icon={<Sparkles size={18} />}
+            icon={<LayoutGrid size={18} />}
             iconBgClass={isLightMode ? "bg-[#30d158]/14" : "bg-[#122b1b]"}
             iconColorClass="text-[#30d158]"
             title={isId ? "Widget Sisi Kanan" : "Right Widget Slot"}

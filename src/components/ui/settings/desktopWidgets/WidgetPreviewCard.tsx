@@ -7,7 +7,7 @@ import {
   Moon,
   Volume2,
   Flame,
-  Sparkles,
+  LayoutGrid,
 } from "lucide-react";
 import { WidgetCatalogEntry, WidgetSize } from "../../../../services/desktopWidgetsService";
 
@@ -430,13 +430,13 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
               <span className={`text-[10.5px] font-semibold uppercase tracking-wide ${accentLabel}`}>
                 Grup {entry.group}
               </span>
-              <Sparkles size={13} className={accentLabel} />
+              <LayoutGrid size={13} className={accentLabel} />
             </div>
             <div>
               <div className="text-[14px] font-semibold leading-snug">{entry.name}</div>
               <div className={`text-[11px] mt-1 line-clamp-3 ${sub}`}>{entry.description}</div>
             </div>
-            <div className={`text-[10px] truncate ${sub}`}>{entry.data_source}</div>
+            <div className={`text-[10px] truncate ${sub}`}>{entry.group_label}</div>
           </div>
         );
     }

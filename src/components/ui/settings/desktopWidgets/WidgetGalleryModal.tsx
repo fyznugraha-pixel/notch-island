@@ -178,38 +178,57 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                 })}
               </div>
 
-              <div className="md:col-span-7 p-5 flex flex-col justify-between gap-4 overflow-y-auto">
+              <div className="md:col-span-7 p-5 flex flex-col gap-4 overflow-hidden min-h-0">
                 {activeEntry && (
                   <>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
+                    <div className="shrink-0 flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
                         <span className="text-[10.5px] font-bold uppercase tracking-wider text-[#0a84ff]">
                           Grup {activeEntry.group} . {activeEntry.group_label}
                         </span>
-                        <h4 className="text-[17px] font-semibold mt-0.5">{activeEntry.name}</h4>
-                        <p className={`text-[12px] mt-0.5 ${mutedCls}`}>
+                        <h4 className="text-[17px] font-semibold mt-0.5 truncate">
+                          {activeEntry.name}
+                        </h4>
+                        <p className={`text-[12px] mt-0.5 line-clamp-2 ${mutedCls}`}>
                           {activeEntry.description}
                         </p>
                       </div>
-                      <IosSegmentedControl
-                        value={sampleLightBg ? "light" : "dark"}
-                        onChange={(v) => setSampleLightBg(v === "light")}
-                        options={[
-                          { value: "dark", label: "Gelap" },
-                          { value: "light", label: "Terang" },
-                        ]}
-                      />
+                      <button
+                        type="button"
+                        onClick={() => onAddWidget(activeEntry, activeSize)}
+                        className="shrink-0 h-9 px-4 rounded-full bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12.5px] font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-[0_6px_18px_rgba(10,132,255,0.35)]"
+                      >
+                        <Plus size={14} /> Tambah Widget
+                      </button>
                     </div>
 
                     {/* Visual preview stage with horizontal S/M/L pager + dots */}
                     <div
-                      className="rounded-[20px] p-6 flex flex-col items-center justify-center gap-4 min-h-[290px] transition-all"
+                      className="flex-1 min-h-[260px] rounded-[20px] p-5 flex flex-col items-center justify-between gap-3 transition-all overflow-y-auto"
                       style={{
                         background: sampleLightBg
-                          ? "linear-gradient(135deg, #dbeafe 0%, #e2e8f0 50%, #f8fafc 100%)"
-                          : "linear-gradient(135deg, #0b1120 0%, #1e1b4b 55%, #09090b 100%)",
+                          ? "linear-gradient(135deg, #e0f2fe 0%, #e2e8f0 50%, #f8fafc 100%)"
+                          : "linear-gradient(135deg, #0b1120 0%, #1e293b 55%, #09090b 100%)",
                       }}
                     >
+                      <div className="w-full flex items-center justify-between gap-2">
+                        <span
+                          className={`text-[11px] font-medium ${
+                            sampleLightBg ? "text-slate-600" : "text-white/70"
+                          }`}
+                        >
+                          {SIZE_LABEL[activeSize]}
+                        </span>
+                        <IosSegmentedControl
+                          value={sampleLightBg ? "light" : "dark"}
+                          onChange={(v) => setSampleLightBg(v === "light")}
+                          options={[
+                            { value: "dark", label: "Gelap" },
+                            { value: "light", label: "Terang" },
+                          ]}
+                        />
+                      </div>
+
                       <motion.div
                         key={`${activeEntry.widget_type}_${activeSize}`}
                         initial={{ opacity: 0, scale: 0.96 }}
@@ -223,65 +242,43 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                         />
                       </motion.div>
 
-                      <div className="flex flex-col items-center gap-2">
-                        <span
-                          className={`text-[11px] font-medium ${
-                            sampleLightBg ? "text-slate-600" : "text-white/70"
-                          }`}
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={sizes.length <= 1}
+                          onClick={() =>
+                            setSizeIdx((i) => (i - 1 + sizes.length) % sizes.length)
+                          }
+                          className="w-7 h-7 rounded-full bg-black/30 hover:bg-black/45 text-white flex items-center justify-center disabled:opacity-30 cursor-pointer"
                         >
-                          {SIZE_LABEL[activeSize]}
-                        </span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            disabled={sizes.length <= 1}
-                            onClick={() =>
-                              setSizeIdx((i) => (i - 1 + sizes.length) % sizes.length)
-                            }
-                            className="w-7 h-7 rounded-full bg-black/30 hover:bg-black/45 text-white flex items-center justify-center disabled:opacity-30 cursor-pointer"
-                          >
-                            <ChevronLeft size={14} />
-                          </button>
-                          <div className="flex items-center gap-1.5">
-                            {sizes.map((sz, idx) => (
-                              <button
-                                key={sz}
-                                type="button"
-                                onClick={() => setSizeIdx(idx)}
-                                aria-label={SIZE_LABEL[sz]}
-                                className={`h-2 rounded-full transition-all cursor-pointer ${
-                                  idx === sizeIdx % sizes.length
-                                    ? "w-5 bg-[#0a84ff]"
-                                    : sampleLightBg
-                                    ? "w-2 bg-slate-900/25"
-                                    : "w-2 bg-white/35"
-                                }`}
-                              />
-                            ))}
-                          </div>
-                          <button
-                            type="button"
-                            disabled={sizes.length <= 1}
-                            onClick={() => setSizeIdx((i) => (i + 1) % sizes.length)}
-                            className="w-7 h-7 rounded-full bg-black/30 hover:bg-black/45 text-white flex items-center justify-center disabled:opacity-30 cursor-pointer"
-                          >
-                            <ChevronRight size={14} />
-                          </button>
+                          <ChevronLeft size={14} />
+                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {sizes.map((sz, idx) => (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => setSizeIdx(idx)}
+                              aria-label={SIZE_LABEL[sz]}
+                              className={`h-2 rounded-full transition-all cursor-pointer ${
+                                idx === sizeIdx % sizes.length
+                                  ? "w-5 bg-[#0a84ff]"
+                                  : sampleLightBg
+                                  ? "w-2 bg-slate-900/25"
+                                  : "w-2 bg-white/35"
+                              }`}
+                            />
+                          ))}
                         </div>
+                        <button
+                          type="button"
+                          disabled={sizes.length <= 1}
+                          onClick={() => setSizeIdx((i) => (i + 1) % sizes.length)}
+                          className="w-7 h-7 rounded-full bg-black/30 hover:bg-black/45 text-white flex items-center justify-center disabled:opacity-30 cursor-pointer"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
                       </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/[0.08]">
-                      <div className={`text-[11px] truncate ${mutedCls}`}>
-                        Sumber: <span className="font-medium">{activeEntry.data_source}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onAddWidget(activeEntry, activeSize)}
-                        className="shrink-0 h-9 px-4 rounded-full bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-[0_6px_18px_rgba(10,132,255,0.35)]"
-                      >
-                        <Plus size={14} /> Tambah Widget
-                      </button>
                     </div>
                   </>
                 )}

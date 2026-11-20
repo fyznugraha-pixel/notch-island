@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   AlertTriangle,
-  Sparkles,
+  Pipette,
   Save,
   Palette,
   Type,
@@ -339,7 +339,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
                 : "border-white/10 text-zinc-200 hover:bg-white/[0.06]"
               }`}
           >
-            <Sparkles size={12} aria-hidden="true" /> Ambil dari Wallpaper
+            <Pipette size={12} aria-hidden="true" /> Ambil dari Wallpaper
           </button>
           <button
             type="button"
