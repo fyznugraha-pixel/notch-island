@@ -306,37 +306,6 @@ pub mod render {
             }
         }
 
-        fn draw_card_elevation_shadow(
-            &self,
-            res: &D2DDeviceResources,
-            frame: RectF,
-            radius: f32,
-            smoothing: f32,
-        ) {
-            let layers = [(5.0f32, 1.5f32, 0.14f32), (12.0f32, 4.5f32, 0.08f32)];
-            for (dy, expand, alpha) in layers {
-                let r = RectF::new(
-                    frame.x - expand,
-                    frame.y + dy - expand * 0.5,
-                    frame.w + expand * 2.0,
-                    frame.h + expand * 2.0,
-                );
-                if let Some(geom) =
-                    self.build_superellipse_geometry(res, r, radius + expand, smoothing)
-                {
-                    unsafe {
-                        self.brush.SetColor(&D2D1_COLOR_F {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: alpha,
-                        });
-                        res.d2d_context.FillGeometry(&geom, &self.brush, None);
-                    }
-                }
-            }
-        }
-
         fn apply_single_line_trimming(
             res: &D2DDeviceResources,
             fmt: &IDWriteTextFormat,
@@ -660,122 +629,114 @@ pub mod render {
                     .iter()
                     .any(|n| matches!(n, crate::layout::SceneNode::ImageRef { .. }));
 
-            if effective_bg != BackgroundMode::None && is_loaded_photo && !policy.high_contrast {
-                self.draw_card_elevation_shadow(res, item.frame, 24.0, 0.65);
-            } else if effective_bg != BackgroundMode::None {
-                if !policy.high_contrast {
-                    self.draw_card_elevation_shadow(
+            if effective_bg != BackgroundMode::None {
+                if !is_loaded_photo {
+                    let fill = if policy.high_contrast {
+                        RgbaColor::new(0, 0, 0, 0.96)
+                    } else {
+                        item.card_fill
+                            .unwrap_or_else(|| RgbaColor::new(22, 24, 32, 0.52))
+                    };
+                    let (top_col, bot_col) = if policy.high_contrast {
+                        (fill, fill)
+                    } else if let Some((gt, gb)) = item.card_gradient {
+                        (gt, gb)
+                    } else {
+                        let is_light_card = fill.r > 180 && fill.g > 180 && fill.b > 180;
+                        let lift = if is_light_card { 10 } else { 20 };
+                        let top = RgbaColor::new(
+                            fill.r.saturating_add(lift),
+                            fill.g.saturating_add(lift),
+                            fill.b
+                                .saturating_add(lift + if is_light_card { 0 } else { 4 }),
+                            fill.a,
+                        );
+                        (top, fill)
+                    };
+                    if let Some(geom) = self.build_superellipse_geometry(
                         res,
                         item.frame,
                         CARD_RADIUS_DP,
                         CARD_CORNER_SMOOTHING,
-                    );
-                }
-                let fill = if policy.high_contrast {
-                    RgbaColor::new(0, 0, 0, 0.96)
-                } else {
-                    item.card_fill
-                        .unwrap_or_else(|| RgbaColor::new(22, 24, 32, 0.52))
-                };
-                let (top_col, bot_col) = if policy.high_contrast {
-                    (fill, fill)
-                } else if let Some((gt, gb)) = item.card_gradient {
-                    (gt, gb)
-                } else {
-                    let is_light_card = fill.r > 180 && fill.g > 180 && fill.b > 180;
-                    let lift = if is_light_card { 10 } else { 20 };
-                    let top = RgbaColor::new(
-                        fill.r.saturating_add(lift),
-                        fill.g.saturating_add(lift),
-                        fill.b
-                            .saturating_add(lift + if is_light_card { 0 } else { 4 }),
-                        fill.a,
-                    );
-                    (top, fill)
-                };
-                if let Some(geom) = self.build_superellipse_geometry(
-                    res,
-                    item.frame,
-                    CARD_RADIUS_DP,
-                    CARD_CORNER_SMOOTHING,
-                ) {
-                    if let Some(grad_brush) =
-                        self.create_vertical_gradient_brush(res, item.frame, top_col, bot_col)
-                    {
-                        unsafe {
-                            ctx.FillGeometry(&geom, &grad_brush, None);
-                        }
-                    } else {
-                        unsafe {
-                            self.brush.SetColor(&d2d_color(fill));
-                            ctx.FillGeometry(&geom, &self.brush, None);
-                        }
-                    }
-
-                    if policy.high_contrast {
-                        unsafe {
-                            self.brush
-                                .SetColor(&d2d_color(RgbaColor::new(255, 255, 255, 0.95)));
-                            ctx.DrawGeometry(&geom, &self.brush, 1.2, None);
-                        }
-                    } else {
-                        let is_light_surface =
-                            bot_col.r > 180 && bot_col.g > 180 && bot_col.b > 180;
-                        let rim_top = match effective_bg {
-                            BackgroundMode::Glass => {
-                                if is_light_surface {
-                                    RgbaColor::new(255, 255, 255, 0.72)
-                                } else {
-                                    RgbaColor::new(255, 255, 255, 0.34)
-                                }
-                            }
-                            BackgroundMode::SubtleTint => RgbaColor::new(255, 255, 255, 0.22),
-                            _ => RgbaColor::new(255, 255, 255, 0.14),
-                        };
-                        let rim_bot = RgbaColor::new(255, 255, 255, 0.08);
-                        if let Some(rim_brush) =
-                            self.create_vertical_gradient_brush(res, item.frame, rim_top, rim_bot)
+                    ) {
+                        if let Some(grad_brush) =
+                            self.create_vertical_gradient_brush(res, item.frame, top_col, bot_col)
                         {
                             unsafe {
-                                ctx.DrawGeometry(&geom, &rim_brush, 1.15, None);
+                                ctx.FillGeometry(&geom, &grad_brush, None);
                             }
                         } else {
-                            let border_col = item
-                                .inner_border
-                                .unwrap_or_else(|| RgbaColor::new(255, 255, 255, 0.20));
                             unsafe {
-                                self.brush.SetColor(&d2d_color(border_col));
-                                ctx.DrawGeometry(&geom, &self.brush, 1.0, None);
+                                self.brush.SetColor(&d2d_color(fill));
+                                ctx.FillGeometry(&geom, &self.brush, None);
                             }
                         }
 
-                        if effective_bg == BackgroundMode::Glass
-                            || effective_bg == BackgroundMode::SubtleTint
-                        {
+                        if policy.high_contrast {
                             unsafe {
-                                self.brush.SetColor(&D2D1_COLOR_F {
-                                    r: 1.0,
-                                    g: 1.0,
-                                    b: 1.0,
-                                    a: if effective_bg == BackgroundMode::Glass {
-                                        0.20
+                                self.brush
+                                    .SetColor(&d2d_color(RgbaColor::new(255, 255, 255, 0.95)));
+                                ctx.DrawGeometry(&geom, &self.brush, 1.2, None);
+                            }
+                        } else {
+                            let is_light_surface =
+                                bot_col.r > 180 && bot_col.g > 180 && bot_col.b > 180;
+                            let rim_top = match effective_bg {
+                                BackgroundMode::Glass => {
+                                    if is_light_surface {
+                                        RgbaColor::new(255, 255, 255, 0.72)
                                     } else {
-                                        0.10
-                                    },
-                                });
-                                ctx.DrawLine(
-                                    D2D_POINT_2F {
-                                        x: item.frame.x + CARD_RADIUS_DP * 0.85,
-                                        y: item.frame.y + 1.0,
-                                    },
-                                    D2D_POINT_2F {
-                                        x: item.frame.x + item.frame.w - CARD_RADIUS_DP * 0.85,
-                                        y: item.frame.y + 1.0,
-                                    },
-                                    &self.brush,
-                                    1.0,
-                                    &self.round_stroke,
-                                );
+                                        RgbaColor::new(255, 255, 255, 0.34)
+                                    }
+                                }
+                                BackgroundMode::SubtleTint => RgbaColor::new(255, 255, 255, 0.22),
+                                _ => RgbaColor::new(255, 255, 255, 0.14),
+                            };
+                            let rim_bot = RgbaColor::new(255, 255, 255, 0.08);
+                            if let Some(rim_brush) = self
+                                .create_vertical_gradient_brush(res, item.frame, rim_top, rim_bot)
+                            {
+                                unsafe {
+                                    ctx.DrawGeometry(&geom, &rim_brush, 1.15, None);
+                                }
+                            } else {
+                                let border_col = item
+                                    .inner_border
+                                    .unwrap_or_else(|| RgbaColor::new(255, 255, 255, 0.20));
+                                unsafe {
+                                    self.brush.SetColor(&d2d_color(border_col));
+                                    ctx.DrawGeometry(&geom, &self.brush, 1.0, None);
+                                }
+                            }
+
+                            if effective_bg == BackgroundMode::Glass
+                                || effective_bg == BackgroundMode::SubtleTint
+                            {
+                                unsafe {
+                                    self.brush.SetColor(&D2D1_COLOR_F {
+                                        r: 1.0,
+                                        g: 1.0,
+                                        b: 1.0,
+                                        a: if effective_bg == BackgroundMode::Glass {
+                                            0.20
+                                        } else {
+                                            0.10
+                                        },
+                                    });
+                                    ctx.DrawLine(
+                                        D2D_POINT_2F {
+                                            x: item.frame.x + CARD_RADIUS_DP * 0.85,
+                                            y: item.frame.y + 1.0,
+                                        },
+                                        D2D_POINT_2F {
+                                            x: item.frame.x + item.frame.w - CARD_RADIUS_DP * 0.85,
+                                            y: item.frame.y + 1.0,
+                                        },
+                                        &self.brush,
+                                        1.0,
+                                        &self.round_stroke,
+                                    );
+                                }
                             }
                         }
                     }
