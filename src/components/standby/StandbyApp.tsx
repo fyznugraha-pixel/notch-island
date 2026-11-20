@@ -1,0 +1,754 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { load as loadStore } from "@tauri-apps/plugin-store";
+import { Clock, CloudSun, LayoutGrid, Moon, Music, Settings, Sun, X } from "lucide-react";
+import {
+  DEFAULT_STANDBY_CONFIG,
+  StandbyClockStyle,
+  StandbyConfig,
+  StandbyLaunchContext,
+  StandbyLeftWidget,
+  StandbyRightWidget,
+  StandbyScreen,
+  closeStandbyWindow,
+  getStandbyConfig,
+  getStandbyLaunchContext,
+  isNightShiftActive,
+  notifyStandbyReady,
+  saveStandbyConfig,
+  subscribeStandbyConfig,
+} from "../../services/standbyService";
+import { Language, getLanguage, setLanguage } from "../../services/i18n";
+import {
+  WeatherData,
+  getCachedWeather,
+  startWeatherAutoSync,
+  subscribeWeatherChange,
+} from "../../services/weatherService";
+import {
+  PrayerId,
+  PrayerScheduleData,
+  fetchPrayerSchedule,
+  getCompletedPrayersForDate,
+  getImmediatePrayerSchedule,
+  togglePrayerCompleted,
+} from "../../services/prayerService";
+import {
+  LyricsPayload,
+  MediaPayload,
+  getCurrentLyrics,
+  getCurrentMedia,
+  initMediaLyricsStore,
+  subscribeLyrics,
+  subscribeMedia,
+} from "../../services/mediaLyricsStore";
+import { prefetchArtwork } from "../../services/artworkService";
+import { useLyricsSync } from "../miniplayer/lyricsSync";
+import { useResolvedThumbnail } from "../ui/MediaThumbnail";
+import { extractDominantColor } from "../miniplayer/colorExtractor";
+import { usePomodoro } from "../../hooks/usePomodoro";
+import {
+  TODO_STORAGE_KEY,
+  TodoItem,
+  loadCanonicalTodos,
+  toggleCanonicalTodo,
+} from "../../services/todoUtils";
+import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
+import { resolveStandbyPalette } from "./standbyTheme";
+import { StandbyPowerState } from "./widgets/StandbyDigitalClockWidget";
+import { StandbyWidgetStack } from "./views/StandbyWidgetStack";
+import { StandbyClockFaceView } from "./views/StandbyClockFaceView";
+import { StandbyMediaView } from "./views/StandbyMediaView";
+import { StandbyWeatherBoardView } from "./views/StandbyWeatherBoardView";
+
+const SCREENS: StandbyScreen[] = ["widgets", "clock", "media", "weather"];
+const CLOCK_STYLES: StandbyClockStyle[] = [
+  "bold_duo",
+  "editorial_serif",
+  "minimal_mono",
+  "analog_rail",
+];
+const BURN_IN_OFFSETS: [number, number][] = [
+  [0, 0],
+  [2, 0],
+  [2, 2],
+  [0, 2],
+  [-2, 2],
+  [-2, 0],
+  [-2, -2],
+  [0, -2],
+];
+
+export const StandbyApp: React.FC = () => {
+  const reducedMotion = usePrefersReducedMotion();
+  const [optLanguage, setOptLanguage] = useState<Language>(() => getLanguage());
+  const isId = optLanguage === "id";
+
+  const [config, setConfig] = useState<StandbyConfig>(DEFAULT_STANDBY_CONFIG);
+  const [launchContext, setLaunchContext] = useState<StandbyLaunchContext>({
+    trigger: "manual",
+    close_on_activity: false,
+    monitor_id: null,
+    is_secondary_monitor: false,
+  });
+  const [nightOverride, setNightOverride] = useState<boolean | null>(null);
+  const [now, setNow] = useState<Date>(() => new Date());
+  const [hudVisible, setHudVisible] = useState(true);
+  const [shiftIndex, setShiftIndex] = useState(0);
+  const [transitionPhase, setTransitionPhase] = useState<"entering" | "visible" | "exiting">(
+    () => (reducedMotion ? "visible" : "entering"),
+  );
+
+  const [weather, setWeather] = useState<WeatherData | null>(() => getCachedWeather());
+  const [weatherLoading, setWeatherLoading] = useState<boolean>(() => !getCachedWeather());
+  const [schedule, setSchedule] = useState<PrayerScheduleData>(() =>
+    getImmediatePrayerSchedule(),
+  );
+  const [completedPrayers, setCompletedPrayers] = useState<PrayerId[]>(() =>
+    getCompletedPrayersForDate(),
+  );
+  const [battery, setBattery] = useState<StandbyPowerState | null>(null);
+  const [todos, setTodos] = useState<TodoItem[]>(() => loadCanonicalTodos());
+  const [media, setMedia] = useState<MediaPayload>(() => getCurrentMedia());
+  const [lyrics, setLyrics] = useState<LyricsPayload>(() => getCurrentLyrics());
+  const resolvedMediaArt = useResolvedThumbnail(media);
+  const [mediaGlowHex, setMediaGlowHex] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!resolvedMediaArt) {
+      setMediaGlowHex(null);
+      return;
+    }
+    let cancelled = false;
+    extractDominantColor(resolvedMediaArt).then((hex) => {
+      if (!cancelled) setMediaGlowHex(hex);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedMediaArt]);
+
+  const pomodoro = usePomodoro({ isSecondary: true });
+  const { activeIndex, livePosition, liveDuration, seekLocal } = useLyricsSync(
+    lyrics,
+    media.position || 0,
+    media.duration || 0,
+    media.is_playing,
+    lyrics.offset || 0,
+    config.active_screen !== "media" && config.right_widget !== "media",
+  );
+
+  const dismissingRef = useRef(false);
+  const mountAtRef = useRef(performance.now());
+  const initialPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const hudTimerRef = useRef<number | null>(null);
+  const dismissFallbackRef = useRef<number | null>(null);
+
+  const handleDismiss = useCallback(async () => {
+    if (dismissingRef.current) return;
+    dismissingRef.current = true;
+    setTransitionPhase("exiting");
+    if (dismissFallbackRef.current) window.clearTimeout(dismissFallbackRef.current);
+    dismissFallbackRef.current = window.setTimeout(() => {
+      getCurrentWindow().destroy().catch(() => {
+        getCurrentWindow().close().catch(() => {});
+      });
+    }, 650);
+    try {
+      await closeStandbyWindow();
+    } catch {
+      try {
+        await getCurrentWindow().destroy();
+      } catch {
+        try {
+          await getCurrentWindow().close();
+        } catch {}
+      }
+    }
+  }, []);
+
+  const bumpHud = useCallback(() => {
+    setHudVisible(true);
+    if (hudTimerRef.current) window.clearTimeout(hudTimerRef.current);
+    hudTimerRef.current = window.setTimeout(() => {
+      setHudVisible(false);
+    }, 4500);
+  }, []);
+
+  useEffect(() => {
+    mountAtRef.current = performance.now();
+    let cancelled = false;
+    let raf1 = 0;
+    let raf2 = 0;
+
+    Promise.all([getStandbyConfig(), getStandbyLaunchContext()]).then(([cfg, ctx]) => {
+      if (cancelled) return;
+      setConfig(cfg);
+      setLaunchContext(ctx);
+      raf1 = window.requestAnimationFrame(() => {
+        raf2 = window.requestAnimationFrame(() => {
+          if (cancelled) return;
+          notifyStandbyReady();
+          setTransitionPhase("visible");
+        });
+      });
+    });
+    bumpHud();
+
+    const unsubCfg = subscribeStandbyConfig((cfg) => {
+      setConfig(cfg);
+      setNightOverride(null);
+    });
+
+    let unsubCtx: (() => void) | null = null;
+    listen<StandbyLaunchContext>("standby:context-updated", (ev) => {
+      if (ev.payload) {
+        mountAtRef.current = performance.now();
+        initialPointerRef.current = null;
+        dismissingRef.current = false;
+        if (dismissFallbackRef.current) {
+          window.clearTimeout(dismissFallbackRef.current);
+          dismissFallbackRef.current = null;
+        }
+        setLaunchContext(ev.payload);
+        setTransitionPhase("visible");
+      }
+    })
+      .then((fn) => {
+        unsubCtx = fn;
+      })
+      .catch(() => {});
+
+    let unsubClosing: (() => void) | null = null;
+    listen<boolean>("standby:closing", () => {
+      dismissingRef.current = true;
+      setTransitionPhase("exiting");
+    })
+      .then((fn) => {
+        unsubClosing = fn;
+      })
+      .catch(() => {});
+
+    let unsubSync: (() => void) | null = null;
+    listen<any>("gili-settings-sync", (ev) => {
+      const p = ev.payload;
+      if (!p || typeof p !== "object") return;
+      if (p.type === "setting_key" && p.key === "opt_language") {
+        setLanguage(p.value as Language, false);
+        setOptLanguage(p.value as Language);
+      }
+    })
+      .then((fn) => {
+        unsubSync = fn;
+      })
+      .catch(() => {});
+
+    // Hydrate saved language from persistent settings store so English/Indonesian stays in sync
+    loadStore("settings.json")
+      .then((store) => store.get<string>("opt_language"))
+      .then((savedLang) => {
+        if (!cancelled && (savedLang === "en" || savedLang === "id")) {
+          setLanguage(savedLang, false);
+          setOptLanguage(savedLang);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (raf1) window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
+      unsubCfg();
+      if (unsubCtx) unsubCtx();
+      if (unsubClosing) unsubClosing();
+      if (unsubSync) unsubSync();
+      if (hudTimerRef.current) window.clearTimeout(hudTimerRef.current);
+      if (dismissFallbackRef.current) window.clearTimeout(dismissFallbackRef.current);
+    };
+  }, [bumpHud]);
+
+  useEffect(() => {
+    const clockTimer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(clockTimer);
+  }, []);
+
+  useEffect(() => {
+    if (!config.burn_in_protection || reducedMotion) {
+      setShiftIndex(0);
+      return;
+    }
+    const shiftTimer = window.setInterval(() => {
+      setShiftIndex((prev) => (prev + 1) % BURN_IN_OFFSETS.length);
+    }, 60_000);
+    return () => window.clearInterval(shiftTimer);
+  }, [config.burn_in_protection, reducedMotion]);
+
+  useEffect(() => {
+    const unsubMedia = subscribeMedia((m) => {
+      if (m && (m.title || m.artist)) prefetchArtwork(m);
+      setMedia(m);
+    });
+    const unsubLyrics = subscribeLyrics(setLyrics);
+    initMediaLyricsStore(false);
+
+    const stopWeather = startWeatherAutoSync((data) => {
+      setWeather(data);
+      setWeatherLoading(false);
+    });
+    const unsubWeather = subscribeWeatherChange(() => {
+      fetchPrayerSchedule(true).then(setSchedule).catch(() => {});
+    });
+
+    fetchPrayerSchedule(false).then(setSchedule).catch(() => {});
+    const pollBattery = () => {
+      invoke<StandbyPowerState | null>("get_system_power_info")
+        .then(setBattery)
+        .catch(() => {});
+    };
+    pollBattery();
+    const batteryTimer = window.setInterval(pollBattery, 30_000);
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === TODO_STORAGE_KEY) {
+        setTodos(loadCanonicalTodos());
+      } else if (e.key === "gili_prayer_completed_v1") {
+        setCompletedPrayers(getCompletedPrayersForDate());
+      } else if (e.key === "island_language" && (e.newValue === "en" || e.newValue === "id")) {
+        setOptLanguage(e.newValue);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      unsubMedia();
+      unsubLyrics();
+      stopWeather();
+      unsubWeather();
+      window.clearInterval(batteryTimer);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  const persistUpdate = useCallback((patch: Partial<StandbyConfig>) => {
+    setConfig((prev) => {
+      const next = { ...prev, ...patch };
+      saveStandbyConfig(next);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const closeOnAct = launchContext.close_on_activity;
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (closeOnAct) {
+        if (performance.now() - mountAtRef.current < 850) return;
+        if (!initialPointerRef.current) {
+          initialPointerRef.current = { x: e.clientX, y: e.clientY };
+          return;
+        }
+        const dist = Math.hypot(
+          e.clientX - initialPointerRef.current.x,
+          e.clientY - initialPointerRef.current.y,
+        );
+        if (dist > 12) handleDismiss();
+        return;
+      }
+      bumpHud();
+    };
+
+    const onActivityExitOrBump = () => {
+      if (closeOnAct) {
+        if (performance.now() - mountAtRef.current >= 500) handleDismiss();
+      } else {
+        bumpHud();
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (closeOnAct) {
+        if (performance.now() - mountAtRef.current >= 500) handleDismiss();
+        return;
+      }
+      bumpHud();
+      if (e.key === "Escape" || e.code === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        handleDismiss();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        const nextIdx = (SCREENS.indexOf(config.active_screen) + 1) % SCREENS.length;
+        persistUpdate({ active_screen: SCREENS[nextIdx] });
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        const prevIdx = (SCREENS.indexOf(config.active_screen) - 1 + SCREENS.length) % SCREENS.length;
+        persistUpdate({ active_screen: SCREENS[prevIdx] });
+      } else if (e.code === "KeyN") {
+        setNightOverride((prev) => !(prev ?? isNightShiftActive(config.night_mode, new Date())));
+      } else if (e.code === "Space" && (e.target as HTMLElement)?.tagName !== "BUTTON") {
+        e.preventDefault();
+        invoke("smtc_action", { action: "playpause" }).catch(() => {});
+      }
+    };
+
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("mousedown", onActivityExitOrBump, { passive: true });
+    window.addEventListener("wheel", onActivityExitOrBump, { passive: true });
+    document.addEventListener("keydown", onKeyDown, { capture: true });
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("mousedown", onActivityExitOrBump);
+      window.removeEventListener("wheel", onActivityExitOrBump);
+      document.removeEventListener("keydown", onKeyDown, { capture: true });
+    };
+  }, [launchContext.close_on_activity, config.active_screen, config.night_mode, handleDismiss, bumpHud, persistUpdate]);
+
+  const nightActive = useMemo(() => {
+    if (nightOverride !== null) return nightOverride;
+    return isNightShiftActive(config.night_mode, now);
+  }, [nightOverride, config.night_mode, now]);
+
+  const palette = useMemo(
+    () => resolveStandbyPalette(nightActive, config.clock_accent),
+    [nightActive, config.clock_accent],
+  );
+
+  const [shiftX, shiftY] = BURN_IN_OFFSETS[shiftIndex] || [0, 0];
+
+  const handleToggleTodo = useCallback((id: string) => {
+    setTodos(toggleCanonicalTodo(id));
+  }, []);
+
+  const handleTogglePrayer = useCallback((id: PrayerId) => {
+    const res = togglePrayerCompleted(id);
+    setCompletedPrayers(res.completed);
+  }, []);
+
+  const handleCycleClockStyle = useCallback(() => {
+    const nextIdx = (CLOCK_STYLES.indexOf(config.clock_style) + 1) % CLOCK_STYLES.length;
+    persistUpdate({ clock_style: CLOCK_STYLES[nextIdx] });
+  }, [config.clock_style, persistUpdate]);
+
+  const hudSurfaceStyle: React.CSSProperties = {
+    backgroundColor: palette.hudBg,
+    borderColor: palette.cardBorder,
+    backdropFilter: palette.night ? "none" : "blur(26px) saturate(180%)",
+    boxShadow: palette.night
+      ? "none"
+      : "0 14px 34px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.16)",
+  };
+
+  const stageMotionStyle: React.CSSProperties = reducedMotion
+    ? { opacity: transitionPhase === "exiting" ? 0 : 1 }
+    : transitionPhase === "entering"
+    ? {
+        opacity: 0,
+        transform: "scale(1.032)",
+        transition: "opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 460ms cubic-bezier(0.22, 1, 0.36, 1)",
+      }
+    : transitionPhase === "exiting"
+    ? {
+        opacity: 0,
+        transform: "scale(0.972)",
+        transition: "opacity 230ms cubic-bezier(0.4, 0, 0.2, 1), transform 230ms cubic-bezier(0.4, 0, 0.2, 1)",
+      }
+    : {
+        opacity: 1,
+        transform: "scale(1)",
+        transition: "opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 460ms cubic-bezier(0.22, 1, 0.36, 1)",
+      };
+
+  const hudPhaseHidden = transitionPhase !== "visible";
+  const showWidgetMediaGlow =
+    !palette.night &&
+    config.active_screen === "widgets" &&
+    config.right_widget === "media" &&
+    Boolean(mediaGlowHex && media.title && media.title.trim().length > 0);
+
+  return (
+    <main
+      className="relative w-screen h-screen overflow-hidden select-none"
+      style={{
+        background: palette.ambientGradient,
+        color: palette.textPrimary,
+        cursor: launchContext.close_on_activity || !hudVisible ? "none" : "default",
+      }}
+    >
+      {/* Whisper-soft album color glow on OLED black when Media widget is active */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 transition-opacity duration-1000"
+        style={{
+          opacity: showWidgetMediaGlow ? 1 : 0,
+          background: mediaGlowHex
+            ? `radial-gradient(circle at 74% 50%, ${mediaGlowHex}2e 0%, ${mediaGlowHex}10 34%, transparent 62%)`
+            : "none",
+        }}
+      />
+      {/* Floating Top macOS Vibrancy HUD (overlaid without black bars) */}
+      <header
+        className={`absolute inset-x-0 top-0 z-30 flex items-center justify-between px-6 pt-5 transition-all duration-300 ${
+          hudPhaseHidden
+            ? "opacity-0 -translate-y-2 pointer-events-none"
+            : launchContext.close_on_activity
+            ? "opacity-90 pointer-events-none"
+            : hudVisible
+            ? "opacity-100 translate-y-0"
+            : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <div
+          className="px-3.5 py-1.5 rounded-full border text-[12px] font-semibold flex items-center gap-2"
+          style={{ ...hudSurfaceStyle, color: palette.textSecondary }}
+        >
+          <span
+            className="w-2 h-2 rounded-full"
+            style={{ backgroundColor: palette.night ? palette.textPrimary : "#30d158" }}
+          />
+          <span>
+            {launchContext.close_on_activity
+              ? isId
+                ? "StandBy Idle · Gerakkan mouse untuk keluar"
+                : "StandBy Idle · Move mouse to exit"
+              : launchContext.trigger === "secondary_permanent"
+              ? isId
+                ? "Monitor Ke-2 · Always-On"
+                : "2nd Display · Always-On"
+              : isId
+              ? "StandBy · Tekan Esc untuk keluar"
+              : "StandBy · Press Esc to exit"}
+          </span>
+        </div>
+
+        {!launchContext.close_on_activity && (
+          <nav
+            aria-label={isId ? "Mode Layar StandBy" : "StandBy Screen Modes"}
+            className="flex items-center gap-1 p-1 rounded-full border"
+            style={hudSurfaceStyle}
+          >
+            {(
+              [
+                { id: "widgets", icon: <LayoutGrid size={14} />, label: isId ? "Widget" : "Widgets" },
+                { id: "clock", icon: <Clock size={14} />, label: isId ? "Jam" : "Clock" },
+                { id: "media", icon: <Music size={14} />, label: "Media" },
+                { id: "weather", icon: <CloudSun size={14} />, label: isId ? "Cuaca" : "Weather" },
+              ] as const
+            ).map((item) => {
+              const active = config.active_screen === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => persistUpdate({ active_screen: item.id })}
+                  className="px-3.5 py-1.5 rounded-full text-[12px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]"
+                  style={{
+                    backgroundColor: active
+                      ? palette.night
+                        ? palette.textPrimary
+                        : "#ffffff"
+                      : "transparent",
+                    color: active ? "#000000" : palette.textSecondary,
+                  }}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        {!launchContext.close_on_activity && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              title={isId ? "Ubah Mode Malam" : "Toggle Night Mode"}
+              aria-label={isId ? "Ubah Mode Malam" : "Toggle Night Mode"}
+              onClick={() => setNightOverride((prev) => !(prev ?? nightActive))}
+              className="w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-transform hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]"
+              style={{ ...hudSurfaceStyle, color: palette.textPrimary }}
+            >
+              {nightActive ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+
+            <button
+              type="button"
+              title={isId ? "Pengaturan StandBy" : "StandBy Settings"}
+              aria-label={isId ? "Pengaturan StandBy" : "StandBy Settings"}
+              onClick={async () => {
+                await invoke("open_settings_window", { section: "standby" }).catch(() => {});
+                if (!launchContext.is_secondary_monitor) {
+                  handleDismiss();
+                }
+              }}
+              className="w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-transform hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]"
+              style={{ ...hudSurfaceStyle, color: palette.textPrimary }}
+            >
+              <Settings size={16} />
+            </button>
+
+            <button
+              type="button"
+              aria-label={isId ? "Tutup StandBy" : "Exit StandBy"}
+              onClick={handleDismiss}
+              className="px-3.5 h-9 rounded-full border flex items-center gap-1.5 text-[12px] font-semibold cursor-pointer transition-transform hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]"
+              style={{ ...hudSurfaceStyle, color: palette.textPrimary }}
+            >
+              <X size={15} />
+              <span>{isId ? "Keluar" : "Exit"}</span>
+            </button>
+          </div>
+        )}
+      </header>
+
+      {/* Full-Bleed Screen Stage (100vw x 100vh) */}
+      <div
+        className="absolute inset-0 w-full h-full flex items-center justify-center will-change-transform"
+        style={stageMotionStyle}
+      >
+        <div
+          key={config.active_screen}
+          className={`w-full h-full flex items-center justify-center transition-transform duration-1000 ${
+            reducedMotion ? "" : "animate-standby-view-enter"
+          }`}
+          style={{ transform: `translate(${shiftX}px, ${shiftY}px)` }}
+        >
+          {config.active_screen === "widgets" && (
+            <StandbyWidgetStack
+              now={now}
+              palette={palette}
+              language={optLanguage}
+              leftWidget={config.left_widget}
+              rightWidget={config.right_widget}
+              onChangeLeft={(left_widget: StandbyLeftWidget) => persistUpdate({ left_widget })}
+              onChangeRight={(right_widget: StandbyRightWidget) => persistUpdate({ right_widget })}
+              interactiveControlsVisible={!launchContext.close_on_activity && hudVisible}
+              use24h={config.use_24h}
+              showSeconds={config.show_seconds}
+              reducedMotion={reducedMotion}
+              battery={battery}
+              weather={weather}
+              weatherLoading={weatherLoading}
+              schedule={schedule}
+              media={media}
+              lyrics={lyrics}
+              livePosition={livePosition}
+              liveDuration={liveDuration}
+              activeLyricIndex={activeIndex}
+              onSeekLocal={seekLocal}
+              pomoMode={pomodoro.mode}
+              remainingSec={pomodoro.remainingSec}
+              totalSec={pomodoro.totalSec}
+              pomoRunning={pomodoro.isRunning}
+              onTogglePomo={pomodoro.handleToggleRunning}
+              onResetPomo={pomodoro.handleReset}
+              todos={todos}
+              onToggleTodo={handleToggleTodo}
+            />
+          )}
+
+          {config.active_screen === "clock" && (
+            <StandbyClockFaceView
+              now={now}
+              style={config.clock_style}
+              palette={palette}
+              use24h={config.use_24h}
+              showSeconds={config.show_seconds}
+              reducedMotion={reducedMotion}
+              language={optLanguage}
+              battery={battery}
+              weather={weather}
+              media={media}
+              onSelectMediaScreen={() => persistUpdate({ active_screen: "media" })}
+              onCycleClockStyle={handleCycleClockStyle}
+            />
+          )}
+
+          {config.active_screen === "media" && (
+            <StandbyMediaView
+              media={media}
+              lyrics={lyrics}
+              livePosition={livePosition}
+              liveDuration={liveDuration}
+              activeLyricIndex={activeIndex}
+              onSeekLocal={seekLocal}
+              palette={palette}
+              language={optLanguage}
+              reducedMotion={reducedMotion}
+            />
+          )}
+
+          {config.active_screen === "weather" && (
+            <StandbyWeatherBoardView
+              now={now}
+              palette={palette}
+              language={optLanguage}
+              weather={weather}
+              weatherLoading={weatherLoading}
+              schedule={schedule}
+              completedPrayers={completedPrayers}
+              todos={todos}
+              onTogglePrayer={handleTogglePrayer}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Floating Bottom Page Indicator (auto-hides with HUD for pure OLED minimalism) */}
+      <footer
+        className={`absolute inset-x-0 bottom-0 z-30 flex items-center justify-center pb-5 pointer-events-none transition-all duration-300 ${
+          hudPhaseHidden || !hudVisible || launchContext.close_on_activity
+            ? "opacity-0 translate-y-2"
+            : "opacity-100 translate-y-0"
+        }`}
+      >
+        <div
+          className={`px-3 py-1.5 rounded-full border flex items-center gap-2 ${
+            hudPhaseHidden || !hudVisible || launchContext.close_on_activity
+              ? "pointer-events-none"
+              : "pointer-events-auto"
+          }`}
+          style={hudSurfaceStyle}
+        >
+          {SCREENS.map((scr) => {
+            const active = config.active_screen === scr;
+            const scrLabel =
+              scr === "widgets"
+                ? isId
+                  ? "Widget"
+                  : "Widgets"
+                : scr === "clock"
+                ? isId
+                  ? "Jam"
+                  : "Clock"
+                : scr === "media"
+                ? "Media"
+                : isId
+                ? "Cuaca"
+                : "Weather";
+            return (
+              <button
+                key={scr}
+                type="button"
+                aria-label={scrLabel}
+                disabled={launchContext.close_on_activity}
+                onClick={() => persistUpdate({ active_screen: scr })}
+                className={`h-1.5 rounded-full transition-all ${
+                  launchContext.close_on_activity ? "cursor-default" : "cursor-pointer"
+                } focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]`}
+                style={{
+                  width: active ? 22 : 6,
+                  backgroundColor: active ? palette.textPrimary : palette.textSecondary,
+                  opacity: active ? 0.95 : 0.36,
+                }}
+              />
+            );
+          })}
+        </div>
+      </footer>
+    </main>
+  );
+};

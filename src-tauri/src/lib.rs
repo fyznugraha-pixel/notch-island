@@ -44,6 +44,7 @@ pub mod lyrics_share;
 pub mod display_topology;
 mod http_guard;
 mod style_file_dialog;
+pub mod standby_window;
 
 pub(crate) struct ComGuard(bool);
 
@@ -2181,6 +2182,7 @@ fn reconcile_displays_on_change(app: &tauri::AppHandle) {
     position_notch_window(&main_win, pos, phys_offset, target_mon.as_deref());
     sync_all_displays_windows(app, is_all);
     navbar_window::on_display_topology_changed(app);
+    standby_window::on_display_topology_changed(app);
     backdrop_blur::invalidate_all_backdrops();
 
     if topology_changed {
@@ -4601,6 +4603,18 @@ fn broadcast_settings_sync(app: tauri::AppHandle, payload: serde_json::Value) {
 
 #[tauri::command]
 fn trigger_notch_action(app: tauri::AppHandle, action: String) {
+    if action == "toggle_standby" {
+        standby_window::toggle_standby_window(app);
+        return;
+    }
+    if action == "open_standby" {
+        standby_window::open_standby_window(app, Some("manual".to_string()));
+        return;
+    }
+    if action == "close_standby" {
+        standby_window::close_standby_window(app);
+        return;
+    }
     use tauri::Emitter;
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.emit_to("main", "settings-trigger-action", action);
@@ -4630,6 +4644,7 @@ unsafe extern "system" fn console_ctrl_exit_handler(ctrl_type: u32) -> windows::
 
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
+    standby_window::destroy_standby_on_exit(&app);
     cleanup_shell_state_on_exit();
     app.restart();
 }
@@ -4928,7 +4943,15 @@ pub fn run() {
             store_license::refresh_taskbar_pro_license,
             store_license::purchase_taskbar_pro,
             install_repair::get_autostart_state,
-            install_repair::sync_autostart_state
+            install_repair::sync_autostart_state,
+            standby_window::get_standby_config,
+            standby_window::save_standby_config,
+            standby_window::open_standby_window,
+            standby_window::close_standby_window,
+            standby_window::toggle_standby_window,
+            standby_window::is_standby_open,
+            standby_window::get_standby_launch_context,
+            standby_window::notify_standby_ready
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -4938,11 +4961,12 @@ pub fn run() {
             
             let toggle_i = MenuItem::with_id(app, "toggle_visibility", "Show / Hide Gili (Ctrl+Shift+D)", true, None::<&str>)?;
             let cc_i = MenuItem::with_id(app, "open_control_center", "Open Control Center", true, None::<&str>)?;
+            let standby_i = MenuItem::with_id(app, "toggle_standby", "StandBy Desk Display (Ctrl+Alt+S)", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
             let restore_tb_i = MenuItem::with_id(app, "restore_taskbar", "Restore Windows Taskbar", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Gili", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &settings_i, &restore_tb_i, &sep, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &standby_i, &settings_i, &restore_tb_i, &sep, &quit_i])?;
 
             let mut tray_builder = TrayIconBuilder::new()
                 .tooltip("Gili (Running in Background)")
@@ -4971,6 +4995,9 @@ pub fn run() {
                                 let _ = w.emit_to("main", "tray-open-control-center", serde_json::json!({ "target": "main" }));
                             }
                         }
+                        "toggle_standby" => {
+                            standby_window::toggle_standby_window(app.clone());
+                        }
                         "open_settings" => {
                             show_or_create_settings_window(app, None);
                         }
@@ -4978,6 +5005,7 @@ pub fn run() {
                             taskbar_manager::set_taskbar_visible(true);
                         }
                         "quit" => {
+                            standby_window::destroy_standby_on_exit(app);
                             cleanup_shell_state_on_exit();
                             app.exit(0);
                         }
@@ -4992,6 +5020,7 @@ pub fn run() {
             let _tray = tray_builder.build(app)?;
 
             let app_h = app.handle().clone();
+            standby_window::start_standby_watcher(app.handle().clone());
             std::thread::spawn(move || {
                 windows_pinned_apps::start_pinned_apps_watcher(app_h.clone());
                 window_preview::start_preview_prewarmer();

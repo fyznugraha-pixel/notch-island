@@ -455,6 +455,8 @@ export const translations = {
   shortcut_action_toggle_miniplayer_desc: { en: "Open or close floating lyrics mini player", id: "Buka atau sembunyikan mini player lirik mengambang" },
   shortcut_action_open_ai_chat: { en: "Quick AI Chat", id: "Quick AI Chat" },
   shortcut_action_open_ai_chat_desc: { en: "Open quick AI prompt card in notch", id: "Buka kartu tanya AI cepat di notch" },
+  shortcut_action_toggle_standby: { en: "Toggle StandBy", id: "Buka / Tutup StandBy" },
+  shortcut_action_toggle_standby_desc: { en: "Open or destroy fullscreen StandBy desk display", id: "Buka atau tutup tampilan jam meja StandBy" },
   mini_player: { en: "Mini player", id: "Mini player" },
   mini_player_tooltip: { en: "Mini player Ctrl Alt M", id: "Mini player Ctrl Alt M" },
   monitor_single_detected: { en: "Only 1 display detected", id: "Hanya 1 monitor terdeteksi" },

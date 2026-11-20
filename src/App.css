@@ -24,6 +24,82 @@ html.lyrics-share-window #root {
   background: #0c0c10 !important;
 }
 
+html.standby-window,
+html.standby-window body,
+body.standby-window,
+html.standby-window #root {
+  background-color: #000000 !important;
+  background: #000000 !important;
+  overflow: hidden !important;
+}
+
+@keyframes standbyViewEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-standby-view-enter {
+  animation: standbyViewEnter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes standbyColonPulse {
+  0%, 100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 0.36;
+  }
+}
+
+.animate-standby-colon {
+  animation: standbyColonPulse 2s ease-in-out infinite;
+}
+
+@keyframes standbyWidgetSlideUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 26px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes standbyWidgetSlideDown {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -26px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.animate-standby-widget-up {
+  animation: standbyWidgetSlideUp 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-standby-widget-down {
+  animation: standbyWidgetSlideDown 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-standby-view-enter,
+  .animate-standby-colon,
+  .animate-standby-widget-up,
+  .animate-standby-widget-down {
+    animation: none;
+  }
+}
+
 html.settings-window.light,
 html.settings-window.light body,
 body.settings-window.light,

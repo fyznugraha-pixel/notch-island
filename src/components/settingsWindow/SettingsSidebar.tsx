@@ -3,7 +3,8 @@ import {
   LayoutGrid,
   Sliders,
   Palette,
-  PanelTop,
+  Columns3,
+  Clock,
   Bell,
   Keyboard,
   ShieldCheck,
@@ -23,6 +24,7 @@ export type SettingsWindowSection =
   | "appearance"
   | "navbar"
   | "idle"
+  | "standby"
   | "notifications"
   | "shortcuts"
   | "system"
@@ -111,8 +113,18 @@ export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
     labelEn: "Idle Bar Layout",
     subId: "Widget kiri, tengah, kanan",
     subEn: "Left, center & right slots",
-    icon: <PanelTop size={15} strokeWidth={2.2} />,
+    icon: <Columns3 size={15} strokeWidth={2.2} />,
     bgClass: "bg-[#ff9f0a]",
+  },
+  {
+    id: "standby",
+    group: "island",
+    labelId: "StandBy",
+    labelEn: "StandBy",
+    subId: "Jam meja & layar idle penuh",
+    subEn: "Desk display & idle screensaver",
+    icon: <Clock size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#ff453a]",
   },
   {
     id: "navbar",

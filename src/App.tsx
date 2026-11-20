@@ -2768,6 +2768,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     switch_monitor: "inactive",
     toggle_miniplayer: "inactive",
     open_ai_chat: "inactive",
+    toggle_standby: "inactive",
   });
 
   const shortcutsRef = useRef(shortcuts);
@@ -2948,6 +2949,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
   }, []);
 
+  const handleShortcutToggleStandby = useCallback(async () => {
+    try {
+      await invoke("toggle_standby_window");
+    } catch (e) {
+      console.error("Failed to toggle standby:", e);
+    }
+  }, []);
+
   const handleShortcutOpenAiChat = useCallback(async () => {
     const wasOpen = isQuickAiChatOpenRef.current;
     if (!wasOpen) {
@@ -2980,6 +2989,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     switch_monitor: handleShortcutSwitchMonitor,
     toggle_miniplayer: handleShortcutToggleMiniPlayer,
     open_ai_chat: handleShortcutOpenAiChat,
+    toggle_standby: handleShortcutToggleStandby,
   });
 
   useEffect(() => {
@@ -2995,6 +3005,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       switch_monitor: handleShortcutSwitchMonitor,
       toggle_miniplayer: handleShortcutToggleMiniPlayer,
       open_ai_chat: handleShortcutOpenAiChat,
+      toggle_standby: handleShortcutToggleStandby,
     };
     shortcutManager.updateHandlers(shortcutHandlersRef.current);
   }, [
@@ -3009,6 +3020,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     handleShortcutSwitchMonitor,
     handleShortcutToggleMiniPlayer,
     handleShortcutOpenAiChat,
+    handleShortcutToggleStandby,
   ]);
 
   useEffect(() => {

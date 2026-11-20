@@ -73,6 +73,9 @@ const AppearanceTab = React.lazy(() =>
 const IdleTab = React.lazy(() =>
   import("../ui/settings/IdleTab").then((m) => ({ default: m.IdleTab }))
 );
+const StandbyTab = React.lazy(() =>
+  import("../ui/settings/StandbyTab").then((m) => ({ default: m.StandbyTab }))
+);
 const GeneralTab = React.lazy(() =>
   import("../ui/settings/GeneralTab").then((m) => ({ default: m.GeneralTab }))
 );
@@ -1542,6 +1545,13 @@ export const SettingsWindowApp: React.FC = () => {
                       layout={idleLayout}
                       onChangeLayout={handleChangeIdleLayout}
                       runtimeData={idleRuntimeData}
+                    />
+                  )}
+
+                  {activeSection === "standby" && (
+                    <StandbyTab
+                      optLanguage={optLanguage}
+                      isLightMode={isLightMode}
                     />
                   )}
 
