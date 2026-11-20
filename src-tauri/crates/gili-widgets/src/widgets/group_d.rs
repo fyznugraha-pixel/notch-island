@@ -580,9 +580,10 @@ pub fn build_live_mascot(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 22. Visualizer: audio sistem via WASAPI loopback + FFT ringan (M)
 pub fn build_audio_visualizer(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let bands = ctx.hub.audio_bands;
     let peak = bands.iter().copied().fold(0.0f32, f32::max);
+    let active = peak > 0.04;
     let title = if ctx.hub.media.title.is_empty() {
         "Spektrum Audio Sistem"
     } else {
@@ -600,9 +601,10 @@ pub fn build_audio_visualizer(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             )
         })
         .collect();
+    let values: Vec<f32> = bands.iter().map(|&v| v.clamp(0.05, 1.0)).collect();
 
     vec![
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 72.0, 18.0),
             title,
             13.5,
@@ -611,12 +613,12 @@ pub fn build_audio_visualizer(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ),
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x + inner.w - 70.0, inner.y + 1.0, 70.0, 16.0),
-            if peak > 0.04 { "WASAPI" } else { "Hening" },
+            if active { "WASAPI" } else { "Hening" },
             10.5,
             600,
-            if peak > 0.04 {
+            if active {
                 ctx.pal.positive
             } else {
                 ctx.pal.secondary
@@ -626,7 +628,7 @@ pub fn build_audio_visualizer(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         SceneNode::BarChart {
             rect: RectF::new(inner.x, inner.y + 28.0, inner.w, inner.h - 32.0),
-            values: bands.to_vec(),
+            values,
             colors,
             gap: 4.0,
         },

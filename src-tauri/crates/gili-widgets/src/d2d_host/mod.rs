@@ -158,6 +158,7 @@ pub fn compute_adaptive_target_fps(
     edit_mode: bool,
     any_motion_active: bool,
     has_running_timer: bool,
+    has_active_audio: bool,
     screen_off: bool,
     board_visible: bool,
     policy: &SystemVisualPolicy,
@@ -190,8 +191,8 @@ pub fn compute_adaptive_target_fps(
             .map(|w| w.widget_type == "audio_visualizer")
             .unwrap_or(false)
     });
-    if has_visualizer {
-        return (cap.min(30), None);
+    if has_visualizer && has_active_audio {
+        return (cap, None);
     }
 
     let has_mascot = cfg.slots.iter().any(|s| {
@@ -1923,11 +1924,13 @@ mod win_host {
                     .iter()
                     .any(|p| p.running_since_epoch.is_some());
 
+                let has_active_audio = hub.audio_bands.iter().any(|&v| v > 0.005);
                 let (fps, paused_reason) = compute_adaptive_target_fps(
                     &cfg,
                     edit_mode,
                     any_spring_active,
                     has_running_timer,
+                    has_active_audio,
                     screen_off,
                     board_visible,
                     &policy,

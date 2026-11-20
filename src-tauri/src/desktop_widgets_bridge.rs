@@ -1,7 +1,7 @@
 use gili_widgets::config::{gili_data_dir, DesktopWidgetsConfig, WidgetStyleConfig};
 use gili_widgets::contrast::WallpaperRegionAnalysis;
 use gili_widgets::d2d_host::{WidgetHostEvent, WidgetRuntimeMetrics};
-use gili_widgets::providers::audio_fft::sample_wasapi_loopback_bands;
+use gili_widgets::providers::audio_fft::WasapiLoopbackStream;
 use gili_widgets::providers::local_stores::{
     add_manual_photos, copy_text_to_clipboard_silently, parse_iso_ymd, scan_photo_folder_readonly,
     scan_recent_files_metadata_only, step_photo_index, CountdownMoment, ExpenseItem, KanbanCard,
@@ -30,6 +30,7 @@ static ENGINE: OnceLock<DesktopWidgetEngine> = OnceLock::new();
 static UPTIME_CONFIGS: OnceLock<Mutex<Vec<SiteMonitorConfig>>> = OnceLock::new();
 static GITHUB_REPO: OnceLock<Mutex<String>> = OnceLock::new();
 static PHOTO_PICKER_ACTIVE: AtomicBool = AtomicBool::new(false);
+static AUDIO_LOOP_STOP: AtomicBool = AtomicBool::new(false);
 
 pub fn engine() -> &'static DesktopWidgetEngine {
     ENGINE.get_or_init(DesktopWidgetEngine::new)
@@ -458,9 +459,74 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
         },
     });
 
+    AUDIO_LOOP_STOP.store(false, Ordering::Relaxed);
     if eng.get_config().enabled {
         eng.start_host_if_needed();
     }
+
+    // Dedicated real-time WASAPI loopback FFT capture thread (~60 Hz when visualizer is active)
+    std::thread::Builder::new()
+        .name("gili-widgets-audio".into())
+        .spawn(move || {
+            let mut stream: Option<WasapiLoopbackStream> = None;
+            let mut last_pushed = [0.0f32; 16];
+            let mut last_open_attempt = Instant::now() - Duration::from_secs(5);
+
+            while !AUDIO_LOOP_STOP.load(Ordering::Relaxed) {
+                let cfg = engine().get_config();
+                let met = engine().metrics();
+                let has_visualizer = cfg.slots.iter().any(|s| {
+                    s.active_widget()
+                        .map(|w| w.widget_type == "audio_visualizer")
+                        .unwrap_or(false)
+                });
+                let active =
+                    (cfg.enabled || met.board_visible) && has_visualizer && met.paused_reason.is_none();
+
+                if !active {
+                    stream = None;
+                    if last_pushed.iter().any(|&v| v > 0.0) {
+                        last_pushed = [0.0; 16];
+                        engine().update_audio_bands(last_pushed);
+                    }
+                    std::thread::sleep(Duration::from_millis(350));
+                    continue;
+                }
+
+                if stream.is_none() {
+                    if last_open_attempt.elapsed() >= Duration::from_millis(1500) {
+                        last_open_attempt = Instant::now();
+                        stream = WasapiLoopbackStream::open();
+                    }
+                    if stream.is_none() {
+                        std::thread::sleep(Duration::from_millis(250));
+                        continue;
+                    }
+                }
+
+                match stream.as_mut().unwrap().poll() {
+                    Ok(next) => {
+                        let was_non_zero = last_pushed.iter().any(|&v| v > 0.0);
+                        let is_all_zero = next.iter().all(|&v| v == 0.0);
+                        let changed = next
+                            .iter()
+                            .zip(last_pushed.iter())
+                            .any(|(a, b)| (a - b).abs() > 0.003);
+                        if changed || (was_non_zero && is_all_zero) {
+                            last_pushed = next;
+                            engine().update_audio_bands(next);
+                        }
+                    }
+                    Err(()) => {
+                        stream = None;
+                        last_open_attempt = Instant::now();
+                    }
+                }
+
+                std::thread::sleep(Duration::from_millis(16));
+            }
+        })
+        .ok();
 
     // Single lightweight feeder thread (sleeps when widgets disabled or paused)
     std::thread::Builder::new()
@@ -480,7 +546,6 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
             let mut last_recent_scan = Instant::now() - Duration::from_secs(60);
             let mut last_photo_step = Instant::now();
             let mut cached_gpu: Option<(String, Option<u32>, Option<u32>)> = None;
-            let mut bands = [0.0f32; 16];
 
             loop {
                 let cfg = engine().get_config();
@@ -504,13 +569,6 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                 {
                     last_media = Instant::now();
                     engine().update_media(build_media_snapshot_from_gili_store());
-                }
-
-                // WASAPI loopback FFT ONLY when audio_visualizer is mounted
-                if has_widget("audio_visualizer") {
-                    if sample_wasapi_loopback_bands(&mut bands) {
-                        engine().update_audio_bands(bands);
-                    }
                 }
 
                 // System performance & top processes (2.5s cadence when mounted)
@@ -743,17 +801,14 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                     }
                 }
 
-                std::thread::sleep(Duration::from_millis(if has_widget("audio_visualizer") {
-                    45
-                } else {
-                    400
-                }));
+                std::thread::sleep(Duration::from_millis(400));
             }
         })
         .ok();
 }
 
 pub fn shutdown_desktop_widgets_on_exit() {
+    AUDIO_LOOP_STOP.store(true, Ordering::Relaxed);
     engine().shutdown();
 }
 
