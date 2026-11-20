@@ -1,8 +1,9 @@
 use crate::config::WidgetSize;
 use crate::layout::{RectF, SceneNode, TextAlign};
+use crate::providers::AgendaItem;
 use crate::widgets::{
     action_pill, empty_state_nodes, is_english, local_datetime_parts, localized_day_name,
-    localized_month_name, text_node, WidgetBuildCtx,
+    localized_month_name, localized_short_month_name, text_node, WidgetBuildCtx,
 };
 
 pub fn days_in_month(year: i32, month: u32) -> u32 {
@@ -95,14 +96,24 @@ fn push_month_grid_nodes(
             true,
         ));
 
-        if mark_events && !is_today && !ctx.hub.frontend.events.is_empty() {
+        if mark_events
+            && !is_today
+            && (!ctx.hub.frontend.events.is_empty() || !ctx.hub.ical_calendar.events.is_empty())
+        {
+            let full_key = format!("{:04}-{:02}-{:02}", year, month, d);
             let day_suffix = format!("-{:02}-{:02}", month, d);
-            let has_ev = ctx.hub.frontend.events.iter().any(|ev| {
-                ev.date_key
-                    .as_deref()
-                    .map(|k| k.ends_with(&day_suffix))
-                    .unwrap_or(false)
-            });
+            let has_ev = ctx
+                .hub
+                .frontend
+                .events
+                .iter()
+                .chain(ctx.hub.ical_calendar.events.iter())
+                .any(|ev| {
+                    ev.date_key
+                        .as_deref()
+                        .map(|k| k == full_key || k.ends_with(&day_suffix))
+                        .unwrap_or(false)
+                });
             if has_ev {
                 nodes.push(SceneNode::RoundedRect {
                     rect: RectF::new(cx + col_w * 0.5 - 1.5, cy + row_h - 3.5, 3.0, 3.0),
@@ -117,17 +128,91 @@ fn push_month_grid_nodes(
     }
 }
 
+fn format_agenda_time(ev: &AgendaItem, today_key: &str, en: bool) -> String {
+    let base_time = if ev.time == "all_day" {
+        if en { "All day" } else { "Seharian" }.to_string()
+    } else {
+        ev.time.clone()
+    };
+    if let Some(dk) = ev.date_key.as_deref() {
+        if dk > today_key {
+            let mut parts = dk.split('-');
+            if let (Some(_y), Some(m_s), Some(d_s)) = (parts.next(), parts.next(), parts.next()) {
+                if let (Ok(m), Ok(d)) = (m_s.parse::<u32>(), d_s.parse::<u32>()) {
+                    return format!("{} {} . {}", d, localized_short_month_name(m, en), base_time);
+                }
+            }
+        }
+    }
+    base_time
+}
+
+fn merged_calendar_agenda(
+    ctx: &WidgetBuildCtx<'_>,
+    year: i32,
+    month: u32,
+    day: u32,
+    en: bool,
+) -> Vec<AgendaItem> {
+    if ctx.hub.ical_calendar.events.is_empty() {
+        return ctx.hub.frontend.events.clone();
+    }
+    let today_key = format!("{:04}-{:02}-{:02}", year, month, day);
+    let mut rows: Vec<(String, String, AgendaItem)> = Vec::new();
+
+    for ev in &ctx.hub.frontend.events {
+        let dk = ev
+            .date_key
+            .as_deref()
+            .filter(|k| !k.trim().is_empty())
+            .unwrap_or(&today_key)
+            .to_string();
+        if dk < today_key {
+            continue;
+        }
+        let sort_t = if ev.time == "all_day" {
+            "00:00".to_string()
+        } else {
+            ev.time.clone()
+        };
+        let mut item = ev.clone();
+        item.time = format_agenda_time(ev, &today_key, en);
+        rows.push((dk, sort_t, item));
+    }
+
+    for ev in &ctx.hub.ical_calendar.events {
+        let Some(dk) = ev.date_key.as_deref() else {
+            continue;
+        };
+        if dk < today_key.as_str() {
+            continue;
+        }
+        let sort_t = if ev.time == "all_day" {
+            "00:00".to_string()
+        } else {
+            ev.time.clone()
+        };
+        let mut item = ev.clone();
+        item.time = format_agenda_time(ev, &today_key, en);
+        rows.push((dk.to_string(), sort_t, item));
+    }
+
+    rows.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    rows.into_iter().map(|(_, _, item)| item).collect()
+}
+
 /// 1. Kalender multi-tipe (Bulan Minimalis, Bulan + Judul, Tanggal Fokus, Tanggal + Agenda)
 pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let inner = ctx.frame.inset(16.0);
     let (year, month, day, _, _, _, dow) = local_datetime_parts();
+    let en_lang = is_english(ctx);
     let style = ctx
         .instance
         .settings
         .get("calendar_style")
         .and_then(|v| v.as_str())
         .unwrap_or("bulan_minimal");
-    let events = &ctx.hub.frontend.events;
+    let events = merged_calendar_agenda(ctx, year, month, day, en_lang);
     let mut nodes = Vec::new();
 
     match style {

@@ -1,4 +1,5 @@
 pub mod audio_fft;
+pub mod ical_provider;
 pub mod local_stores;
 pub mod network_providers;
 pub mod prayer_calc;
@@ -113,6 +114,7 @@ pub struct WidgetDataHub {
     pub air_quality: network_providers::AirQualitySnapshot,
     pub uptime_sites: Vec<network_providers::SiteStatusSnapshot>,
     pub github: network_providers::GitHubStatusSnapshot,
+    pub ical_calendar: ical_provider::IcalFeedSnapshot,
     pub currency_gold: network_providers::CurrencyGoldSnapshot,
     pub football: network_providers::FootballScoreSnapshot,
     pub prayer: prayer_calc::PrayerDaySnapshot,

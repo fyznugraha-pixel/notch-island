@@ -1447,4 +1447,120 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn currency_gold_widget_displays_public_spot_gold_in_en_and_id() {
+        let style = WidgetStyleConfig::default();
+        let region = analyze_region_for_style(None, &style, 0.0, 0.0, 1.0, 1.0);
+        let mut hub = WidgetDataHub::default();
+        hub.currency_gold.usd_to_idr = Some(16_250.0);
+        hub.currency_gold.currency_source = "open.er-api.com".into();
+        hub.currency_gold.gold_provider_configured = true;
+        hub.currency_gold.gold_usd_per_oz = Some(3_524.0);
+        hub.currency_gold.gold_idr_per_gram = Some(2_085_482.0);
+        hub.currency_gold.gold_note = "gold-api.com".into();
+
+        let slot = WidgetStackSlot {
+            slot_id: "cg_pub".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "cg1".into(),
+                widget_type: "currency_gold".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let rect = RectF::new(0.0, 0.0, 336.0, 160.0);
+        let id_item = build_widget_render_item(&slot, rect, &style, &region, &hub, 0.0);
+        assert!(id_item.nodes.iter().any(|n| matches!(
+            n,
+            layout::SceneNode::Text { content, .. } if content == "Emas/gr: Rp2.085.482"
+        )));
+
+        let mut hub_en = hub.clone();
+        hub_en.frontend.language = "en".into();
+        let en_item = build_widget_render_item(&slot, rect, &style, &region, &hub_en, 0.0);
+        assert!(en_item.nodes.iter().any(|n| matches!(
+            n,
+            layout::SceneNode::Text { content, .. } if content == "Gold: $3,524/oz"
+        )));
+    }
+
+    #[test]
+    fn calendar_widget_merges_ical_events_and_renders_agenda_and_month_dots() {
+        let (year, month, day, _, _, _, _) = crate::widgets::local_datetime_parts();
+        let style = WidgetStyleConfig::default();
+        let region = analyze_region_for_style(None, &style, 0.0, 0.0, 1.0, 1.0);
+        let mut hub = WidgetDataHub::default();
+        hub.frontend.language = "en".into();
+        hub.ical_calendar.configured = true;
+        hub.ical_calendar.events = vec![providers::AgendaItem {
+            id: "ical_0".into(),
+            title: "Google Product Sync".into(),
+            time: "all_day".into(),
+            date_key: Some(format!("{year:04}-{month:02}-{day:02}")),
+        }];
+
+        let agenda_slot = WidgetStackSlot {
+            slot_id: "cal_ical".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "cal1".into(),
+                widget_type: "calendar_agenda".into(),
+                style_override: None,
+                settings: serde_json::json!({ "calendar_style": "tanggal_agenda" }),
+            }],
+            ..Default::default()
+        };
+        let item = build_widget_render_item(
+            &agenda_slot,
+            RectF::new(0.0, 0.0, 336.0, 160.0),
+            &style,
+            &region,
+            &hub,
+            0.0,
+        );
+        assert!(item.nodes.iter().any(|n| matches!(
+            n,
+            layout::SceneNode::Text { content, .. } if content == "Google Product Sync"
+        )));
+        assert!(item.nodes.iter().any(|n| matches!(
+            n,
+            layout::SceneNode::Text { content, .. } if content == "All day"
+        )));
+
+        // Different day inside current month shows an event indicator dot in bulan_header
+        let dot_day = if day == 1 { 2 } else { 1 };
+        hub.ical_calendar.events = vec![providers::AgendaItem {
+            id: "ical_dot".into(),
+            title: "Workshop".into(),
+            time: "14:00".into(),
+            date_key: Some(format!("{year:04}-{month:02}-{dot_day:02}")),
+        }];
+        let month_slot = WidgetStackSlot {
+            slot_id: "cal_dot".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "cal2".into(),
+                widget_type: "calendar_agenda".into(),
+                style_override: None,
+                settings: serde_json::json!({ "calendar_style": "bulan_header" }),
+            }],
+            ..Default::default()
+        };
+        let month_item = build_widget_render_item(
+            &month_slot,
+            RectF::new(0.0, 0.0, 336.0, 160.0),
+            &style,
+            &region,
+            &hub,
+            0.0,
+        );
+        assert!(month_item.nodes.iter().any(|n| matches!(
+            n,
+            layout::SceneNode::RoundedRect { rect, .. }
+                if (rect.w - 3.0).abs() < 0.01 && (rect.h - 3.0).abs() < 0.01
+        )));
+    }
 }

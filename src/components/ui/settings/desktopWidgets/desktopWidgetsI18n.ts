@@ -129,7 +129,7 @@ const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
   },
   currency_gold: {
     name: "Currency & Gold Price",
-    description: "Cached exchange rates (open.er-api.com) & gold price feed slot.",
+    description: "Live currency exchange rates and public XAU spot gold price.",
   },
   hijri_holidays: {
     name: "Hijri Calendar & Holidays",

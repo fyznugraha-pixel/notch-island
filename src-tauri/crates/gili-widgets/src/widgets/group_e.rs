@@ -212,11 +212,29 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     nodes
 }
 
+fn format_usd_int(amount: i64) -> String {
+    let neg = amount < 0;
+    let digits = amount.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, ch) in digits.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    let grouped: String = out.chars().rev().collect();
+    if neg {
+        format!("-${}", grouped)
+    } else {
+        format!("${}", grouped)
+    }
+}
+
 /// 25. Kurs & harga emas (S, M)
 pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let en = is_english(ctx);
     let cg = &ctx.hub.currency_gold;
-    if cg.usd_to_idr.is_none() && cg.gold_idr_per_gram.is_none() {
+    if cg.usd_to_idr.is_none() && cg.gold_idr_per_gram.is_none() && cg.gold_usd_per_oz.is_none() {
         return empty_state_nodes(
             ctx,
             if en {
@@ -294,27 +312,28 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ));
     }
 
-    let gold_lbl = match cg.gold_idr_per_gram {
-        Some(g) => format!(
-            "{}: {}",
-            if en { "Gold/gr" } else { "Emas/gr" },
-            format_idr(g.round() as i64)
-        ),
-        None => {
-            if ctx.size == WidgetSize::Small {
-                if en {
-                    "Gold: set API"
+    let gold_lbl = if en {
+        match (cg.gold_usd_per_oz, cg.gold_idr_per_gram) {
+            (Some(oz), _) => format!("Gold: {}/oz", format_usd_int(oz.round() as i64)),
+            (None, Some(g)) => format!("Gold/gr: {}", format_idr(g.round() as i64)),
+            (None, None) => {
+                if ctx.size == WidgetSize::Small {
+                    "Gold: syncing...".to_string()
                 } else {
-                    "Emas: atur API"
+                    "Gold: tap Retry to sync".to_string()
                 }
-                .to_string()
-            } else {
-                if en {
-                    "Gold: licensed API needed (Set)"
+            }
+        }
+    } else {
+        match (cg.gold_idr_per_gram, cg.gold_usd_per_oz) {
+            (Some(g), _) => format!("Emas/gr: {}", format_idr(g.round() as i64)),
+            (None, Some(oz)) => format!("Emas: {}/oz", format_usd_int(oz.round() as i64)),
+            (None, None) => {
+                if ctx.size == WidgetSize::Small {
+                    "Emas: memuat...".to_string()
                 } else {
-                    "Emas: butuh API berlisensi (Atur)"
+                    "Emas: ketuk Coba Lagi untuk muat".to_string()
                 }
-                .to_string()
             }
         }
     };

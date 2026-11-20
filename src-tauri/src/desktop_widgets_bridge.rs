@@ -2,6 +2,9 @@ use gili_widgets::config::{gili_data_dir, DesktopWidgetsConfig, WidgetStyleConfi
 use gili_widgets::contrast::WallpaperRegionAnalysis;
 use gili_widgets::d2d_host::{WidgetHostEvent, WidgetRuntimeMetrics};
 use gili_widgets::providers::audio_fft::WasapiLoopbackStream;
+use gili_widgets::providers::ical_provider::{
+    fetch_ical_feed, validate_ical_url, IcalFeedSnapshot, ICAL_CRED_TARGET,
+};
 use gili_widgets::providers::local_stores::{
     add_manual_photos, copy_text_to_clipboard_silently, parse_iso_ymd, scan_photo_folder_readonly,
     scan_recent_files_metadata_only, step_photo_index, CountdownMoment, ExpenseItem, KanbanCard,
@@ -10,7 +13,7 @@ use gili_widgets::providers::local_stores::{
 use gili_widgets::providers::network_providers::{
     fetch_currency_and_gold, fetch_github_repo_status, fetch_open_meteo_air_quality,
     fetch_open_meteo_forecast, ping_user_site, validate_https_url_with_allowlist, BackoffState,
-    SiteMonitorConfig, UnconfiguredGoldProvider, GITHUB_CRED_TARGET, MAX_UPTIME_SITES,
+    PublicGoldProvider, SiteMonitorConfig, GITHUB_CRED_TARGET, MAX_UPTIME_SITES,
     MIN_UPTIME_INTERVAL_SECS,
 };
 use gili_widgets::providers::system_data::{
@@ -29,6 +32,7 @@ use tauri::{AppHandle, Emitter, Manager};
 static ENGINE: OnceLock<DesktopWidgetEngine> = OnceLock::new();
 static UPTIME_CONFIGS: OnceLock<Mutex<Vec<SiteMonitorConfig>>> = OnceLock::new();
 static GITHUB_REPO: OnceLock<Mutex<String>> = OnceLock::new();
+static PENDING_WIDGET_PROVIDER: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 static PHOTO_PICKER_ACTIVE: AtomicBool = AtomicBool::new(false);
 static AUDIO_LOOP_STOP: AtomicBool = AtomicBool::new(false);
 
@@ -44,6 +48,66 @@ fn github_repo_store() -> &'static Mutex<String> {
     GITHUB_REPO.get_or_init(|| Mutex::new(String::new()))
 }
 
+fn pending_widget_provider() -> &'static Mutex<Option<String>> {
+    PENDING_WIDGET_PROVIDER.get_or_init(|| Mutex::new(None))
+}
+
+fn local_tz_offset_minutes() -> i32 {
+    (gili_widgets::widgets::local_utc_offset_hours() * 60.0).round() as i32
+}
+
+fn settings_provider_for_widget(widget_type: &str) -> Option<&'static str> {
+    match widget_type {
+        "calendar_agenda" => Some("ical_calendar"),
+        "countdown_moment" => Some("countdown"),
+        "quick_snippets" => Some("snippets"),
+        "time_tracker" => Some("time_tracker"),
+        "shortcuts_grid" => Some("shortcuts"),
+        "world_clock" => Some("world_clock"),
+        "quick_expense" => Some("expense"),
+        "photo_frame" | "recent_files" | "storage_treemap" => Some("folders"),
+        "site_status" => Some("uptime"),
+        "github_status" => Some("github"),
+        _ => None,
+    }
+}
+
+fn is_notch_integrated_widget(widget_type: &str, action_id: Option<&str>) -> bool {
+    matches!(
+        action_id,
+        Some("open_ai_settings" | "open_media" | "open_todo" | "open_shelf")
+    ) || matches!(
+        widget_type,
+        "now_playing"
+            | "audio_visualizer"
+            | "todo_groups"
+            | "drop_zone"
+            | "prayer_times"
+            | "system_performance"
+            | "top_processes"
+            | "quick_controls"
+            | "ai_quick_ask"
+    )
+}
+
+fn open_settings_at_widget_provider(app: &AppHandle, provider_id: Option<&str>) {
+    if let Ok(mut guard) = pending_widget_provider().lock() {
+        *guard = provider_id.map(|s| s.to_string());
+    }
+    crate::show_or_create_settings_window(app, Some("widgets".to_string()));
+    if let (Some(pid), Some(win)) = (provider_id, app.get_webview_window("settings")) {
+        let _ = win.emit("desktop-widgets-focus-provider", pid);
+    }
+}
+
+#[tauri::command]
+pub fn take_pending_widget_provider() -> Option<String> {
+    pending_widget_provider()
+        .lock()
+        .ok()
+        .and_then(|mut g| g.take())
+}
+
 fn now_epoch_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -52,15 +116,15 @@ fn now_epoch_secs() -> u64 {
 }
 
 #[cfg(windows)]
-fn write_github_pat_credential(token: &str) -> Result<(), String> {
+fn write_generic_credential(target: &str, username: &str, secret: &str) -> Result<(), String> {
     use windows::core::PWSTR;
     use windows::Win32::Security::Credentials::{
         CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
     };
 
-    let mut target_w: Vec<u16> = GITHUB_CRED_TARGET.encode_utf16().chain(Some(0)).collect();
-    let mut user_w: Vec<u16> = "gili_widget_github".encode_utf16().chain(Some(0)).collect();
-    let blob = token.as_bytes();
+    let mut target_w: Vec<u16> = target.encode_utf16().chain(Some(0)).collect();
+    let mut user_w: Vec<u16> = username.encode_utf16().chain(Some(0)).collect();
+    let blob = secret.as_bytes();
     let cred = CREDENTIALW {
         Type: CRED_TYPE_GENERIC,
         TargetName: PWSTR(target_w.as_mut_ptr()),
@@ -74,19 +138,19 @@ fn write_github_pat_credential(token: &str) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn read_github_pat_credential() -> Option<String> {
+fn read_generic_credential(target: &str) -> Option<String> {
     use windows::core::PCWSTR;
     use windows::Win32::Security::Credentials::{
         CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC,
     };
-    let target_w: Vec<u16> = GITHUB_CRED_TARGET.encode_utf16().chain(Some(0)).collect();
+    let target_w: Vec<u16> = target.encode_utf16().chain(Some(0)).collect();
     let mut ptr: *mut CREDENTIALW = std::ptr::null_mut();
     let ok =
         unsafe { CredReadW(PCWSTR(target_w.as_ptr()), CRED_TYPE_GENERIC, 0, &mut ptr).is_ok() };
     if !ok || ptr.is_null() {
         return None;
     }
-    let token = unsafe {
+    let secret = unsafe {
         let c = &*ptr;
         if c.CredentialBlob.is_null() || c.CredentialBlobSize == 0 {
             None
@@ -98,17 +162,39 @@ fn read_github_pat_credential() -> Option<String> {
     unsafe {
         CredFree(ptr as *const _);
     }
-    token
+    secret
 }
 
-#[cfg(not(windows))]
-fn write_github_pat_credential(_token: &str) -> Result<(), String> {
+#[cfg(windows)]
+fn delete_generic_credential(target: &str) -> Result<(), String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
+    let target_w: Vec<u16> = target.encode_utf16().chain(Some(0)).collect();
+    let _ = unsafe { CredDeleteW(PCWSTR(target_w.as_ptr()), CRED_TYPE_GENERIC, 0) };
     Ok(())
 }
 
 #[cfg(not(windows))]
-fn read_github_pat_credential() -> Option<String> {
+fn write_generic_credential(_target: &str, _username: &str, _secret: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn read_generic_credential(_target: &str) -> Option<String> {
     None
+}
+
+#[cfg(not(windows))]
+fn delete_generic_credential(_target: &str) -> Result<(), String> {
+    Ok(())
+}
+
+fn write_github_pat_credential(token: &str) -> Result<(), String> {
+    write_generic_credential(GITHUB_CRED_TARGET, "gili_widget_github", token)
+}
+
+fn read_github_pat_credential() -> Option<String> {
+    read_generic_credential(GITHUB_CRED_TARGET)
 }
 
 fn parse_quick_expense_input(raw: &str) -> Option<(String, i64)> {
@@ -249,8 +335,14 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                 } else if act == "trigger_storage_scan" {
                     let _ = spawn_storage_scan_job(None);
                     return;
-                } else if act == "open_widget_settings" {
-                    crate::show_or_create_settings_window(&app_ev, Some("widgets".to_string()));
+                } else if act == "open_widget_settings" || act == "open_settings" {
+                    open_settings_at_widget_provider(
+                        &app_ev,
+                        settings_provider_for_widget(&widget_type),
+                    );
+                    return;
+                } else if act == "open_class_schedule" || act == "open_streak" {
+                    crate::show_or_create_settings_window(&app_ev, Some("navbar".to_string()));
                     return;
                 } else if act == "open_ai_settings" {
                     if let Some(w) = app_ev.get_webview_window("main") {
@@ -345,21 +437,28 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                     || act == "refresh_air_quality"
                     || act == "refresh_currency"
                     || act == "refresh_github"
+                    || act == "refresh_ical"
                 {
                     trigger_immediate_network_refresh(act);
                     return;
                 }
             }
-            if let Some(w) = app_ev.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.emit(
-                    "desktop-widget-deep-link",
-                    serde_json::json!({
-                        "widget_type": widget_type,
-                        "action_id": action_id,
-                    }),
-                );
+            if let Some(provider_id) = settings_provider_for_widget(&widget_type) {
+                open_settings_at_widget_provider(&app_ev, Some(provider_id));
+                return;
+            }
+            if is_notch_integrated_widget(&widget_type, action_id.as_deref()) {
+                if let Some(w) = app_ev.get_webview_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.emit(
+                        "desktop-widget-deep-link",
+                        serde_json::json!({
+                            "widget_type": widget_type,
+                            "action_id": action_id,
+                        }),
+                    );
+                }
             }
         }
         WidgetHostEvent::TextInputSubmitted {
@@ -537,6 +636,7 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
             let mut currency_backoff = BackoffState::new(3600, 14400);
             let mut uptime_backoff = BackoffState::new(MIN_UPTIME_INTERVAL_SECS, 600);
             let mut github_backoff = BackoffState::new(180, 1800);
+            let mut ical_backoff = BackoffState::new(600, 3600);
             let mut last_sys = Instant::now() - Duration::from_secs(10);
             let mut last_gpu = Instant::now() - Duration::from_secs(30);
             let mut last_screen_time = Instant::now() - Duration::from_secs(30);
@@ -754,14 +854,38 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                 }
 
                 if has_widget("currency_gold") && currency_backoff.can_run(now) {
-                    let gold = UnconfiguredGoldProvider;
+                    let gold = PublicGoldProvider;
                     let snap = fetch_currency_and_gold(&gold);
-                    if snap.usd_to_idr.is_some() {
+                    if snap.usd_to_idr.is_some()
+                        || snap.gold_usd_per_oz.is_some()
+                        || snap.gold_idr_per_gram.is_some()
+                    {
                         currency_backoff.record_success(now);
                     } else {
                         currency_backoff.record_failure(now);
                     }
                     engine().with_hub_mut(|h| h.currency_gold = snap);
+                }
+
+                if has_widget("calendar_agenda") && ical_backoff.can_run(now) {
+                    if let Some(url) = read_generic_credential(ICAL_CRED_TARGET) {
+                        let (year, month, day, _, _, _, _) =
+                            gili_widgets::widgets::local_datetime_parts();
+                        let tz_mins = local_tz_offset_minutes();
+                        match fetch_ical_feed(&url, (year, month, day), tz_mins) {
+                            Ok(snap) => {
+                                ical_backoff.record_success(now);
+                                engine().with_hub_mut(|h| h.ical_calendar = snap);
+                            }
+                            Err(err) => {
+                                ical_backoff.record_failure(now);
+                                engine().with_hub_mut(|h| {
+                                    h.ical_calendar.configured = true;
+                                    h.ical_calendar.error = Some(err);
+                                });
+                            }
+                        }
+                    }
                 }
 
                 if has_widget("site_status") && uptime_backoff.can_run(now) {
@@ -876,6 +1000,51 @@ pub fn analyze_widget_wallpaper_contrast(
 #[tauri::command]
 pub fn sync_frontend_widget_mirror(mirror: FrontendMirrorSnapshot) {
     engine().update_frontend_mirror(mirror);
+}
+
+#[derive(serde::Serialize)]
+pub struct WidgetIcalStatusDto {
+    pub configured: bool,
+    pub synced_count: usize,
+    pub updated_label: String,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn save_widget_ical_url(url: String) -> Result<usize, String> {
+    let clean_url = validate_ical_url(&url)?;
+    let (year, month, day, _, _, _, _) = gili_widgets::widgets::local_datetime_parts();
+    let tz_mins = local_tz_offset_minutes();
+    let snap = fetch_ical_feed(&clean_url, (year, month, day), tz_mins)?;
+    let count = snap.synced_count;
+    write_generic_credential(ICAL_CRED_TARGET, "gili_widget_ical", &clean_url)?;
+    engine().with_hub_mut(|h| {
+        h.ical_calendar = snap;
+    });
+    Ok(count)
+}
+
+#[tauri::command]
+pub fn clear_widget_ical_url() -> Result<(), String> {
+    delete_generic_credential(ICAL_CRED_TARGET)?;
+    engine().with_hub_mut(|h| {
+        h.ical_calendar = IcalFeedSnapshot::default();
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_widget_ical_status() -> WidgetIcalStatusDto {
+    let has_cred = read_generic_credential(ICAL_CRED_TARGET).is_some();
+    let snap = engine()
+        .with_hub_mut(|h| h.ical_calendar.clone())
+        .unwrap_or_default();
+    WidgetIcalStatusDto {
+        configured: snap.configured || has_cred,
+        synced_count: snap.synced_count,
+        updated_label: snap.updated_label,
+        error: snap.error,
+    }
 }
 
 #[tauri::command]
@@ -1226,8 +1395,25 @@ fn trigger_immediate_network_refresh(act: &str) {
             }
         }
         "refresh_currency" => {
-            let c = fetch_currency_and_gold(&UnconfiguredGoldProvider);
+            let c = fetch_currency_and_gold(&PublicGoldProvider);
             engine().with_hub_mut(|h| h.currency_gold = c);
+        }
+        "refresh_ical" => {
+            if let Some(url) = read_generic_credential(ICAL_CRED_TARGET) {
+                let (year, month, day, _, _, _, _) = gili_widgets::widgets::local_datetime_parts();
+                let tz_mins = local_tz_offset_minutes();
+                match fetch_ical_feed(&url, (year, month, day), tz_mins) {
+                    Ok(snap) => {
+                        engine().with_hub_mut(|h| h.ical_calendar = snap);
+                    }
+                    Err(err) => {
+                        engine().with_hub_mut(|h| {
+                            h.ical_calendar.configured = true;
+                            h.ical_calendar.error = Some(err);
+                        });
+                    }
+                }
+            }
         }
         "refresh_github" => {
             let repo = github_repo_store()
@@ -1362,4 +1548,97 @@ pub fn add_widget_world_clock(
         }
     });
     engine().persist_world_clocks()
+}
+
+#[cfg(test)]
+mod click_routing_tests {
+    use super::{is_notch_integrated_widget, settings_provider_for_widget};
+
+    #[test]
+    fn settings_input_widgets_route_to_exact_provider_and_not_notch() {
+        let cases = [
+            ("calendar_agenda", "ical_calendar"),
+            ("countdown_moment", "countdown"),
+            ("quick_snippets", "snippets"),
+            ("time_tracker", "time_tracker"),
+            ("shortcuts_grid", "shortcuts"),
+            ("world_clock", "world_clock"),
+            ("quick_expense", "expense"),
+            ("photo_frame", "folders"),
+            ("recent_files", "folders"),
+            ("storage_treemap", "folders"),
+            ("site_status", "uptime"),
+            ("github_status", "github"),
+        ];
+        for (widget_type, expected_provider) in cases {
+            assert_eq!(
+                settings_provider_for_widget(widget_type),
+                Some(expected_provider),
+                "wrong settings provider for {widget_type}"
+            );
+            assert!(
+                !is_notch_integrated_widget(widget_type, None),
+                "{widget_type} must not open Notch on body click"
+            );
+        }
+    }
+
+    #[test]
+    fn only_truly_integrated_widgets_route_to_notch() {
+        let notch_widgets = [
+            "now_playing",
+            "audio_visualizer",
+            "todo_groups",
+            "drop_zone",
+            "prayer_times",
+            "system_performance",
+            "top_processes",
+            "quick_controls",
+            "ai_quick_ask",
+        ];
+        for widget_type in notch_widgets {
+            assert_eq!(
+                settings_provider_for_widget(widget_type),
+                None,
+                "{widget_type} should not map to settings provider"
+            );
+            assert!(
+                is_notch_integrated_widget(widget_type, None),
+                "{widget_type} should open integrated Notch module"
+            );
+        }
+        for act in ["open_ai_settings", "open_media", "open_todo", "open_shelf"] {
+            assert!(is_notch_integrated_widget("custom", Some(act)));
+        }
+    }
+
+    #[test]
+    fn display_only_and_self_contained_widgets_have_no_click_fallback() {
+        let passive_widgets = [
+            "styled_clock",
+            "weather_forecast",
+            "air_quality",
+            "currency_gold",
+            "hijri_holidays",
+            "quote_poster",
+            "live_mascot",
+            "sticky_notes",
+            "mini_kanban",
+            "football_scores",
+            "class_schedule",
+            "habit_heatmap",
+            "screen_time",
+        ];
+        for widget_type in passive_widgets {
+            assert_eq!(
+                settings_provider_for_widget(widget_type),
+                None,
+                "{widget_type} must not route to Settings"
+            );
+            assert!(
+                !is_notch_integrated_widget(widget_type, None),
+                "{widget_type} must not open Notch"
+            );
+        }
+    }
 }

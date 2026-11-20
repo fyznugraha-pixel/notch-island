@@ -181,6 +181,29 @@ export async function analyzeWidgetWallpaperContrast(
   });
 }
 
+export interface WidgetIcalStatus {
+  configured: boolean;
+  synced_count: number;
+  updated_label: string;
+  error: string | null;
+}
+
+export async function saveWidgetIcalUrl(url: string): Promise<number> {
+  return invoke<number>("save_widget_ical_url", { url });
+}
+
+export async function clearWidgetIcalUrl(): Promise<void> {
+  await invoke("clear_widget_ical_url");
+}
+
+export async function getWidgetIcalStatus(): Promise<WidgetIcalStatus> {
+  return invoke<WidgetIcalStatus>("get_widget_ical_status");
+}
+
+export async function takePendingWidgetProvider(): Promise<string | null> {
+  return invoke<string | null>("take_pending_widget_provider");
+}
+
 export async function saveGithubWidgetToken(token: string, repo: string): Promise<void> {
   await invoke("save_github_widget_token", { token, repo });
 }

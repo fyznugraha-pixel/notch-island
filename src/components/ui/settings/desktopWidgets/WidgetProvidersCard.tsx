@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown,
   Download,
   HardDrive,
+  Calendar,
   CalendarClock,
   ClipboardCopy,
   Globe,
@@ -22,14 +23,18 @@ import {
   addWidgetTimeProject,
   addWidgetUptimeSite,
   addWidgetWorldClock,
+  clearWidgetIcalUrl,
   configureWidgetPhotoFolder,
   configureWidgetRecentFolders,
   exportWidgetTimeTrackerCsv,
+  getWidgetIcalStatus,
   pickWidgetPhotoFolderDialog,
   pickWidgetPhotosDialog,
   saveGithubWidgetToken,
+  saveWidgetIcalUrl,
   setWidgetExpenseBudget,
   triggerWidgetStorageScan,
+  WidgetIcalStatus,
 } from "../../../../services/desktopWidgetsService";
 import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
 
@@ -38,12 +43,15 @@ interface WidgetProvidersCardProps {
   isId?: boolean;
   activeWidgetTypes: string[];
   onFlash: (msg: string) => void;
+  focusProviderId?: string | null;
+  focusNonce?: number;
 }
 
 type ProviderGroup = "all" | "productive" | "local" | "online";
 
 interface ProviderRowProps {
   id: string;
+  rowRef?: (el: HTMLDivElement | null) => void;
   expanded: boolean;
   onToggle: () => void;
   icon: React.ReactNode;
@@ -58,6 +66,7 @@ interface ProviderRowProps {
 }
 
 const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
+  rowRef,
   expanded,
   onToggle,
   icon,
@@ -72,6 +81,7 @@ const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
 }) => {
   return (
     <div
+      ref={rowRef}
       className={`rounded-[14px] border transition-colors overflow-hidden ${
         expanded
           ? isLightMode
@@ -149,9 +159,15 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
   isId = true,
   activeWidgetTypes,
   onFlash,
+  focusProviderId = null,
+  focusNonce = 0,
 }) => {
   const [group, setGroup] = useState<ProviderGroup>("all");
   const [openId, setOpenId] = useState<string | null>(null);
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const bindRowRef = (id: string) => (el: HTMLDivElement | null) => {
+    rowRefs.current[id] = el;
+  };
 
   const [cdTitle, setCdTitle] = useState("");
   const [cdDate, setCdDate] = useState("2026-12-31");
@@ -168,8 +184,36 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
   const [siteUrl, setSiteUrl] = useState("https://");
   const [ghRepo, setGhRepo] = useState("");
   const [ghToken, setGhToken] = useState("");
+  const [icalUrl, setIcalUrl] = useState("");
+  const [icalStatus, setIcalStatus] = useState<WidgetIcalStatus | null>(null);
+  const [icalSaving, setIcalSaving] = useState(false);
   const [photoFolder, setPhotoFolder] = useState("");
   const [recentFolder, setRecentFolder] = useState("");
+
+  useEffect(() => {
+    getWidgetIcalStatus()
+      .then(setIcalStatus)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!focusProviderId) return;
+    setGroup("all");
+    setOpenId(focusProviderId);
+    let rafInner = 0;
+    const rafOuter = window.requestAnimationFrame(() => {
+      rafInner = window.requestAnimationFrame(() => {
+        rowRefs.current[focusProviderId]?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(rafOuter);
+      if (rafInner) window.cancelAnimationFrame(rafInner);
+    };
+  }, [focusProviderId, focusNonce]);
 
   const activeSet = new Set(activeWidgetTypes);
   const toggleRow = (id: string) => setOpenId((cur) => (cur === id ? null : id));
@@ -239,6 +283,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
           <>
             <ProviderAccordionRow
               id="countdown"
+              rowRef={bindRowRef("countdown")}
               expanded={openId === "countdown"}
               onToggle={() => toggleRow("countdown")}
               icon={<CalendarClock size={15} />}
@@ -301,6 +346,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
 
             <ProviderAccordionRow
               id="snippets"
+              rowRef={bindRowRef("snippets")}
               expanded={openId === "snippets"}
               onToggle={() => toggleRow("snippets")}
               icon={<ClipboardCopy size={15} />}
@@ -369,6 +415,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
 
             <ProviderAccordionRow
               id="time_tracker"
+              rowRef={bindRowRef("time_tracker")}
               expanded={openId === "time_tracker"}
               onToggle={() => toggleRow("time_tracker")}
               icon={<Timer size={15} />}
@@ -424,6 +471,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
 
             <ProviderAccordionRow
               id="shortcuts"
+              rowRef={bindRowRef("shortcuts")}
               expanded={openId === "shortcuts"}
               onToggle={() => toggleRow("shortcuts")}
               icon={<Link2 size={15} />}
@@ -486,6 +534,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
           <>
             <ProviderAccordionRow
               id="world_clock"
+              rowRef={bindRowRef("world_clock")}
               expanded={openId === "world_clock"}
               onToggle={() => toggleRow("world_clock")}
               icon={<Globe size={15} />}
@@ -579,6 +628,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
 
             <ProviderAccordionRow
               id="expense"
+              rowRef={bindRowRef("expense")}
               expanded={openId === "expense"}
               onToggle={() => toggleRow("expense")}
               icon={<Wallet size={15} />}
@@ -634,6 +684,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
 
             <ProviderAccordionRow
               id="folders"
+              rowRef={bindRowRef("folders")}
               expanded={openId === "folders"}
               onToggle={() => toggleRow("folders")}
               icon={<FolderOpen size={15} />}
@@ -785,7 +836,117 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
         {showGroup("online") && (
           <>
             <ProviderAccordionRow
+              id="ical_calendar"
+              rowRef={bindRowRef("ical_calendar")}
+              expanded={openId === "ical_calendar"}
+              onToggle={() => toggleRow("ical_calendar")}
+              icon={<Calendar size={15} />}
+              iconBg="bg-[#0a84ff]/15"
+              iconColor="text-[#0a84ff]"
+              title="Google Calendar / iCal (.ics)"
+              subtitle={
+                isId
+                  ? "Sinkron jadwal baca-saja dari link Secret iCal Google, Outlook, atau iCloud"
+                  : "Read-only schedule sync from Google, Outlook, or iCloud secret iCal URL"
+              }
+              installed={activeSet.has("calendar_agenda") || Boolean(icalStatus?.configured)}
+              installedLabel={installedLabel}
+              isLightMode={isLightMode}
+            >
+              {icalStatus?.configured && (
+                <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-[10px] bg-[#34c759]/12 border border-[#34c759]/25">
+                  <span className="text-[11.5px] font-medium text-[#34c759]">
+                    {isId
+                      ? `Terhubung . ${icalStatus.synced_count} acara tersinkron`
+                      : `Connected . ${icalStatus.synced_count} synced events`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await clearWidgetIcalUrl();
+                      setIcalStatus({
+                        configured: false,
+                        synced_count: 0,
+                        updated_label: "",
+                        error: null,
+                      });
+                      onFlash(
+                        isId
+                          ? "Koneksi kalender iCal diputuskan."
+                          : "iCal calendar connection removed."
+                      );
+                    }}
+                    className={secondaryBtn}
+                  >
+                    {isId ? "Putuskan" : "Disconnect"}
+                  </button>
+                </div>
+              )}
+              {icalStatus?.error && (
+                <div className="text-[11px] text-amber-400">{icalStatus.error}</div>
+              )}
+              <label className="flex flex-col gap-1">
+                <span className={labelCls}>Secret iCal URL (.ics)</span>
+                <input
+                  type="password"
+                  value={icalUrl}
+                  onChange={(e) => setIcalUrl(e.target.value)}
+                  placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
+                  className={inputCls}
+                />
+                <span className={hintCls}>
+                  Google Calendar &gt; Settings &gt; [Calendar] &gt; Secret address in iCal format
+                </span>
+              </label>
+              <div className="flex items-center justify-between gap-2">
+                <span className={hintCls}>
+                  <ShieldCheck size={13} className="text-[#34c759]" />{" "}
+                  {isId
+                    ? "URL rahasia disimpan terenkripsi di Windows Credential Manager"
+                    : "Secret URL stored encrypted in Windows Credential Manager"}
+                </span>
+                <button
+                  type="button"
+                  disabled={icalSaving || !icalUrl.trim()}
+                  onClick={async () => {
+                    if (!icalUrl.trim() || icalSaving) return;
+                    setIcalSaving(true);
+                    try {
+                      const synced = await saveWidgetIcalUrl(icalUrl.trim());
+                      setIcalUrl("");
+                      setIcalStatus({
+                        configured: true,
+                        synced_count: synced,
+                        updated_label: "iCal",
+                        error: null,
+                      });
+                      onFlash(
+                        isId
+                          ? `Kalender tersinkron (${synced} acara terdekat dimuat).`
+                          : `Calendar synced (${synced} upcoming events loaded).`
+                      );
+                    } catch (e) {
+                      onFlash(String(e));
+                    } finally {
+                      setIcalSaving(false);
+                    }
+                  }}
+                  className={`${primaryBtn} disabled:opacity-50`}
+                >
+                  {icalSaving
+                    ? isId
+                      ? "Menyinkron..."
+                      : "Syncing..."
+                    : isId
+                    ? "Simpan & Sinkron"
+                    : "Save & Sync"}
+                </button>
+              </div>
+            </ProviderAccordionRow>
+
+            <ProviderAccordionRow
               id="uptime"
+              rowRef={bindRowRef("uptime")}
               expanded={openId === "uptime"}
               onToggle={() => toggleRow("uptime")}
               icon={<Activity size={15} />}
@@ -849,6 +1010,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
 
             <ProviderAccordionRow
               id="github"
+              rowRef={bindRowRef("github")}
               expanded={openId === "github"}
               onToggle={() => toggleRow("github")}
               icon={<GitBranch size={15} />}

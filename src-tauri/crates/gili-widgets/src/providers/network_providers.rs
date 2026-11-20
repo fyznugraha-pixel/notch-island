@@ -11,7 +11,11 @@ pub const BUILTIN_ALLOWED_HOSTS: &[&str] = &[
     "air-quality-api.open-meteo.com",
     "open.er-api.com",
     "api.github.com",
+    "api.gold-api.com",
+    "cdn.jsdelivr.net",
 ];
+
+pub const TROY_OUNCE_GRAMS: f64 = 31.103_476_8;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AirQualitySnapshot {
@@ -163,13 +167,32 @@ pub struct CurrencyGoldSnapshot {
     pub currency_updated_at: String,
     pub gold_provider_configured: bool,
     pub gold_idr_per_gram: Option<f64>,
+    #[serde(default)]
+    pub gold_usd_per_oz: Option<f64>,
     pub gold_note: String,
 }
 
-/// Provider interface for licensed gold spot APIs (no fabricated prices).
+#[derive(Debug, Clone)]
+pub struct GoldSpotQuote {
+    pub usd_per_oz: Option<f64>,
+    pub idr_per_gram: Option<f64>,
+    pub source: String,
+}
+
+/// Provider interface for gold spot APIs (no fabricated prices).
 pub trait GoldPriceProvider: Send + Sync {
     fn provider_name(&self) -> &'static str;
     fn fetch_idr_per_gram(&self) -> Result<Option<f64>, String>;
+
+    fn fetch_spot_quote(&self, _usd_to_idr: Option<f64>) -> Result<Option<GoldSpotQuote>, String> {
+        self.fetch_idr_per_gram().map(|opt| {
+            opt.map(|idr_per_gram| GoldSpotQuote {
+                usd_per_oz: None,
+                idr_per_gram: Some(idr_per_gram),
+                source: self.provider_name().to_string(),
+            })
+        })
+    }
 }
 
 pub struct UnconfiguredGoldProvider;
@@ -179,6 +202,98 @@ impl GoldPriceProvider for UnconfiguredGoldProvider {
     }
     fn fetch_idr_per_gram(&self) -> Result<Option<f64>, String> {
         Ok(None)
+    }
+}
+
+pub fn gold_usd_oz_to_idr_per_gram(usd_per_oz: f64, usd_to_idr: f64) -> f64 {
+    (usd_per_oz / TROY_OUNCE_GRAMS) * usd_to_idr
+}
+
+/// Keyless public spot gold provider (`api.gold-api.com`) with jsDelivr `xau.json` fallback.
+pub struct PublicGoldProvider;
+
+impl PublicGoldProvider {
+    fn fetch_from_gold_api(
+        agent: &ureq::Agent,
+        usd_to_idr: Option<f64>,
+    ) -> Result<GoldSpotQuote, String> {
+        let url = "https://api.gold-api.com/price/XAU";
+        validate_https_url_with_allowlist(url, BUILTIN_ALLOWED_HOSTS)?;
+        let resp = agent
+            .get(url)
+            .set("User-Agent", "Gili-Desktop-Widgets/1.0")
+            .call()
+            .map_err(|e| e.to_string())?;
+        let text = resp.into_string().map_err(|e| e.to_string())?;
+        let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let usd_per_oz = v["price"]
+            .as_f64()
+            .filter(|p| p.is_finite() && *p > 0.0)
+            .ok_or_else(|| "Harga spot XAU tidak valid".to_string())?;
+        let idr_per_gram = usd_to_idr
+            .filter(|r| r.is_finite() && *r > 0.0)
+            .map(|r| gold_usd_oz_to_idr_per_gram(usd_per_oz, r));
+        Ok(GoldSpotQuote {
+            usd_per_oz: Some(usd_per_oz),
+            idr_per_gram,
+            source: "gold-api.com".to_string(),
+        })
+    }
+
+    fn fetch_from_fawaz_cdn(
+        agent: &ureq::Agent,
+        usd_to_idr: Option<f64>,
+    ) -> Result<GoldSpotQuote, String> {
+        let url = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xau.json";
+        validate_https_url_with_allowlist(url, BUILTIN_ALLOWED_HOSTS)?;
+        let resp = agent
+            .get(url)
+            .set("User-Agent", "Gili-Desktop-Widgets/1.0")
+            .call()
+            .map_err(|e| e.to_string())?;
+        let text = resp.into_string().map_err(|e| e.to_string())?;
+        let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let usd_per_oz = v["xau"]["usd"]
+            .as_f64()
+            .filter(|p| p.is_finite() && *p > 0.0);
+        let idr_per_oz = v["xau"]["idr"]
+            .as_f64()
+            .filter(|p| p.is_finite() && *p > 0.0);
+        if usd_per_oz.is_none() && idr_per_oz.is_none() {
+            return Err("Data XAU fallback tidak tersedia".to_string());
+        }
+        let idr_per_gram = idr_per_oz.map(|v| v / TROY_OUNCE_GRAMS).or_else(|| {
+            match (usd_per_oz, usd_to_idr.filter(|r| r.is_finite() && *r > 0.0)) {
+                (Some(oz), Some(r)) => Some(gold_usd_oz_to_idr_per_gram(oz, r)),
+                _ => None,
+            }
+        });
+        Ok(GoldSpotQuote {
+            usd_per_oz,
+            idr_per_gram,
+            source: "fawazahmed0/currency-api".to_string(),
+        })
+    }
+}
+
+impl GoldPriceProvider for PublicGoldProvider {
+    fn provider_name(&self) -> &'static str {
+        "gold-api.com"
+    }
+
+    fn fetch_idr_per_gram(&self) -> Result<Option<f64>, String> {
+        Ok(self.fetch_spot_quote(None)?.and_then(|q| q.idr_per_gram))
+    }
+
+    fn fetch_spot_quote(&self, usd_to_idr: Option<f64>) -> Result<Option<GoldSpotQuote>, String> {
+        let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(8)).build();
+        if let Ok(quote) = Self::fetch_from_gold_api(&agent, usd_to_idr) {
+            return Ok(Some(quote));
+        }
+        match Self::fetch_from_fawaz_cdn(&agent, usd_to_idr) {
+            Ok(quote) => Ok(Some(quote)),
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -462,10 +577,11 @@ pub fn fetch_currency_and_gold(gold_provider: &dyn GoldPriceProvider) -> Currenc
         }
     }
 
-    if let Ok(Some(gram)) = gold_provider.fetch_idr_per_gram() {
+    if let Ok(Some(quote)) = gold_provider.fetch_spot_quote(snap.usd_to_idr) {
         snap.gold_provider_configured = true;
-        snap.gold_idr_per_gram = Some(gram);
-        snap.gold_note = gold_provider.provider_name().to_string();
+        snap.gold_usd_per_oz = quote.usd_per_oz;
+        snap.gold_idr_per_gram = quote.idr_per_gram;
+        snap.gold_note = quote.source;
     }
 
     snap
@@ -572,5 +688,12 @@ mod tests {
         assert!(!b.can_run(t0 + Duration::from_secs(30)));
         b.record_success(t0 + Duration::from_secs(200));
         assert_eq!(b.failures, 0);
+    }
+
+    #[test]
+    fn gold_spot_usd_to_idr_per_gram_conversion_is_accurate() {
+        let per_gram = gold_usd_oz_to_idr_per_gram(3_524.0, 16_250.0);
+        // 3524 / 31.1034768 * 16250 = ~1,841,112.5
+        assert!((per_gram - 1_841_112.5).abs() < 50.0);
     }
 }

@@ -4589,15 +4589,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           openTabFromDesktopWidget("ai_chat");
           return;
         }
-        if (act === "open_class_schedule" || act === "open_streak") {
-          invoke("open_settings_window", { section: "widgets" }).catch(() => { });
-          return;
-        }
         if (act === "open_media" || wtype === "now_playing" || wtype === "audio_visualizer") {
           openTabFromDesktopWidget("media_expanded");
           return;
         }
-        if (act === "open_todo" || wtype === "todo_groups" || wtype === "calendar_agenda") {
+        if (act === "open_todo" || wtype === "todo_groups") {
           openTabFromDesktopWidget("todo");
           return;
         }
@@ -4605,59 +4601,18 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           openTabFromDesktopWidget("drop_shelf");
           return;
         }
-        if (wtype === "sticky_notes" || wtype === "quick_snippets") {
-          openTabFromDesktopWidget("mini_note");
-          return;
-        }
-        if (wtype === "clipboard_pins") {
-          openTabFromDesktopWidget("clipboard");
-          return;
-        }
         if (wtype === "prayer_times") {
           openTabFromDesktopWidget("prayer_reminder");
           return;
         }
-        if (
-          wtype === "system_performance" ||
-          wtype === "screen_time" ||
-          wtype === "storage_treemap" ||
-          wtype === "top_processes" ||
-          wtype === "site_status"
-        ) {
+        if (wtype === "system_performance" || wtype === "top_processes") {
           openTabFromDesktopWidget("sys_monitor");
           return;
         }
-        if (wtype === "time_tracker" || wtype === "countdown_moment") {
-          openTabFromDesktopWidget("pomodoro");
-          return;
-        }
-        if (
-          wtype === "quick_controls" ||
-          wtype === "weather_forecast" ||
-          wtype === "air_quality" ||
-          wtype === "world_clock" ||
-          wtype === "currency_gold" ||
-          wtype === "hijri_holidays" ||
-          wtype === "quote_poster" ||
-          wtype === "styled_clock"
-        ) {
+        if (wtype === "quick_controls") {
           openTabFromDesktopWidget("quick_control");
           return;
         }
-        if (
-          wtype === "class_schedule" ||
-          wtype === "habit_heatmap" ||
-          wtype === "quick_expense" ||
-          wtype === "github_status" ||
-          wtype === "football_scores" ||
-          wtype === "mini_kanban" ||
-          wtype === "shortcuts_grid" ||
-          wtype === "recent_files"
-        ) {
-          invoke("open_settings_window", { section: "widgets" }).catch(() => { });
-          return;
-        }
-        openTabFromDesktopWidget("quick_control");
       }
     );
 

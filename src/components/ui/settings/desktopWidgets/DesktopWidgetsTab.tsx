@@ -30,6 +30,7 @@ import {
   saveDesktopWidgetsConfig,
   setDesktopWidgetEditMode,
   syncFrontendWidgetMirror,
+  takePendingWidgetProvider,
   toggleDesktopWidgetBoard,
 } from "../../../../services/desktopWidgetsService";
 import { SettingRow } from "../SettingRow";
@@ -64,12 +65,18 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   const [metrics, setMetrics] = useState<WidgetRuntimeMetrics | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+  const [focusProvider, setFocusProvider] = useState<{ id: string; nonce: number } | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const configRef = useRef<DesktopWidgetsConfig | null>(null);
   configRef.current = config;
 
   useEffect(() => {
     let alive = true;
+    const focusProviderById = (pid: string | null) => {
+      if (!alive || !pid) return;
+      setFocusProvider((prev) => ({ id: pid, nonce: (prev?.nonce ?? 0) + 1 }));
+    };
+
     Promise.all([
       getDesktopWidgetsConfig(),
       getDesktopWidgetsCatalog(),
@@ -83,6 +90,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       })
       .catch(() => { });
 
+    takePendingWidgetProvider().then(focusProviderById).catch(() => { });
     syncFrontendWidgetMirror().catch(() => { });
 
     const unlistenPromise = listen("desktop-widgets-config-changed", () => {
@@ -91,6 +99,12 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           if (alive) setConfig(fresh);
         })
         .catch(() => { });
+    });
+
+    const unlistenFocusPromise = listen<string>("desktop-widgets-focus-provider", (event) => {
+      if (!alive || !event.payload) return;
+      takePendingWidgetProvider().catch(() => null);
+      focusProviderById(event.payload);
     });
 
     const timer = window.setInterval(() => {
@@ -105,6 +119,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       alive = false;
       window.clearInterval(timer);
       unlistenPromise.then((fn) => fn()).catch(() => { });
+      unlistenFocusPromise.then((fn) => fn()).catch(() => { });
     };
   }, []);
 
@@ -664,6 +679,8 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           isId={isId}
           activeWidgetTypes={config.slots.flatMap((s) => s.widgets.map((w) => w.widget_type))}
           onFlash={flash}
+          focusProviderId={focusProvider?.id ?? null}
+          focusNonce={focusProvider?.nonce ?? 0}
         />
       </div>
 
