@@ -413,7 +413,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         <div className={cardClass}>
           {config.slots.length === 0 ? (
             <div className={`px-3 py-4 text-[12px] ${mutedCls}`}>
-              Belum ada widget terpasang. Buka Galeri (29) untuk menambahkan widget pertama Anda.
+              Belum ada widget terpasang. Buka Galeri (34) untuk menambahkan widget pertama Anda.
             </div>
           ) : (
             config.slots.map((slot) => {
@@ -541,7 +541,11 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       {/* Section 4: Providers */}
       <div className="flex flex-col gap-2">
         <span className={sectionLabelClass}>Penyedia Data & Privasi Lokal</span>
-        <WidgetProvidersCard isLightMode={isLightMode} onFlash={flash} />
+        <WidgetProvidersCard
+          isLightMode={isLightMode}
+          activeWidgetTypes={config.slots.flatMap((s) => s.widgets.map((w) => w.widget_type))}
+          onFlash={flash}
+        />
       </div>
 
       {/* Telemetry Footer */}
