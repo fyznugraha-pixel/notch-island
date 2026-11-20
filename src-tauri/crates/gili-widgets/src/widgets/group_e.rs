@@ -24,7 +24,11 @@ fn format_idr(amount: i64) -> String {
 pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let inner = ctx.frame.inset(16.0);
     let p = &ctx.hub.prayer;
-    let city = if p.city_name.is_empty() { "Jakarta" } else { &p.city_name };
+    let city = if p.city_name.is_empty() {
+        "Jakarta"
+    } else {
+        &p.city_name
+    };
 
     let mut nodes = vec![
         SceneNode::IconGlyph {
@@ -45,7 +49,11 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 16.0, inner.w * 0.60, 40.0),
-            if p.next_time.is_empty() { "--:--" } else { &p.next_time },
+            if p.next_time.is_empty() {
+                "--:--"
+            } else {
+                &p.next_time
+            },
             34.0,
             700,
             ctx.pal.primary,
@@ -121,7 +129,11 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     *lbl,
                     10.0,
                     if active { 700 } else { 500 },
-                    if active { ctx.pal.positive } else { ctx.pal.secondary },
+                    if active {
+                        ctx.pal.positive
+                    } else {
+                        ctx.pal.secondary
+                    },
                     TextAlign::Center,
                     false,
                 ));
@@ -144,7 +156,11 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     lbl,
                     14.0,
                     if active { 700 } else { 500 },
-                    if active { ctx.pal.positive } else { ctx.pal.primary },
+                    if active {
+                        ctx.pal.positive
+                    } else {
+                        ctx.pal.primary
+                    },
                     TextAlign::Left,
                     false,
                 ));
@@ -185,14 +201,17 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             "refresh_currency",
         );
     }
-    let inner = ctx.frame.inset(14.0);
+    let inner = ctx.frame.inset(16.0);
     let usd_str = cg
         .usd_to_idr
         .map(|v| format_idr(v.round() as i64))
         .unwrap_or_else(|| "Belum tersedia".into());
+    let char_count = usd_str.chars().count().max(6) as f32;
+    let usd_fs = (inner.w / (char_count * 0.66)).clamp(17.0, 28.0);
+    let usd_h = (usd_fs * 1.32).max(26.0);
 
     let mut nodes = vec![
-        text_node(
+        crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w, 16.0),
             "KURS USD / IDR",
             10.5,
@@ -201,10 +220,10 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ),
-        text_node(
-            RectF::new(inner.x, inner.y + 16.0, inner.w, 36.0),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 16.0, inner.w, usd_h),
             usd_str,
-            28.0,
+            usd_fs,
             700,
             ctx.pal.primary,
             TextAlign::Left,
@@ -221,7 +240,7 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             .sgd_to_idr
             .map(|v| format!("SGD {}", format_idr(v.round() as i64)))
             .unwrap_or_default();
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 56.0, inner.w, 18.0),
             format!("{}   {}", eur, sgd),
             12.0,
@@ -234,20 +253,31 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     let gold_lbl = match cg.gold_idr_per_gram {
         Some(g) => format!("Emas/gr: {}", format_idr(g.round() as i64)),
-        None => "Emas: butuh API berlisensi (Atur)".to_string(),
+        None => {
+            if ctx.size == WidgetSize::Small {
+                "Emas: atur API".to_string()
+            } else {
+                "Emas: butuh API berlisensi (Atur)".to_string()
+            }
+        }
     };
-    nodes.push(text_node(
+    let source_lbl = if ctx.size == WidgetSize::Small {
+        format!("Kurs: {}", cg.currency_source)
+    } else {
+        format!("Sumber kurs: {}", cg.currency_source)
+    };
+    nodes.push(crate::widgets::text_node_line(
         RectF::new(inner.x, inner.y + inner.h - 32.0, inner.w, 16.0),
         gold_lbl,
-        11.5,
+        11.0,
         600,
         ctx.pal.warning,
         TextAlign::Left,
         true,
     ));
-    nodes.push(text_node(
-        RectF::new(inner.x, inner.y + inner.h - 15.0, inner.w, 14.0),
-        format!("Sumber kurs: {}", cg.currency_source),
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(inner.x, inner.y + inner.h - 15.0, inner.w, 15.0),
+        source_lbl,
         10.0,
         400,
         ctx.pal.secondary,
@@ -347,7 +377,11 @@ pub fn build_quick_expense(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             rect: RectF::new(inner.x, inner.y + 58.0, inner.w, 7.0),
             progress: ratio,
             track_color: ctx.pal.surface_chip,
-            fill_color: if ratio > 0.85 { ctx.pal.danger } else { ctx.pal.accent },
+            fill_color: if ratio > 0.85 {
+                ctx.pal.danger
+            } else {
+                ctx.pal.accent
+            },
             interactive_action: None,
         },
         text_node(
@@ -453,7 +487,12 @@ pub fn build_ai_quick_ask(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             false,
         ),
         text_node(
-            RectF::new(inner.x + inner.w * 0.65, inner.y + 2.0, inner.w * 0.35, 16.0),
+            RectF::new(
+                inner.x + inner.w * 0.65,
+                inner.y + 2.0,
+                inner.w * 0.35,
+                16.0,
+            ),
             &ai.active_model_label,
             10.5,
             600,

@@ -1125,5 +1125,58 @@ mod tests {
             pf_item.nodes.first(),
             Some(layout::SceneNode::ImageRef { radius, .. }) if (*radius - 24.0).abs() < 0.01
         ));
+
+        // 6. Small 0.85x clock and currency figures scale cleanly below clipping thresholds
+        let compact_sm = RectF::new(0.0, 0.0, 136.0, 136.0);
+        for show_sec in [false, true] {
+            let clk_slot = WidgetStackSlot {
+                slot_id: format!("clk_sm_{show_sec}"),
+                size: config::WidgetSize::Small,
+                widgets: vec![WidgetInstance {
+                    instance_id: "c1".into(),
+                    widget_type: "styled_clock".into(),
+                    style_override: None,
+                    settings: serde_json::json!({
+                        "clock_style": "minimal_digital",
+                        "show_seconds": show_sec
+                    }),
+                }],
+                ..Default::default()
+            };
+            let clk_item =
+                build_widget_render_item(&clk_slot, compact_sm, &dark_glass, &res_dark, &hub, 0.0);
+            assert!(
+                matches!(
+                    clk_item.nodes.first(),
+                    Some(layout::SceneNode::Text { font_size, max_lines, .. })
+                        if *font_size < 40.0 && *max_lines == 1
+                ),
+                "Jam Small 0.85x (show_sec={show_sec}) harus mengecil < 40pt & 1 baris"
+            );
+        }
+
+        hub.currency_gold.usd_to_idr = Some(16_260.0);
+        hub.currency_gold.currency_source = "open.er-api.com".into();
+        let cg_slot = WidgetStackSlot {
+            slot_id: "cg_sm".into(),
+            size: config::WidgetSize::Small,
+            widgets: vec![WidgetInstance {
+                instance_id: "cg1".into(),
+                widget_type: "currency_gold".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let cg_item =
+            build_widget_render_item(&cg_slot, compact_sm, &dark_glass, &res_dark, &hub, 0.0);
+        assert!(
+            matches!(
+                cg_item.nodes.get(1),
+                Some(layout::SceneNode::Text { font_size, max_lines, .. })
+                    if *font_size < 24.0 && *max_lines == 1
+            ),
+            "Nominal kurs Small 0.85x harus mengecil < 24pt & 1 baris"
+        );
     }
 }

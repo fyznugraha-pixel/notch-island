@@ -61,6 +61,28 @@ pub fn format_indonesian_word_clock(hour24: u32, minute: u32) -> String {
     }
 }
 
+fn fit_clock_font(inner_w: f32, show_sec: bool, max_fs: f32) -> f32 {
+    (inner_w / if show_sec { 4.85 } else { 3.15 }).clamp(20.0, max_fs)
+}
+
+fn short_indonesian_month(month: u32) -> &'static str {
+    match month {
+        1 => "Jan",
+        2 => "Feb",
+        3 => "Mar",
+        4 => "Apr",
+        5 => "Mei",
+        6 => "Jun",
+        7 => "Jul",
+        8 => "Agt",
+        9 => "Sep",
+        10 => "Okt",
+        11 => "Nov",
+        12 => "Des",
+        _ => "",
+    }
+}
+
 /// 19. Jam bergaya: 8 gaya termasuk tipografi kata Bahasa Indonesia (S, M, L)
 pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let inner = ctx.frame.inset(14.0);
@@ -83,12 +105,22 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     } else {
         format!("{:02}:{:02}", hour, min)
     };
-    let date_str = format!(
+    let full_date_str = format!(
         "{}, {} {}",
         indonesian_day_name(dow),
         day,
         indonesian_month_name(month)
     );
+    let date_str = if ctx.size == WidgetSize::Small {
+        format!(
+            "{}, {} {}",
+            indonesian_day_name(dow),
+            day,
+            short_indonesian_month(month)
+        )
+    } else {
+        full_date_str
+    };
 
     let hour_deg = ((hour % 12) as f32 + min as f32 / 60.0) * 30.0;
     let minute_deg = (min as f32 + sec as f32 / 60.0) * 6.0;
@@ -101,7 +133,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     match style {
         // Gaya 1: Tipografi kata Bahasa Indonesia
         "kata_indonesia" => vec![
-            text_node(
+            crate::widgets::text_node_line(
                 RectF::new(inner.x, inner.y, inner.w, 16.0),
                 date_str.to_uppercase(),
                 10.5,
@@ -123,7 +155,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 TextAlign::Left,
                 false,
             ),
-            text_node(
+            crate::widgets::text_node_line(
                 RectF::new(inner.x, inner.y + inner.h - 18.0, inner.w, 16.0),
                 time_str,
                 12.0,
@@ -180,35 +212,42 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             nodes
         }
         // Gaya 4: Tumpuk Vertikal (Stacked)
-        "stacked_bold" => vec![
-            text_node(
-                RectF::new(inner.x, inner.y + 2.0, inner.w, 50.0),
-                format!("{:02}", hour),
-                44.0,
-                800,
-                ctx.pal.primary,
-                TextAlign::Center,
-                true,
-            ),
-            text_node(
-                RectF::new(inner.x, inner.y + 48.0, inner.w, 50.0),
-                format!("{:02}", min),
-                44.0,
-                800,
-                ctx.pal.secondary,
-                TextAlign::Center,
-                true,
-            ),
-            text_node(
-                RectF::new(inner.x, inner.y + inner.h - 20.0, inner.w, 16.0),
-                date_str,
-                11.5,
-                500,
-                ctx.pal.secondary,
-                TextAlign::Center,
-                false,
-            ),
-        ],
+        "stacked_bold" => {
+            let stack_fs = (inner.h * 0.34).clamp(32.0, 46.0);
+            vec![
+                text_node(
+                    RectF::new(inner.x, inner.y + 2.0, inner.w, stack_fs * 1.15),
+                    format!("{:02}", hour),
+                    stack_fs,
+                    800,
+                    ctx.pal.primary,
+                    TextAlign::Center,
+                    true,
+                ),
+                text_node(
+                    RectF::new(inner.x, inner.y + stack_fs * 0.96, inner.w, stack_fs * 1.15),
+                    format!("{:02}", min),
+                    stack_fs,
+                    800,
+                    ctx.pal.secondary,
+                    TextAlign::Center,
+                    true,
+                ),
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x, inner.y + inner.h - 18.0, inner.w, 18.0),
+                    date_str,
+                    if ctx.size == WidgetSize::Small {
+                        11.0
+                    } else {
+                        11.5
+                    },
+                    500,
+                    ctx.pal.secondary,
+                    TextAlign::Center,
+                    false,
+                ),
+            ]
+        }
         // Gaya 5: Flip Retro
         "retro_flip" => {
             let box_w = (inner.w * 0.44).min(120.0);
@@ -216,6 +255,9 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             let top = inner.y + 10.0;
             let gap = 10.0;
             let start_x = inner.x + (inner.w - (box_w * 2.0 + gap)) * 0.5;
+            let flip_fs = (box_w * 0.62).min(box_h * 0.52).clamp(22.0, 42.0);
+            let digit_h = (flip_fs * 1.22).min(box_h - 4.0);
+            let digit_y = top + (box_h - digit_h) * 0.46;
             vec![
                 SceneNode::RoundedRect {
                     rect: RectF::new(start_x, top, box_w, box_h),
@@ -234,27 +276,31 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     interactive_action: None,
                 },
                 text_node(
-                    RectF::new(start_x, top + box_h * 0.22, box_w, 48.0),
+                    RectF::new(start_x, digit_y, box_w, digit_h),
                     format!("{:02}", hour),
-                    38.0,
+                    flip_fs,
                     700,
                     ctx.pal.primary,
                     TextAlign::Center,
                     true,
                 ),
                 text_node(
-                    RectF::new(start_x + box_w + gap, top + box_h * 0.22, box_w, 48.0),
+                    RectF::new(start_x + box_w + gap, digit_y, box_w, digit_h),
                     format!("{:02}", min),
-                    38.0,
+                    flip_fs,
                     700,
                     ctx.pal.primary,
                     TextAlign::Center,
                     true,
                 ),
-                text_node(
-                    RectF::new(inner.x, inner.y + inner.h - 20.0, inner.w, 16.0),
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x, inner.y + inner.h - 18.0, inner.w, 18.0),
                     date_str,
-                    11.5,
+                    if ctx.size == WidgetSize::Small {
+                        11.0
+                    } else {
+                        11.5
+                    },
                     500,
                     ctx.pal.secondary,
                     TextAlign::Center,
@@ -263,45 +309,49 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ]
         }
         // Gaya 6: Editorial Tipis, Gaya 7: Jam Dunia Ganda, Gaya 8 (default): Minimal Digital
-        "editorial_thin" => vec![
-            text_node(
-                RectF::new(inner.x, inner.y + 8.0, inner.w, 54.0),
-                time_str,
-                44.0,
-                300,
-                ctx.pal.primary,
-                TextAlign::Left,
-                true,
-            ),
-            SceneNode::Line {
-                x1: inner.x,
-                y1: inner.y + 68.0,
-                x2: inner.x + inner.w * 0.45,
-                y2: inner.y + 68.0,
-                color: ctx.pal.accent,
-                width: 2.0,
-            },
-            text_node(
-                RectF::new(inner.x, inner.y + 78.0, inner.w, 20.0),
-                date_str,
-                13.0,
-                500,
-                ctx.pal.secondary,
-                TextAlign::Left,
-                false,
-            ),
-        ],
+        "editorial_thin" => {
+            let time_fs = fit_clock_font(inner.w, show_sec, 44.0);
+            let time_h = (time_fs * 1.22).max(30.0);
+            let line_y = inner.y + 6.0 + time_h + 6.0;
+            vec![
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x, inner.y + 6.0, inner.w, time_h),
+                    time_str,
+                    time_fs,
+                    300,
+                    ctx.pal.primary,
+                    TextAlign::Left,
+                    true,
+                ),
+                SceneNode::Line {
+                    x1: inner.x,
+                    y1: line_y,
+                    x2: inner.x + inner.w * 0.45,
+                    y2: line_y,
+                    color: ctx.pal.accent,
+                    width: 2.0,
+                },
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x, line_y + 10.0, inner.w, 20.0),
+                    date_str,
+                    if ctx.size == WidgetSize::Small {
+                        12.0
+                    } else {
+                        13.0
+                    },
+                    500,
+                    ctx.pal.secondary,
+                    TextAlign::Left,
+                    false,
+                ),
+            ]
+        }
         "dual_zone" => {
             let (utc_hour, utc_m) = crate::widgets::utc_hour_minute();
-            let main_fs = if ctx.size == WidgetSize::Small && show_sec {
-                26.0
-            } else if inner.h < 120.0 {
-                32.0
-            } else {
-                38.0
-            };
+            let main_fs = fit_clock_font(inner.w, show_sec, 38.0);
+            let main_h = (main_fs * 1.24).max(30.0);
             vec![
-                text_node(
+                crate::widgets::text_node_line(
                     RectF::new(inner.x, inner.y, inner.w, 16.0),
                     "WIB (LOKAL)",
                     10.5,
@@ -310,8 +360,8 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     TextAlign::Left,
                     false,
                 ),
-                text_node(
-                    RectF::new(inner.x, inner.y + 15.0, inner.w, 44.0),
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x, inner.y + 15.0, inner.w, main_h),
                     time_str,
                     main_fs,
                     700,
@@ -319,8 +369,8 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     TextAlign::Left,
                     true,
                 ),
-                text_node(
-                    RectF::new(inner.x, inner.y + 62.0, inner.w, 18.0),
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x, inner.y + 18.0 + main_h, inner.w, 18.0),
                     format!("UTC  {:02}:{:02}", utc_hour, utc_m),
                     13.5,
                     600,
@@ -328,10 +378,14 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     TextAlign::Left,
                     true,
                 ),
-                text_node(
-                    RectF::new(inner.x, inner.y + inner.h - 18.0, inner.w, 16.0),
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x, inner.y + inner.h - 18.0, inner.w, 18.0),
                     date_str,
-                    11.5,
+                    if ctx.size == WidgetSize::Small {
+                        11.0
+                    } else {
+                        11.5
+                    },
                     400,
                     ctx.pal.secondary,
                     TextAlign::Left,
@@ -339,26 +393,39 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 ),
             ]
         }
-        _ => vec![
-            text_node(
-                RectF::new(inner.x, inner.y + 4.0, inner.w, 68.0),
-                time_str,
-                56.0,
-                600,
-                ctx.pal.primary,
-                TextAlign::Left,
-                true,
-            ),
-            text_node(
-                RectF::new(inner.x + 2.0, inner.y + 74.0, inner.w, 22.0),
-                date_str,
-                14.5,
-                500,
-                ctx.pal.secondary,
-                TextAlign::Left,
-                false,
-            ),
-        ],
+        _ => {
+            let max_fs = if ctx.size == WidgetSize::Large {
+                64.0
+            } else {
+                56.0
+            };
+            let time_fs = fit_clock_font(inner.w, show_sec, max_fs);
+            let time_h = (time_fs * 1.24).max(34.0);
+            vec![
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x, inner.y + 6.0, inner.w, time_h),
+                    time_str,
+                    time_fs,
+                    600,
+                    ctx.pal.primary,
+                    TextAlign::Left,
+                    true,
+                ),
+                crate::widgets::text_node_line(
+                    RectF::new(inner.x + 2.0, inner.y + 6.0 + time_h + 6.0, inner.w - 2.0, 22.0),
+                    date_str,
+                    if ctx.size == WidgetSize::Small {
+                        12.5
+                    } else {
+                        14.5
+                    },
+                    500,
+                    ctx.pal.secondary,
+                    TextAlign::Left,
+                    false,
+                ),
+            ]
+        }
     }
 }
 
