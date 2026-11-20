@@ -11,7 +11,8 @@ export type ShortcutActionId =
   | "switch_monitor"
   | "toggle_miniplayer"
   | "open_ai_chat"
-  | "toggle_standby";
+  | "toggle_standby"
+  | "toggle_widget_board";
 
 export type ShortcutStatus = "ok" | "conflict" | "invalid" | "inactive";
 
@@ -89,6 +90,12 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
     labelKey: "shortcut_action_toggle_standby",
     descKey: "shortcut_action_toggle_standby_desc",
   },
+  {
+    id: "toggle_widget_board",
+    defaultShortcut: "Control+Alt+W",
+    labelKey: "shortcut_action_toggle_widget_board",
+    descKey: "shortcut_action_toggle_widget_board_desc",
+  },
 ];
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutActionId, string | null> = {
@@ -103,6 +110,7 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutActionId, string | null> = {
   toggle_miniplayer: "Control+Alt+M",
   open_ai_chat: "Control+Alt+A",
   toggle_standby: "Control+Alt+S",
+  toggle_widget_board: "Control+Alt+W",
 };
 
 const RESERVED_SYSTEM_COMBINATIONS = new Set([
@@ -390,6 +398,7 @@ class ShortcutManagerService {
       toggle_miniplayer: "inactive",
       open_ai_chat: "inactive",
       toggle_standby: "inactive",
+      toggle_widget_board: "inactive",
     };
 
     try {

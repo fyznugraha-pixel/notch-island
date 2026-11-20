@@ -76,6 +76,11 @@ const IdleTab = React.lazy(() =>
 const StandbyTab = React.lazy(() =>
   import("../ui/settings/StandbyTab").then((m) => ({ default: m.StandbyTab }))
 );
+const DesktopWidgetsTab = React.lazy(() =>
+  import("../ui/settings/desktopWidgets/DesktopWidgetsTab").then((m) => ({
+    default: m.DesktopWidgetsTab,
+  }))
+);
 const GeneralTab = React.lazy(() =>
   import("../ui/settings/GeneralTab").then((m) => ({ default: m.GeneralTab }))
 );
@@ -1537,6 +1542,13 @@ export const SettingsWindowApp: React.FC = () => {
                     <NavbarSettingsTab
                       isLightMode={isLightMode}
                       optLanguage={optLanguage}
+                    />
+                  )}
+
+                  {activeSection === "widgets" && (
+                    <DesktopWidgetsTab
+                      optLanguage={optLanguage}
+                      isLightMode={isLightMode}
                     />
                   )}
 

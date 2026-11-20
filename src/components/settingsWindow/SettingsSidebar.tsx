@@ -13,6 +13,7 @@ import {
   X,
   Info,
   PanelBottom,
+  LayoutDashboard,
 } from "lucide-react";
 import { Language } from "../../services/i18n";
 import { Tooltip } from "../ui/Tooltip";
@@ -23,6 +24,7 @@ export type SettingsWindowSection =
   | "general"
   | "appearance"
   | "navbar"
+  | "widgets"
   | "idle"
   | "standby"
   | "notifications"
@@ -135,6 +137,16 @@ export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
     subEn: "Dock shape, modules & behavior",
     icon: <PanelBottom size={15} strokeWidth={2.2} />,
     bgClass: "bg-[#0a84ff]",
+  },
+  {
+    id: "widgets",
+    group: "taskbar",
+    labelId: "Widget Desktop",
+    labelEn: "Desktop Widgets",
+    subId: "29 widget native Direct2D & tema",
+    subEn: "29 native Direct2D widgets & themes",
+    icon: <LayoutDashboard size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#34c3a0]",
   },
   {
     id: "general",

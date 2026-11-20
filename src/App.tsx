@@ -2769,6 +2769,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     toggle_miniplayer: "inactive",
     open_ai_chat: "inactive",
     toggle_standby: "inactive",
+    toggle_widget_board: "inactive",
   });
 
   const shortcutsRef = useRef(shortcuts);
@@ -2957,6 +2958,14 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
   }, []);
 
+  const handleShortcutToggleWidgetBoard = useCallback(async () => {
+    try {
+      await invoke("toggle_desktop_widget_board", { visible: null });
+    } catch (e) {
+      console.error("Failed to toggle widget board:", e);
+    }
+  }, []);
+
   const handleShortcutOpenAiChat = useCallback(async () => {
     const wasOpen = isQuickAiChatOpenRef.current;
     if (!wasOpen) {
@@ -2990,6 +2999,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     toggle_miniplayer: handleShortcutToggleMiniPlayer,
     open_ai_chat: handleShortcutOpenAiChat,
     toggle_standby: handleShortcutToggleStandby,
+    toggle_widget_board: handleShortcutToggleWidgetBoard,
   });
 
   useEffect(() => {
@@ -3006,6 +3016,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       toggle_miniplayer: handleShortcutToggleMiniPlayer,
       open_ai_chat: handleShortcutOpenAiChat,
       toggle_standby: handleShortcutToggleStandby,
+      toggle_widget_board: handleShortcutToggleWidgetBoard,
     };
     shortcutManager.updateHandlers(shortcutHandlersRef.current);
   }, [
@@ -3021,7 +3032,23 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     handleShortcutToggleMiniPlayer,
     handleShortcutOpenAiChat,
     handleShortcutToggleStandby,
+    handleShortcutToggleWidgetBoard,
   ]);
+
+  useEffect(() => {
+    if (isSecondaryWindow) return;
+    const sync = () => {
+      import("./services/desktopWidgetsService")
+        .then((m) => m.syncFrontendWidgetMirror())
+        .catch(() => {});
+    };
+    const t = window.setTimeout(sync, 2500);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("storage", sync);
+    };
+  }, [isSecondaryWindow]);
 
   useEffect(() => {
     if (isSecondaryWindow) return;
