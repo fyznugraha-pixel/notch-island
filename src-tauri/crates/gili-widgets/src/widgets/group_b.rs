@@ -16,11 +16,15 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         );
     }
     let note = &notes[0];
-    let badge_col = match note.color.as_str() {
-        "mint" => RgbaColor::new(0x5E, 0xEA, 0xD4, 1.0),
-        "amber" => RgbaColor::new(0xFB, 0xBF, 0x24, 1.0),
-        "coral" => RgbaColor::new(0xF8, 0x71, 0x71, 1.0),
-        _ => ctx.pal.accent,
+    let badge_col = if ctx.pal.is_monochrome {
+        ctx.pal.accent
+    } else {
+        match note.color.as_str() {
+            "mint" => RgbaColor::new(0x5E, 0xEA, 0xD4, 1.0),
+            "amber" => RgbaColor::new(0xFB, 0xBF, 0x24, 1.0),
+            "coral" => RgbaColor::new(0xF8, 0x71, 0x71, 1.0),
+            _ => ctx.pal.accent,
+        }
     };
 
     let mut nodes = vec![
@@ -34,7 +38,11 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         },
         text_node(
             RectF::new(inner.x + 8.0, inner.y, inner.w - 64.0, 20.0),
-            if note.title.is_empty() { "Catatan" } else { &note.title },
+            if note.title.is_empty() {
+                "Catatan"
+            } else {
+                &note.title
+            },
             15.0,
             600,
             ctx.pal.primary,
@@ -62,7 +70,11 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 format!("{} {}", mark, item.text),
                 12.5,
                 500,
-                if item.checked { ctx.pal.secondary } else { ctx.pal.primary },
+                if item.checked {
+                    ctx.pal.secondary
+                } else {
+                    ctx.pal.primary
+                },
                 TextAlign::Left,
                 false,
             ));
@@ -220,7 +232,12 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             + p.running_since_epoch
                 .map(|s| now_epoch.saturating_sub(s))
                 .unwrap_or(0);
-        let hms = format!("{:02}:{:02}:{:02}", secs / 3600, (secs % 3600) / 60, secs % 60);
+        let hms = format!(
+            "{:02}:{:02}:{:02}",
+            secs / 3600,
+            (secs % 3600) / 60,
+            secs % 60
+        );
 
         nodes.push(text_node(
             RectF::new(inner.x, y, inner.w - 118.0, 18.0),
@@ -236,7 +253,11 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             hms,
             11.5,
             500,
-            if running { ctx.pal.positive } else { ctx.pal.secondary },
+            if running {
+                ctx.pal.positive
+            } else {
+                ctx.pal.secondary
+            },
             TextAlign::Left,
             true,
         ));
@@ -419,7 +440,10 @@ pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     };
     nodes.push(text_node(
         RectF::new(inner.x, inner.y + inner.h - 20.0, inner.w, 18.0),
-        format!("Actions: {} ({})", gh.latest_action_name, gh.latest_action_conclusion),
+        format!(
+            "Actions: {} ({})",
+            gh.latest_action_name, gh.latest_action_conclusion
+        ),
         11.5,
         600,
         act_col,
@@ -591,6 +615,13 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         (format!("+{}", diff.abs()), "hari lalu".to_string())
     };
 
+    let has_right_list = ctx.size == WidgetSize::Medium && items.len() > 1;
+    let left_w = if has_right_list {
+        inner.w * 0.47
+    } else {
+        inner.w
+    };
+
     let mut nodes = vec![
         SceneNode::IconGlyph {
             rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
@@ -609,7 +640,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             false,
         ),
         text_node(
-            RectF::new(inner.x, inner.y + 18.0, inner.w * 0.65, 44.0),
+            RectF::new(inner.x, inner.y + 18.0, left_w, 44.0),
             num_str,
             38.0,
             700,
@@ -618,7 +649,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             true,
         ),
         text_node(
-            RectF::new(inner.x, inner.y + 62.0, inner.w, 16.0),
+            RectF::new(inner.x, inner.y + 62.0, left_w, 16.0),
             format!("{} . {}", suffix, first.target_date),
             11.5,
             500,
@@ -627,7 +658,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             true,
         ),
         text_node(
-            RectF::new(inner.x, inner.y + inner.h - 22.0, inner.w, 20.0),
+            RectF::new(inner.x, inner.y + inner.h - 22.0, left_w, 20.0),
             &first.title,
             13.5,
             600,
@@ -637,7 +668,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
     ];
 
-    if ctx.size == WidgetSize::Medium && items.len() > 1 {
+    if has_right_list {
         let rx = inner.x + inner.w * 0.50;
         let rw = inner.w * 0.50;
         for (i, item) in items.iter().skip(1).take(3).enumerate() {
@@ -668,7 +699,11 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ));
             nodes.push(text_node(
                 RectF::new(rx + rw - 46.0, y + 6.0, 40.0, 16.0),
-                if d >= 0 { format!("H-{}", d) } else { format!("+{}", d.abs()) },
+                if d >= 0 {
+                    format!("H-{}", d)
+                } else {
+                    format!("+{}", d.abs())
+                },
                 11.0,
                 700,
                 ctx.pal.accent,

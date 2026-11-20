@@ -67,7 +67,10 @@ fn push_month_grid_nodes(
         ));
     }
 
-    let dim_day = ctx.pal.primary.with_alpha((ctx.pal.primary.a * 0.72).clamp(0.0, 1.0));
+    let dim_day = ctx
+        .pal
+        .primary
+        .with_alpha((ctx.pal.primary.a * 0.72).clamp(0.0, 1.0));
     for d in 1..=total_days {
         let slot_idx = first_dow + (d - 1);
         let col = slot_idx % 7;
@@ -158,7 +161,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 let grid_rect = RectF::new(grid_x, inner.y, inner.w - left_w - 6.0, inner.h);
                 push_month_grid_nodes(ctx, &mut nodes, grid_rect, year, month, day, false);
             } else {
-                let grid_pad = if ctx.size == WidgetSize::Large { 6.0 } else { 0.0 };
+                let grid_pad = if ctx.size == WidgetSize::Large {
+                    6.0
+                } else {
+                    0.0
+                };
                 push_month_grid_nodes(
                     ctx,
                     &mut nodes,
@@ -175,7 +182,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             nodes.push(text_node(
                 RectF::new(inner.x + 2.0, inner.y, inner.w - 4.0, head_h),
                 format!("{} {}", indonesian_month_name(month), year),
-                if ctx.size == WidgetSize::Large { 16.0 } else { 12.5 },
+                if ctx.size == WidgetSize::Large {
+                    16.0
+                } else {
+                    12.5
+                },
                 700,
                 ctx.pal.primary,
                 TextAlign::Left,
@@ -384,7 +395,12 @@ pub fn build_class_schedule(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             false,
         ),
         text_node(
-            RectF::new(inner.x + inner.w * 0.65, inner.y + 2.0, inner.w * 0.35, 16.0),
+            RectF::new(
+                inner.x + inner.w * 0.65,
+                inner.y + 2.0,
+                inner.w * 0.35,
+                16.0,
+            ),
             indonesian_day_name(dow),
             12.0,
             600,
@@ -453,7 +469,11 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         &f.habit_title
     };
 
-    let cols = if ctx.size == WidgetSize::Large { 16 } else { 14 };
+    let cols = if ctx.size == WidgetSize::Large {
+        16
+    } else {
+        14
+    };
     let rows = 7;
     let total_cells = cols * rows;
 
@@ -488,12 +508,7 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             true,
         ),
         SceneNode::HeatmapGrid {
-            rect: RectF::new(
-                inner.x,
-                inner.y + 28.0,
-                inner.w,
-                (inner.h - 46.0).max(60.0),
-            ),
+            rect: RectF::new(inner.x, inner.y + 28.0, inner.w, (inner.h - 46.0).max(60.0)),
             cols,
             rows,
             levels,
@@ -513,7 +528,12 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     if f.habit_history.is_empty() && f.habit_count == 0 {
         nodes.extend(action_pill(
-            RectF::new(inner.x + inner.w - 92.0, inner.y + inner.h - 24.0, 92.0, 24.0),
+            RectF::new(
+                inner.x + inner.w - 92.0,
+                inner.y + inner.h - 24.0,
+                92.0,
+                24.0,
+            ),
             "Mulai Catat",
             ctx.pal.positive.with_alpha(0.24),
             ctx.pal.primary,
@@ -655,7 +675,7 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     .unwrap_or_else(|| "GPU aktif".to_string()),
             };
             nodes.push(text_node(
-                RectF::new(inner.x, ram_y + 30.0, inner.w * 0.55, 16.0),
+                RectF::new(inner.x, ram_y + 30.0, inner.w * 0.46, 16.0),
                 gpu_label,
                 11.5,
                 600,
@@ -688,7 +708,10 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 for d in sys.disks.iter().take(4) {
                     nodes.push(text_node(
                         RectF::new(inner.x, dy, inner.w, 15.0),
-                        format!("{}  {:.0} / {:.0} GB ({:.0}%)", d.mount, d.used_gb, d.total_gb, d.usage_pct),
+                        format!(
+                            "{}  {:.0} / {:.0} GB ({:.0}%)",
+                            d.mount, d.used_gb, d.total_gb, d.usage_pct
+                        ),
                         12.0,
                         500,
                         ctx.pal.primary,
@@ -699,7 +722,11 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                         rect: RectF::new(inner.x, dy + 17.0, inner.w, 5.0),
                         progress: d.usage_pct / 100.0,
                         track_color: ctx.pal.surface_chip,
-                        fill_color: if d.usage_pct > 85.0 { ctx.pal.danger } else { ctx.pal.accent },
+                        fill_color: if d.usage_pct > 85.0 {
+                            ctx.pal.danger
+                        } else {
+                            ctx.pal.accent
+                        },
                         interactive_action: None,
                     });
                     dy += 32.0;
@@ -768,7 +795,10 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         });
     }
 
-    let ctrl_color = ctx.pal.primary.with_alpha((ctx.pal.primary.a * 0.90).clamp(0.0, 1.0));
+    let ctrl_color = ctx
+        .pal
+        .primary
+        .with_alpha((ctx.pal.primary.a * 0.90).clamp(0.0, 1.0));
     if m.is_playing {
         let px = inner.x + inner.w - 15.0;
         let py = inner.y + 6.0;
@@ -859,7 +889,12 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     false,
                 ));
                 nodes.push(text_node(
-                    RectF::new(inner.x, lyric_top + 22.0, inner.w, (lyrics_avail_h - 22.0).max(16.0)),
+                    RectF::new(
+                        inner.x,
+                        lyric_top + 22.0,
+                        inner.w,
+                        (lyrics_avail_h - 22.0).max(16.0),
+                    ),
                     &m.next_lyric_line,
                     12.0,
                     400,
@@ -902,7 +937,11 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                         line,
                         if is_active { 14.5 } else { 12.5 },
                         if is_active { 700 } else { 400 },
-                        if is_active { ctx.pal.primary } else { ctx.pal.secondary },
+                        if is_active {
+                            ctx.pal.primary
+                        } else {
+                            ctx.pal.secondary
+                        },
                         TextAlign::Left,
                         false,
                     ));
@@ -1126,7 +1165,11 @@ pub fn build_todo_groups(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             format!("{} {}{}", bullet, grp, t.text),
             12.5,
             if t.completed { 400 } else { 500 },
-            if t.completed { ctx.pal.secondary } else { ctx.pal.primary },
+            if t.completed {
+                ctx.pal.secondary
+            } else {
+                ctx.pal.primary
+            },
             TextAlign::Left,
             false,
         ));

@@ -350,6 +350,8 @@ pub fn scan_recent_files_metadata_only(state: &mut RecentFilesState, limit: usiz
     state.files = found;
 }
 
+pub const DEFAULT_PHOTO_INTERVAL_SECS: u32 = 5;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PhotoSlideshowState {
     pub folder_path: Option<String>,
@@ -359,6 +361,16 @@ pub struct PhotoSlideshowState {
     pub manual_photos: Vec<String>,
     pub current_index: usize,
     pub polaroid_caption: String,
+}
+
+impl PhotoSlideshowState {
+    pub fn effective_interval_secs(&self) -> u32 {
+        if self.interval_secs == 0 {
+            DEFAULT_PHOTO_INTERVAL_SECS
+        } else {
+            self.interval_secs.clamp(3, 3600)
+        }
+    }
 }
 
 pub fn is_supported_photo_path(path: &Path) -> bool {

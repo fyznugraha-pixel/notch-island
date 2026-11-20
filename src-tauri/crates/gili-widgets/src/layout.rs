@@ -380,7 +380,21 @@ pub fn hit_test_scene(
 pub fn slot_rect_dp(slot: &WidgetStackSlot, grid_scale: f32, origin_x: f32, origin_y: f32) -> RectF {
     let cell = GRID_SMALL_DP * grid_scale;
     let gap = GRID_GAP_DP * grid_scale;
-    let (w, h) = slot.size.dimensions_dp(grid_scale);
+    let is_photo_frame = slot
+        .active_widget()
+        .map(|w| w.widget_type.as_str() == "photo_frame")
+        .unwrap_or(false);
+    let (w, h) = if is_photo_frame {
+        let s = crate::config::sanitize_grid_scale(grid_scale);
+        let side = match slot.size {
+            WidgetSize::Small => 220.0 * s,
+            WidgetSize::Medium => 268.0 * s,
+            WidgetSize::Large => 336.0 * s,
+        };
+        (side, side)
+    } else {
+        slot.size.dimensions_dp(grid_scale)
+    };
     let x = slot
         .pos_x
         .unwrap_or_else(|| origin_x + (slot.grid_col as f32) * (cell + gap));

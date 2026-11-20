@@ -82,7 +82,7 @@ pub fn widget_catalog() -> Vec<WidgetCatalogEntry> {
         // Group D: Estetik & Gaya Hidup
         entry("styled_clock", "D", "Estetik & Gaya Hidup", "Jam Bergaya (8 Gaya)", "8 gaya jam termasuk analog, digital tipis, dan tipografi kata Bahasa Indonesia.", &[Small, Medium, Large], Medium, "Jam sistem lokal Windows", false, None),
         entry("world_clock", "D", "Estetik & Gaya Hidup", "Jam Dunia Multi-Zona", "Pantau hingga 4 zona waktu kota dunia sekaligus beserta indikator siang/malam.", &[Medium, Large], Medium, "Waktu UTC sistem (GetSystemTime) + offset zona", false, None),
-        entry("photo_frame", "D", "Estetik & Gaya Hidup", "Bingkai Foto / Polaroid", "Slideshow baca-saja dari folder foto pengguna dengan dukungan rotasi EXIF.", &[Small, Medium, Large], Small, "Folder foto lokal baca-saja", true, None),
+        entry("photo_frame", "D", "Estetik & Gaya Hidup", "Bingkai Foto / Polaroid", "Bingkai foto kotak bersih dengan slideshow otomatis 5 detik, klik langsung untuk menambah foto.", &[Small, Medium, Large], Large, "Folder foto lokal baca-saja", true, None),
         entry("live_mascot", "D", "Estetik & Gaya Hidup", "Maskot Hidup Gili", "Karakter vektor orisinal ringan (8-12 fps) yang merespons klik & waktu.", &[Small, Medium], Small, "Animasi vektor native Direct2D", false, None),
         entry("audio_visualizer", "D", "Estetik & Gaya Hidup", "Visualizer Audio", "Spektrum audio langsung dari WASAPI loopback dengan FFT ringan.", &[Medium], Medium, "Windows WASAPI loopback + FFT 256-point", false, Some("media")),
         entry("quote_poster", "D", "Estetik & Gaya Hidup", "Poster Kutipan", "Tipografi kutipan harian atau teks sendiri dengan tata letak editorial.", &[Small, Medium, Large], Medium, "KutipanHarianNavbarModule + teks sendiri", false, None),
@@ -109,6 +109,7 @@ pub struct ResolvedPalette {
     pub positive: RgbaColor,
     pub warning: RgbaColor,
     pub danger: RgbaColor,
+    pub is_monochrome: bool,
 }
 
 fn resolve_role(
@@ -196,6 +197,7 @@ pub fn resolve_palette(
         positive: if monochrome { primary } else { RgbaColor::new(0x34, 0xC3, 0xA0, 1.0) },
         warning: if monochrome { secondary } else { RgbaColor::new(0xFB, 0xBF, 0x24, 1.0) },
         danger: if monochrome { primary.with_alpha(0.90) } else { RgbaColor::new(0xF8, 0x71, 0x71, 1.0) },
+        is_monochrome: monochrome,
     }
 }
 
@@ -437,6 +439,25 @@ pub fn utc_hour_minute() -> (u32, u32) {
     {
         (12, 0)
     }
+}
+
+pub fn local_utc_offset_hours() -> f64 {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
+        let mut tzi = TIME_ZONE_INFORMATION::default();
+        let tz_id = unsafe { GetTimeZoneInformation(&mut tzi) };
+        if tz_id != u32::MAX {
+            let bias_mins = tzi.Bias
+                + if tz_id == 2 {
+                    tzi.DaylightBias
+                } else {
+                    tzi.StandardBias
+                };
+            return -(bias_mins as f64) / 60.0;
+        }
+    }
+    7.0
 }
 
 pub fn indonesian_day_name(dow: u32) -> &'static str {

@@ -156,7 +156,8 @@ impl HostSharedState {
 pub fn compute_adaptive_target_fps(
     cfg: &DesktopWidgetsConfig,
     edit_mode: bool,
-    any_spring_active: bool,
+    any_motion_active: bool,
+    has_running_timer: bool,
     screen_off: bool,
     board_visible: bool,
     policy: &SystemVisualPolicy,
@@ -180,7 +181,7 @@ pub fn compute_adaptive_target_fps(
         60
     };
 
-    if any_spring_active || (edit_mode && !policy.reduced_motion) {
+    if any_motion_active || (edit_mode && !policy.reduced_motion) {
         return (cap, None);
     }
 
@@ -213,7 +214,7 @@ pub fn compute_adaptive_target_fps(
             })
             .unwrap_or(false)
     });
-    if has_seconds_clock {
+    if has_seconds_clock || has_running_timer {
         return (1, None);
     }
 
@@ -264,17 +265,17 @@ mod win_host {
         AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
         DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GetCursorPos, GetWindow,
         GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindowVisible,
-        MsgWaitForMultipleObjects, PeekMessageW, RegisterClassExW, SetWindowLongPtrW, SetWindowPos,
-        ShowWindow, TrackPopupMenu, TranslateMessage, CS_DBLCLKS, ES_AUTOHSCROLL, ES_MULTILINE,
-        GWLP_HWNDPARENT, GWL_EXSTYLE, GW_HWNDPREV, HTCLIENT, HTTRANSPARENT, HWND_BOTTOM, HWND_TOP,
-        HWND_TOPMOST, MF_SEPARATOR, MF_STRING, MSG, PM_REMOVE, QS_ALLINPUT, SET_WINDOW_POS_FLAGS,
-        SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-        SW_HIDE, SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOWPOS,
-        WM_CAPTURECHANGED, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETOBJECT, WM_KEYDOWN,
-        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_POWERBROADCAST,
-        WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SHOWWINDOW, WM_WINDOWPOSCHANGING, WNDCLASSEXW,
-        WS_BORDER, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+        MsgWaitForMultipleObjects, PeekMessageW, RegisterClassExW, SetForegroundWindow,
+        SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage, CS_DBLCLKS,
+        ES_AUTOHSCROLL, GWLP_HWNDPARENT, GWL_EXSTYLE, GW_HWNDPREV, HTCLIENT, HTTRANSPARENT,
+        HWND_BOTTOM, HWND_TOP, HWND_TOPMOST, MF_SEPARATOR, MF_STRING, MSG, PM_REMOVE, QS_ALLINPUT,
+        SET_WINDOW_POS_FLAGS, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+        WINDOWPOS, WM_CAPTURECHANGED, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETOBJECT,
+        WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
+        WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SHOWWINDOW, WM_WINDOWPOSCHANGING,
+        WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE,
+        WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
     };
 
     const CMD_EDIT_TOGGLE: i32 = 1001;
@@ -628,9 +629,7 @@ mod win_host {
                 WS_CHILD
                     | WS_VISIBLE
                     | WS_BORDER
-                    | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
-                        (ES_AUTOHSCROLL | ES_MULTILINE) as u32,
-                    ),
+                    | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(ES_AUTOHSCROLL as u32),
                 x,
                 y,
                 w,
@@ -643,6 +642,7 @@ mod win_host {
             .ok()?
         };
         unsafe {
+            let _ = SetForegroundWindow(parent);
             let _ = SetFocus(hwnd);
         }
         Some(InlineEditor {
@@ -808,6 +808,9 @@ mod win_host {
                     });
 
                     let Some(hit_res) = hit else { return };
+                    if st.inline_editor.is_some() {
+                        close_prev_editor = st.inline_editor.take();
+                    }
                     match hit_res {
                         HitTestResult::Transparent => {
                             if board_visible {
@@ -1401,12 +1404,48 @@ mod win_host {
             unsafe {
                 let mut msg = MSG::default();
                 while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE).as_bool() {
+                    if msg.message == WM_KEYDOWN {
+                        let vk = msg.wParam.0 as u16;
+                        if vk == VK_ESCAPE.0 || vk == VK_RETURN.0 {
+                            let ed_match = HOST_STATE.with(|cell| {
+                                cell.try_borrow_mut()
+                                    .ok()
+                                    .and_then(|mut b| {
+                                        let st = b.as_mut()?;
+                                        let active_hwnd = st.inline_editor.as_ref()?.hwnd;
+                                        let is_editor_msg = msg.hwnd == active_hwnd
+                                            || st.surfaces.iter().any(|s| s.hwnd == msg.hwnd);
+                                        if is_editor_msg {
+                                            Some((st.inline_editor.take()?, st.shared.clone()))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                            });
+                            if let Some((ed, sh)) = ed_match {
+                                let (slot_id, widget_type, text) = read_and_close_inline_editor(ed);
+                                if vk == VK_RETURN.0 && !text.trim().is_empty() {
+                                    emit_detached(
+                                        &sh,
+                                        WidgetHostEvent::TextInputSubmitted {
+                                            slot_id,
+                                            widget_type,
+                                            text,
+                                        },
+                                    );
+                                }
+                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                                continue;
+                            }
+                        }
+                    }
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
             }
 
             // Poll active direct-desktop drag via GetAsyncKeyState so WS_EX_NOACTIVATE never drops drag!
+            let mut ended_pointer_capture = false;
             let drag_deferred = HOST_STATE.with(|cell| {
                 let Ok(mut b) = cell.try_borrow_mut() else {
                     return None;
@@ -1462,6 +1501,7 @@ mod win_host {
                     }
                     None
                 } else {
+                    ended_pointer_capture = true;
                     let target_hwnd = st
                         .dragging
                         .as_ref()
@@ -1471,6 +1511,11 @@ mod win_host {
                     finalize_drag_or_press(st, target_hwnd)
                 }
             });
+            if ended_pointer_capture {
+                unsafe {
+                    let _ = ReleaseCapture();
+                }
+            }
             if let Some((sh, ev)) = drag_deferred {
                 emit_detached(&sh, ev);
             }
@@ -1839,7 +1884,9 @@ mod win_host {
                         };
 
                         // Use full present during motion/drag/edit to prevent flip-sequential stale trails
-                        let full_frame = force_redraw || any_spring_active || edit_mode;
+                        let anim_active = renderer.has_active_animations();
+                        let full_frame =
+                            force_redraw || any_spring_active || anim_active || edit_mode;
                         let (dirty_cnt, pres_res) = renderer.render_frame(
                             &gpu_res,
                             &mut surf.swap,
@@ -1866,10 +1913,21 @@ mod win_host {
                     }
                 }
 
+                let has_running_timer = cfg.slots.iter().any(|s| {
+                    s.active_widget()
+                        .map(|w| w.widget_type == "time_tracker")
+                        .unwrap_or(false)
+                }) && hub
+                    .time_tracker
+                    .projects
+                    .iter()
+                    .any(|p| p.running_since_epoch.is_some());
+
                 let (fps, paused_reason) = compute_adaptive_target_fps(
                     &cfg,
                     edit_mode,
                     any_spring_active,
+                    has_running_timer,
                     screen_off,
                     board_visible,
                     &policy,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   Plus,
@@ -72,6 +72,8 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const configRef = useRef<DesktopWidgetsConfig | null>(null);
+  configRef.current = config;
 
   useEffect(() => {
     let alive = true;
@@ -118,10 +120,24 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     window.setTimeout(() => setStatusMsg(null), 3500);
   };
 
-  const persistConfig = async (next: DesktopWidgetsConfig) => {
+  const persistConfig = async (
+    nextOrUpdater:
+      | DesktopWidgetsConfig
+      | ((prev: DesktopWidgetsConfig) => DesktopWidgetsConfig)
+  ) => {
+    const base = configRef.current;
+    const next =
+      typeof nextOrUpdater === "function"
+        ? base
+          ? nextOrUpdater(base)
+          : null
+        : nextOrUpdater;
+    if (!next) return;
+    configRef.current = next;
     setConfig(next);
     try {
       const saved = await saveDesktopWidgetsConfig(next);
+      configRef.current = saved;
       setConfig(saved);
     } catch (err) {
       flash(`Gagal menyimpan pengaturan widget: ${String(err)}`);
@@ -198,10 +214,18 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     });
   };
 
-  const handleUpdateSlotStyle = (slotId: string, style: WidgetStyleConfig | null) => {
-    persistConfig({
-      ...config,
-      slots: config.slots.map((s) => {
+  const mergeRecentHex = (prev: string[], hex?: string) =>
+    hex ? [hex, ...prev.filter((c) => c !== hex)].slice(0, 12) : prev;
+
+  const handleUpdateSlotStyle = (
+    slotId: string,
+    style: WidgetStyleConfig | null,
+    recordedHex?: string
+  ) => {
+    persistConfig((prev) => ({
+      ...prev,
+      recent_colors: mergeRecentHex(prev.recent_colors, recordedHex),
+      slots: prev.slots.map((s) => {
         if (s.slot_id !== slotId) return s;
         return {
           ...s,
@@ -210,13 +234,21 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           ),
         };
       }),
-    });
+    }));
+  };
+
+  const handleUpdateGlobalStyle = (nextGlobal: WidgetStyleConfig, recordedHex?: string) => {
+    persistConfig((prev) => ({
+      ...prev,
+      global_theme: nextGlobal,
+      recent_colors: mergeRecentHex(prev.recent_colors, recordedHex),
+    }));
   };
 
   const handleUpdateWidgetSetting = (slotId: string, key: string, value: unknown) => {
-    persistConfig({
-      ...config,
-      slots: config.slots.map((s) => {
+    persistConfig((prev) => ({
+      ...prev,
+      slots: prev.slots.map((s) => {
         if (s.slot_id !== slotId) return s;
         return {
           ...s,
@@ -227,21 +259,22 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           ),
         };
       }),
-    });
+    }));
   };
 
   const handleSavePreset = (name: string, style: WidgetStyleConfig) => {
-    const next = {
-      ...config,
-      presets: [...config.presets, { id: `preset_${Date.now()}`, name, style }],
-    };
-    persistConfig(next);
+    persistConfig((prev) => ({
+      ...prev,
+      presets: [...prev.presets, { id: `preset_${Date.now()}`, name, style }],
+    }));
     flash(`Preset "${name}" tersimpan.`);
   };
 
   const handleRecordRecentColor = (hex: string) => {
-    const dedup = [hex, ...config.recent_colors.filter((c) => c !== hex)].slice(0, 12);
-    persistConfig({ ...config, recent_colors: dedup });
+    persistConfig((prev) => ({
+      ...prev,
+      recent_colors: mergeRecentHex(prev.recent_colors, hex),
+    }));
   };
 
   const editingSlot = config.slots.find((s) => s.slot_id === editingSlotId) ?? null;
@@ -555,7 +588,9 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             presets={config.presets}
             recentColors={config.recent_colors}
             isLightMode={isLightMode}
-            onChange={(nextStyle) => handleUpdateSlotStyle(editingSlot.slot_id, nextStyle)}
+            onChange={(nextStyle, recordedHex) =>
+              handleUpdateSlotStyle(editingSlot.slot_id, nextStyle, recordedHex)
+            }
             onSavePreset={handleSavePreset}
             onRecordRecentColor={handleRecordRecentColor}
           />
@@ -571,7 +606,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           presets={config.presets}
           recentColors={config.recent_colors}
           isLightMode={isLightMode}
-          onChange={(nextGlobal) => persistConfig({ ...config, global_theme: nextGlobal })}
+          onChange={handleUpdateGlobalStyle}
           onSavePreset={handleSavePreset}
           onRecordRecentColor={handleRecordRecentColor}
         />

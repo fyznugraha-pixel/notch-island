@@ -1,8 +1,7 @@
 use crate::config::{RgbaColor, WidgetSize};
 use crate::layout::{RectF, SceneNode, TextAlign};
 use crate::widgets::{
-    action_pill, indonesian_day_name, indonesian_month_name, local_datetime_parts, text_node,
-    WidgetBuildCtx,
+    indonesian_day_name, indonesian_month_name, local_datetime_parts, text_node, WidgetBuildCtx,
 };
 
 fn indonesian_number_word(n: u32) -> &'static str {
@@ -351,141 +350,56 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
 }
 
-/// 20. Bingkai foto / polaroid: tambah foto langsung dari widget desktop, folder opsional, EXIF (S, M, L)
+/// 20. Bingkai foto / polaroid: bingkai kotak bersih tanpa label nama/tombol, klik langsung pilih foto, auto slideshow 5 detik (S, M, L)
 pub fn build_photo_frame(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let pf = &ctx.hub.photo_frame;
     if pf.photos.is_empty() {
-        let inner = ctx.frame.inset(12.0);
-        let btn_h = 24.0;
-        let btn_y = inner.y + inner.h - btn_h;
-        let gap = 6.0;
-        let w_pick = ((inner.w - gap) * 0.58).max(66.0);
-        let w_folder = (inner.w - gap - w_pick).max(46.0);
-        let placeholder_h = (btn_y - inner.y - 26.0).max(24.0);
-
-        let mut nodes = vec![
+        return vec![
             SceneNode::RoundedRect {
-                rect: RectF::new(inner.x, inner.y, inner.w, placeholder_h),
-                radius: 12.0,
-                smoothing: 0.5,
+                rect: ctx.frame,
+                radius: 20.0,
+                smoothing: 0.55,
                 fill: Some(
                     ctx.pal
                         .card_fill
-                        .map(|c| c.with_alpha(0.24))
-                        .unwrap_or_else(|| ctx.pal.secondary.with_alpha(0.14)),
+                        .map(|c| c.with_alpha(0.28))
+                        .unwrap_or_else(|| ctx.pal.secondary.with_alpha(0.16)),
                 ),
                 stroke: Some((
                     ctx.pal
                         .inner_border
                         .map(|c| c.with_alpha(0.65))
-                        .unwrap_or_else(|| ctx.pal.secondary.with_alpha(0.35)),
-                    1.0,
+                        .unwrap_or_else(|| ctx.pal.secondary.with_alpha(0.38)),
+                    1.2,
                 )),
                 interactive_action: Some("photo_pick".into()),
             },
             text_node(
-                RectF::new(inner.x + 8.0, inner.y + (placeholder_h * 0.5 - 10.0).max(4.0), inner.w - 16.0, 20.0),
-                "Bingkai Polaroid",
-                12.5,
-                700,
+                RectF::new(
+                    ctx.frame.x + 14.0,
+                    ctx.frame.y + (ctx.frame.h * 0.5 - 10.0).max(8.0),
+                    (ctx.frame.w - 28.0).max(20.0),
+                    24.0,
+                ),
+                "Klik untuk Pilih Foto",
+                13.5,
+                600,
                 ctx.pal.primary,
                 TextAlign::Center,
                 false,
             ),
-            text_node(
-                RectF::new(inner.x + 2.0, btn_y - 20.0, inner.w - 4.0, 16.0),
-                "Pilih foto dari perangkat",
-                10.0,
-                500,
-                ctx.pal.secondary,
-                TextAlign::Center,
-                false,
-            ),
         ];
-        nodes.extend(action_pill(
-            RectF::new(inner.x, btn_y, w_pick, btn_h),
-            "Pilih Foto",
-            ctx.pal.accent.with_alpha(0.28),
-            ctx.pal.primary,
-            "photo_pick",
-        ));
-        nodes.extend(action_pill(
-            RectF::new(inner.x + w_pick + gap, btn_y, w_folder, btn_h),
-            "Folder",
-            ctx.pal
-                .card_fill
-                .map(|c| c.with_alpha(0.42))
-                .unwrap_or_else(|| ctx.pal.secondary.with_alpha(0.22)),
-            ctx.pal.primary,
-            "photo_pick_folder",
-        ));
-        return nodes;
     }
 
     let idx = pf.current_index % pf.photos.len();
     let path = &pf.photos[idx];
-    let polaroid = ctx
-        .instance
-        .settings
-        .get("polaroid")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
 
-    let pad = if polaroid { 10.0 } else { 4.0 };
-    let bottom_extra = if polaroid { 30.0 } else { 4.0 };
-    let img_rect = RectF::new(
-        ctx.frame.x + pad,
-        ctx.frame.y + pad,
-        (ctx.frame.w - pad * 2.0).max(20.0),
-        (ctx.frame.h - pad - bottom_extra).max(20.0),
-    );
-
-    let mut nodes = vec![SceneNode::ImageRef {
-        rect: img_rect,
-        radius: 14.0,
+    vec![SceneNode::ImageRef {
+        rect: ctx.frame,
+        radius: 20.0,
         source_path: path.clone(),
-        interactive_action: Some("photo_next".into()),
-    }];
-
-    let add_w = 52.0;
-    let add_h = 20.0;
-    if polaroid {
-        let name = if !pf.polaroid_caption.trim().is_empty() {
-            pf.polaroid_caption.trim()
-        } else {
-            std::path::Path::new(path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Kenangan")
-        };
-        let caption_y = ctx.frame.y + ctx.frame.h - 24.0;
-        let caption_w = (ctx.frame.w - 24.0 - add_w - 6.0).max(36.0);
-        nodes.push(text_node(
-            RectF::new(ctx.frame.x + 12.0, caption_y, caption_w, 18.0),
-            name,
-            11.0,
-            500,
-            ctx.pal.primary,
-            TextAlign::Left,
-            false,
-        ));
-        nodes.extend(action_pill(
-            RectF::new(ctx.frame.x + ctx.frame.w - add_w - 10.0, caption_y - 1.0, add_w, add_h),
-            "+ Foto",
-            ctx.pal.accent.with_alpha(0.28),
-            ctx.pal.primary,
-            "photo_pick",
-        ));
-    } else {
-        nodes.extend(action_pill(
-            RectF::new(img_rect.x + img_rect.w - add_w - 6.0, img_rect.y + 6.0, add_w, add_h),
-            "+ Foto",
-            RgbaColor::new(15, 23, 42, 0.72),
-            RgbaColor::new(255, 255, 255, 0.96),
-            "photo_pick",
-        ));
-    }
-    nodes
+        interactive_action: Some("photo_pick".into()),
+    }]
 }
 
 /// 21. Maskot hidup orisinal Gili (vektor Direct2D 8-10 fps ringan; catatan aset desainer di LAPORAN) (S, M)

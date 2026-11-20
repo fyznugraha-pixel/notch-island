@@ -25,6 +25,17 @@ export const StandbyHydrationMetricsWidget: React.FC<StandbyHydrationMetricsWidg
     return subscribeToSystemMetrics(setMetrics);
   }, [mode]);
 
+  useEffect(() => {
+    if (mode !== "hydration") return;
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || e.key.includes("water")) {
+        setWaterTick((n) => n + 1);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [mode]);
+
   if (mode === "hydration") {
     const waterData = loadWaterData();
     const daily = getDailyIntake(new Date(), waterData);
@@ -69,7 +80,7 @@ export const StandbyHydrationMetricsWidget: React.FC<StandbyHydrationMetricsWidg
             <div
               className="h-full rounded-full transition-all duration-300"
               style={{
-                width: `${pct}%`,
+                width: `${Math.min(100, Math.max(0, pct))}%`,
                 backgroundColor: palette.night ? palette.textPrimary : "#32ade6",
               }}
             />

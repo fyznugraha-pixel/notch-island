@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { loadActiveProvider } from "./aiChatService";
+import { getSecureApiKey } from "./aiCredentialService";
 import { HABIT_STREAK_STORAGE_KEY, parseHabitStreakRecord } from "./habitHistoryService";
 
 export type WidgetSize = "small" | "medium" | "large";
@@ -310,6 +312,9 @@ export async function syncFrontendWidgetMirror(): Promise<void> {
       custom_text: typeof rawQuote?.customText === "string" ? rawQuote.customText : null,
     };
 
+    const activeProvider = loadActiveProvider();
+    const apiKey = await getSecureApiKey(activeProvider).catch(() => "");
+
     const rawCity = parseJson("island_weather_custom_city");
     const mirror = {
       events,
@@ -318,8 +323,8 @@ export async function syncFrontendWidgetMirror(): Promise<void> {
       shelf_files,
       quote,
       ai_quick: {
-        configured: false,
-        active_model_label: "Gili AI",
+        configured: Boolean(apiKey.trim()),
+        active_model_label: activeProvider.toUpperCase(),
         last_prompt: "",
         last_response: "",
         is_streaming: false,

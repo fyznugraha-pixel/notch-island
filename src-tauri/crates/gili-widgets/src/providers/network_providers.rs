@@ -266,6 +266,21 @@ pub fn validate_https_url_with_allowlist(url: &str, allowed_hosts: &[&str]) -> R
     Ok(trimmed.to_string())
 }
 
+pub fn resolve_hourly_forecast_start(times: &[serde_json::Value], current_iso: Option<&str>) -> usize {
+    let Some(cur_hour_prefix) = current_iso.and_then(|s| s.get(..13)) else {
+        return 0;
+    };
+    times
+        .iter()
+        .position(|t| {
+            t.as_str()
+                .and_then(|s| s.get(..13))
+                .map(|slot| slot >= cur_hour_prefix)
+                .unwrap_or(false)
+        })
+        .unwrap_or(0)
+}
+
 pub fn fetch_open_meteo_forecast(
     location_name: &str,
     lat: f64,
@@ -301,7 +316,9 @@ pub fn fetch_open_meteo_forecast(
                     v["hourly"]["temperature_2m"].as_array(),
                     v["hourly"]["weather_code"].as_array(),
                 ) {
-                    for i in 0..ts.len().min(6) {
+                    let start = resolve_hourly_forecast_start(ts, v["current"]["time"].as_str());
+                    let end = (start + 6).min(ts.len());
+                    for i in start..end {
                         let label = ts[i]
                             .as_str()
                             .and_then(|s| s.split('T').nth(1))

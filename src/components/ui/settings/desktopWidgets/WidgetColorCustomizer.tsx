@@ -31,9 +31,9 @@ interface WidgetColorCustomizerProps {
   recentColors: string[];
   isLightMode: boolean;
   title: string;
-  onChange: (next: WidgetStyleConfig) => void;
+  onChange: (next: WidgetStyleConfig, recordedHex?: string) => void;
   onSavePreset: (name: string, style: WidgetStyleConfig) => void;
-  onRecordRecentColor: (hex: string) => void;
+  onRecordRecentColor?: (hex: string) => void;
 }
 
 const FONT_SELECT_OPTIONS = [
@@ -63,7 +63,6 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
   title,
   onChange,
   onSavePreset,
-  onRecordRecentColor,
 }) => {
   const [activeRole, setActiveRole] = useState<RoleKey>("text_primary");
   const [analysis, setAnalysis] = useState<WallpaperRegionAnalysis | null>(null);
@@ -96,21 +95,22 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
       : { r: 245, g: 245, b: 247, a: 1 };
 
   const handleWheelChange = (nextColor: RgbaColor) => {
-    setRole(activeRole, { mode: "custom", color: nextColor });
-    onRecordRecentColor(rgbaToHex(nextColor));
+    onChange({ ...style, [activeRole]: { mode: "custom", color: nextColor } }, rgbaToHex(nextColor));
   };
 
   const applyMonochromeToAllRoles = (baseColor: RgbaColor) => {
-    onChange({
-      ...style,
-      text_primary: { mode: "custom", color: { ...baseColor, a: 1 } },
-      text_secondary: {
-        mode: "custom",
-        color: { ...baseColor, a: Number((baseColor.a * 0.8).toFixed(2)) || 0.8 },
+    onChange(
+      {
+        ...style,
+        text_primary: { mode: "custom", color: { ...baseColor, a: 1 } },
+        text_secondary: {
+          mode: "custom",
+          color: { ...baseColor, a: Number((baseColor.a * 0.8).toFixed(2)) || 0.8 },
+        },
+        accent: { mode: "custom", color: { ...baseColor, a: 1 } },
       },
-      accent: { mode: "custom", color: { ...baseColor, a: 1 } },
-    });
-    onRecordRecentColor(rgbaToHex(baseColor));
+      rgbaToHex(baseColor)
+    );
   };
 
   const resolvedPreviewColor = (src: ColorRoleSource, fallback: string): string => {

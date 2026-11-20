@@ -207,14 +207,25 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         "trigger_storage_scan",
     ));
 
-    let palette = [
-        ctx.pal.accent.with_alpha(0.75),
-        ctx.pal.positive.with_alpha(0.75),
-        RgbaColor::new(0xEC, 0x48, 0x99, 0.72),
-        ctx.pal.warning.with_alpha(0.75),
-        RgbaColor::new(0x8B, 0x5C, 0xF6, 0.72),
-        ctx.pal.danger.with_alpha(0.72),
-    ];
+    let palette = if ctx.pal.is_monochrome {
+        [
+            ctx.pal.primary.with_alpha(0.82),
+            ctx.pal.primary.with_alpha(0.66),
+            ctx.pal.primary.with_alpha(0.52),
+            ctx.pal.primary.with_alpha(0.40),
+            ctx.pal.primary.with_alpha(0.30),
+            ctx.pal.primary.with_alpha(0.22),
+        ]
+    } else {
+        [
+            ctx.pal.accent.with_alpha(0.75),
+            ctx.pal.positive.with_alpha(0.75),
+            RgbaColor::new(0xEC, 0x48, 0x99, 0.72),
+            ctx.pal.warning.with_alpha(0.75),
+            RgbaColor::new(0x8B, 0x5C, 0xF6, 0.72),
+            ctx.pal.danger.with_alpha(0.72),
+        ]
+    };
     let tiles: Vec<(String, f32, RgbaColor)> = tm
         .items
         .iter()

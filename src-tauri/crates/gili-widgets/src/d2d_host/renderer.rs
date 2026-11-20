@@ -6,7 +6,7 @@ pub mod render {
         SystemVisualPolicy,
     };
     use crate::layout::{build_superellipse_points, RectF, SceneNode, TextAlign, WidgetRenderItem};
-    use crate::spring::DigitRollState;
+    use crate::spring::{DigitRollState, SpringParams, SpringValue};
     use std::collections::HashMap;
     use std::hash::{Hash, Hasher};
     use windows::core::{HSTRING, PCWSTR};
@@ -82,6 +82,40 @@ pub mod render {
         bitmap: ID2D1Bitmap1,
     }
 
+    struct ImageTransitionState {
+        prev_path: String,
+        current_path: String,
+        progress: SpringValue,
+    }
+
+    fn compute_cover_src_rect(bmp: &ID2D1Bitmap1, rect: RectF) -> Option<D2D_RECT_F> {
+        let bmp_sz = unsafe { bmp.GetSize() };
+        if bmp_sz.width <= 0.0 || bmp_sz.height <= 0.0 || rect.w <= 0.0 || rect.h <= 0.0 {
+            return None;
+        }
+        let src_aspect = bmp_sz.width / bmp_sz.height;
+        let dst_aspect = rect.w / rect.h;
+        if src_aspect > dst_aspect {
+            let crop_w = bmp_sz.height * dst_aspect;
+            let x0 = (bmp_sz.width - crop_w) * 0.5;
+            Some(D2D_RECT_F {
+                left: x0,
+                top: 0.0,
+                right: x0 + crop_w,
+                bottom: bmp_sz.height,
+            })
+        } else {
+            let crop_h = bmp_sz.width / dst_aspect;
+            let y0 = (bmp_sz.height - crop_h) * 0.5;
+            Some(D2D_RECT_F {
+                left: 0.0,
+                top: y0,
+                right: bmp_sz.width,
+                bottom: y0 + crop_h,
+            })
+        }
+    }
+
     pub struct D2DWidgetRenderer {
         brush: ID2D1SolidColorBrush,
         dashed_stroke: ID2D1StrokeStyle,
@@ -91,6 +125,7 @@ pub mod render {
         shadow_cache: HashMap<String, CachedBitmapEntry>,
         image_cache: HashMap<String, ID2D1Bitmap1>,
         digit_rolls: HashMap<String, DigitRollState>,
+        photo_transitions: HashMap<String, ImageTransitionState>,
         prev_hashes: HashMap<String, (u64, RectF)>,
     }
 
@@ -99,7 +134,15 @@ pub mod render {
             unsafe {
                 let brush = res
                     .d2d_context
-                    .CreateSolidColorBrush(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }, None)
+                    .CreateSolidColorBrush(
+                        &D2D1_COLOR_F {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: 1.0,
+                        },
+                        None,
+                    )
                     .map_err(|e| format!("CreateSolidColorBrush gagal: {e}"))?;
 
                 let dashed_props = D2D1_STROKE_STYLE_PROPERTIES1 {
@@ -132,6 +175,7 @@ pub mod render {
                     shadow_cache: HashMap::new(),
                     image_cache: HashMap::new(),
                     digit_rolls: HashMap::new(),
+                    photo_transitions: HashMap::new(),
                     prev_hashes: HashMap::new(),
                 })
             }
@@ -142,6 +186,7 @@ pub mod render {
             self.shadow_cache.clear();
             self.image_cache.clear();
             self.digit_rolls.clear();
+            self.photo_transitions.clear();
             self.prev_hashes.clear();
         }
 
@@ -149,6 +194,10 @@ pub mod render {
             self.digit_rolls
                 .values()
                 .any(|r| !r.progress.is_settled() && r.prev_text != r.current_text)
+                || self
+                    .photo_transitions
+                    .values()
+                    .any(|t| !t.progress.is_settled() && t.prev_path != t.current_path)
         }
 
         fn get_text_format(
@@ -247,7 +296,10 @@ pub mod render {
                 .and_then(|rest| rest.split_once(";base64,").map(|(_, b)| b))
             {
                 use base64::Engine;
-                let cleaned: String = b64_part.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+                let cleaned: String = b64_part
+                    .chars()
+                    .filter(|c| !c.is_ascii_whitespace())
+                    .collect();
                 let bytes = base64::engine::general_purpose::STANDARD
                     .decode(&cleaned)
                     .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(&cleaned))
@@ -261,8 +313,9 @@ pub mod render {
                     .map(|p| p.replace("%20", " "))
                     .unwrap_or_else(|| trimmed.to_string());
                 let decoded = image::open(&path).ok()?;
-                let orient =
-                    crate::providers::local_stores::read_jpeg_exif_orientation(std::path::Path::new(&path));
+                let orient = crate::providers::local_stores::read_jpeg_exif_orientation(
+                    std::path::Path::new(&path),
+                );
                 match orient {
                     2 => decoded.fliph(),
                     3 => decoded.rotate180(),
@@ -298,7 +351,10 @@ pub mod render {
             let bmp = unsafe {
                 res.d2d_context
                     .CreateBitmap(
-                        D2D_SIZE_U { width: w, height: h },
+                        D2D_SIZE_U {
+                            width: w,
+                            height: h,
+                        },
                         Some(bgra.as_ptr() as *const _),
                         w * 4,
                         &props,
@@ -375,6 +431,20 @@ pub mod render {
             }
 
             self.prev_hashes = next_hashes;
+            self.shadow_cache
+                .retain(|k, _| self.prev_hashes.contains_key(k));
+            self.digit_rolls.retain(|k, _| {
+                k.split(':')
+                    .next()
+                    .map(|sid| self.prev_hashes.contains_key(sid))
+                    .unwrap_or(false)
+            });
+            self.photo_transitions.retain(|k, _| {
+                k.split(':')
+                    .next()
+                    .map(|sid| self.prev_hashes.contains_key(sid))
+                    .unwrap_or(false)
+            });
 
             if dirty_rects_px.is_empty() && !force_full && swap.has_presented_once {
                 return (0, Ok(()));
@@ -565,7 +635,7 @@ pub mod render {
             }
 
             for (idx, node) in item.nodes.iter().enumerate() {
-                let roll_key = format!("{}:{}", item.slot_id, idx);
+                let roll_key = format!("{}:{}:{}", item.slot_id, item.widget_type, idx);
                 self.draw_scene_node(
                     res,
                     node,
@@ -653,6 +723,9 @@ pub mod render {
         ) {
             let mut h = std::collections::hash_map::DefaultHasher::new();
             item.slot_id.hash(&mut h);
+            item.font_family.hash(&mut h);
+            item.frame.w.to_bits().hash(&mut h);
+            item.frame.h.to_bits().hash(&mut h);
             item.shadow_enabled.hash(&mut h);
             item.halo_enabled.hash(&mut h);
             item.shadow_color.r.hash(&mut h);
@@ -772,8 +845,12 @@ pub mod render {
                             let local_x = rect.x - ox;
                             let local_y = rect.y - oy;
                             if item.shadow_enabled {
-                                let sc_near = item.shadow_color.with_alpha((item.shadow_color.a * 0.65).clamp(0.0, 0.72));
-                                let sc_soft = item.shadow_color.with_alpha((item.shadow_color.a * 0.30).clamp(0.0, 0.38));
+                                let sc_near = item
+                                    .shadow_color
+                                    .with_alpha((item.shadow_color.a * 0.65).clamp(0.0, 0.72));
+                                let sc_soft = item
+                                    .shadow_color
+                                    .with_alpha((item.shadow_color.a * 0.30).clamp(0.0, 0.38));
                                 unsafe {
                                     self.brush.SetColor(&d2d_color(sc_soft));
                                     for (dx, dy) in [(-1.0, 2.2), (1.0, 2.2), (0.0, 3.0)] {
@@ -804,7 +881,8 @@ pub mod render {
                                 hc.a = (hc.a * 0.45).clamp(0.0, 0.65);
                                 unsafe {
                                     self.brush.SetColor(&d2d_color(hc));
-                                    for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)]
+                                    for (dx, dy) in
+                                        [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)]
                                     {
                                         res.d2d_context.DrawTextLayout(
                                             D2D_POINT_2F {
@@ -1163,10 +1241,7 @@ pub mod render {
                     if values.len() < 2 {
                         return;
                     }
-                    let max_v = values
-                        .iter()
-                        .copied()
-                        .fold(1.0f32, f32::max);
+                    let max_v = values.iter().copied().fold(1.0f32, f32::max);
                     let step_x = rect.w / (values.len() - 1) as f32;
                     unsafe {
                         self.brush.SetColor(&d2d_color(*stroke_color));
@@ -1283,7 +1358,8 @@ pub mod render {
                     for (label, val, col) in items {
                         let frac = (val.max(0.01) / total).clamp(0.05, 1.0);
                         let w = (rect.w * frac - 3.0).max(8.0);
-                        let tile = RectF::new(x_cursor, rect.y, w.min(rect.x + rect.w - x_cursor), rect.h);
+                        let tile =
+                            RectF::new(x_cursor, rect.y, w.min(rect.x + rect.w - x_cursor), rect.h);
                         unsafe {
                             self.brush.SetColor(&d2d_color(*col));
                             ctx.FillRoundedRectangle(
@@ -1347,8 +1423,13 @@ pub mod render {
                         None,
                     );
                     for i in 0..12 {
-                        let a = (i as f32) * std::f32::consts::TAU / 12.0 - std::f32::consts::FRAC_PI_2;
-                        let r_in = if i % 3 == 0 { radius * 0.80 } else { radius * 0.88 };
+                        let a =
+                            (i as f32) * std::f32::consts::TAU / 12.0 - std::f32::consts::FRAC_PI_2;
+                        let r_in = if i % 3 == 0 {
+                            radius * 0.80
+                        } else {
+                            radius * 0.88
+                        };
                         let r_out = radius * 0.94;
                         ctx.DrawLine(
                             D2D_POINT_2F {
@@ -1416,41 +1497,60 @@ pub mod render {
                     source_path,
                     ..
                 } => {
-                    if let Some(bmp) = self.load_image_bitmap(res, source_path) {
-                        if let Some(geom) = self.build_superellipse_geometry(res, *rect, *radius, 0.5)
+                    let (cur_bmp_opt, prev_bmp_opt, trans_p) = if let Some(rk) = roll_key {
+                        let photo_spring = SpringParams {
+                            response: 0.58,
+                            damping_ratio: 0.94,
+                        };
+                        let (prev_path_opt, p_val) = {
+                            let tr =
+                                self.photo_transitions
+                                    .entry(rk.to_string())
+                                    .or_insert_with(|| ImageTransitionState {
+                                        prev_path: source_path.clone(),
+                                        current_path: source_path.clone(),
+                                        progress: SpringValue::settled(1.0),
+                                    });
+                            if tr.current_path != *source_path {
+                                tr.prev_path =
+                                    std::mem::replace(&mut tr.current_path, source_path.clone());
+                                if reduced_motion {
+                                    tr.progress = SpringValue::settled(1.0);
+                                } else {
+                                    tr.progress = SpringValue {
+                                        value: 0.0,
+                                        velocity: 0.0,
+                                        target: 1.0,
+                                    };
+                                }
+                            }
+                            let _ = tr.progress.step(
+                                dt_sec.clamp(0.008, 0.05),
+                                photo_spring,
+                                reduced_motion,
+                            );
+                            if !tr.progress.is_settled() && tr.prev_path != tr.current_path {
+                                (
+                                    Some(tr.prev_path.clone()),
+                                    tr.progress.value.clamp(0.0, 1.0),
+                                )
+                            } else {
+                                (None, 1.0)
+                            }
+                        };
+                        let cur_b = self.load_image_bitmap(res, source_path);
+                        let prev_b = prev_path_opt.and_then(|pp| self.load_image_bitmap(res, &pp));
+                        (cur_b, prev_b, p_val)
+                    } else {
+                        (self.load_image_bitmap(res, source_path), None, 1.0)
+                    };
+
+                    if let Some(cur_bmp) = &cur_bmp_opt {
+                        if let Some(geom) =
+                            self.build_superellipse_geometry(res, *rect, *radius, 0.5)
                         {
                             unsafe {
-                                let bmp_sz = bmp.GetSize();
-                                let src_rect = if bmp_sz.width > 0.0
-                                    && bmp_sz.height > 0.0
-                                    && rect.w > 0.0
-                                    && rect.h > 0.0
-                                {
-                                    let src_aspect = bmp_sz.width / bmp_sz.height;
-                                    let dst_aspect = rect.w / rect.h;
-                                    if src_aspect > dst_aspect {
-                                        let crop_w = bmp_sz.height * dst_aspect;
-                                        let x0 = (bmp_sz.width - crop_w) * 0.5;
-                                        Some(D2D_RECT_F {
-                                            left: x0,
-                                            top: 0.0,
-                                            right: x0 + crop_w,
-                                            bottom: bmp_sz.height,
-                                        })
-                                    } else {
-                                        let crop_h = bmp_sz.width / dst_aspect;
-                                        let y0 = (bmp_sz.height - crop_h) * 0.5;
-                                        Some(D2D_RECT_F {
-                                            left: 0.0,
-                                            top: y0,
-                                            right: bmp_sz.width,
-                                            bottom: y0 + crop_h,
-                                        })
-                                    }
-                                } else {
-                                    None
-                                };
-                                let layer_params = D2D1_LAYER_PARAMETERS1 {
+                                let mut layer_params = D2D1_LAYER_PARAMETERS1 {
                                     contentBounds: d2d_rect(*rect),
                                     geometricMask: std::mem::ManuallyDrop::new(Some(geom.into())),
                                     maskAntialiasMode:
@@ -1462,15 +1562,52 @@ pub mod render {
                                         windows::Win32::Graphics::Direct2D::D2D1_LAYER_OPTIONS1_NONE,
                                 };
                                 ctx.PushLayer(&layer_params, None);
-                                ctx.DrawBitmap(
-                                    &bmp,
-                                    Some(&d2d_rect(*rect)),
-                                    1.0,
-                                    D2D1_INTERPOLATION_MODE_LINEAR,
-                                    src_rect.as_ref().map(|r| r as *const _),
-                                    None,
-                                );
+                                if let Some(prev_bmp) = &prev_bmp_opt {
+                                    let shift = rect.w * 0.08;
+                                    let prev_dst = RectF::new(
+                                        rect.x - shift * trans_p,
+                                        rect.y,
+                                        rect.w,
+                                        rect.h,
+                                    );
+                                    let cur_dst = RectF::new(
+                                        rect.x + shift * (1.0 - trans_p),
+                                        rect.y,
+                                        rect.w,
+                                        rect.h,
+                                    );
+                                    let prev_src = compute_cover_src_rect(prev_bmp, *rect);
+                                    let cur_src = compute_cover_src_rect(cur_bmp, *rect);
+                                    ctx.DrawBitmap(
+                                        prev_bmp,
+                                        Some(&d2d_rect(prev_dst)),
+                                        (1.0 - trans_p).clamp(0.0, 1.0),
+                                        D2D1_INTERPOLATION_MODE_LINEAR,
+                                        prev_src.as_ref().map(|r| r as *const _),
+                                        None,
+                                    );
+                                    ctx.DrawBitmap(
+                                        cur_bmp,
+                                        Some(&d2d_rect(cur_dst)),
+                                        trans_p,
+                                        D2D1_INTERPOLATION_MODE_LINEAR,
+                                        cur_src.as_ref().map(|r| r as *const _),
+                                        None,
+                                    );
+                                } else {
+                                    let src_rect = compute_cover_src_rect(cur_bmp, *rect);
+                                    ctx.DrawBitmap(
+                                        cur_bmp,
+                                        Some(&d2d_rect(*rect)),
+                                        1.0,
+                                        D2D1_INTERPOLATION_MODE_LINEAR,
+                                        src_rect.as_ref().map(|r| r as *const _),
+                                        None,
+                                    );
+                                }
                                 ctx.PopLayer();
+                                std::mem::ManuallyDrop::drop(&mut layer_params.geometricMask);
+                                std::mem::ManuallyDrop::drop(&mut layer_params.opacityBrush);
                             }
                         }
                     }
@@ -1525,19 +1662,24 @@ pub mod render {
             unsafe {
                 ctx.SetTransform(&Matrix3x2::identity());
                 self.brush.SetColor(&D2D1_COLOR_F {
-                    r: 0.22,
-                    g: 0.51,
-                    b: 0.96,
-                    a: 0.94,
+                    r: 0.10,
+                    g: 0.11,
+                    b: 0.14,
+                    a: 0.92,
                 });
-                ctx.FillRoundedRectangle(
-                    &D2D1_ROUNDED_RECT {
-                        rect: d2d_rect(btn),
-                        radiusX: btn.h * 0.5,
-                        radiusY: btn.h * 0.5,
-                    },
-                    &self.brush,
-                );
+                let rr = D2D1_ROUNDED_RECT {
+                    rect: d2d_rect(btn),
+                    radiusX: btn.h * 0.5,
+                    radiusY: btn.h * 0.5,
+                };
+                ctx.FillRoundedRectangle(&rr, &self.brush);
+                self.brush.SetColor(&D2D1_COLOR_F {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 1.0,
+                    a: 0.24,
+                });
+                ctx.DrawRoundedRectangle(&rr, &self.brush, 1.0, None);
             }
             self.draw_scene_node(
                 res,

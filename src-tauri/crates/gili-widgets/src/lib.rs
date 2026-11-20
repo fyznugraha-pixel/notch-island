@@ -85,11 +85,12 @@ impl DesktopWidgetEngine {
         let holidays_path = config::gili_data_dir().join("skb3menteri_holidays.json");
         state.hub.hijri_holidays =
             build_hijri_holiday_snapshot(year, month as i32, day as i32, 0, &holidays_path);
+        let tz_offset_hours = widgets::local_utc_offset_hours();
         state.hub.prayer = build_prayer_snapshot(
             "Jakarta",
             -6.2088,
             106.8456,
-            7.0,
+            tz_offset_hours,
             year,
             month as i32,
             day as i32,
@@ -195,11 +196,12 @@ impl DesktopWidgetEngine {
                     .custom_city_name
                     .clone()
                     .unwrap_or_else(|| "Lokasi Pilihan".into());
+                let tz_offset_hours = widgets::local_utc_offset_hours();
                 st.hub.prayer = build_prayer_snapshot(
                     &city,
                     lat,
                     lon,
-                    7.0,
+                    tz_offset_hours,
                     year,
                     month as i32,
                     day as i32,
@@ -227,17 +229,20 @@ impl DesktopWidgetEngine {
         let gpu_override = gpu_name.map(|n| (n, gpu_pct, gpu_temp_c));
         let perf = sample_system_perf(Some((net_down_mbps, net_up_mbps)), gpu_override);
         let procs = sample_top_processes_readonly(5);
-        let qc = QuickControlsSnapshot {
-            wifi_enabled: wifi,
-            bluetooth_enabled: bluetooth,
-            dark_mode_enabled: read_windows_dark_mode(),
-            audio_muted,
-        };
 
         if let Ok(mut st) = self.shared.lock() {
             st.hub.system = perf;
             st.hub.top_processes = procs;
-            st.hub.quick_controls = qc;
+            st.hub.quick_controls.dark_mode_enabled = read_windows_dark_mode();
+            if let Some(v) = wifi {
+                st.hub.quick_controls.wifi_enabled = Some(v);
+            }
+            if let Some(v) = bluetooth {
+                st.hub.quick_controls.bluetooth_enabled = Some(v);
+            }
+            if let Some(v) = audio_muted {
+                st.hub.quick_controls.audio_muted = Some(v);
+            }
             st.pending_commands.push(HostCommand::MarkDirty);
         }
     }
@@ -778,11 +783,11 @@ mod tests {
         let analysis = analyze_region_for_style(None, &WidgetStyleConfig::default(), 0.0, 0.0, 0.25, 0.25);
         let theme = WidgetStyleConfig::default();
 
-        // 1. Empty state must expose direct desktop picker actions ("photo_pick" & "photo_pick_folder")
+        // 1. Empty state must expose direct desktop picker ("photo_pick") on clean square card
         let mut hub = WidgetDataHub::default();
         let slot = WidgetStackSlot {
             slot_id: "pf_slot".into(),
-            size: config::WidgetSize::Small,
+            size: config::WidgetSize::Large,
             widgets: vec![WidgetInstance {
                 instance_id: "pf1".into(),
                 widget_type: "photo_frame".into(),
@@ -791,9 +796,21 @@ mod tests {
             }],
             ..Default::default()
         };
+        let frame_sq = layout::slot_rect_dp(&slot, 1.0, 0.0, 0.0);
+        assert_eq!(frame_sq.w, frame_sq.h, "Bingkai foto harus berbentuk kotak");
+        assert!(frame_sq.w >= 336.0, "Ukuran Large polaroid harus >= 336dp");
+
+        let small_slot = WidgetStackSlot {
+            size: config::WidgetSize::Small,
+            ..slot.clone()
+        };
+        let small_sq = layout::slot_rect_dp(&small_slot, 1.0, 0.0, 0.0);
+        assert_eq!(small_sq.w, small_sq.h);
+        assert!(small_sq.w >= 220.0, "Ukuran Small polaroid harus diperbesar (>= 220dp)");
+
         let mut empty_item = build_widget_render_item(
             &slot,
-            RectF::new(0.0, 0.0, 152.0, 152.0),
+            frame_sq,
             &theme,
             &analysis,
             &hub,
@@ -807,96 +824,138 @@ mod tests {
                 .any(|r| r.action_id.as_deref() == Some("photo_pick")),
             "Bingkai Foto kosong harus punya aksi langsung photo_pick di widget"
         );
-        assert!(
-            empty_item
-                .content_hit_rects
-                .iter()
-                .any(|r| r.action_id.as_deref() == Some("photo_pick_folder")),
-            "Bingkai Foto kosong harus punya aksi langsung photo_pick_folder di widget"
-        );
 
-        // 2. Loaded manual photos without folder_path MUST render ImageRef (not empty state)
+        // 2. Loaded manual photos without folder_path MUST render clean ImageRef ONLY (no filename, no + Foto pill)
         hub.photo_frame.folder_path = None;
         hub.photo_frame.photos = vec!["C:\\tmp\\a.jpg".into(), "C:\\tmp\\b.jpg".into()];
+        assert_eq!(
+            hub.photo_frame.effective_interval_secs(),
+            providers::local_stores::DEFAULT_PHOTO_INTERVAL_SECS
+        );
         let mut loaded_item = build_widget_render_item(
             &slot,
-            RectF::new(0.0, 0.0, 152.0, 152.0),
+            frame_sq,
             &theme,
             &analysis,
             &hub,
             0.0,
         );
         loaded_item.compute_hit_regions(false);
-        assert!(
-            loaded_item
-                .nodes
-                .iter()
-                .any(|n| matches!(n, layout::SceneNode::ImageRef { .. })),
-            "Foto manual tanpa folder_path harus tetap dirender sebagai ImageRef"
+        assert_eq!(
+            loaded_item.nodes.len(),
+            1,
+            "Polaroid aktif harus bersih hanya menampilkan gambar tanpa nama file dan tanpa tombol tambahan"
         );
         assert!(
-            loaded_item
-                .content_hit_rects
-                .iter()
-                .any(|r| r.action_id.as_deref() == Some("photo_next")),
-            "Klik foto harus punya action_id photo_next"
+            matches!(
+                &loaded_item.nodes[0],
+                layout::SceneNode::ImageRef { rect, interactive_action, .. }
+                    if *rect == frame_sq && interactive_action.as_deref() == Some("photo_pick")
+            ),
+            "Klik pada polaroid aktif harus langsung memicu photo_pick dan mengisi kotak penuh"
         );
-        assert!(
-            loaded_item
-                .content_hit_rects
-                .iter()
-                .any(|r| r.action_id.as_deref() == Some("photo_pick")),
-            "Tombol + Foto harus selalu ada di polaroid aktif"
-        );
-
-        // 3. Even when polaroid frame is false, + Foto overlay pill must win hit test over background photo
-        let fullbleed_slot = WidgetStackSlot {
-            slot_id: "pf_full".into(),
-            size: config::WidgetSize::Small,
-            widgets: vec![WidgetInstance {
-                instance_id: "pf2".into(),
-                widget_type: "photo_frame".into(),
-                style_override: None,
-                settings: serde_json::json!({ "polaroid": false }),
-            }],
-            ..Default::default()
-        };
-        let mut full_item = build_widget_render_item(
-            &fullbleed_slot,
-            RectF::new(0.0, 0.0, 152.0, 152.0),
-            &theme,
-            &analysis,
-            &hub,
-            0.0,
-        );
-        full_item.compute_hit_regions(false);
-        let pick_region = full_item
-            .content_hit_rects
-            .iter()
-            .find(|r| r.action_id.as_deref() == Some("photo_pick"))
-            .expect("+ Foto pill region missing")
-            .bounds;
         let hit = layout::hit_test_scene(
-            &[full_item],
+            &[loaded_item],
             false,
             None,
-            pick_region.x + pick_region.w * 0.5,
-            pick_region.y + pick_region.h * 0.5,
+            frame_sq.x + frame_sq.w * 0.5,
+            frame_sq.y + frame_sq.h * 0.5,
         );
         assert_eq!(
             hit,
             layout::HitTestResult::WidgetContent {
-                slot_id: "pf_full".into(),
+                slot_id: "pf_slot".into(),
                 action_id: Some("photo_pick".into())
             }
         );
 
-        // 4. step_photo_index wraps safely forward & backward
+        // 3. step_photo_index wraps safely forward & backward
         providers::local_stores::step_photo_index(&mut hub.photo_frame, 1);
         assert_eq!(hub.photo_frame.current_index, 1);
         providers::local_stores::step_photo_index(&mut hub.photo_frame, 1);
         assert_eq!(hub.photo_frame.current_index, 0);
         providers::local_stores::step_photo_index(&mut hub.photo_frame, -1);
         assert_eq!(hub.photo_frame.current_index, 1);
+    }
+
+    #[test]
+    fn system_telemetry_preserves_quick_controls_and_hourly_forecast_and_monochrome() {
+        // Bug #2 regression: telemetry updates with None must preserve existing Wi-Fi/BT/Mute state
+        let eng = DesktopWidgetEngine::new();
+        eng.with_hub_mut(|h| {
+            h.quick_controls.wifi_enabled = Some(true);
+            h.quick_controls.bluetooth_enabled = Some(false);
+            h.quick_controls.audio_muted = Some(true);
+        });
+        eng.update_system_telemetry(None, None, None, 1.0, 0.5, None, None, None);
+        let (wifi, bt, muted) = eng
+            .with_hub_mut(|h| {
+                (
+                    h.quick_controls.wifi_enabled,
+                    h.quick_controls.bluetooth_enabled,
+                    h.quick_controls.audio_muted,
+                )
+            })
+            .unwrap();
+        assert_eq!(wifi, Some(true));
+        assert_eq!(bt, Some(false));
+        assert_eq!(muted, Some(true));
+
+        // Bug #11 regression: hourly weather slices from current hour instead of 00:00
+        let times = vec![
+            serde_json::json!("2026-11-21T00:00"),
+            serde_json::json!("2026-11-21T01:00"),
+            serde_json::json!("2026-11-21T14:00"),
+            serde_json::json!("2026-11-21T15:00"),
+        ];
+        assert_eq!(
+            providers::network_providers::resolve_hourly_forecast_start(
+                &times,
+                Some("2026-11-21T14:15")
+            ),
+            2
+        );
+
+        // Bug #13 regression: monochrome palette propagates to treemap/AQI without rainbow hues
+        let white_theme = WidgetStyleConfig::default();
+        let analysis = analyze_region_for_style(None, &white_theme, 0.0, 0.0, 0.25, 0.25);
+        let mut hub = WidgetDataHub::default();
+        hub.air_quality = providers::network_providers::AirQualitySnapshot {
+            available: true,
+            location_name: "Jakarta".into(),
+            us_aqi: 125,
+            pm2_5: 42.0,
+            pm10: 60.0,
+            uv_index: 5.0,
+            category_label: "Sensitif".into(),
+            updated_label: "Baru saja".into(),
+            error: None,
+        };
+        let aqi_slot = WidgetStackSlot {
+            slot_id: "aqi_mono".into(),
+            size: config::WidgetSize::Small,
+            widgets: vec![WidgetInstance {
+                instance_id: "a1".into(),
+                widget_type: "air_quality".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let aqi_item = build_widget_render_item(
+            &aqi_slot,
+            RectF::new(0.0, 0.0, 160.0, 160.0),
+            &white_theme,
+            &analysis,
+            &hub,
+            0.0,
+        );
+        let has_orange = aqi_item.nodes.iter().any(|n| match n {
+            layout::SceneNode::ProgressBar { fill_color, .. } => {
+                fill_color.r == 0xFB && fill_color.g == 0x92 && fill_color.b == 0x3C
+            }
+            _ => false,
+        });
+        assert!(!has_orange, "Mode monokrom tidak boleh menampilkan warna oranye keras pada AQI");
     }
 }

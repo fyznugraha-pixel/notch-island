@@ -3037,18 +3037,33 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   useEffect(() => {
     if (isSecondaryWindow) return;
-    const sync = () => {
-      import("./services/desktopWidgetsService")
-        .then((m) => m.syncFrontendWidgetMirror())
-        .catch(() => {});
+    let timer: number | null = null;
+    const triggerSync = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        import("./services/desktopWidgetsService")
+          .then((m) => m.syncFrontendWidgetMirror())
+          .catch(() => {});
+      }, 350);
     };
-    const t = window.setTimeout(sync, 2500);
-    window.addEventListener("storage", sync);
+
+    const initialTimer = window.setTimeout(triggerSync, 2200);
+    const pollInterval = window.setInterval(triggerSync, 15000);
+    window.addEventListener("storage", triggerSync);
+    window.addEventListener("island_todo_updated", triggerSync);
+    window.addEventListener("island_shelf_updated", triggerSync);
+    window.addEventListener("gili_widget_mirror_sync", triggerSync);
     return () => {
-      window.clearTimeout(t);
-      window.removeEventListener("storage", sync);
+      if (timer !== null) window.clearTimeout(timer);
+      window.clearTimeout(initialTimer);
+      window.clearInterval(pollInterval);
+      window.removeEventListener("storage", triggerSync);
+      window.removeEventListener("island_todo_updated", triggerSync);
+      window.removeEventListener("island_shelf_updated", triggerSync);
+      window.removeEventListener("gili_widget_mirror_sync", triggerSync);
     };
-  }, [isSecondaryWindow]);
+  }, [isSecondaryWindow, todoItems]);
 
   useEffect(() => {
     if (isSecondaryWindow) return;
@@ -4568,6 +4583,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const wtype = event.payload?.widget_type || "";
         const act = event.payload?.action_id || "";
 
+        if (act === "open_ai_settings" || wtype === "ai_quick_ask") {
+          openTabFromDesktopWidget("ai_chat");
+          return;
+        }
         if (act === "open_class_schedule" || act === "open_streak") {
           invoke("open_settings_window", { section: "widgets" }).catch(() => { });
           return;
@@ -4584,7 +4603,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           openTabFromDesktopWidget("drop_shelf");
           return;
         }
-        if (wtype === "sticky_notes" || wtype === "snippet_board") {
+        if (wtype === "sticky_notes" || wtype === "quick_snippets") {
           openTabFromDesktopWidget("mini_note");
           return;
         }
@@ -4596,22 +4615,17 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           openTabFromDesktopWidget("prayer_reminder");
           return;
         }
-        if (wtype === "ai_quick_ask") {
-          openTabFromDesktopWidget("ai_chat");
-          return;
-        }
         if (
           wtype === "system_performance" ||
           wtype === "screen_time" ||
           wtype === "storage_treemap" ||
-          wtype === "network_speed" ||
-          wtype === "process_watchdog" ||
-          wtype === "uptime_ping"
+          wtype === "top_processes" ||
+          wtype === "site_status"
         ) {
           openTabFromDesktopWidget("sys_monitor");
           return;
         }
-        if (wtype === "time_tracker" || wtype === "countdown_milestone") {
+        if (wtype === "time_tracker" || wtype === "countdown_moment") {
           openTabFromDesktopWidget("pomodoro");
           return;
         }
@@ -4620,7 +4634,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           wtype === "weather_forecast" ||
           wtype === "air_quality" ||
           wtype === "world_clock" ||
-          wtype === "currency_gold"
+          wtype === "currency_gold" ||
+          wtype === "hijri_holidays" ||
+          wtype === "quote_poster" ||
+          wtype === "styled_clock"
         ) {
           openTabFromDesktopWidget("quick_control");
           return;
@@ -4629,9 +4646,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           wtype === "class_schedule" ||
           wtype === "habit_heatmap" ||
           wtype === "quick_expense" ||
-          wtype === "stock_crypto" ||
-          wtype === "github_commits" ||
-          wtype === "football_scores"
+          wtype === "github_status" ||
+          wtype === "football_scores" ||
+          wtype === "mini_kanban" ||
+          wtype === "shortcuts_grid" ||
+          wtype === "recent_files"
         ) {
           invoke("open_settings_window", { section: "widgets" }).catch(() => { });
           return;

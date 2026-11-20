@@ -252,7 +252,17 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                     crate::show_or_create_settings_window(&app_ev, Some("widgets".to_string()));
                     return;
                 } else if act == "open_ai_settings" {
-                    crate::show_or_create_settings_window(&app_ev, Some("ai".to_string()));
+                    if let Some(w) = app_ev.get_webview_window("main") {
+                        let _ = w.unminimize();
+                        let _ = w.show();
+                        let _ = w.emit(
+                            "desktop-widget-deep-link",
+                            serde_json::json!({
+                                "widget_type": "ai_quick_ask",
+                                "action_id": "open_ai_settings",
+                            }),
+                        );
+                    }
                     return;
                 } else if act == "photo_pick" {
                     spawn_photo_picker_thread(false);
@@ -396,7 +406,7 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
         WidgetHostEvent::ToggleQuickControl { control } => match control.as_str() {
             "audio_mute" => {
                 std::thread::spawn(|| {
-                    if let Some(next_muted) = toggle_windows_master_mute() {
+                    if let Some(next_muted) = with_windows_master_mute(true) {
                         engine().with_hub_mut(|hub| {
                             hub.quick_controls.audio_muted = Some(next_muted);
                         });
@@ -455,6 +465,10 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
             let mut last_gpu = Instant::now() - Duration::from_secs(30);
             let mut last_screen_time = Instant::now() - Duration::from_secs(30);
             let mut last_media = Instant::now() - Duration::from_secs(10);
+            let mut last_qc_poll = Instant::now() - Duration::from_secs(30);
+            let mut last_prayer_refresh = Instant::now() - Duration::from_secs(60);
+            let mut last_recent_scan = Instant::now() - Duration::from_secs(60);
+            let mut last_photo_step = Instant::now();
             let mut cached_gpu: Option<(String, Option<u32>, Option<u32>)> = None;
             let mut bands = [0.0f32; 16];
 
@@ -509,16 +523,108 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                         Some((n, u, t)) => (Some(n.clone()), *u, *t),
                         None => (None, None, None),
                     };
+                    let mut qc_wifi = None;
+                    let mut qc_bt = None;
+                    let mut qc_mute = None;
+                    if has_widget("quick_controls") && last_qc_poll.elapsed() >= Duration::from_secs(10) {
+                        last_qc_poll = Instant::now();
+                        qc_mute = with_windows_master_mute(false);
+                        qc_wifi = tauri::async_runtime::block_on(crate::connectivity::get_wifi_status())
+                            .ok()
+                            .map(|s| s.enabled);
+                        qc_bt = tauri::async_runtime::block_on(crate::connectivity::get_bluetooth_status())
+                            .ok()
+                            .map(|s| s.enabled);
+                    }
                     engine().update_system_telemetry(
                         gpu_name,
                         gpu_pct,
                         gpu_temp,
                         net_m.wifi_down_mbps,
                         net_m.wifi_up_mbps,
-                        None,
-                        None,
-                        None,
+                        qc_wifi,
+                        qc_bt,
+                        qc_mute,
                     );
+                }
+
+                // Auto-advance Polaroid slideshow cleanly every effective_interval_secs (default 5s)
+                if has_widget("photo_frame") {
+                    let (photo_count, interval_secs) = engine()
+                        .with_hub_mut(|h| {
+                            (
+                                h.photo_frame.photos.len(),
+                                h.photo_frame.effective_interval_secs(),
+                            )
+                        })
+                        .unwrap_or((0, 5));
+                    if photo_count <= 1 {
+                        last_photo_step = Instant::now();
+                    } else if last_photo_step.elapsed() >= Duration::from_secs(interval_secs as u64)
+                    {
+                        last_photo_step = Instant::now();
+                        engine().with_hub_mut(|h| {
+                            step_photo_index(&mut h.photo_frame, 1);
+                        });
+                    }
+                }
+
+                // Refresh recent files metadata when opted-in
+                if has_widget("recent_files") && last_recent_scan.elapsed() >= Duration::from_secs(30)
+                {
+                    last_recent_scan = Instant::now();
+                    engine().with_hub_mut(|h| {
+                        if h.recent_files.opt_in_enabled && !h.recent_files.watched_folders.is_empty()
+                        {
+                            scan_recent_files_metadata_only(&mut h.recent_files, 16);
+                        }
+                    });
+                }
+
+                // Refresh prayer countdown & Hijri date every 30s
+                if (has_widget("prayer_times") || has_widget("hijri_holidays"))
+                    && last_prayer_refresh.elapsed() >= Duration::from_secs(30)
+                {
+                    last_prayer_refresh = Instant::now();
+                    let (city, lat, lon) = engine()
+                        .with_hub_mut(|h| {
+                            (
+                                h.frontend
+                                    .custom_city_name
+                                    .clone()
+                                    .unwrap_or_else(|| "Jakarta".into()),
+                                h.frontend.custom_lat.unwrap_or(-6.2088),
+                                h.frontend.custom_lon.unwrap_or(106.8456),
+                            )
+                        })
+                        .unwrap_or_else(|| ("Jakarta".into(), -6.2088, 106.8456));
+                    let (year, month, day, hour, min, _, _) =
+                        gili_widgets::widgets::local_datetime_parts();
+                    let tz_offset_hours = gili_widgets::widgets::local_utc_offset_hours();
+                    let holidays_path = gili_data_dir().join("skb3menteri_holidays.json");
+                    let hijri = gili_widgets::providers::prayer_calc::build_hijri_holiday_snapshot(
+                        year,
+                        month as i32,
+                        day as i32,
+                        0,
+                        &holidays_path,
+                    );
+                    let prayer = gili_widgets::providers::prayer_calc::build_prayer_snapshot(
+                        &city,
+                        lat,
+                        lon,
+                        tz_offset_hours,
+                        year,
+                        month as i32,
+                        day as i32,
+                        hour as i32,
+                        min as i32,
+                        hijri.is_ramadan,
+                    );
+                    engine().with_hub_mut(|h| {
+                        h.hijri_holidays = hijri;
+                        h.prayer = prayer;
+                    });
                 }
 
                 // Screen time sync from Gili's existing compute_windows_screen_time (15s cadence)
@@ -1069,7 +1175,7 @@ fn trigger_immediate_network_refresh(act: &str) {
 }
 
 #[cfg(windows)]
-fn toggle_windows_master_mute() -> Option<bool> {
+fn with_windows_master_mute(toggle: bool) -> Option<bool> {
     use windows::Win32::Foundation::BOOL;
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
     use windows::Win32::Media::Audio::{
@@ -1092,6 +1198,9 @@ fn toggle_windows_master_mute() -> Option<bool> {
                 .Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
                 .ok()?;
             let cur = volume_ctrl.GetMute().ok()?.as_bool();
+            if !toggle {
+                return Some(cur);
+            }
             let next = !cur;
             volume_ctrl
                 .SetMute(BOOL::from(next), std::ptr::null())
@@ -1106,7 +1215,7 @@ fn toggle_windows_master_mute() -> Option<bool> {
 }
 
 #[cfg(not(windows))]
-fn toggle_windows_master_mute() -> Option<bool> {
+fn with_windows_master_mute(_toggle: bool) -> Option<bool> {
     None
 }
 

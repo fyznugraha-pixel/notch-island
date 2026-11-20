@@ -65,7 +65,12 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     if p.ramadan_mode {
         nodes.push(text_node(
-            RectF::new(inner.x + inner.w * 0.55, inner.y, inner.w * 0.45, 16.0),
+            RectF::new(
+                inner.x + inner.w * 0.42,
+                inner.y,
+                (inner.w * 0.58 - 26.0).max(40.0),
+                16.0,
+            ),
             format!("Imsak {} | Buka {}", p.sahur_time, p.buka_time),
             10.5,
             600,
@@ -484,7 +489,13 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let badge_col = match aq.us_aqi {
         0..=50 => ctx.pal.positive,
         51..=100 => ctx.pal.warning,
-        101..=150 => crate::config::RgbaColor::new(0xFB, 0x92, 0x3C, 1.0),
+        101..=150 => {
+            if ctx.pal.is_monochrome {
+                ctx.pal.primary
+            } else {
+                crate::config::RgbaColor::new(0xFB, 0x92, 0x3C, 1.0)
+            }
+        }
         _ => ctx.pal.danger,
     };
 
