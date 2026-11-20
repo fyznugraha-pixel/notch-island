@@ -45,6 +45,7 @@ pub mod display_topology;
 mod http_guard;
 mod style_file_dialog;
 pub mod standby_window;
+pub mod desktop_widgets_bridge;
 
 pub(crate) struct ComGuard(bool);
 
@@ -4951,7 +4952,24 @@ pub fn run() {
             standby_window::toggle_standby_window,
             standby_window::is_standby_open,
             standby_window::get_standby_launch_context,
-            standby_window::notify_standby_ready
+            standby_window::notify_standby_ready,
+            desktop_widgets_bridge::get_desktop_widgets_config,
+            desktop_widgets_bridge::save_desktop_widgets_config,
+            desktop_widgets_bridge::get_desktop_widgets_catalog,
+            desktop_widgets_bridge::toggle_desktop_widget_board,
+            desktop_widgets_bridge::set_desktop_widget_edit_mode,
+            desktop_widgets_bridge::get_desktop_widgets_runtime_metrics,
+            desktop_widgets_bridge::analyze_widget_wallpaper_contrast,
+            desktop_widgets_bridge::sync_frontend_widget_mirror,
+            desktop_widgets_bridge::save_github_widget_token,
+            desktop_widgets_bridge::trigger_widget_storage_scan,
+            desktop_widgets_bridge::export_widget_time_tracker_csv,
+            desktop_widgets_bridge::set_widget_expense_budget,
+            desktop_widgets_bridge::add_widget_uptime_site,
+            desktop_widgets_bridge::add_widget_time_project,
+            desktop_widgets_bridge::add_widget_shortcut,
+            desktop_widgets_bridge::configure_widget_photo_folder,
+            desktop_widgets_bridge::configure_widget_recent_folders
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -4962,11 +4980,12 @@ pub fn run() {
             let toggle_i = MenuItem::with_id(app, "toggle_visibility", "Show / Hide Gili (Ctrl+Shift+D)", true, None::<&str>)?;
             let cc_i = MenuItem::with_id(app, "open_control_center", "Open Control Center", true, None::<&str>)?;
             let standby_i = MenuItem::with_id(app, "toggle_standby", "StandBy Desk Display (Ctrl+Alt+S)", true, None::<&str>)?;
+            let widgets_i = MenuItem::with_id(app, "toggle_widget_board", "Papan Widget Desktop (Ctrl+Alt+W)", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
             let restore_tb_i = MenuItem::with_id(app, "restore_taskbar", "Restore Windows Taskbar", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Gili", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &standby_i, &settings_i, &restore_tb_i, &sep, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &standby_i, &widgets_i, &settings_i, &restore_tb_i, &sep, &quit_i])?;
 
             let mut tray_builder = TrayIconBuilder::new()
                 .tooltip("Gili (Running in Background)")
@@ -4998,6 +5017,9 @@ pub fn run() {
                         "toggle_standby" => {
                             standby_window::toggle_standby_window(app.clone());
                         }
+                        "toggle_widget_board" => {
+                            let _ = desktop_widgets_bridge::toggle_desktop_widget_board(None);
+                        }
                         "open_settings" => {
                             show_or_create_settings_window(app, None);
                         }
@@ -5005,6 +5027,7 @@ pub fn run() {
                             taskbar_manager::set_taskbar_visible(true);
                         }
                         "quit" => {
+                            desktop_widgets_bridge::shutdown_desktop_widgets_on_exit();
                             standby_window::destroy_standby_on_exit(app);
                             cleanup_shell_state_on_exit();
                             app.exit(0);
@@ -5021,6 +5044,7 @@ pub fn run() {
 
             let app_h = app.handle().clone();
             standby_window::start_standby_watcher(app.handle().clone());
+            desktop_widgets_bridge::start_desktop_widgets_bridge(app.handle().clone());
             std::thread::spawn(move || {
                 windows_pinned_apps::start_pinned_apps_watcher(app_h.clone());
                 window_preview::start_preview_prewarmer();
