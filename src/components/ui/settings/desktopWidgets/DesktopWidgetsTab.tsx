@@ -250,6 +250,9 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
               ? `${metrics.gpu_adapter || "Direct2D Siaga"} . ${metrics.monitor_count} monitor . ${metrics.target_fps} fps . ${metrics.working_set_mb.toFixed(1)} MB`
               : "Transparan sejati tanpa kartu secara default dan menembus klik di area kosong."}
           </p>
+          <p className={`text-[11.5px] ${mutedCls}`}>
+            Cara pakai: aktifkan sakelar di bawah, lalu langsung klik dan geser widget di desktop untuk memindahkan posisi. Klik kanan pada widget untuk ubah ukuran, warna, atau hapus.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

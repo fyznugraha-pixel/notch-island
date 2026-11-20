@@ -259,8 +259,17 @@ impl WidgetRenderItem {
                     interactive_action,
                     ..
                 } => {
+                    // Slight 4dp grab margin around drawn content prevents accidental click-through
+                    // between adjacent text lines while keeping unused transparent areas click-through.
+                    let pad = 4.0;
+                    let padded = RectF::new(
+                        (rect.x - pad).max(self.frame.x),
+                        (rect.y - pad).max(self.frame.y),
+                        (rect.w + pad * 2.0).min((self.frame.x + self.frame.w - (rect.x - pad).max(self.frame.x)).max(0.0)),
+                        (rect.h + pad * 2.0).min((self.frame.y + self.frame.h - (rect.y - pad).max(self.frame.y)).max(0.0)),
+                    );
                     self.content_hit_rects.push(HitRegion {
-                        bounds: *rect,
+                        bounds: padded,
                         slot_id: self.slot_id.clone(),
                         action_id: interactive_action.clone(),
                     });

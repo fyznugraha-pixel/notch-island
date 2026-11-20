@@ -533,4 +533,37 @@ mod tests {
         assert_eq!(aqi_category_indonesian(130), "Sensitif");
         assert_eq!(aqi_category_indonesian(180), "Tidak Sehat");
     }
+
+    #[test]
+    fn live_d2d_host_boots_renders_toggles_and_shuts_down_without_panic() {
+        let eng = DesktopWidgetEngine::new();
+        let mut cfg = DesktopWidgetsConfig::default();
+        cfg.enabled = true;
+        cfg.auto_pause_fullscreen = false;
+        let _ = eng.shared.lock().map(|mut s| {
+            s.config = cfg;
+            s.pending_commands.push(HostCommand::MarkDirty);
+        });
+        eng.start_host_if_needed();
+        std::thread::sleep(std::time::Duration::from_millis(450));
+        let m1 = eng.metrics();
+        println!(
+            "LIVE_D2D_SMOKE running={} monitors={} adapter='{}' dirty={} ws_mb={:.1} paused={:?}",
+            m1.running, m1.monitor_count, m1.gpu_adapter, m1.last_dirty_rects, m1.working_set_mb, m1.paused_reason
+        );
+        assert!(m1.running, "Host Direct2D harus berjalan tanpa panic/crash");
+        assert!(m1.monitor_count >= 1, "Harus mendeteksi minimal 1 monitor");
+
+        // Toggle Board mode & Edit mode and verify no RefCell re-entrancy crash
+        eng.toggle_board(Some(true));
+        eng.set_edit_mode(true);
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        eng.toggle_board(Some(false));
+        eng.set_edit_mode(false);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        eng.shutdown();
+        let m2 = eng.metrics();
+        assert!(!m2.running, "Host harus berhenti bersih setelah shutdown");
+    }
 }

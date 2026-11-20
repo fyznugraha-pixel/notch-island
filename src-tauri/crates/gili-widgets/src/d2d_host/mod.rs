@@ -16,6 +16,7 @@ use crate::spring::{edit_jiggle_degrees, SpringParams, SpringValue};
 use crate::widgets::build_widget_render_item;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -161,7 +162,7 @@ pub fn compute_adaptive_target_fps(
     board_visible: bool,
     policy: &SystemVisualPolicy,
 ) -> (u32, Option<String>) {
-    if !cfg.enabled {
+    if !cfg.enabled && !board_visible {
         return (0, Some("Widget desktop nonaktif".into()));
     }
     if screen_off {
@@ -244,6 +245,7 @@ pub fn spawn_native_host_thread(_shared: Arc<Mutex<HostSharedState>>) -> std::th
 #[cfg(windows)]
 mod win_host {
     use super::*;
+    use crate::config::{GRID_GAP_DP, GRID_SMALL_DP};
     use crate::d2d_host::device::gpu::{D2DDeviceResources, MonitorSwapChain};
     use crate::d2d_host::renderer::render::D2DWidgetRenderer;
     use std::cell::RefCell;
@@ -257,19 +259,21 @@ mod win_host {
         GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SetFocus, VK_ESCAPE, VK_RETURN,
+        ReleaseCapture, SetCapture, SetFocus, VK_ESCAPE, VK_RETURN,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-        DispatchMessageW, GetCursorPos, GetWindowTextLengthW, GetWindowTextW, PeekMessageW,
-        RegisterClassExW, SetWindowPos, ShowWindow, TrackPopupMenu,
-        TranslateMessage, CS_DBLCLKS, ES_AUTOHSCROLL, ES_MULTILINE, HTCLIENT, HTTRANSPARENT,
-        HWND_BOTTOM, HWND_TOPMOST, MF_SEPARATOR, MF_STRING, MSG, PM_REMOVE, SWP_NOACTIVATE,
-        SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, TPM_LEFTALIGN,
-        TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOWPOS, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED,
-        WM_GETOBJECT, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-        WM_NCHITTEST, WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SHOWWINDOW,
-        WM_WINDOWPOSCHANGING, WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE,
+        DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GetCursorPos,
+        GetWindowTextLengthW, GetWindowTextW, MsgWaitForMultipleObjects, PeekMessageW,
+        RegisterClassExW, SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu,
+        TranslateMessage, CS_DBLCLKS, ES_AUTOHSCROLL, ES_MULTILINE, GWLP_HWNDPARENT, HTCLIENT,
+        HTTRANSPARENT, HWND_BOTTOM, HWND_TOPMOST, MF_SEPARATOR, MF_STRING, MSG, PM_REMOVE,
+        QS_ALLINPUT, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
+        SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOWPOS,
+        WM_CAPTURECHANGED, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETOBJECT,
+        WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
+        WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SHOWWINDOW, WM_WINDOWPOSCHANGING,
+        WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE,
         WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
@@ -280,6 +284,14 @@ mod win_host {
     const CMD_CUSTOMIZE: i32 = 1005;
     const CMD_STACK_NEXT: i32 = 1006;
     const CMD_DELETE: i32 = 1007;
+    const DRAG_THRESHOLD_DP: f32 = 6.0;
+
+    /// Lock-free atomic flags read by synchronous Win32 callbacks so `wnd_proc` never panics on re-entry.
+    static STAY_BOTTOM_MODE: AtomicBool = AtomicBool::new(true);
+    static FORCE_REDRAW_FLAG: AtomicBool = AtomicBool::new(true);
+    static SHOULD_EXIT_FLAG: AtomicBool = AtomicBool::new(false);
+    static REFRESH_ENV_FLAG: AtomicBool = AtomicBool::new(false);
+    static SCREEN_OFF_FLAG: AtomicBool = AtomicBool::new(false);
 
     struct ActiveDrag {
         slot_id: String,
@@ -287,6 +299,17 @@ mod win_host {
         offset_y: f32,
         cur_x: f32,
         cur_y: f32,
+    }
+
+    struct PendingPress {
+        since: Instant,
+        slot_id: String,
+        action_id: Option<String>,
+        start_x: f32,
+        start_y: f32,
+        item_x: f32,
+        item_y: f32,
+        can_drag: bool,
     }
 
     struct InlineEditor {
@@ -301,6 +324,9 @@ mod win_host {
         swap: MonitorSwapChain,
         items: Vec<WidgetRenderItem>,
         add_btn_rect: Option<RectF>,
+        last_visible: bool,
+        last_board_mode: bool,
+        last_owner_attached: bool,
     }
 
     struct HostThreadState {
@@ -308,15 +334,51 @@ mod win_host {
         surfaces: Vec<MonitorSurface>,
         slot_springs: HashMap<String, (SpringValue, SpringValue, SpringValue)>,
         dragging: Option<ActiveDrag>,
-        pressed_since: Option<(Instant, String, f32, f32)>,
+        pending_press: Option<PendingPress>,
         inline_editor: Option<InlineEditor>,
-        force_redraw: bool,
-        should_exit: bool,
         start_time: Instant,
     }
 
     thread_local! {
         static HOST_STATE: RefCell<Option<HostThreadState>> = const { RefCell::new(None) };
+    }
+
+    /// Read-only lookup for the top-level shell window hosting the Windows desktop icons (`SHELLDLL_DefView`).
+    /// Setting this HWND as owner (`GWLP_HWNDPARENT`) keeps top-level DirectComposition widgets strictly
+    /// ABOVE the wallpaper and desktop icons, BELOW normal apps, and visible across Win+D without Explorer injection.
+    fn find_desktop_shell_owner_hwnd() -> Option<HWND> {
+        unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            if let Ok(def_view) = FindWindowExW(hwnd, HWND::default(), w!("SHELLDLL_DefView"), PCWSTR::null()) {
+                if !def_view.0.is_null() {
+                    let out = &mut *(lparam.0 as *mut Option<HWND>);
+                    *out = Some(hwnd);
+                    return BOOL(0);
+                }
+            }
+            BOOL(1)
+        }
+
+        unsafe {
+            if let Ok(progman) = FindWindowW(w!("Progman"), PCWSTR::null()) {
+                if !progman.0.is_null() {
+                    if let Ok(def_view) =
+                        FindWindowExW(progman, HWND::default(), w!("SHELLDLL_DefView"), PCWSTR::null())
+                    {
+                        if !def_view.0.is_null() {
+                            return Some(progman);
+                        }
+                    }
+                }
+            }
+            let mut found: Option<HWND> = None;
+            let _ = EnumWindows(Some(enum_cb), LPARAM(&mut found as *mut _ as isize));
+            if found.is_some() {
+                return found;
+            }
+            FindWindowW(w!("Progman"), PCWSTR::null())
+                .ok()
+                .filter(|h| !h.0.is_null())
+        }
     }
 
     fn enumerate_monitors() -> Vec<MonitorInfoData> {
@@ -385,7 +447,12 @@ mod win_host {
                 Default::default(),
                 w!("EDIT"),
                 PCWSTR(text_w.as_ptr()),
-                WS_CHILD | WS_VISIBLE | WS_BORDER | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE((ES_AUTOHSCROLL | ES_MULTILINE) as u32),
+                WS_CHILD
+                    | WS_VISIBLE
+                    | WS_BORDER
+                    | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
+                        (ES_AUTOHSCROLL | ES_MULTILINE) as u32,
+                    ),
                 x,
                 y,
                 w,
@@ -424,6 +491,7 @@ mod win_host {
         (ed.slot_id, ed.widget_type, text)
     }
 
+    /// Window procedure designed to NEVER panic or double-borrow `HOST_STATE` across Win32 re-entrancy.
     unsafe extern "system" fn wnd_proc(
         hwnd: HWND,
         msg: u32,
@@ -432,21 +500,44 @@ mod win_host {
     ) -> LRESULT {
         match msg {
             WM_WINDOWPOSCHANGING => {
-                // Keep DesktopAttached windows strictly at bottom z-order without Explorer WorkerW injection
-                let should_stay_bottom = HOST_STATE.with(|cell| {
-                    let b = cell.borrow();
-                    if let Some(st) = b.as_ref() {
-                        if let Ok(sh) = st.shared.lock() {
-                            return sh.config.display_mode == DisplayMode::DesktopAttached
-                                && !sh.board_visible;
-                        }
-                    }
-                    true
-                });
-                if should_stay_bottom && lparam.0 != 0 {
+                if STAY_BOTTOM_MODE.load(Ordering::Relaxed) && lparam.0 != 0 {
                     let wp = &mut *(lparam.0 as *mut WINDOWPOS);
                     wp.hwndInsertAfter = HWND_BOTTOM;
                 }
+                return LRESULT(0);
+            }
+            WM_SHOWWINDOW => {
+                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            }
+            WM_SETTINGCHANGE | WM_DISPLAYCHANGE | WM_DPICHANGED => {
+                REFRESH_ENV_FLAG.store(true, Ordering::Relaxed);
+                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            }
+            WM_POWERBROADCAST => {
+                if wparam.0 == 4 {
+                    SCREEN_OFF_FLAG.store(true, Ordering::Relaxed);
+                } else if wparam.0 == 18 {
+                    SCREEN_OFF_FLAG.store(false, Ordering::Relaxed);
+                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                }
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            }
+            WM_DESTROY => {
+                SHOULD_EXIT_FLAG.store(true, Ordering::Relaxed);
+                return LRESULT(0);
+            }
+            WM_CAPTURECHANGED => {
+                HOST_STATE.with(|cell| {
+                    if let Ok(mut b) = cell.try_borrow_mut() {
+                        if let Some(st) = b.as_mut() {
+                            st.dragging = None;
+                            st.pending_press = None;
+                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                        }
+                    }
+                });
                 return LRESULT(0);
             }
             WM_NCHITTEST => {
@@ -459,10 +550,18 @@ mod win_host {
                 let py = pt.y as f32 * 96.0 / dpi;
 
                 let hit = HOST_STATE.with(|cell| {
-                    let b = cell.borrow();
+                    let Ok(b) = cell.try_borrow() else {
+                        return HitTestResult::Transparent;
+                    };
                     let Some(st) = b.as_ref() else {
                         return HitTestResult::Transparent;
                     };
+                    if st.dragging.is_some() {
+                        return HitTestResult::WidgetContent {
+                            slot_id: "__dragging__".into(),
+                            action_id: None,
+                        };
+                    }
                     let (edit_mode, board_visible) = st
                         .shared
                         .lock()
@@ -471,7 +570,6 @@ mod win_host {
                     if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
                         let res = hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py);
                         if board_visible && res == HitTestResult::Transparent {
-                            // In Widget Board overlay mode, clicking outside dismisses the board
                             return HitTestResult::WidgetContent {
                                 slot_id: "__board_dismiss__".into(),
                                 action_id: None,
@@ -495,8 +593,14 @@ mod win_host {
                 let px = px_raw * 96.0 / dpi;
                 let py = py_raw * 96.0 / dpi;
 
+                let mut need_capture = false;
+                let mut spawn_editor_req: Option<(RectF, String, String)> = None;
+                let mut close_prev_editor: Option<InlineEditor> = None;
+
                 HOST_STATE.with(|cell| {
-                    let mut b = cell.borrow_mut();
+                    let Ok(mut b) = cell.try_borrow_mut() else {
+                        return;
+                    };
                     let Some(st) = b.as_mut() else { return };
                     let (edit_mode, locked, board_visible) = st
                         .shared
@@ -504,16 +608,18 @@ mod win_host {
                         .map(|s| (s.edit_mode, s.config.positions_locked, s.board_visible))
                         .unwrap_or((false, false, false));
 
-                    let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) else {
-                        return;
-                    };
-                    match hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py) {
+                    let hit = st.surfaces.iter().find(|s| s.hwnd == hwnd).map(|surf| {
+                        hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py)
+                    });
+
+                    let Some(hit_res) = hit else { return };
+                    match hit_res {
                         HitTestResult::Transparent => {
                             if board_visible {
                                 if let Ok(mut sh) = st.shared.lock() {
                                     sh.board_visible = false;
                                 }
-                                st.force_redraw = true;
+                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                             }
                         }
                         HitTestResult::GalleryAddButton => {
@@ -527,67 +633,82 @@ mod win_host {
                                 let cfg = sh.config.clone();
                                 sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
                             }
-                            st.force_redraw = true;
+                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                         }
                         HitTestResult::WidgetContent { slot_id, action_id } => {
-                            if edit_mode && !locked {
-                                if let Some(item) = surf.items.iter().find(|i| i.slot_id == slot_id)
-                                {
-                                    st.dragging = Some(ActiveDrag {
-                                        slot_id: slot_id.clone(),
-                                        offset_x: px - item.frame.x,
-                                        offset_y: py - item.frame.y,
-                                        cur_x: item.frame.x,
-                                        cur_y: item.frame.y,
-                                    });
-                                    st.force_redraw = true;
-                                }
-                            } else {
-                                st.pressed_since = Some((Instant::now(), slot_id.clone(), px, py));
-                                if let Some(act) = action_id {
-                                    if act.starts_with("inline_edit:") {
+                            if let Some(act) = &action_id {
+                                if act.starts_with("inline_edit:") {
+                                    if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
                                         if let Some(item) =
                                             surf.items.iter().find(|i| i.slot_id == slot_id)
                                         {
-                                            let edit_rect = RectF::new(
-                                                item.frame.x + 12.0,
-                                                item.frame.y + item.frame.h - 46.0,
-                                                item.frame.w - 24.0,
-                                                34.0,
-                                            );
-                                            if let Some(prev) = st.inline_editor.take() {
-                                                let _ = read_and_close_inline_editor(prev);
-                                            }
-                                            st.inline_editor = spawn_inline_native_editor(
-                                                hwnd,
-                                                edit_rect,
-                                                dpi,
+                                            close_prev_editor = st.inline_editor.take();
+                                            spawn_editor_req = Some((
+                                                RectF::new(
+                                                    item.frame.x + 12.0,
+                                                    item.frame.y + item.frame.h - 46.0,
+                                                    item.frame.w - 24.0,
+                                                    34.0,
+                                                ),
                                                 slot_id.clone(),
                                                 item.widget_type.clone(),
-                                                "",
-                                            );
+                                            ));
+                                            return;
                                         }
-                                    } else if let Some(ctrl) = act.strip_prefix("quick_toggle:") {
-                                        if let Ok(sh) = st.shared.lock() {
-                                            sh.emit(WidgetHostEvent::ToggleQuickControl {
-                                                control: ctrl.to_string(),
-                                            });
-                                        }
-                                    } else if let Some(item) =
-                                        surf.items.iter().find(|i| i.slot_id == slot_id)
-                                    {
-                                        if let Ok(sh) = st.shared.lock() {
-                                            sh.emit(WidgetHostEvent::OpenFeature {
-                                                widget_type: item.widget_type.clone(),
-                                                action_id: Some(act),
-                                            });
-                                        }
+                                    }
+                                }
+                            }
+
+                            if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
+                                if let Some(item) = surf.items.iter().find(|i| i.slot_id == slot_id)
+                                {
+                                    if edit_mode && !locked {
+                                        st.dragging = Some(ActiveDrag {
+                                            slot_id: slot_id.clone(),
+                                            offset_x: px - item.frame.x,
+                                            offset_y: py - item.frame.y,
+                                            cur_x: item.frame.x,
+                                            cur_y: item.frame.y,
+                                        });
+                                        need_capture = true;
+                                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                                    } else {
+                                        // Allow direct click-and-drag anytime when positions are not locked!
+                                        st.pending_press = Some(PendingPress {
+                                            since: Instant::now(),
+                                            slot_id: slot_id.clone(),
+                                            action_id,
+                                            start_x: px,
+                                            start_y: py,
+                                            item_x: item.frame.x,
+                                            item_y: item.frame.y,
+                                            can_drag: !locked,
+                                        });
+                                        need_capture = true;
                                     }
                                 }
                             }
                         }
                     }
                 });
+
+                // Execute Win32 window calls strictly OUTSIDE any HOST_STATE borrow
+                if let Some(prev) = close_prev_editor {
+                    let _ = read_and_close_inline_editor(prev);
+                }
+                if let Some((rect, slot_id, wtype)) = spawn_editor_req {
+                    let created =
+                        spawn_inline_native_editor(hwnd, rect, dpi, slot_id, wtype, "");
+                    HOST_STATE.with(|cell| {
+                        if let Ok(mut b) = cell.try_borrow_mut() {
+                            if let Some(st) = b.as_mut() {
+                                st.inline_editor = created;
+                            }
+                        }
+                    });
+                } else if need_capture {
+                    let _ = SetCapture(hwnd);
+                }
                 return LRESULT(0);
             }
             WM_MOUSEMOVE => {
@@ -596,45 +717,114 @@ mod win_host {
                 let dpi = (GetDpiForWindow(hwnd) as f32).max(96.0);
                 let px = px_raw * 96.0 / dpi;
                 let py = py_raw * 96.0 / dpi;
+
                 HOST_STATE.with(|cell| {
-                    let mut b = cell.borrow_mut();
+                    let Ok(mut b) = cell.try_borrow_mut() else {
+                        return;
+                    };
                     let Some(st) = b.as_mut() else { return };
+
+                    // Promote pending press to smooth direct desktop drag once cursor moves > 6dp
+                    if st.dragging.is_none() {
+                        let should_promote = st.pending_press.as_ref().map(|p| {
+                            let dx = px - p.start_x;
+                            let dy = py - p.start_y;
+                            p.can_drag && (dx * dx + dy * dy).sqrt() >= DRAG_THRESHOLD_DP
+                        });
+                        if should_promote == Some(true) {
+                            if let Some(p) = st.pending_press.take() {
+                                st.dragging = Some(ActiveDrag {
+                                    slot_id: p.slot_id,
+                                    offset_x: p.start_x - p.item_x,
+                                    offset_y: p.start_y - p.item_y,
+                                    cur_x: px - (p.start_x - p.item_x),
+                                    cur_y: py - (p.start_y - p.item_y),
+                                });
+                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                            }
+                        }
+                    }
+
                     if let Some(drag) = st.dragging.as_mut() {
                         drag.cur_x = px - drag.offset_x;
                         drag.cur_y = py - drag.offset_y;
-                        st.force_redraw = true;
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
                 });
                 return LRESULT(0);
             }
             WM_LBUTTONUP => {
+                let _ = ReleaseCapture();
+
                 HOST_STATE.with(|cell| {
-                    let mut b = cell.borrow_mut();
+                    let Ok(mut b) = cell.try_borrow_mut() else {
+                        return;
+                    };
                     let Some(st) = b.as_mut() else { return };
                     if let Some(drag) = st.dragging.take() {
+                        let dpi = (GetDpiForWindow(hwnd) as f32).max(96.0);
+                        let (mon_w_dip, mon_h_dip) = st
+                            .surfaces
+                            .iter()
+                            .find(|s| s.hwnd == hwnd)
+                            .map(|s| {
+                                (
+                                    s.info.work_w as f32 * 96.0 / dpi,
+                                    s.info.work_h as f32 * 96.0 / dpi,
+                                )
+                            })
+                            .unwrap_or((1280.0, 720.0));
+
                         if let Ok(mut sh) = st.shared.lock() {
                             let scale = sh.config.grid_scale;
-                            let (col, row) =
+                            let step = (GRID_SMALL_DP + GRID_GAP_DP) * scale;
+                            let (raw_col, raw_row) =
                                 snap_position_to_grid(drag.cur_x, drag.cur_y, scale, 32.0, 48.0);
                             if let Some(slot) =
                                 sh.config.slots.iter_mut().find(|s| s.slot_id == drag.slot_id)
                             {
-                                slot.grid_col = col;
-                                slot.grid_row = row;
+                                let (sw, sh_cells) = slot.size.grid_span();
+                                let max_col =
+                                    (((mon_w_dip - 48.0) / step).floor() as i32 - sw).max(0);
+                                let max_row =
+                                    (((mon_h_dip - 64.0) / step).floor() as i32 - sh_cells).max(0);
+                                slot.grid_col = raw_col.clamp(0, max_col);
+                                slot.grid_row = raw_row.clamp(0, max_row);
                             }
                             resolve_grid_collisions(&mut sh.config.slots, &drag.slot_id);
                             let cfg = sh.config.clone();
                             sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
                         }
-                        st.force_redraw = true;
-                    } else if let Some((since, slot_id, _, _)) = st.pressed_since.take() {
-                        if since.elapsed() >= Duration::from_millis(550) {
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                    } else if let Some(press) = st.pending_press.take() {
+                        if press.since.elapsed() >= Duration::from_millis(550) {
                             if let Ok(mut sh) = st.shared.lock() {
-                                sh.edit_mode = true;
+                                sh.edit_mode = !sh.edit_mode;
                             }
-                            st.force_redraw = true;
+                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                        } else if let Some(act) = press.action_id {
+                            if let Some(ctrl) = act.strip_prefix("quick_toggle:") {
+                                if let Ok(sh) = st.shared.lock() {
+                                    sh.emit(WidgetHostEvent::ToggleQuickControl {
+                                        control: ctrl.to_string(),
+                                    });
+                                }
+                            } else if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
+                                if let Some(item) =
+                                    surf.items.iter().find(|i| i.slot_id == press.slot_id)
+                                {
+                                    if let Ok(sh) = st.shared.lock() {
+                                        sh.emit(WidgetHostEvent::OpenFeature {
+                                            widget_type: item.widget_type.clone(),
+                                            action_id: Some(act),
+                                        });
+                                    }
+                                }
+                            }
                         } else if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
-                            if let Some(item) = surf.items.iter().find(|i| i.slot_id == slot_id) {
+                            if let Some(item) =
+                                surf.items.iter().find(|i| i.slot_id == press.slot_id)
+                            {
                                 if let Ok(sh) = st.shared.lock() {
                                     sh.emit(WidgetHostEvent::OpenFeature {
                                         widget_type: item.widget_type.clone(),
@@ -657,7 +847,9 @@ mod win_host {
                 let py = pt.y as f32 * 96.0 / dpi;
 
                 HOST_STATE.with(|cell| {
-                    let mut b = cell.borrow_mut();
+                    let Ok(mut b) = cell.try_borrow_mut() else {
+                        return;
+                    };
                     let Some(st) = b.as_mut() else { return };
                     let edit_mode = st.shared.lock().map(|s| s.edit_mode).unwrap_or(false);
                     let slot_opt = st.surfaces.iter().find(|s| s.hwnd == hwnd).and_then(|surf| {
@@ -675,7 +867,7 @@ mod win_host {
                                     slot.step_stack(if delta < 0 { 1 } else { -1 });
                                     let cfg = sh.config.clone();
                                     sh.emit(WidgetHostEvent::ConfigMutated { config: cfg });
-                                    st.force_redraw = true;
+                                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                                 }
                             }
                         }
@@ -693,7 +885,9 @@ mod win_host {
                 let py = client_pt.y as f32 * 96.0 / dpi;
 
                 let hit_slot = HOST_STATE.with(|cell| {
-                    let b = cell.borrow();
+                    let Ok(b) = cell.try_borrow() else {
+                        return None;
+                    };
                     let st = b.as_ref()?;
                     let edit_mode = st.shared.lock().map(|s| s.edit_mode).unwrap_or(false);
                     let surf = st.surfaces.iter().find(|s| s.hwnd == hwnd)?;
@@ -705,7 +899,7 @@ mod win_host {
 
                 if let Some(slot_id) = hit_slot {
                     if let Ok(menu) = CreatePopupMenu() {
-                        let _ = AppendMenuW(menu, MF_STRING, CMD_EDIT_TOGGLE as usize, w!("Edit widget"));
+                        let _ = AppendMenuW(menu, MF_STRING, CMD_EDIT_TOGGLE as usize, w!("Mode Edit (Goyang & Hapus)"));
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                         let _ = AppendMenuW(menu, MF_STRING, CMD_SIZE_S as usize, w!("Ukuran Kecil (S)"));
                         let _ = AppendMenuW(menu, MF_STRING, CMD_SIZE_M as usize, w!("Ukuran Sedang (M)"));
@@ -716,6 +910,7 @@ mod win_host {
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                         let _ = AppendMenuW(menu, MF_STRING, CMD_DELETE as usize, w!("Hapus"));
 
+                        // TrackPopupMenu runs a nested modal loop; HOST_STATE is NOT borrowed here!
                         let cmd = TrackPopupMenu(
                             menu,
                             TPM_RETURNCMD | TPM_LEFTALIGN | TPM_RIGHTBUTTON,
@@ -729,7 +924,9 @@ mod win_host {
                         let _ = DestroyMenu(menu);
 
                         HOST_STATE.with(|cell| {
-                            let mut b = cell.borrow_mut();
+                            let Ok(mut b) = cell.try_borrow_mut() else {
+                                return;
+                            };
                             let Some(st) = b.as_mut() else { return };
                             if let Ok(mut sh) = st.shared.lock() {
                                 match cmd {
@@ -778,7 +975,7 @@ mod win_host {
                                     _ => {}
                                 }
                             }
-                            st.force_redraw = true;
+                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                         });
                     }
                 }
@@ -787,91 +984,58 @@ mod win_host {
             WM_KEYDOWN => {
                 let vk = wparam.0 as u16;
                 if vk == VK_ESCAPE.0 {
+                    let mut ed_to_close: Option<InlineEditor> = None;
                     HOST_STATE.with(|cell| {
-                        let mut b = cell.borrow_mut();
-                        let Some(st) = b.as_mut() else { return };
-                        if let Some(ed) = st.inline_editor.take() {
-                            let _ = read_and_close_inline_editor(ed);
-                        } else if let Ok(mut sh) = st.shared.lock() {
-                            if sh.board_visible {
-                                sh.board_visible = false;
-                            } else if sh.edit_mode {
-                                sh.edit_mode = false;
+                        if let Ok(mut b) = cell.try_borrow_mut() {
+                            if let Some(st) = b.as_mut() {
+                                ed_to_close = st.inline_editor.take();
+                                if ed_to_close.is_none() {
+                                    if let Ok(mut sh) = st.shared.lock() {
+                                        if sh.board_visible {
+                                            sh.board_visible = false;
+                                        } else if sh.edit_mode {
+                                            sh.edit_mode = false;
+                                        }
+                                    }
+                                }
+                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                             }
                         }
-                        st.force_redraw = true;
                     });
+                    if let Some(ed) = ed_to_close {
+                        let _ = read_and_close_inline_editor(ed);
+                    }
                     return LRESULT(0);
                 } else if vk == VK_RETURN.0 {
-                    HOST_STATE.with(|cell| {
-                        let mut b = cell.borrow_mut();
-                        let Some(st) = b.as_mut() else { return };
-                        if let Some(ed) = st.inline_editor.take() {
-                            let (slot_id, widget_type, text) = read_and_close_inline_editor(ed);
-                            if !text.trim().is_empty() {
-                                if let Ok(sh) = st.shared.lock() {
-                                    sh.emit(WidgetHostEvent::TextInputSubmitted {
-                                        slot_id,
-                                        widget_type,
-                                        text,
-                                    });
-                                }
-                            }
-                            st.force_redraw = true;
-                        }
+                    let ed_to_commit = HOST_STATE.with(|cell| {
+                        cell.try_borrow_mut()
+                            .ok()
+                            .and_then(|mut b| b.as_mut().and_then(|st| st.inline_editor.take()))
                     });
+                    if let Some(ed) = ed_to_commit {
+                        let (slot_id, widget_type, text) = read_and_close_inline_editor(ed);
+                        if !text.trim().is_empty() {
+                            HOST_STATE.with(|cell| {
+                                if let Ok(b) = cell.try_borrow() {
+                                    if let Some(st) = b.as_ref() {
+                                        if let Ok(sh) = st.shared.lock() {
+                                            sh.emit(WidgetHostEvent::TextInputSubmitted {
+                                                slot_id,
+                                                widget_type,
+                                                text,
+                                            });
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                    }
                     return LRESULT(0);
                 }
             }
-            WM_SETTINGCHANGE | WM_DISPLAYCHANGE | WM_DPICHANGED => {
-                HOST_STATE.with(|cell| {
-                    let mut b = cell.borrow_mut();
-                    if let Some(st) = b.as_mut() {
-                        if let Ok(mut sh) = st.shared.lock() {
-                            sh.policy = query_system_visual_policy();
-                            sh.wallpaper = resolve_wallpaper_file_path()
-                                .and_then(|p| load_wallpaper_sample(&p));
-                        }
-                        st.force_redraw = true;
-                    }
-                });
-            }
-            WM_POWERBROADCAST => {
-                // PBT_APMSUSPEND (4) pauses; PBT_APMRESUMEAUTOMATIC (18) resumes
-                HOST_STATE.with(|cell| {
-                    let mut b = cell.borrow_mut();
-                    if let Some(st) = b.as_mut() {
-                        if let Ok(mut sh) = st.shared.lock() {
-                            if wparam.0 == 4 {
-                                sh.screen_powered_off = true;
-                            } else if wparam.0 == 18 {
-                                sh.screen_powered_off = false;
-                            }
-                        }
-                        st.force_redraw = true;
-                    }
-                });
-            }
-            WM_SHOWWINDOW => {
-                // Ensure DesktopAttached survives Win+D / Show Desktop by remaining visible at bottom
-                HOST_STATE.with(|cell| {
-                    let mut b = cell.borrow_mut();
-                    if let Some(st) = b.as_mut() {
-                        st.force_redraw = true;
-                    }
-                });
-            }
             WM_GETOBJECT => {
-                // Standard UI Automation hook: delegate to DefWindowProcW which exposes HWND accessible name
                 return DefWindowProcW(hwnd, msg, wparam, lparam);
-            }
-            WM_DESTROY => {
-                HOST_STATE.with(|cell| {
-                    if let Some(st) = cell.borrow_mut().as_mut() {
-                        st.should_exit = true;
-                    }
-                });
-                return LRESULT(0);
             }
             _ => {}
         }
@@ -882,6 +1046,7 @@ mod win_host {
         res: &D2DDeviceResources,
         class_name: PCWSTR,
         info: MonitorInfoData,
+        desktop_owner: Option<HWND>,
     ) -> Result<MonitorSurface, String> {
         let title = HSTRING::from(format!("Gili Widget Desktop ({})", info.id));
         let hwnd = unsafe {
@@ -894,7 +1059,7 @@ mod win_host {
                 info.y,
                 info.width_px as i32,
                 info.height_px as i32,
-                None,
+                desktop_owner.unwrap_or_default(),
                 None,
                 GetModuleHandleW(None).unwrap_or_default(),
                 None,
@@ -909,10 +1074,16 @@ mod win_host {
             swap,
             items: Vec::new(),
             add_btn_rect: None,
+            last_visible: false,
+            last_board_mode: false,
+            last_owner_attached: desktop_owner.is_some(),
         })
     }
 
     pub fn run_host_loop(shared: Arc<Mutex<HostSharedState>>) -> Result<(), String> {
+        SHOULD_EXIT_FLAG.store(false, Ordering::Relaxed);
+        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+
         unsafe {
             let _ = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
@@ -933,10 +1104,11 @@ mod win_host {
             RegisterClassExW(&wc);
         }
 
+        let desktop_owner = find_desktop_shell_owner_hwnd();
         let monitors = enumerate_monitors();
         let mut surfaces = Vec::new();
         for mon in monitors {
-            if let Ok(surf) = create_monitor_surface(&gpu_res, class_name, mon) {
+            if let Ok(surf) = create_monitor_surface(&gpu_res, class_name, mon, desktop_owner) {
                 surfaces.push(surf);
             }
         }
@@ -953,10 +1125,8 @@ mod win_host {
                 surfaces,
                 slot_springs: HashMap::new(),
                 dragging: None,
-                pressed_since: None,
+                pending_press: None,
                 inline_editor: None,
-                force_redraw: true,
-                should_exit: false,
                 start_time: Instant::now(),
             });
         });
@@ -966,7 +1136,7 @@ mod win_host {
         let mut last_minute_bucket: u64 = 0;
 
         loop {
-            // Drain Win32 message queue without blocking
+            // Drain Win32 message queue without holding HOST_STATE
             unsafe {
                 let mut msg = MSG::default();
                 while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE).as_bool() {
@@ -976,8 +1146,7 @@ mod win_host {
             }
 
             // Process incoming commands from Tauri bridge
-            let mut should_exit = false;
-            let mut force_redraw = false;
+            let mut should_exit = SHOULD_EXIT_FLAG.load(Ordering::Relaxed);
             let cmds: Vec<HostCommand> = shared
                 .lock()
                 .map(|mut s| std::mem::take(&mut s.pending_commands))
@@ -989,29 +1158,25 @@ mod win_host {
                         if let Ok(mut sh) = shared.lock() {
                             sh.config = cfg;
                         }
-                        force_redraw = true;
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
                     HostCommand::SetEditMode(on) => {
                         if let Ok(mut sh) = shared.lock() {
                             sh.edit_mode = on;
                         }
-                        force_redraw = true;
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
                     HostCommand::ToggleBoard(explicit) => {
                         if let Ok(mut sh) = shared.lock() {
                             sh.board_visible = explicit.unwrap_or(!sh.board_visible);
                         }
-                        force_redraw = true;
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
                     HostCommand::RefreshWallpaper => {
-                        if let Ok(mut sh) = shared.lock() {
-                            sh.wallpaper = resolve_wallpaper_file_path()
-                                .and_then(|p| load_wallpaper_sample(&p));
-                        }
-                        force_redraw = true;
+                        REFRESH_ENV_FLAG.store(true, Ordering::Relaxed);
                     }
                     HostCommand::MarkDirty => {
-                        force_redraw = true;
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
                     HostCommand::Shutdown => {
                         should_exit = true;
@@ -1019,7 +1184,16 @@ mod win_host {
                 }
             }
 
-            // Periodic policy & minute refresh (every 1.5s)
+            if REFRESH_ENV_FLAG.swap(false, Ordering::Relaxed) {
+                let pol = query_system_visual_policy();
+                let wp = resolve_wallpaper_file_path().and_then(|p| load_wallpaper_sample(&p));
+                if let Ok(mut sh) = shared.lock() {
+                    sh.policy = pol;
+                    sh.wallpaper = wp;
+                }
+                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+            }
+
             if last_policy_check.elapsed() >= Duration::from_millis(1500) {
                 last_policy_check = Instant::now();
                 let pol = query_system_visual_policy();
@@ -1029,82 +1203,151 @@ mod win_host {
                     .unwrap_or(0);
                 if now_min != last_minute_bucket {
                     last_minute_bucket = now_min;
-                    force_redraw = true;
+                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                 }
                 if let Ok(mut sh) = shared.lock() {
                     sh.policy = pol;
+                    sh.screen_powered_off = SCREEN_OFF_FLAG.load(Ordering::Relaxed);
                     sh.metrics.working_set_mb = query_process_working_set_mb();
                 }
             }
 
+            if should_exit {
+                let hwnds_to_destroy: Vec<HWND> = HOST_STATE.with(|cell| {
+                    cell.borrow_mut()
+                        .take()
+                        .map(|st| st.surfaces.into_iter().map(|s| s.hwnd).collect())
+                        .unwrap_or_default()
+                });
+                // DestroyWindow sends WM_DESTROY synchronously; HOST_STATE is already dropped here!
+                for h in hwnds_to_destroy {
+                    unsafe {
+                        let _ = DestroyWindow(h);
+                    }
+                }
+                if let Ok(mut sh) = shared.lock() {
+                    sh.metrics.running = false;
+                }
+                break;
+            }
+
+            // Snapshot shared state before touching surfaces or Win32 visibility APIs
+            let (cfg, hub, edit_mode, board_visible, screen_off, policy, wp) = {
+                let Ok(sh) = shared.lock() else {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                };
+                (
+                    sh.config.clone(),
+                    sh.hub.clone(),
+                    sh.edit_mode,
+                    sh.board_visible,
+                    sh.screen_powered_off,
+                    sh.policy.clone(),
+                    sh.wallpaper.clone(),
+                )
+            };
+
+            let visible_now = !screen_off
+                && ((cfg.enabled && cfg.display_mode == DisplayMode::DesktopAttached)
+                    || board_visible)
+                && !(cfg.auto_pause_fullscreen
+                    && policy.fullscreen_or_game_active
+                    && !board_visible);
+
+            STAY_BOTTOM_MODE.store(!board_visible, Ordering::Relaxed);
+
+            // Step 1: Collect Win32 window visibility/owner updates WITHOUT calling ShowWindow inside RefCell borrow!
+            struct WindowUpdate {
+                hwnd: HWND,
+                visible: bool,
+                board_mode: bool,
+                owner_change: Option<isize>,
+            }
+            let mut win_updates: Vec<WindowUpdate> = Vec::new();
+            let current_desktop_owner = find_desktop_shell_owner_hwnd();
+
+            HOST_STATE.with(|cell| {
+                if let Ok(mut b) = cell.try_borrow_mut() {
+                    if let Some(st) = b.as_mut() {
+                        for surf in &mut st.surfaces {
+                            let want_owner = !board_visible && current_desktop_owner.is_some();
+                            let owner_changed = surf.last_owner_attached != want_owner;
+                            let vis_changed = surf.last_visible != visible_now;
+                            let mode_changed = surf.last_board_mode != board_visible;
+
+                            if vis_changed || mode_changed || owner_changed {
+                                let owner_change = if owner_changed {
+                                    Some(if want_owner {
+                                        current_desktop_owner
+                                            .map(|h| h.0 as isize)
+                                            .unwrap_or(0)
+                                    } else {
+                                        0
+                                    })
+                                } else {
+                                    None
+                                };
+                                surf.last_visible = visible_now;
+                                surf.last_board_mode = board_visible;
+                                surf.last_owner_attached = want_owner;
+                                win_updates.push(WindowUpdate {
+                                    hwnd: surf.hwnd,
+                                    visible: visible_now,
+                                    board_mode: board_visible,
+                                    owner_change,
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Step 2: Apply ShowWindow / SetWindowPos / GWLP_HWNDPARENT strictly OUTSIDE any RefCell borrow!
+            for upd in win_updates {
+                unsafe {
+                    if let Some(owner_ptr) = upd.owner_change {
+                        let _ = SetWindowLongPtrW(upd.hwnd, GWLP_HWNDPARENT, owner_ptr);
+                    }
+                    if upd.visible {
+                        let z_target = if upd.board_mode {
+                            HWND_TOPMOST
+                        } else {
+                            HWND_BOTTOM
+                        };
+                        let _ = ShowWindow(upd.hwnd, SW_SHOWNOACTIVATE);
+                        let _ = SetWindowPos(
+                            upd.hwnd,
+                            z_target,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                        );
+                    } else {
+                        let _ = ShowWindow(upd.hwnd, SW_HIDE);
+                    }
+                }
+                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+            }
+
+            // Step 3: Build scene graph, advance springs, and render Direct2D frames
             let now = Instant::now();
             let dt = now.duration_since(last_tick).as_secs_f32().min(0.05);
             last_tick = now;
 
             let mut target_fps = 0u32;
             let mut device_lost = false;
+            let force_redraw = FORCE_REDRAW_FLAG.swap(false, Ordering::Relaxed);
 
             HOST_STATE.with(|cell| {
-                let mut b = cell.borrow_mut();
-                let Some(st) = b.as_mut() else {
-                    should_exit = true;
+                let Ok(mut b) = cell.try_borrow_mut() else {
                     return;
                 };
-                if st.should_exit {
-                    should_exit = true;
-                    return;
-                }
-                if force_redraw {
-                    st.force_redraw = true;
-                }
+                let Some(st) = b.as_mut() else { return };
 
-                let (cfg, hub, edit_mode, board_visible, screen_off, policy, wp) = {
-                    let Ok(sh) = st.shared.lock() else { return };
-                    (
-                        sh.config.clone(),
-                        sh.hub.clone(),
-                        sh.edit_mode,
-                        sh.board_visible,
-                        sh.screen_powered_off,
-                        sh.policy.clone(),
-                        sh.wallpaper.clone(),
-                    )
-                };
-
-                let visible_now = cfg.enabled
-                    && !screen_off
-                    && (cfg.display_mode == DisplayMode::DesktopAttached || board_visible)
-                    && !(cfg.auto_pause_fullscreen
-                        && policy.fullscreen_or_game_active
-                        && !board_visible);
-
-                let z_target = if board_visible {
-                    HWND_TOPMOST
-                } else {
-                    HWND_BOTTOM
-                };
-
-                for surf in &st.surfaces {
-                    unsafe {
-                        if visible_now {
-                            let _ = ShowWindow(surf.hwnd, SW_SHOWNOACTIVATE);
-                            let _ = SetWindowPos(
-                                surf.hwnd,
-                                z_target,
-                                0,
-                                0,
-                                0,
-                                0,
-                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                            );
-                        } else {
-                            let _ = ShowWindow(surf.hwnd, SW_HIDE);
-                        }
-                    }
-                }
-
-                // Step springs for smooth grid snap & appear transitions
-                let mut any_spring_active = false;
+                let mut any_spring_active = st.dragging.is_some();
                 let elapsed_secs = st.start_time.elapsed().as_secs_f32();
                 let mut total_dirty = 0usize;
 
@@ -1206,6 +1449,8 @@ mod win_host {
                             None
                         };
 
+                        // Use full present during motion/drag/edit to prevent flip-sequential stale trails
+                        let full_frame = force_redraw || any_spring_active || edit_mode;
                         let (dirty_cnt, pres_res) = renderer.render_frame(
                             &gpu_res,
                             &mut surf.swap,
@@ -1214,7 +1459,7 @@ mod win_host {
                             board_visible,
                             surf.add_btn_rect,
                             &policy,
-                            st.force_redraw,
+                            full_frame,
                         );
                         total_dirty += dirty_cnt;
                         if let Err(err) = pres_res {
@@ -1223,7 +1468,9 @@ mod win_host {
                             }
                         }
                     }
-                    st.force_redraw = false;
+                    unsafe {
+                        let _ = gpu_res.dcomp_device.Commit();
+                    }
                 }
 
                 let (fps, paused_reason) = compute_adaptive_target_fps(
@@ -1257,51 +1504,40 @@ mod win_host {
                         gpu_res = new_res;
                         renderer = new_rend;
                         HOST_STATE.with(|cell| {
-                            if let Some(st) = cell.borrow_mut().as_mut() {
-                                for surf in &mut st.surfaces {
-                                    let dpi = unsafe { (GetDpiForWindow(surf.hwnd) as f32).max(96.0) };
-                                    if let Ok(new_swap) = MonitorSwapChain::create(
-                                        &gpu_res,
-                                        surf.hwnd,
-                                        surf.info.width_px,
-                                        surf.info.height_px,
-                                        dpi,
-                                    ) {
-                                        surf.swap = new_swap;
+                            if let Ok(mut b) = cell.try_borrow_mut() {
+                                if let Some(st) = b.as_mut() {
+                                    for surf in &mut st.surfaces {
+                                        let dpi =
+                                            unsafe { (GetDpiForWindow(surf.hwnd) as f32).max(96.0) };
+                                        if let Ok(new_swap) = MonitorSwapChain::create(
+                                            &gpu_res,
+                                            surf.hwnd,
+                                            surf.info.width_px,
+                                            surf.info.height_px,
+                                            dpi,
+                                        ) {
+                                            surf.swap = new_swap;
+                                        }
                                     }
+                                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                                 }
-                                st.force_redraw = true;
                             }
                         });
                     }
                 }
             }
 
-            if should_exit {
-                HOST_STATE.with(|cell| {
-                    if let Some(st) = cell.borrow_mut().take() {
-                        for surf in st.surfaces {
-                            unsafe {
-                                let _ = DestroyWindow(surf.hwnd);
-                            }
-                        }
-                    }
-                });
-                if let Ok(mut sh) = shared.lock() {
-                    sh.metrics.running = false;
-                }
-                break;
-            }
-
-            // Adaptive sleep: 0 fps idles cleanly with minimal wake checks, active runs at target_fps
-            let sleep_ms = match target_fps {
+            let wait_ms: u32 = match target_fps {
                 0 => 120,
                 1 => 250,
                 8..=12 => 90,
                 13..=30 => 33,
                 _ => 16,
             };
-            std::thread::sleep(Duration::from_millis(sleep_ms));
+            // Kernel wait: 0% CPU while idle, wakes up in <0.1ms on any mouse hover/click/drag message
+            unsafe {
+                let _ = MsgWaitForMultipleObjects(None, false, wait_ms, QS_ALLINPUT);
+            }
         }
 
         Ok(())
