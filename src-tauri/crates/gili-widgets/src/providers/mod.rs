@@ -88,6 +88,8 @@ pub struct FrontendMirrorSnapshot {
     pub custom_city_name: Option<String>,
     pub custom_lat: Option<f64>,
     pub custom_lon: Option<f64>,
+    #[serde(default)]
+    pub language: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

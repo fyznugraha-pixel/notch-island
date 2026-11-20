@@ -1,16 +1,21 @@
 use crate::config::{RgbaColor, WidgetSize};
 use crate::layout::{RectF, SceneNode, TextAlign};
-use crate::widgets::{action_pill, empty_state_nodes, text_node, WidgetBuildCtx};
+use crate::widgets::{action_pill, empty_state_nodes, is_english, text_node, WidgetBuildCtx};
 
 /// 16. Proses teratas: 5 proses paling boros CPU/RAM, HANYA-BACA tanpa tombol akhiri proses (M, L)
 pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let procs = &ctx.hub.top_processes;
     if procs.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Proses Teratas",
-            "Sedang mengumpulkan sampel pemakaian CPU dan RAM proses (hanya-baca).",
-            "Segarkan",
+            if en { "Top Processes" } else { "Proses Teratas" },
+            if en {
+                "Sampling process CPU and RAM usage (read-only)."
+            } else {
+                "Sedang mengumpulkan sampel pemakaian CPU dan RAM proses (hanya-baca)."
+            },
+            if en { "Refresh" } else { "Segarkan" },
             "refresh_processes",
         );
     }
@@ -18,7 +23,7 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let mut nodes = vec![
         text_node(
             RectF::new(inner.x, inner.y, inner.w * 0.65, 20.0),
-            "Proses Teratas",
+            if en { "Top Processes" } else { "Proses Teratas" },
             15.0,
             600,
             ctx.pal.primary,
@@ -32,7 +37,7 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 inner.w * 0.35,
                 16.0,
             ),
-            "Hanya-baca",
+            if en { "Read-only" } else { "Hanya-baca" },
             11.0,
             500,
             ctx.pal.secondary,
@@ -91,11 +96,12 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 17. Kontrol cepat: HANYA API publik stabil (Wi-Fi, Bluetooth, Mode Gelap, Bisukan Audio) (S, M)
 pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(16.0);
     let qc = &ctx.hub.quick_controls;
     let mut nodes = vec![crate::widgets::text_node_line(
         RectF::new(inner.x, inner.y, inner.w, 18.0),
-        "Kontrol Cepat",
+        if en { "Quick Controls" } else { "Kontrol Cepat" },
         14.0,
         600,
         ctx.pal.primary,
@@ -112,14 +118,18 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
     tiles.push((
         "\u{E708}",
-        "Mode Gelap",
+        if en { "Dark Mode" } else { "Mode Gelap" },
         "quick_toggle:dark_mode",
         qc.dark_mode_enabled,
     ));
     if let Some(muted) = qc.audio_muted {
         tiles.push((
             if muted { "\u{E74F}" } else { "\u{E767}" },
-            if muted { "Bisukan" } else { "Audio" },
+            if muted {
+                if en { "Muted" } else { "Bisukan" }
+            } else {
+                "Audio"
+            },
             "quick_toggle:audio_mute",
             !muted,
         ));
@@ -182,7 +192,11 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ));
         nodes.push(crate::widgets::text_node_line(
             RectF::new(x + 6.0, y + ch * 0.50 + 15.0, cw - 12.0, 14.0),
-            if *on { "Aktif" } else { "Mati" },
+            if *on {
+                if en { "On" } else { "Aktif" }
+            } else {
+                if en { "Off" } else { "Mati" }
+            },
             10.0,
             500,
             if *on {
@@ -199,12 +213,17 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 18. Peta penyimpanan (treemap) on-demand ber-cache (M, L)
 pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let Some(tm) = &ctx.hub.storage_treemap else {
         return empty_state_nodes(
             ctx,
-            "Peta Penyimpanan",
-            "Pemindaian folder dijalankan sesuai permintaan agar disk tetap hemat.",
-            "Pindai Folder",
+            if en { "Storage Map" } else { "Peta Penyimpanan" },
+            if en {
+                "Folder scanning runs on demand to keep disk usage minimal."
+            } else {
+                "Pemindaian folder dijalankan sesuai permintaan agar disk tetap hemat."
+            },
+            if en { "Scan Folder" } else { "Pindai Folder" },
             "trigger_storage_scan",
         );
     };
@@ -213,7 +232,11 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     let mut nodes = vec![text_node(
         RectF::new(inner.x, inner.y, inner.w - 76.0, 18.0),
-        format!("Peta Penyimpanan ({:.1} GB)", total_gb),
+        if en {
+            format!("Storage Map ({:.1} GB)", total_gb)
+        } else {
+            format!("Peta Penyimpanan ({:.1} GB)", total_gb)
+        },
         13.5,
         600,
         ctx.pal.primary,
@@ -222,7 +245,11 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     )];
     nodes.extend(action_pill(
         RectF::new(inner.x + inner.w - 72.0, inner.y - 2.0, 72.0, 22.0),
-        if tm.scanning { "Memindai" } else { "Pindai" },
+        if tm.scanning {
+            if en { "Scanning" } else { "Memindai" }
+        } else {
+            if en { "Scan" } else { "Pindai" }
+        },
         ctx.pal.surface_chip,
         ctx.pal.primary,
         "trigger_storage_scan",
@@ -285,11 +312,17 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     nodes
 }
 
-fn format_duration_hm(total_secs: u64) -> String {
+fn format_duration_hm(total_secs: u64, en: bool) -> String {
     let hours = total_secs / 3600;
     let mins = (total_secs % 3600) / 60;
     if hours > 0 {
-        format!("{}j {}m", hours, mins)
+        if en {
+            format!("{}h {}m", hours, mins)
+        } else {
+            format!("{}j {}m", hours, mins)
+        }
+    } else if en {
+        format!("{}m", mins)
     } else {
         format!("{} mnt", mins)
     }
@@ -297,6 +330,7 @@ fn format_duration_hm(total_secs: u64) -> String {
 
 /// 32. Screen Time Harian: durasi layar aktif hari ini & aktivitas proses (M, L)
 pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(16.0);
     let st = &ctx.hub.screen_time;
     let limit = if st.daily_limit_secs > 0 {
@@ -316,7 +350,11 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         },
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
-            "SCREEN TIME HARI INI",
+            if en {
+                "TODAY'S SCREEN TIME"
+            } else {
+                "SCREEN TIME HARI INI"
+            },
             10.5,
             700,
             ctx.pal.secondary,
@@ -325,7 +363,7 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 18.0, inner.w * 0.60, 44.0),
-            format_duration_hm(st.today_secs),
+            format_duration_hm(st.today_secs, en),
             36.0,
             700,
             ctx.pal.primary,
@@ -339,7 +377,11 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 inner.w * 0.40,
                 18.0,
             ),
-            format!("Nyala {}", format_duration_hm(st.uptime_secs)),
+            if en {
+                format!("Uptime {}", format_duration_hm(st.uptime_secs, en))
+            } else {
+                format!("Nyala {}", format_duration_hm(st.uptime_secs, en))
+            },
             11.5,
             500,
             ctx.pal.secondary,
@@ -359,11 +401,19 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         },
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 80.0, inner.w, 16.0),
-            format!(
-                "Batas harian {} ({:.0}%)",
-                format_duration_hm(limit),
-                ratio * 100.0
-            ),
+            if en {
+                format!(
+                    "Daily limit {} ({:.0}%)",
+                    format_duration_hm(limit, en),
+                    ratio * 100.0
+                )
+            } else {
+                format!(
+                    "Batas harian {} ({:.0}%)",
+                    format_duration_hm(limit, en),
+                    ratio * 100.0
+                )
+            },
             11.0,
             500,
             ctx.pal.secondary,
@@ -376,7 +426,11 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         let mut y = inner.y + 112.0;
         nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, y, inner.w, 16.0),
-            "PROSES AKTIF SAAT INI (BACA-SAJA)",
+            if en {
+                "ACTIVE PROCESSES NOW (READ-ONLY)"
+            } else {
+                "PROSES AKTIF SAAT INI (BACA-SAJA)"
+            },
             10.5,
             700,
             ctx.pal.secondary,

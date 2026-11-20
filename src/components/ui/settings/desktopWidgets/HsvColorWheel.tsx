@@ -4,6 +4,7 @@ import { RgbaColor, hexToRgba, rgbaToHex } from "../../../../services/desktopWid
 interface HsvColorWheelProps {
   color: RgbaColor;
   isLightMode: boolean;
+  isId?: boolean;
   onChange: (next: RgbaColor) => void;
 }
 
@@ -49,6 +50,7 @@ function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
 export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
   color,
   isLightMode,
+  isId = true,
   onChange,
 }) => {
   const [h, s, v] = rgbToHsv(color.r, color.g, color.b);
@@ -107,7 +109,7 @@ export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
       {/* Hue spectrum slider */}
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between text-[11px] text-zinc-400">
-          <span>Rona Warna (Hue)</span>
+          <span>{isId ? "Rona Warna (Hue)" : "Color Hue"}</span>
           <span className="tabular-nums">{Math.round(h)}°</span>
         </div>
         <input
@@ -131,7 +133,7 @@ export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-[140px] flex flex-col gap-1">
           <div className="flex items-center justify-between text-[11px] text-zinc-400">
-            <span>Opasitas</span>
+            <span>{isId ? "Opasitas" : "Opacity"}</span>
             <span className="tabular-nums">{Math.round(color.a * 100)}%</span>
           </div>
           <input

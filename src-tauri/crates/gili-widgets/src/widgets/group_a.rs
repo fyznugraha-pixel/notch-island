@@ -1,8 +1,8 @@
 use crate::config::WidgetSize;
 use crate::layout::{RectF, SceneNode, TextAlign};
 use crate::widgets::{
-    action_pill, empty_state_nodes, indonesian_day_name, indonesian_month_name,
-    local_datetime_parts, text_node, WidgetBuildCtx,
+    action_pill, empty_state_nodes, is_english, local_datetime_parts, localized_day_name,
+    localized_month_name, text_node, WidgetBuildCtx,
 };
 
 pub fn days_in_month(year: i32, month: u32) -> u32 {
@@ -52,7 +52,11 @@ fn push_month_grid_nodes(
     let header_fs = (cell_scale * 0.56).clamp(9.5, 14.5);
     let day_fs = (cell_scale * 0.58).clamp(9.5, 15.0);
 
-    let labels = ["M", "S", "S", "R", "K", "J", "S"];
+    let labels = if is_english(ctx) {
+        ["S", "M", "T", "W", "T", "F", "S"]
+    } else {
+        ["M", "S", "S", "R", "K", "J", "S"]
+    };
     for (i, lbl) in labels.iter().enumerate() {
         let x = grid_rect.x + i as f32 * col_w;
         let y = grid_rect.y + (row_h - header_fs * 1.25) * 0.5;
@@ -129,10 +133,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     match style {
         "bulan_minimal" => {
             if ctx.size == WidgetSize::Medium {
+                let en = is_english(ctx);
                 let left_w = (inner.w * 0.34).clamp(74.0, 108.0);
                 nodes.push(text_node(
                     RectF::new(inner.x, inner.y + 4.0, left_w, 16.0),
-                    indonesian_day_name(dow).to_uppercase(),
+                    localized_day_name(dow, en).to_uppercase(),
                     10.5,
                     600,
                     ctx.pal.secondary,
@@ -150,7 +155,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 ));
                 nodes.push(text_node(
                     RectF::new(inner.x, inner.y + 66.0, left_w, 18.0),
-                    indonesian_month_name(month),
+                    localized_month_name(month, en),
                     11.5,
                     500,
                     ctx.pal.secondary,
@@ -179,9 +184,10 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         }
         "bulan_header" => {
             let head_h = if inner.h < 120.0 { 18.0 } else { 24.0 };
+            let en = is_english(ctx);
             nodes.push(text_node(
                 RectF::new(inner.x + 2.0, inner.y, inner.w - 4.0, head_h),
-                format!("{} {}", indonesian_month_name(month), year),
+                format!("{} {}", localized_month_name(month, en), year),
                 if ctx.size == WidgetSize::Large {
                     16.0
                 } else {
@@ -201,6 +207,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             push_month_grid_nodes(ctx, &mut nodes, grid_rect, year, month, day, true);
         }
         "tanggal_fokus" => {
+            let en = is_english(ctx);
             let big_num_fs = if ctx.size == WidgetSize::Large {
                 92.0
             } else if inner.h < 120.0 {
@@ -210,7 +217,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             };
             nodes.push(text_node(
                 RectF::new(inner.x, inner.y + 4.0, inner.w, 18.0),
-                indonesian_day_name(dow).to_uppercase(),
+                localized_day_name(dow, en).to_uppercase(),
                 12.0,
                 600,
                 ctx.pal.secondary,
@@ -228,7 +235,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ));
             nodes.push(text_node(
                 RectF::new(inner.x, inner.y + inner.h - 20.0, inner.w, 18.0),
-                format!("{} {}", indonesian_month_name(month), year),
+                format!("{} {}", localized_month_name(month, en), year),
                 12.5,
                 500,
                 ctx.pal.secondary,
@@ -237,13 +244,14 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ));
         }
         _ => {
+            let en = is_english(ctx);
             // "tanggal_agenda": Tanggal & daftar agenda dari modul Kalender Gili
             nodes.push(text_node(
                 RectF::new(inner.x, inner.y, inner.w, 16.0),
                 format!(
                     "{}, {}",
-                    indonesian_day_name(dow).to_uppercase(),
-                    indonesian_month_name(month).to_uppercase()
+                    localized_day_name(dow, en).to_uppercase(),
+                    localized_month_name(month, en).to_uppercase()
                 ),
                 11.0,
                 600,
@@ -285,7 +293,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     } else {
                         nodes.push(text_node(
                             RectF::new(inner.x, inner.y + inner.h - 28.0, inner.w, 26.0),
-                            "Tidak ada agenda hari ini",
+                            if en {
+                                "No events today"
+                            } else {
+                                "Tidak ada agenda hari ini"
+                            },
                             11.5,
                             400,
                             ctx.pal.secondary,
@@ -299,7 +311,7 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     let right_w = inner.w * 0.58;
                     nodes.push(crate::widgets::text_node_line(
                         RectF::new(inner.x, inner.y + 56.0, inner.w * 0.38, 18.0),
-                        format!("{} {}", indonesian_month_name(month), year),
+                        format!("{} {}", localized_month_name(month, en), year),
                         11.5,
                         500,
                         ctx.pal.secondary,
@@ -310,7 +322,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     if events.is_empty() {
                         nodes.push(text_node(
                             RectF::new(right_x, inner.y + 18.0, right_w, 36.0),
-                            "Agenda kosong. Ketuk untuk menambah di Gili.",
+                            if en {
+                                "No events. Tap to add in Gili."
+                            } else {
+                                "Agenda kosong. Ketuk untuk menambah di Gili."
+                            },
                             12.0,
                             400,
                             ctx.pal.secondary,
@@ -384,13 +400,18 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 2. Jadwal kuliah mingguan (M, L)
 pub fn build_class_schedule(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let classes = &ctx.hub.frontend.classes;
     if classes.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Jadwal Kuliah",
-            "Belum ada mata kuliah terdaftar di modul Jadwal Gili.",
-            "Atur Jadwal",
+            if en { "Class Schedule" } else { "Jadwal Kuliah" },
+            if en {
+                "No courses registered in the Gili Schedule module yet."
+            } else {
+                "Belum ada mata kuliah terdaftar di modul Jadwal Gili."
+            },
+            if en { "Set Schedule" } else { "Atur Jadwal" },
             "open_class_schedule",
         );
     }
@@ -399,7 +420,7 @@ pub fn build_class_schedule(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let mut nodes = vec![
         text_node(
             RectF::new(inner.x, inner.y, inner.w * 0.65, 20.0),
-            "Jadwal Kuliah",
+            if en { "Class Schedule" } else { "Jadwal Kuliah" },
             15.0,
             600,
             ctx.pal.primary,
@@ -413,7 +434,7 @@ pub fn build_class_schedule(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 inner.w * 0.35,
                 16.0,
             ),
-            indonesian_day_name(dow),
+            localized_day_name(dow, en),
             12.0,
             600,
             ctx.pal.accent,
@@ -456,7 +477,7 @@ pub fn build_class_schedule(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ));
         let day_tag = item
             .day
-            .map(|d| format!("{} . ", indonesian_day_name(d as u32)))
+            .map(|d| format!("{} . ", localized_day_name(d as u32, en)))
             .unwrap_or_default();
         nodes.push(text_node(
             RectF::new(inner.x + 64.0, y + 16.0, inner.w - 64.0, 14.0),
@@ -473,10 +494,15 @@ pub fn build_class_schedule(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 3. Heatmap kebiasaan gaya GitHub (M, L)
 pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
     let f = &ctx.hub.frontend;
     let title = if f.habit_title.is_empty() {
-        "Kebiasaan Harian"
+        if en {
+            "Daily Habit"
+        } else {
+            "Kebiasaan Harian"
+        }
     } else {
         &f.habit_title
     };
@@ -512,7 +538,11 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         text_node(
             RectF::new(inner.x + inner.w * 0.68, inner.y, inner.w * 0.32, 20.0),
-            format!("{} hari", f.habit_count),
+            if en {
+                format!("{} days", f.habit_count)
+            } else {
+                format!("{} hari", f.habit_count)
+            },
             13.0,
             700,
             ctx.pal.positive,
@@ -529,7 +559,11 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         },
         text_node(
             RectF::new(inner.x, inner.y + inner.h - 15.0, inner.w, 15.0),
-            format!("{} hari tercatat di riwayat", f.habit_history.len()),
+            if en {
+                format!("{} days recorded in history", f.habit_history.len())
+            } else {
+                format!("{} hari tercatat di riwayat", f.habit_history.len())
+            },
             11.0,
             400,
             ctx.pal.secondary,
@@ -546,7 +580,7 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 92.0,
                 24.0,
             ),
-            "Mulai Catat",
+            if en { "Start Log" } else { "Mulai Catat" },
             ctx.pal.positive.with_alpha(0.24),
             ctx.pal.primary,
             "open_streak",
@@ -604,9 +638,14 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ));
         }
         WidgetSize::Medium | WidgetSize::Large => {
+            let en = is_english(ctx);
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(inner.x, inner.y, inner.w * 0.52, 16.0),
-                "PERFORMA SISTEM",
+                if en {
+                    "SYSTEM PERFORMANCE"
+                } else {
+                    "PERFORMA SISTEM"
+                },
                 10.5,
                 700,
                 ctx.pal.secondary,
@@ -720,12 +759,12 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                             .collect::<Vec<_>>()
                             .join(" ");
                         if cleaned.is_empty() {
-                            "GPU aktif".to_string()
+                            if en { "Active GPU" } else { "GPU aktif" }.to_string()
                         } else {
                             cleaned
                         }
                     })
-                    .unwrap_or_else(|| "GPU aktif".to_string()),
+                    .unwrap_or_else(|| if en { "Active GPU" } else { "GPU aktif" }.to_string()),
             };
             let footer_y = if ctx.size == WidgetSize::Large {
                 cy + ring_r + 24.0
@@ -755,7 +794,11 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 let mut dy = footer_y + 26.0;
                 nodes.push(crate::widgets::text_node_line(
                     RectF::new(inner.x, dy, inner.w, 16.0),
-                    "PENYIMPANAN DISK",
+                    if en {
+                        "DISK STORAGE"
+                    } else {
+                        "PENYIMPANAN DISK"
+                    },
                     10.5,
                     700,
                     ctx.pal.secondary,
@@ -797,13 +840,18 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 5. Now Playing + lirik penuh (S, M, L), memakai sumber lirik yang sama dengan mini player
 pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let m = &ctx.hub.media;
     if m.title.trim().is_empty() {
         return empty_state_nodes(
             ctx,
             "Now Playing",
-            "Putar musik di Spotify, browser, atau pemutar lain untuk melihat lirik di sini.",
-            "Buka Media",
+            if en {
+                "Play music on Spotify, browser, or any player to see lyrics here."
+            } else {
+                "Putar musik di Spotify, browser, atau pemutar lain untuk melihat lirik di sini."
+            },
+            if en { "Open Media" } else { "Buka Media" },
             "open_media",
         );
     }
@@ -937,9 +985,19 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let lyric_text = if !m.active_lyric_line.is_empty() {
         m.active_lyric_line.clone()
     } else if m.lyrics_state == "loading" {
-        "Memuat lirik...".to_string()
+        if en {
+            "Loading lyrics..."
+        } else {
+            "Memuat lirik..."
+        }
+        .to_string()
     } else {
-        "Lirik tidak tersedia untuk lagu ini".to_string()
+        if en {
+            "Lyrics unavailable for this track"
+        } else {
+            "Lirik tidak tersedia untuk lagu ini"
+        }
+        .to_string()
     };
 
     match ctx.size {
@@ -1037,15 +1095,27 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     nodes
 }
 
-fn weather_code_label(code: i32) -> &'static str {
-    match code {
-        0 => "Cerah",
-        1..=3 => "Berawan",
-        45 | 48 => "Berkabut",
-        51..=57 => "Gerimis",
-        61..=67 | 80..=82 => "Hujan",
-        95..=99 => "Badai Petir",
-        _ => "Berawan",
+fn weather_code_label(code: i32, en: bool) -> &'static str {
+    if en {
+        match code {
+            0 => "Clear",
+            1..=3 => "Cloudy",
+            45 | 48 => "Foggy",
+            51..=57 => "Drizzle",
+            61..=67 | 80..=82 => "Rain",
+            95..=99 => "Thunderstorm",
+            _ => "Cloudy",
+        }
+    } else {
+        match code {
+            0 => "Cerah",
+            1..=3 => "Berawan",
+            45 | 48 => "Berkabut",
+            51..=57 => "Gerimis",
+            61..=67 | 80..=82 => "Hujan",
+            95..=99 => "Badai Petir",
+            _ => "Berawan",
+        }
     }
 }
 
@@ -1065,15 +1135,18 @@ fn weather_icon_accent(ctx: &WidgetBuildCtx<'_>, code: i32) -> crate::config::Rg
 
 /// 6. Cuaca: sekarang, per jam, 5 hari (S, M, L)
 pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let w = &ctx.hub.weather;
     if !w.available {
         return empty_state_nodes(
             ctx,
-            "Cuaca",
-            w.error
-                .as_deref()
-                .unwrap_or("Data cuaca belum termuat. Periksa koneksi atau atur kota."),
-            "Coba Lagi",
+            if en { "Weather" } else { "Cuaca" },
+            w.error.as_deref().unwrap_or(if en {
+                "Weather data not loaded. Check connection or set city."
+            } else {
+                "Data cuaca belum termuat. Periksa koneksi atau atur kota."
+            }),
+            if en { "Retry" } else { "Coba Lagi" },
             "refresh_weather",
         );
     }
@@ -1105,7 +1178,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 62.0, 112.0, 16.0),
-            weather_code_label(w.current_code),
+            weather_code_label(w.current_code, en),
             12.0,
             500,
             ctx.pal.secondary,
@@ -1118,7 +1191,11 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         if inner.y + 78.0 + 14.0 <= inner.y + inner.h {
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(inner.x, inner.y + 78.0, 112.0, 14.0),
-                format!("T:{:.0}° R:{:.0}°", today.max_c, today.min_c),
+                if en {
+                    format!("H:{:.0}° L:{:.0}°", today.max_c, today.min_c)
+                } else {
+                    format!("T:{:.0}° R:{:.0}°", today.max_c, today.min_c)
+                },
                 10.5,
                 600,
                 ctx.pal.secondary,
@@ -1184,7 +1261,11 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         let mut y = inner.y + 104.0;
         nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, y, inner.w, 16.0),
-            "PRAKIRAAN 5 HARI",
+            if en {
+                "5-DAY FORECAST"
+            } else {
+                "PRAKIRAAN 5 HARI"
+            },
             10.5,
             700,
             ctx.pal.secondary,
@@ -1263,13 +1344,18 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 7. To-do dengan grup (S, M, L)
 pub fn build_todo_groups(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let todos = &ctx.hub.frontend.todos;
     if todos.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Daftar Tugas",
-            "Semua tugas selesai atau belum ada daftar tugas di Gili.",
-            "Tambah Tugas",
+            if en { "To-Do List" } else { "Daftar Tugas" },
+            if en {
+                "All tasks completed or no tasks added in Gili yet."
+            } else {
+                "Semua tugas selesai atau belum ada daftar tugas di Gili."
+            },
+            if en { "Add Task" } else { "Tambah Tugas" },
             "open_todo",
         );
     }
@@ -1279,7 +1365,7 @@ pub fn build_todo_groups(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let mut nodes = vec![
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 50.0, 20.0),
-            "Tugas",
+            if en { "Tasks" } else { "Tugas" },
             15.0,
             700,
             ctx.pal.primary,
@@ -1350,14 +1436,19 @@ pub fn build_todo_groups(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 8. Drop Zone (S, M)
 pub fn build_drop_zone(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
     let files = &ctx.hub.frontend.shelf_files;
     if files.is_empty() {
         return empty_state_nodes(
             ctx,
             "Drop Zone",
-            "Rak berkas sementara kosong. Seret berkas ke Drop Zone Gili.",
-            "Buka Rak",
+            if en {
+                "File shelf is empty. Drag files into Gili Drop Zone."
+            } else {
+                "Rak berkas sementara kosong. Seret berkas ke Drop Zone Gili."
+            },
+            if en { "Open Shelf" } else { "Buka Rak" },
             "open_shelf",
         );
     }
@@ -1374,7 +1465,11 @@ pub fn build_drop_zone(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         text_node(
             RectF::new(inner.x + inner.w * 0.7, inner.y, inner.w * 0.3, 20.0),
-            format!("{} berkas", files.len()),
+            if en {
+                format!("{} files", files.len())
+            } else {
+                format!("{} berkas", files.len())
+            },
             12.0,
             500,
             ctx.pal.secondary,

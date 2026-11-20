@@ -1,17 +1,22 @@
 use crate::config::{RgbaColor, WidgetSize};
 use crate::layout::{RectF, SceneNode, TextAlign};
-use crate::widgets::{action_pill, empty_state_nodes, text_node, WidgetBuildCtx};
+use crate::widgets::{action_pill, empty_state_nodes, is_english, text_node, WidgetBuildCtx};
 
 /// 9. Catatan tempel: banyak catatan, warna, checklist (S, M, L)
 pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
     let notes = &ctx.hub.notes;
     if notes.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Catatan Tempel",
-            "Belum ada catatan. Ketuk Tulis untuk membuka editor native.",
-            "Tulis Catatan",
+            if en { "Sticky Notes" } else { "Catatan Tempel" },
+            if en {
+                "No notes yet. Tap Write to open the native editor."
+            } else {
+                "Belum ada catatan. Ketuk Tulis untuk membuka editor native."
+            },
+            if en { "Write Note" } else { "Tulis Catatan" },
             "inline_edit:sticky_notes",
         );
     }
@@ -39,7 +44,7 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         text_node(
             RectF::new(inner.x + 8.0, inner.y, inner.w - 64.0, 20.0),
             if note.title.is_empty() {
-                "Catatan"
+                if en { "Note" } else { "Catatan" }
             } else {
                 &note.title
             },
@@ -51,7 +56,11 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         text_node(
             RectF::new(inner.x + inner.w - 52.0, inner.y + 2.0, 52.0, 16.0),
-            format!("{} catatan", notes.len()),
+            if en {
+                format!("{} notes", notes.len())
+            } else {
+                format!("{} catatan", notes.len())
+            },
             11.0,
             500,
             ctx.pal.secondary,
@@ -93,7 +102,7 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     nodes.extend(action_pill(
         RectF::new(inner.x, inner.y + inner.h - 26.0, 96.0, 24.0),
-        "+ Tambah",
+        if en { "+ Add" } else { "+ Tambah" },
         ctx.pal.surface_chip,
         ctx.pal.primary,
         "inline_edit:sticky_notes",
@@ -103,11 +112,12 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 10. Kanban mini 3 kolom, seret antar kolom (L)
 pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
     let kb = &ctx.hub.kanban;
     let mut nodes = vec![text_node(
         RectF::new(inner.x, inner.y, inner.w - 90.0, 20.0),
-        "Kanban Mini",
+        if en { "Mini Kanban" } else { "Kanban Mini" },
         15.0,
         600,
         ctx.pal.primary,
@@ -116,16 +126,16 @@ pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     )];
     nodes.extend(action_pill(
         RectF::new(inner.x + inner.w - 86.0, inner.y - 2.0, 86.0, 24.0),
-        "+ Kartu",
+        if en { "+ Card" } else { "+ Kartu" },
         ctx.pal.accent.with_alpha(0.24),
         ctx.pal.primary,
         "inline_edit:mini_kanban",
     ));
 
     let cols = [
-        ("Akan", &kb.todo, ctx.pal.secondary),
-        ("Proses", &kb.doing, ctx.pal.accent),
-        ("Selesai", &kb.done, ctx.pal.positive),
+        (if en { "To Do" } else { "Akan" }, &kb.todo, ctx.pal.secondary),
+        (if en { "Doing" } else { "Proses" }, &kb.doing, ctx.pal.accent),
+        (if en { "Done" } else { "Selesai" }, &kb.done, ctx.pal.positive),
     ];
     let gap = 8.0;
     let col_w = (inner.w - gap * 2.0) / 3.0;
@@ -145,7 +155,7 @@ pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         if cards.is_empty() {
             nodes.push(text_node(
                 RectF::new(x, top_y + 24.0, col_w, 28.0),
-                "Kosong",
+                if en { "Empty" } else { "Kosong" },
                 11.0,
                 400,
                 ctx.pal.secondary,
@@ -188,13 +198,18 @@ pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 11. Pelacak waktu per proyek, mulai/berhenti, ekspor CSV (S, M)
 pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let tt = &ctx.hub.time_tracker;
     if tt.projects.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Pelacak Waktu",
-            "Tambahkan proyek di Pengaturan Widget untuk mulai melacak durasi kerja.",
-            "Atur Proyek",
+            if en { "Time Tracker" } else { "Pelacak Waktu" },
+            if en {
+                "Add projects in Widget Settings to start tracking work duration."
+            } else {
+                "Tambahkan proyek di Pengaturan Widget untuk mulai melacak durasi kerja."
+            },
+            if en { "Set Projects" } else { "Atur Proyek" },
             "open_widget_settings",
         );
     }
@@ -206,7 +221,7 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     let mut nodes = vec![text_node(
         RectF::new(inner.x, inner.y, inner.w - 76.0, 20.0),
-        "Pelacak Waktu",
+        if en { "Time Tracker" } else { "Pelacak Waktu" },
         15.0,
         600,
         ctx.pal.primary,
@@ -217,7 +232,7 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     if ctx.size == WidgetSize::Medium {
         nodes.extend(action_pill(
             RectF::new(inner.x + inner.w - 76.0, inner.y - 2.0, 76.0, 22.0),
-            "Ekspor CSV",
+            if en { "Export CSV" } else { "Ekspor CSV" },
             ctx.pal.surface_chip,
             ctx.pal.primary,
             "export_time_csv",
@@ -263,7 +278,11 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ));
         nodes.extend(action_pill(
             RectF::new(inner.x + inner.w - 66.0, y + 2.0, 66.0, 24.0),
-            if running { "Henti" } else { "Mulai" },
+            if running {
+                if en { "Stop" } else { "Henti" }
+            } else {
+                if en { "Start" } else { "Mulai" }
+            },
             if running {
                 ctx.pal.danger.with_alpha(0.28)
             } else {
@@ -278,20 +297,25 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 12. Status situs: ping uptime URL pengguna (min 60 dtk, maks 6 situs) (M, L)
 pub fn build_site_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let sites = &ctx.hub.uptime_sites;
     if sites.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Status Situs",
-            "Tambahkan hingga 6 URL HTTPS milik Anda (interval minimal 60 detik).",
-            "Atur Situs",
+            if en { "Site Status" } else { "Status Situs" },
+            if en {
+                "Add up to 6 of your HTTPS URLs (min 60s interval)."
+            } else {
+                "Tambahkan hingga 6 URL HTTPS milik Anda (interval minimal 60 detik)."
+            },
+            if en { "Set Sites" } else { "Atur Situs" },
             "open_widget_settings",
         );
     }
     let inner = ctx.frame.inset(14.0);
     let mut nodes = vec![text_node(
         RectF::new(inner.x, inner.y, inner.w, 20.0),
-        "Status Situs",
+        if en { "Site Status" } else { "Status Situs" },
         15.0,
         600,
         ctx.pal.primary,
@@ -325,7 +349,9 @@ pub fn build_site_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ));
         let stat = match (s.status_code, s.latency_ms) {
             (Some(c), Some(ms)) => format!("{} . {} ms", c, ms),
-            _ => s.error.clone().unwrap_or_else(|| "Menunggu".into()),
+            _ => s.error.clone().unwrap_or_else(|| {
+                if en { "Pending" } else { "Menunggu" }.into()
+            }),
         };
         nodes.push(text_node(
             RectF::new(inner.x + inner.w - 92.0, y, 92.0, 18.0),
@@ -342,13 +368,18 @@ pub fn build_site_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 13. Status GitHub: PR, issue, hasil Actions (M, L)
 pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let gh = &ctx.hub.github;
     if !gh.configured {
         return empty_state_nodes(
             ctx,
-            "Status GitHub",
-            "Masukkan repositori (owner/repo) dan token fine-grained read-only di Credential Manager.",
-            "Atur GitHub",
+            if en { "GitHub Status" } else { "Status GitHub" },
+            if en {
+                "Enter repository (owner/repo) and a read-only fine-grained token in Credential Manager."
+            } else {
+                "Masukkan repositori (owner/repo) dan token fine-grained read-only di Credential Manager."
+            },
+            if en { "Set GitHub" } else { "Atur GitHub" },
             "open_widget_settings",
         );
     }
@@ -386,7 +417,7 @@ pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ));
         nodes.extend(action_pill(
             RectF::new(inner.x, inner.y + inner.h - 28.0, 92.0, 26.0),
-            "Coba Lagi",
+            if en { "Retry" } else { "Coba Lagi" },
             ctx.pal.surface_chip,
             ctx.pal.primary,
             "refresh_github",
@@ -406,7 +437,7 @@ pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ));
     nodes.push(text_node(
         RectF::new(inner.x, inner.y + 84.0, col_w, 16.0),
-        "PR Terbuka",
+        if en { "Open PRs" } else { "PR Terbuka" },
         11.5,
         500,
         ctx.pal.secondary,
@@ -425,7 +456,7 @@ pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ));
     nodes.push(text_node(
         RectF::new(inner.x + col_w + 8.0, inner.y + 84.0, col_w, 16.0),
-        "Issue Terbuka",
+        if en { "Open Issues" } else { "Issue Terbuka" },
         11.5,
         500,
         ctx.pal.secondary,
@@ -455,20 +486,33 @@ pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 14. Pintasan: grid aplikasi, folder, link dengan path terlihat (S, M, L)
 pub fn build_shortcuts_grid(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let items = &ctx.hub.shortcuts;
     if items.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Pintasan Cepat",
-            "Tambahkan aplikasi, folder, atau tautan sendiri beserta path yang jelas.",
-            "Tambah Pintasan",
+            if en {
+                "Quick Shortcuts"
+            } else {
+                "Pintasan Cepat"
+            },
+            if en {
+                "Add your own apps, folders, or links with explicit paths."
+            } else {
+                "Tambahkan aplikasi, folder, atau tautan sendiri beserta path yang jelas."
+            },
+            if en {
+                "Add Shortcut"
+            } else {
+                "Tambah Pintasan"
+            },
             "open_widget_settings",
         );
     }
     let inner = ctx.frame.inset(14.0);
     let mut nodes = vec![text_node(
         RectF::new(inner.x, inner.y, inner.w, 18.0),
-        "Pintasan",
+        if en { "Shortcuts" } else { "Pintasan" },
         14.0,
         600,
         ctx.pal.primary,
@@ -521,20 +565,25 @@ pub fn build_shortcuts_grid(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 15. File terbaru (M, L): opt-in, folder pengecualian, metadata saja
 pub fn build_recent_files(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let rf = &ctx.hub.recent_files;
     if !rf.opt_in_enabled || rf.watched_folders.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Berkas Terbaru",
-            "Fitur ini opt-in. Pilih folder yang ingin dipantau (hanya metadata, tanpa baca isi).",
-            "Aktifkan & Pilih",
+            if en { "Recent Files" } else { "Berkas Terbaru" },
+            if en {
+                "Opt-in feature. Pick folders to watch (metadata only, no file content read)."
+            } else {
+                "Fitur ini opt-in. Pilih folder yang ingin dipantau (hanya metadata, tanpa baca isi)."
+            },
+            if en { "Enable & Pick" } else { "Aktifkan & Pilih" },
             "open_widget_settings",
         );
     }
     let inner = ctx.frame.inset(14.0);
     let mut nodes = vec![text_node(
         RectF::new(inner.x, inner.y, inner.w, 20.0),
-        "Berkas Terbaru",
+        if en { "Recent Files" } else { "Berkas Terbaru" },
         15.0,
         600,
         ctx.pal.primary,
@@ -544,7 +593,11 @@ pub fn build_recent_files(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     if rf.files.is_empty() {
         nodes.push(text_node(
             RectF::new(inner.x, inner.y + 34.0, inner.w, 32.0),
-            "Belum ada berkas ditemukan di folder pantauan.",
+            if en {
+                "No files found in watched folders yet."
+            } else {
+                "Belum ada berkas ditemukan di folder pantauan."
+            },
             12.0,
             400,
             ctx.pal.secondary,
@@ -586,13 +639,18 @@ pub fn build_recent_files(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 30. Hitung mundur momen / Countdown (S, M)
 pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let items = &ctx.hub.countdowns;
     if items.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Hitung Mundur",
-            "Tambahkan momen penting (deadline, ujian, gajian, liburan) di Pengaturan Widget.",
-            "Tambah Momen",
+            if en { "Countdown" } else { "Hitung Mundur" },
+            if en {
+                "Add important milestones (deadlines, exams, payday, holidays) in Widget Settings."
+            } else {
+                "Tambahkan momen penting (deadline, ujian, gajian, liburan) di Pengaturan Widget."
+            },
+            if en { "Add Moment" } else { "Tambah Momen" },
             "open_widget_settings",
         );
     }
@@ -608,11 +666,20 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     .unwrap_or(0);
 
     let (num_str, suffix) = if diff > 0 {
-        (format!("{}", diff), "hari lagi".to_string())
+        (
+            format!("{}", diff),
+            if en { "days left" } else { "hari lagi" }.to_string(),
+        )
     } else if diff == 0 {
-        ("H-0".to_string(), "Hari ini!".to_string())
+        (
+            if en { "D-0" } else { "H-0" }.to_string(),
+            if en { "Today!" } else { "Hari ini!" }.to_string(),
+        )
     } else {
-        (format!("+{}", diff.abs()), "hari lalu".to_string())
+        (
+            format!("+{}", diff.abs()),
+            if en { "days ago" } else { "hari lalu" }.to_string(),
+        )
     };
 
     let has_right_list = ctx.size == WidgetSize::Medium && items.len() > 1;
@@ -632,7 +699,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         },
         text_node(
             RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
-            "HITUNG MUNDUR",
+            if en { "COUNTDOWN" } else { "HITUNG MUNDUR" },
             10.5,
             700,
             ctx.pal.secondary,
@@ -707,7 +774,7 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             nodes.push(text_node(
                 RectF::new(rx + rw - 46.0, y + 6.0, 40.0, 16.0),
                 if d >= 0 {
-                    format!("H-{}", d)
+                    format!("{}-{}", if en { "D" } else { "H" }, d)
                 } else {
                     format!("+{}", d.abs())
                 },
@@ -724,13 +791,18 @@ pub fn build_countdown_moment(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 31. Papan Snippet Cepat: template teks pilihan pengguna, 1 klik salin (S, M)
 pub fn build_quick_snippets(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let items = &ctx.hub.snippets;
     if items.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Papan Snippet",
-            "Simpan template teks pilihan Anda sendiri untuk disalin 1 klik (bukan riwayat clipboard).",
-            "Tambah Snippet",
+            if en { "Snippet Board" } else { "Papan Snippet" },
+            if en {
+                "Save custom text templates for 1-click copy (not clipboard history)."
+            } else {
+                "Simpan template teks pilihan Anda sendiri untuk disalin 1 klik (bukan riwayat clipboard)."
+            },
+            if en { "Add Snippet" } else { "Tambah Snippet" },
             "open_widget_settings",
         );
     }
@@ -738,7 +810,7 @@ pub fn build_quick_snippets(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let mut nodes = vec![
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 26.0, 18.0),
-            "Papan Snippet",
+            if en { "Snippet Board" } else { "Papan Snippet" },
             14.5,
             600,
             ctx.pal.primary,

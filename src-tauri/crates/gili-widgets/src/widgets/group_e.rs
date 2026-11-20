@@ -1,6 +1,6 @@
 use crate::config::WidgetSize;
 use crate::layout::{RectF, SceneNode, TextAlign};
-use crate::widgets::{action_pill, empty_state_nodes, text_node, WidgetBuildCtx};
+use crate::widgets::{action_pill, empty_state_nodes, is_english, text_node, WidgetBuildCtx};
 
 fn format_idr(amount: i64) -> String {
     let neg = amount < 0;
@@ -22,12 +22,25 @@ fn format_idr(amount: i64) -> String {
 
 /// 24. Jadwal sholat offline Kemenag RI + mode Ramadan (S, M, L)
 pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(16.0);
     let p = &ctx.hub.prayer;
     let city = if p.city_name.is_empty() {
         "Jakarta"
     } else {
         &p.city_name
+    };
+    let next_lbl = if en {
+        match p.next_name.as_str() {
+            "Subuh" => "Fajr",
+            "Dzuhur" => "Dhuhr",
+            "Ashar" => "Asr",
+            "Maghrib" => "Maghrib",
+            "Isya" => "Isha",
+            other => other,
+        }
+    } else {
+        &p.next_name
     };
 
     let mut nodes = vec![
@@ -40,7 +53,11 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         },
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
-            format!("SHOLAT . {}", city.to_uppercase()),
+            format!(
+                "{} . {}",
+                if en { "PRAYER" } else { "SHOLAT" },
+                city.to_uppercase()
+            ),
             10.5,
             700,
             ctx.pal.positive,
@@ -62,7 +79,7 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 56.0, inner.w, 16.0),
-            format!("{} . {}", p.next_name, p.countdown_label),
+            format!("{} . {}", next_lbl, p.countdown_label),
             12.0,
             600,
             ctx.pal.secondary,
@@ -79,7 +96,11 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 (inner.w * 0.58 - 26.0).max(40.0),
                 16.0,
             ),
-            format!("Imsak {} | Buka {}", p.sahur_time, p.buka_time),
+            if en {
+                format!("Sahur {} | Iftar {}", p.sahur_time, p.buka_time)
+            } else {
+                format!("Imsak {} | Buka {}", p.sahur_time, p.buka_time)
+            },
             10.5,
             600,
             ctx.pal.warning,
@@ -90,11 +111,11 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     if ctx.size != WidgetSize::Small {
         let rows = [
-            ("Subuh", &p.times.subuh),
-            ("Dzuhur", &p.times.dzuhur),
-            ("Ashar", &p.times.ashar),
-            ("Maghrib", &p.times.maghrib),
-            ("Isya", &p.times.isya),
+            ("Subuh", "Fajr", &p.times.subuh),
+            ("Dzuhur", "Dhuhr", &p.times.dzuhur),
+            ("Ashar", "Asr", &p.times.ashar),
+            ("Maghrib", "Maghrib", &p.times.maghrib),
+            ("Isya", "Isha", &p.times.isya),
         ];
         if ctx.size == WidgetSize::Medium {
             let gap = 5.0;
@@ -105,9 +126,10 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 .pal
                 .inner_border
                 .map(|b| (b.with_alpha(b.a * 0.55), 0.7));
-            for (i, (lbl, val)) in rows.iter().enumerate() {
+            for (i, (key, en_lbl, val)) in rows.iter().enumerate() {
                 let x = inner.x + i as f32 * (col_w + gap);
-                let active = *lbl == p.next_name;
+                let active = *key == p.next_name;
+                let lbl = if en { *en_lbl } else { *key };
                 nodes.push(SceneNode::RoundedRect {
                     rect: RectF::new(x, base_y, col_w, pill_h),
                     radius: 12.0,
@@ -126,7 +148,7 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 });
                 nodes.push(crate::widgets::text_node_line(
                     RectF::new(x + 2.0, base_y + 6.0, col_w - 4.0, 14.0),
-                    *lbl,
+                    lbl,
                     10.0,
                     if active { 700 } else { 500 },
                     if active {
@@ -149,8 +171,9 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             }
         } else {
             let mut y = inner.y + 92.0;
-            for (lbl, val) in rows {
-                let active = lbl == p.next_name;
+            for (key, en_lbl, val) in rows {
+                let active = key == p.next_name;
+                let lbl = if en { en_lbl } else { key };
                 nodes.push(text_node(
                     RectF::new(inner.x, y, inner.w * 0.55, 22.0),
                     lbl,
@@ -191,13 +214,22 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 25. Kurs & harga emas (S, M)
 pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let cg = &ctx.hub.currency_gold;
     if cg.usd_to_idr.is_none() && cg.gold_idr_per_gram.is_none() {
         return empty_state_nodes(
             ctx,
-            "Kurs & Emas",
-            "Data kurs belum termuat. Ketuk Coba Lagi untuk mengambil dari open.er-api.com.",
-            "Coba Lagi",
+            if en {
+                "Currency & Gold"
+            } else {
+                "Kurs & Emas"
+            },
+            if en {
+                "Exchange rates not loaded yet. Tap Retry to fetch from open.er-api.com."
+            } else {
+                "Data kurs belum termuat. Ketuk Coba Lagi untuk mengambil dari open.er-api.com."
+            },
+            if en { "Retry" } else { "Coba Lagi" },
             "refresh_currency",
         );
     }
@@ -205,7 +237,14 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let usd_str = cg
         .usd_to_idr
         .map(|v| format_idr(v.round() as i64))
-        .unwrap_or_else(|| "Belum tersedia".into());
+        .unwrap_or_else(|| {
+            if en {
+                "Unavailable"
+            } else {
+                "Belum tersedia"
+            }
+            .into()
+        });
     let char_count = usd_str.chars().count().max(6) as f32;
     let usd_fs = (inner.w / (char_count * 0.66)).clamp(17.0, 28.0);
     let usd_h = (usd_fs * 1.32).max(26.0);
@@ -213,7 +252,11 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let mut nodes = vec![
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w, 16.0),
-            "KURS USD / IDR",
+            if en {
+                "USD / IDR RATE"
+            } else {
+                "KURS USD / IDR"
+            },
             10.5,
             600,
             ctx.pal.secondary,
@@ -252,17 +295,37 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
 
     let gold_lbl = match cg.gold_idr_per_gram {
-        Some(g) => format!("Emas/gr: {}", format_idr(g.round() as i64)),
+        Some(g) => format!(
+            "{}: {}",
+            if en { "Gold/gr" } else { "Emas/gr" },
+            format_idr(g.round() as i64)
+        ),
         None => {
             if ctx.size == WidgetSize::Small {
-                "Emas: atur API".to_string()
+                if en {
+                    "Gold: set API"
+                } else {
+                    "Emas: atur API"
+                }
+                .to_string()
             } else {
-                "Emas: butuh API berlisensi (Atur)".to_string()
+                if en {
+                    "Gold: licensed API needed (Set)"
+                } else {
+                    "Emas: butuh API berlisensi (Atur)"
+                }
+                .to_string()
             }
         }
     };
     let source_lbl = if ctx.size == WidgetSize::Small {
-        format!("Kurs: {}", cg.currency_source)
+        if en {
+            format!("Rate: {}", cg.currency_source)
+        } else {
+            format!("Kurs: {}", cg.currency_source)
+        }
+    } else if en {
+        format!("Rate source: {}", cg.currency_source)
     } else {
         format!("Sumber kurs: {}", cg.currency_source)
     };
@@ -289,12 +352,17 @@ pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 26. Kalender hijriyah + hari libur SKB 3 Menteri (S, M)
 pub fn build_hijri_holidays(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
     let hh = &ctx.hub.hijri_holidays;
     let mut nodes = vec![
         text_node(
             RectF::new(inner.x, inner.y, inner.w, 16.0),
-            "KALENDER HIJRIYAH",
+            if en {
+                "HIJRI CALENDAR"
+            } else {
+                "KALENDER HIJRIYAH"
+            },
             10.5,
             700,
             ctx.pal.positive,
@@ -304,7 +372,7 @@ pub fn build_hijri_holidays(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         text_node(
             RectF::new(inner.x, inner.y + 16.0, inner.w, 28.0),
             if hh.hijri_formatted.is_empty() {
-                "Memuat..."
+                if en { "Loading..." } else { "Memuat..." }
             } else {
                 &hh.hijri_formatted
             },
@@ -320,7 +388,11 @@ pub fn build_hijri_holidays(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         nodes.push(text_node(
             RectF::new(inner.x, inner.y + 52.0, inner.w, 46.0),
             if hh.holiday_source_note.is_empty() {
-                "Data libur SKB 3 Menteri belum dimuat."
+                if en {
+                    "Public holiday data not loaded yet."
+                } else {
+                    "Data libur SKB 3 Menteri belum dimuat."
+                }
             } else {
                 &hh.holiday_source_note
             },
@@ -349,6 +421,7 @@ pub fn build_hijri_holidays(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 27. Catat pengeluaran cepat: DPAPI lokal terenkripsi + bar anggaran (S, M)
 pub fn build_quick_expense(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
     let exp = &ctx.hub.expenses;
     let spent = exp.total_spent();
@@ -357,7 +430,7 @@ pub fn build_quick_expense(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let mut nodes = vec![
         text_node(
             RectF::new(inner.x, inner.y, inner.w - 72.0, 16.0),
-            "PENGELUARAN",
+            if en { "EXPENSES" } else { "PENGELUARAN" },
             10.5,
             700,
             ctx.pal.secondary,
@@ -387,11 +460,21 @@ pub fn build_quick_expense(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         text_node(
             RectF::new(inner.x, inner.y + 70.0, inner.w, 16.0),
             if exp.monthly_budget_idr > 0 {
-                format!(
-                    "Anggaran {} ({:.0}%)",
-                    format_idr(exp.monthly_budget_idr),
-                    ratio * 100.0
-                )
+                if en {
+                    format!(
+                        "Budget {} ({:.0}%)",
+                        format_idr(exp.monthly_budget_idr),
+                        ratio * 100.0
+                    )
+                } else {
+                    format!(
+                        "Anggaran {} ({:.0}%)",
+                        format_idr(exp.monthly_budget_idr),
+                        ratio * 100.0
+                    )
+                }
+            } else if en {
+                "DPAPI local encrypted . Zero telemetry".into()
             } else {
                 "Terenkripsi lokal DPAPI . Nol telemetri".into()
             },
@@ -405,7 +488,11 @@ pub fn build_quick_expense(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     nodes.extend(action_pill(
         RectF::new(inner.x, inner.y + inner.h - 26.0, 118.0, 24.0),
-        "+ Catat (Label nominal)",
+        if en {
+            "+ Log (Label amount)"
+        } else {
+            "+ Catat (Label nominal)"
+        },
         ctx.pal.accent.with_alpha(0.24),
         ctx.pal.primary,
         "inline_edit:quick_expense",
@@ -415,24 +502,37 @@ pub fn build_quick_expense(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 28. Papan skor bola: antarmuka provider berlisensi (M)
 pub fn build_football_scores(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let fb = &ctx.hub.football;
     if !fb.provider_configured || fb.matches.is_empty() {
         return empty_state_nodes(
             ctx,
-            "Papan Skor Bola",
+            if en {
+                "Football Scores"
+            } else {
+                "Papan Skor Bola"
+            },
             if fb.provider_note.is_empty() {
-                "Membutuhkan penyedia data pertandingan berlisensi (tanpa scraping atau skor palsu)."
+                if en {
+                    "Requires a licensed match data provider (no scraping or fake scores)."
+                } else {
+                    "Membutuhkan penyedia data pertandingan berlisensi (tanpa scraping atau skor palsu)."
+                }
             } else {
                 &fb.provider_note
             },
-            "Atur Provider",
+            if en { "Set Provider" } else { "Atur Provider" },
             "open_widget_settings",
         );
     }
     let inner = ctx.frame.inset(14.0);
     let mut nodes = vec![text_node(
         RectF::new(inner.x, inner.y, inner.w, 18.0),
-        "Skor Pertandingan",
+        if en {
+            "Match Scores"
+        } else {
+            "Skor Pertandingan"
+        },
         14.5,
         600,
         ctx.pal.primary,
@@ -465,13 +565,18 @@ pub fn build_football_scores(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 29. Tanya cepat AI: memakai router & BYOK Gili (M)
 pub fn build_ai_quick_ask(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let ai = &ctx.hub.frontend.ai_quick;
     if !ai.configured {
         return empty_state_nodes(
             ctx,
-            "Tanya Cepat AI",
-            "Hubungkan kunci API BYOK di Pengaturan AI Gili (disimpan aman di Credential Manager).",
-            "Atur AI",
+            if en { "Quick AI Ask" } else { "Tanya Cepat AI" },
+            if en {
+                "Connect a BYOK API key in Gili AI Settings (stored securely in Credential Manager)."
+            } else {
+                "Hubungkan kunci API BYOK di Pengaturan AI Gili (disimpan aman di Credential Manager)."
+            },
+            if en { "AI Settings" } else { "Atur AI" },
             "open_ai_settings",
         );
     }
@@ -479,7 +584,7 @@ pub fn build_ai_quick_ask(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let mut nodes = vec![
         text_node(
             RectF::new(inner.x, inner.y, inner.w * 0.65, 18.0),
-            "Tanya Cepat AI",
+            if en { "Quick AI Ask" } else { "Tanya Cepat AI" },
             14.5,
             600,
             ctx.pal.primary,
@@ -503,11 +608,18 @@ pub fn build_ai_quick_ask(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ];
 
     let body = if ai.is_streaming {
-        "Menjawab...".to_string()
+        if en {
+            "Answering..."
+        } else {
+            "Menjawab..."
+        }
+        .to_string()
     } else if let Some(err) = &ai.error {
         err.clone()
     } else if !ai.last_response.is_empty() {
         ai.last_response.clone()
+    } else if en {
+        "Tap the button below to type a quick question right from your desktop.".to_string()
     } else {
         "Ketuk tombol di bawah untuk mengetik pertanyaan singkat langsung dari desktop.".to_string()
     };
@@ -524,7 +636,11 @@ pub fn build_ai_quick_ask(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     nodes.extend(action_pill(
         RectF::new(inner.x, inner.y + inner.h - 26.0, 128.0, 24.0),
-        "Tanya sesuatu...",
+        if en {
+            "Ask something..."
+        } else {
+            "Tanya sesuatu..."
+        },
         ctx.pal.accent.with_alpha(0.24),
         ctx.pal.primary,
         "inline_edit:ai_quick_ask",
@@ -534,15 +650,18 @@ pub fn build_ai_quick_ask(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 34. Kualitas Udara (AQI) & Indeks UV via Open-Meteo Air Quality API (S, M)
 pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let aq = &ctx.hub.air_quality;
     if !aq.available {
         return empty_state_nodes(
             ctx,
-            "Kualitas Udara",
-            aq.error
-                .as_deref()
-                .unwrap_or("Data AQI dan Indeks UV belum termuat dari Open-Meteo."),
-            "Coba Lagi",
+            if en { "Air Quality" } else { "Kualitas Udara" },
+            aq.error.as_deref().unwrap_or(if en {
+                "AQI and UV Index data not loaded from Open-Meteo yet."
+            } else {
+                "Data AQI dan Indeks UV belum termuat dari Open-Meteo."
+            }),
+            if en { "Retry" } else { "Coba Lagi" },
             "refresh_air_quality",
         );
     }
@@ -588,7 +707,19 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 62.0, inner.w, 18.0),
-            &aq.category_label,
+            if en {
+                match aq.category_label.as_str() {
+                    "Baik" => "Good",
+                    "Sedang" => "Moderate",
+                    "Sensitif" => "Sensitive",
+                    "Tidak Sehat" => "Unhealthy",
+                    "Sangat Tidak Sehat" => "Very Unhealthy",
+                    "Berbahaya" => "Hazardous",
+                    other => other,
+                }
+            } else {
+                &aq.category_label
+            },
             13.0,
             600,
             badge_col,
@@ -618,7 +749,10 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         let pills = [
             ("PM2.5", format!("{:.1}", aq.pm2_5)),
             ("PM10", format!("{:.1}", aq.pm10)),
-            ("Indeks UV", format!("{:.1}", aq.uv_index)),
+            (
+                if en { "UV Index" } else { "Indeks UV" },
+                format!("{:.1}", aq.uv_index),
+            ),
         ];
         let start_x = inner.x + 114.0;
         let gap = 6.0;
@@ -658,7 +792,11 @@ pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         }
         nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + inner.h - 16.0, inner.w, 14.0),
-            "Sumber: Open-Meteo Air Quality",
+            if en {
+                "Source: Open-Meteo Air Quality"
+            } else {
+                "Sumber: Open-Meteo Air Quality"
+            },
             10.0,
             400,
             ctx.pal.secondary,

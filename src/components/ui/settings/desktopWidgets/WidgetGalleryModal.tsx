@@ -7,59 +7,86 @@ import {
 } from "../../../../services/desktopWidgetsService";
 import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
 import { WidgetPreviewCard } from "./WidgetPreviewCard";
+import { localizeCatalogEntry } from "./desktopWidgetsI18n";
 
 interface WidgetGalleryModalProps {
   open: boolean;
   catalog: WidgetCatalogEntry[];
   isLightMode: boolean;
+  isId?: boolean;
   onClose: () => void;
   onAddWidget: (entry: WidgetCatalogEntry, size: WidgetSize) => void;
 }
 
-const GROUP_FILTERS = [
-  { id: "ALL", label: "Semua (34)" },
-  { id: "A", label: "Modul Gili" },
-  { id: "B", label: "Produktif" },
-  { id: "C", label: "Sistem" },
-  { id: "D", label: "Estetik" },
-  { id: "E", label: "Indonesia" },
-];
-
-const SIZE_LABEL: Record<WidgetSize, string> = {
+const SIZE_LABEL_ID: Record<WidgetSize, string> = {
   small: "Kecil . 160 x 160 dp",
   medium: "Sedang . 336 x 160 dp",
   large: "Besar . 336 x 336 dp",
+};
+
+const SIZE_LABEL_EN: Record<WidgetSize, string> = {
+  small: "Small . 160 x 160 dp",
+  medium: "Medium . 336 x 160 dp",
+  large: "Large . 336 x 336 dp",
 };
 
 export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
   open,
   catalog,
   isLightMode,
+  isId = true,
   onClose,
   onAddWidget,
 }) => {
+  const tr = (idText: string, enText: string) => (isId ? idText : enText);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState("ALL");
   const [selected, setSelected] = useState<WidgetCatalogEntry | null>(null);
   const [sizeIdx, setSizeIdx] = useState(0);
   const [sampleLightBg, setSampleLightBg] = useState(false);
 
+  const groupFilters = useMemo(
+    () => [
+      { id: "ALL", label: tr("Semua (34)", "All (34)") },
+      { id: "A", label: tr("Modul Gili", "Gili Modules") },
+      { id: "B", label: tr("Produktif", "Productivity") },
+      { id: "C", label: tr("Sistem", "System") },
+      { id: "D", label: tr("Estetik", "Aesthetic") },
+      { id: "E", label: "Indonesia" },
+    ],
+    [isId]
+  );
+
+  const localizedCatalog = useMemo(
+    () => catalog.map((item) => localizeCatalogEntry(item, isId)),
+    [catalog, isId]
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return catalog.filter((item) => {
+    return localizedCatalog.filter((item, idx) => {
       if (group !== "ALL" && item.group !== group) return false;
       if (!q) return true;
+      const raw = catalog[idx];
       return (
         item.name.toLowerCase().includes(q) ||
         item.description.toLowerCase().includes(q) ||
-        item.group_label.toLowerCase().includes(q)
+        item.group_label.toLowerCase().includes(q) ||
+        (raw &&
+          (raw.name.toLowerCase().includes(q) ||
+            raw.description.toLowerCase().includes(q)))
       );
     });
-  }, [catalog, query, group]);
+  }, [localizedCatalog, catalog, query, group]);
 
-  const activeEntry = selected ?? filtered[0] ?? catalog[0] ?? null;
+  const activeEntry =
+    (selected ? localizeCatalogEntry(selected, isId) : null) ??
+    filtered[0] ??
+    localizedCatalog[0] ??
+    null;
   const sizes = activeEntry?.supported_sizes ?? ["medium"];
   const activeSize = sizes[sizeIdx % sizes.length] ?? "medium";
+  const sizeLabels = isId ? SIZE_LABEL_ID : SIZE_LABEL_EN;
 
   const surfaceCls = isLightMode
     ? "bg-[#f5f5f7] text-neutral-900 border-black/10"
@@ -88,15 +115,20 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
               <div>
-                <h3 className="text-[15.5px] font-semibold tracking-tight">Galeri Widget Desktop</h3>
+                <h3 className="text-[15.5px] font-semibold tracking-tight">
+                  {tr("Galeri Widget Desktop", "Desktop Widget Gallery")}
+                </h3>
                 <p className={`text-[11.5px] ${mutedCls}`}>
-                  Pilih dari 34 widget native Direct2D, geser ukuran S / M / L sebelum menambahkan.
+                  {tr(
+                    "Pilih dari 34 widget native Direct2D, geser ukuran S / M / L sebelum menambahkan.",
+                    "Choose from 34 native Direct2D widgets and preview S / M / L sizes before adding."
+                  )}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="Tutup galeri"
+                aria-label={tr("Tutup galeri", "Close gallery")}
                 className="w-8 h-8 rounded-full bg-white/[0.08] hover:bg-white/[0.15] flex items-center justify-center cursor-pointer"
               >
                 <X size={15} />
@@ -114,7 +146,10 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Cari widget (jam, cuaca, sholat, kanban, lirik, performa...)"
+                  placeholder={tr(
+                    "Cari widget (jam, cuaca, sholat, kanban, lirik, performa...)",
+                    "Search widgets (clock, weather, prayer, kanban, lyrics, performance...)"
+                  )}
                   className={`w-full h-9 pl-9 pr-3 rounded-[11px] border text-[12.5px] outline-none focus:border-[#0a84ff] ${
                     isLightMode
                       ? "bg-white border-black/10 text-neutral-900"
@@ -123,7 +158,7 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                 />
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {GROUP_FILTERS.map((g) => (
+                {groupFilters.map((g) => (
                   <button
                     key={g.id}
                     type="button"
@@ -184,7 +219,7 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                     <div className="shrink-0 flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <span className="text-[10.5px] font-bold uppercase tracking-wider text-[#0a84ff]">
-                          Grup {activeEntry.group} . {activeEntry.group_label}
+                          {tr("Grup", "Group")} {activeEntry.group} . {activeEntry.group_label}
                         </span>
                         <h4 className="text-[17px] font-semibold mt-0.5 truncate">
                           {activeEntry.name}
@@ -198,7 +233,7 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                         onClick={() => onAddWidget(activeEntry, activeSize)}
                         className="shrink-0 h-9 px-4 rounded-full bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12.5px] font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-[0_6px_18px_rgba(10,132,255,0.35)]"
                       >
-                        <Plus size={14} /> Tambah Widget
+                        <Plus size={14} /> {tr("Tambah Widget", "Add Widget")}
                       </button>
                     </div>
 
@@ -217,14 +252,14 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                             sampleLightBg ? "text-slate-600" : "text-white/70"
                           }`}
                         >
-                          {SIZE_LABEL[activeSize]}
+                          {sizeLabels[activeSize]}
                         </span>
                         <IosSegmentedControl
                           value={sampleLightBg ? "light" : "dark"}
                           onChange={(v) => setSampleLightBg(v === "light")}
                           options={[
-                            { value: "dark", label: "Gelap" },
-                            { value: "light", label: "Terang" },
+                            { value: "dark", label: tr("Gelap", "Dark") },
+                            { value: "light", label: tr("Terang", "Light") },
                           ]}
                         />
                       </div>
@@ -239,6 +274,7 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                           entry={activeEntry}
                           size={activeSize}
                           lightWallpaper={sampleLightBg}
+                          isId={isId}
                         />
                       </motion.div>
 
@@ -259,7 +295,7 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                               key={sz}
                               type="button"
                               onClick={() => setSizeIdx(idx)}
-                              aria-label={SIZE_LABEL[sz]}
+                              aria-label={sizeLabels[sz]}
                               className={`h-2 rounded-full transition-all cursor-pointer ${
                                 idx === sizeIdx % sizes.length
                                   ? "w-5 bg-[#0a84ff]"

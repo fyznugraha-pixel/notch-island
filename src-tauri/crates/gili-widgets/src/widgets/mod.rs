@@ -455,13 +455,24 @@ pub fn build_widget_render_item(
         "football_scores" => group_e::build_football_scores(&ctx),
         "ai_quick_ask" => group_e::build_ai_quick_ask(&ctx),
 
-        _ => empty_state_nodes(
-            &ctx,
-            "Widget Tidak Dikenal",
-            "Jenis widget ini belum terdaftar di versi Gili saat ini.",
-            "Atur",
-            "open_settings",
-        ),
+        _ => {
+            let en = is_english(&ctx);
+            empty_state_nodes(
+                &ctx,
+                if en {
+                    "Unknown Widget"
+                } else {
+                    "Widget Tidak Dikenal"
+                },
+                if en {
+                    "This widget type is not registered in this version of Gili."
+                } else {
+                    "Jenis widget ini belum terdaftar di versi Gili saat ini."
+                },
+                if en { "Configure" } else { "Atur" },
+                "open_settings",
+            )
+        }
     };
 
     // Honor user-configured font_weight across all widgets relative to the 600 baseline
@@ -548,6 +559,81 @@ pub fn local_utc_offset_hours() -> f64 {
         }
     }
     7.0
+}
+
+pub fn is_english(ctx: &WidgetBuildCtx<'_>) -> bool {
+    ctx.hub.frontend.language.eq_ignore_ascii_case("en")
+}
+
+pub fn localized_day_name(dow: u32, en: bool) -> &'static str {
+    if en {
+        match dow % 7 {
+            0 => "Sunday",
+            1 => "Monday",
+            2 => "Tuesday",
+            3 => "Wednesday",
+            4 => "Thursday",
+            5 => "Friday",
+            _ => "Saturday",
+        }
+    } else {
+        indonesian_day_name(dow)
+    }
+}
+
+pub fn localized_month_name(month: u32, en: bool) -> &'static str {
+    if en {
+        match month {
+            1 => "January",
+            2 => "February",
+            3 => "March",
+            4 => "April",
+            5 => "May",
+            6 => "June",
+            7 => "July",
+            8 => "August",
+            9 => "September",
+            10 => "October",
+            11 => "November",
+            _ => "December",
+        }
+    } else {
+        indonesian_month_name(month)
+    }
+}
+
+pub fn localized_short_month_name(month: u32, en: bool) -> &'static str {
+    if en {
+        match month {
+            1 => "Jan",
+            2 => "Feb",
+            3 => "Mar",
+            4 => "Apr",
+            5 => "May",
+            6 => "Jun",
+            7 => "Jul",
+            8 => "Aug",
+            9 => "Sep",
+            10 => "Oct",
+            11 => "Nov",
+            _ => "Dec",
+        }
+    } else {
+        match month {
+            1 => "Jan",
+            2 => "Feb",
+            3 => "Mar",
+            4 => "Apr",
+            5 => "Mei",
+            6 => "Jun",
+            7 => "Jul",
+            8 => "Agt",
+            9 => "Sep",
+            10 => "Okt",
+            11 => "Nov",
+            _ => "Des",
+        }
+    }
 }
 
 pub fn indonesian_day_name(dow: u32) -> &'static str {

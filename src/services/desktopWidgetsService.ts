@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { loadActiveProvider } from "./aiChatService";
 import { getSecureApiKey } from "./aiCredentialService";
 import { HABIT_STREAK_STORAGE_KEY, parseHabitStreakRecord } from "./habitHistoryService";
+import { getLanguage } from "./languageStore";
 
 export type WidgetSize = "small" | "medium" | "large";
 export type BackgroundMode = "none" | "subtle_tint" | "glass" | "solid";
@@ -262,42 +263,42 @@ export async function syncFrontendWidgetMirror(): Promise<void> {
     const rawEvents = parseJson("gili_navbar_events_v1");
     const events = Array.isArray(rawEvents)
       ? rawEvents.map((e: any, idx: number) => ({
-          id: String(e?.id ?? idx),
-          title: String(e?.title ?? e?.name ?? ""),
-          time: String(e?.time ?? e?.date ?? ""),
-          date_key: typeof e?.date === "string" ? e.date : null,
-        }))
+        id: String(e?.id ?? idx),
+        title: String(e?.title ?? e?.name ?? ""),
+        time: String(e?.time ?? e?.date ?? ""),
+        date_key: typeof e?.date === "string" ? e.date : null,
+      }))
       : [];
 
     const rawClasses = parseJson("gili_class_schedule_v1");
     const classes = Array.isArray(rawClasses)
       ? rawClasses.map((c: any, idx: number) => ({
-          id: String(c?.id ?? idx),
-          subject: String(c?.subject ?? c?.name ?? ""),
-          room: String(c?.room ?? ""),
-          time: String(c?.time ?? ""),
-          day: typeof c?.day === "number" ? c.day : null,
-        }))
+        id: String(c?.id ?? idx),
+        subject: String(c?.subject ?? c?.name ?? ""),
+        room: String(c?.room ?? ""),
+        time: String(c?.time ?? ""),
+        day: typeof c?.day === "number" ? c.day : null,
+      }))
       : [];
 
     const rawTodos = parseJson("island_todo_list");
     const todos = Array.isArray(rawTodos)
       ? rawTodos.map((t: any, idx: number) => ({
-          id: String(t?.id ?? idx),
-          text: String(t?.text ?? t?.title ?? ""),
-          completed: Boolean(t?.completed ?? t?.done),
-          group: typeof t?.group === "string" ? t.group : null,
-        }))
+        id: String(t?.id ?? idx),
+        text: String(t?.text ?? t?.title ?? ""),
+        completed: Boolean(t?.completed ?? t?.done),
+        group: typeof t?.group === "string" ? t.group : null,
+      }))
       : [];
 
     const rawShelf = parseJson("island_drop_shelf");
     const shelf_files = Array.isArray(rawShelf)
       ? rawShelf.map((f: any, idx: number) => ({
-          id: String(f?.id ?? idx),
-          name: String(f?.name ?? ""),
-          path: String(f?.path ?? ""),
-          size_formatted: String(f?.sizeFormatted ?? f?.size ?? ""),
-        }))
+        id: String(f?.id ?? idx),
+        name: String(f?.name ?? ""),
+        path: String(f?.path ?? ""),
+        size_formatted: String(f?.sizeFormatted ?? f?.size ?? ""),
+      }))
       : [];
 
     const streak = parseHabitStreakRecord(
@@ -316,6 +317,7 @@ export async function syncFrontendWidgetMirror(): Promise<void> {
     const apiKey = await getSecureApiKey(activeProvider).catch(() => "");
 
     const rawCity = parseJson("island_weather_custom_city");
+    const lang = getLanguage();
     const mirror = {
       events,
       classes,
@@ -337,6 +339,7 @@ export async function syncFrontendWidgetMirror(): Promise<void> {
       custom_city_name: typeof rawCity?.name === "string" ? rawCity.name : null,
       custom_lat: typeof rawCity?.latitude === "number" ? rawCity.latitude : null,
       custom_lon: typeof rawCity?.longitude === "number" ? rawCity.longitude : null,
+      language: lang,
     };
 
     await invoke("sync_frontend_widget_mirror", { mirror });

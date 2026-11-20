@@ -24,34 +24,19 @@ import { IosSwitch } from "../../../ios/IosSwitch";
 import { IosSelect } from "../../../ios/IosSelect";
 import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
 import { HsvColorWheel } from "./HsvColorWheel";
+import { localizePresetName } from "./desktopWidgetsI18n";
 
 interface WidgetColorCustomizerProps {
   style: WidgetStyleConfig;
   presets: ColorPreset[];
   recentColors: string[];
   isLightMode: boolean;
+  isId?: boolean;
   title: string;
   onChange: (next: WidgetStyleConfig, recordedHex?: string) => void;
   onSavePreset: (name: string, style: WidgetStyleConfig) => void;
   onRecordRecentColor?: (hex: string) => void;
 }
-
-const FONT_SELECT_OPTIONS = [
-  { value: "Segoe UI Variable", label: "Segoe UI Variable", sublabel: "Default sistem" },
-  { value: "Segoe UI", label: "Segoe UI" },
-  { value: "Bahnschrift", label: "Bahnschrift", sublabel: "Geometris tegas" },
-  { value: "Cascadia Code", label: "Cascadia Code", sublabel: "Monospace" },
-  { value: "Georgia", label: "Georgia", sublabel: "Editorial serif" },
-  { value: "Trebuchet MS", label: "Trebuchet MS" },
-];
-
-const WEIGHT_SELECT_OPTIONS = [
-  { value: 300, label: "Tipis (300)" },
-  { value: 400, label: "Reguler (400)" },
-  { value: 600, label: "Semibold (600)" },
-  { value: 700, label: "Tebal (700)" },
-  { value: 800, label: "Ekstra Tebal (800)" },
-];
 
 type RoleKey = "text_primary" | "text_secondary" | "accent" | "card_color";
 
@@ -60,10 +45,29 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
   presets,
   recentColors,
   isLightMode,
+  isId = true,
   title,
   onChange,
   onSavePreset,
 }) => {
+  const tr = (idText: string, enText: string) => (isId ? idText : enText);
+
+  const fontSelectOptions = [
+    { value: "Segoe UI Variable", label: "Segoe UI Variable", sublabel: tr("Default sistem", "System default") },
+    { value: "Segoe UI", label: "Segoe UI" },
+    { value: "Bahnschrift", label: "Bahnschrift", sublabel: tr("Geometris tegas", "Geometric bold") },
+    { value: "Cascadia Code", label: "Cascadia Code", sublabel: "Monospace" },
+    { value: "Georgia", label: "Georgia", sublabel: tr("Editorial serif", "Editorial serif") },
+    { value: "Trebuchet MS", label: "Trebuchet MS" },
+  ];
+
+  const weightSelectOptions = [
+    { value: 300, label: tr("Tipis (300)", "Light (300)") },
+    { value: 400, label: tr("Reguler (400)", "Regular (400)") },
+    { value: 600, label: tr("Semibold (600)", "Semibold (600)") },
+    { value: 700, label: tr("Tebal (700)", "Bold (700)") },
+    { value: 800, label: tr("Ekstra Tebal (800)", "Extra Bold (800)") },
+  ];
   const [activeRole, setActiveRole] = useState<RoleKey>("text_primary");
   const [analysis, setAnalysis] = useState<WallpaperRegionAnalysis | null>(null);
   const [presetName, setPresetName] = useState("");
@@ -178,7 +182,10 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           <div>
             <div className="text-[13.5px] font-semibold">{title}</div>
             <div className={`text-[11px] ${mutedText}`}>
-              Pratinjau langsung dengan auto-kontras wallpaper
+              {tr(
+                "Pratinjau langsung dengan auto-kontras wallpaper",
+                "Live preview with wallpaper auto-contrast"
+              )}
             </div>
           </div>
         </div>
@@ -186,8 +193,8 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           value={previewLightBg ? "light" : "dark"}
           onChange={(v) => setPreviewLightBg(v === "light")}
           options={[
-            { value: "dark", label: "Gelap" },
-            { value: "light", label: "Terang" },
+            { value: "dark", label: tr("Gelap", "Dark") },
+            { value: "light", label: tr("Terang", "Light") },
           ]}
         />
       </div>
@@ -212,7 +219,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             className="text-[10.5px] font-bold tracking-wider uppercase"
             style={{ color: resolvedPreviewColor(style.text_secondary, "secondary") }}
           >
-            Jumat, 20 November
+            {tr("Jumat, 20 November", "Friday, 20 November")}
           </div>
           <div
             className="mt-1 tabular-nums leading-none tracking-tight"
@@ -231,7 +238,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             className="mt-1.5 text-[12px]"
             style={{ color: resolvedPreviewColor(style.text_secondary, "secondary") }}
           >
-            29° Cerah Berawan . Jakarta
+            {tr("29° Cerah Berawan . Jakarta", "29° Partly Cloudy . Jakarta")}
           </div>
           <div className="mt-2.5 h-1 w-full rounded-full bg-white/15 overflow-hidden">
             <div
@@ -248,11 +255,16 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           <AlertTriangle size={15} className="shrink-0 mt-0.5" />
           <div>
             <div className="font-semibold">
-              Kontras rendah terdeteksi ({analysis.measured_contrast_ratio}:1)
+              {tr(
+                `Kontras rendah terdeteksi (${analysis.measured_contrast_ratio}:1)`,
+                `Low contrast detected (${analysis.measured_contrast_ratio}:1)`
+              )}
             </div>
             <div className="opacity-85 text-[11px]">
-              Warna teks pilihan sulit dibaca di atas area wallpaper tersebut. Pilih warna Otomatis,
-              aktifkan bayangan/halo, atau gunakan latar Tint Tipis.
+              {tr(
+                "Warna teks pilihan sulit dibaca di atas area wallpaper tersebut. Pilih warna Otomatis, aktifkan bayangan/halo, atau gunakan latar Tint Tipis.",
+                "The selected text color is hard to read on this wallpaper area. Choose Auto contrast, enable shadow/halo, or switch to Subtle Tint."
+              )}
             </div>
           </div>
         </div>
@@ -263,17 +275,20 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
         icon={<Layers size={15} />}
         iconBgClass="bg-[#0a84ff]/15"
         iconColorClass="text-[#0a84ff]"
-        title="Mode Latar Widget"
-        subtitle="Kaca frosted adalah default agar widget tampil rapi dan kontras"
+        title={tr("Mode Latar Widget", "Widget Background Mode")}
+        subtitle={tr(
+          "Kaca frosted adalah default agar widget tampil rapi dan kontras",
+          "Frosted glass is the default so widgets stay legible and crisp"
+        )}
         isLightMode={isLightMode}
         control={
           <IosSegmentedControl<BackgroundMode>
             value={style.background_mode}
             onChange={(m) => onChange({ ...style, background_mode: m })}
             options={[
-              { value: "none", label: "Bening" },
-              { value: "subtle_tint", label: "Tint" },
-              { value: "glass", label: "Kaca" },
+              { value: "none", label: tr("Bening", "Clear") },
+              { value: "subtle_tint", label: tr("Tint", "Tint") },
+              { value: "glass", label: tr("Kaca", "Glass") },
               { value: "solid", label: "Solid" },
             ]}
           />
@@ -283,7 +298,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
       {style.background_mode === "subtle_tint" && (
         <div className="px-3.5 flex items-center justify-between gap-4 text-[12px]">
           <span className={mutedText}>
-            Opasitas Tint Tipis ({Math.round(style.tint_opacity * 100)}%)
+            {tr("Opasitas Tint Tipis", "Subtle Tint Opacity")} ({Math.round(style.tint_opacity * 100)}%)
           </span>
           <input
             type="range"
@@ -302,16 +317,16 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
       <div className="flex flex-col gap-3 pt-2 border-t border-white/[0.06]">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${mutedText}`}>
-            Peran Warna
+            {tr("Peran Warna", "Color Role")}
           </span>
           <IosSegmentedControl<RoleKey>
             value={activeRole}
             onChange={setActiveRole}
             options={[
-              { value: "text_primary", label: "Utama" },
-              { value: "text_secondary", label: "Sekunder" },
-              { value: "accent", label: "Aksen" },
-              { value: "card_color", label: "Kartu" },
+              { value: "text_primary", label: tr("Utama", "Primary") },
+              { value: "text_secondary", label: tr("Sekunder", "Secondary") },
+              { value: "accent", label: tr("Aksen", "Accent") },
+              { value: "card_color", label: tr("Kartu", "Card") },
             ]}
           />
         </div>
@@ -327,7 +342,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
                 : "border-white/10 text-zinc-200 hover:bg-white/[0.06]"
               }`}
           >
-            Otomatis (Kontras Wallpaper)
+            {tr("Otomatis (Kontras Wallpaper)", "Auto (Wallpaper Contrast)")}
           </button>
           <button
             type="button"
@@ -339,7 +354,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
                 : "border-white/10 text-zinc-200 hover:bg-white/[0.06]"
               }`}
           >
-            <Pipette size={12} aria-hidden="true" /> Ambil dari Wallpaper
+            <Pipette size={12} aria-hidden="true" /> {tr("Ambil dari Wallpaper", "Pick from Wallpaper")}
           </button>
           <button
             type="button"
@@ -348,9 +363,12 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
               ? "border-black/15 bg-black/[0.04] text-neutral-900 hover:bg-black/[0.08]"
               : "border-white/15 bg-white/[0.06] text-white hover:bg-white/[0.12]"
               }`}
-            title="Menyamakan warna Utama, Sekunder, dan Aksen agar tidak ada warna biru/aksen terpisah"
+            title={tr(
+              "Menyamakan warna Utama, Sekunder, dan Aksen agar tidak ada warna biru/aksen terpisah",
+              "Match Primary, Secondary, and Accent colors cleanly across monochrome widgets"
+            )}
           >
-            Terapkan ke Semua (Seragam)
+            {tr("Terapkan ke Semua (Seragam)", "Apply to All (Uniform)")}
           </button>
           <button
             type="button"
@@ -360,13 +378,14 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
               : "border-white/25 bg-white/15 hover:bg-white/25 text-white"
               }`}
           >
-            Putih Semua
+            {tr("Putih Semua", "All White")}
           </button>
         </div>
 
         <HsvColorWheel
           color={activeRgba}
           isLightMode={isLightMode}
+          isId={isId}
           onChange={handleWheelChange}
         />
 
@@ -391,7 +410,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             <button
               key={`wp_${hex}`}
               type="button"
-              title={`Palet wallpaper ${hex}`}
+              title={tr(`Palet wallpaper ${hex}`, `Wallpaper palette ${hex}`)}
               onClick={() => {
                 const r = parseInt(hex.slice(1, 3), 16);
                 const g = parseInt(hex.slice(3, 5), 16);
@@ -411,16 +430,19 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           icon={<Type size={15} />}
           iconBgClass="bg-[#ff9f0a]/15"
           iconColorClass="text-[#ff9f0a]"
-          title="Font Sistem"
-          subtitle="Font terpasang yang dipakai oleh renderer DirectWrite"
+          title={tr("Font Sistem", "System Font")}
+          subtitle={tr(
+            "Font terpasang yang dipakai oleh renderer DirectWrite",
+            "Installed font used by the DirectWrite renderer"
+          )}
           isLightMode={isLightMode}
           control={
             <IosSelect
               value={style.font_family}
-              options={FONT_SELECT_OPTIONS}
+              options={fontSelectOptions}
               onChange={(font_family) => onChange({ ...style, font_family })}
               isLightMode={isLightMode}
-              ariaLabel="Font sistem widget"
+              ariaLabel={tr("Font sistem widget", "Widget system font")}
             />
           }
         />
@@ -428,22 +450,27 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           icon={<Type size={15} />}
           iconBgClass="bg-[#636366]/20"
           iconColorClass="text-zinc-300"
-          title="Ketebalan Font"
-          subtitle={`Skala teks saat ini ${Math.round(style.text_scale * 100)}%`}
+          title={tr("Ketebalan Font", "Font Weight")}
+          subtitle={tr(
+            `Skala teks saat ini ${Math.round(style.text_scale * 100)}%`,
+            `Current text scale ${Math.round(style.text_scale * 100)}%`
+          )}
           isLightMode={isLightMode}
           control={
             <IosSelect
               value={style.font_weight}
-              options={WEIGHT_SELECT_OPTIONS}
+              options={weightSelectOptions}
               onChange={(font_weight) => onChange({ ...style, font_weight })}
               isLightMode={isLightMode}
-              ariaLabel="Ketebalan font widget"
+              ariaLabel={tr("Ketebalan font widget", "Widget font weight")}
               minWidthClass="min-w-[136px]"
             />
           }
         />
         <div className="px-3.5 py-1.5 flex items-center justify-between gap-4 text-[12px]">
-          <span className={mutedText}>Skala Ukuran Teks (85% - 140%)</span>
+          <span className={mutedText}>
+            {tr("Skala Ukuran Teks (85% - 140%)", "Text Size Scale (85% - 140%)")}
+          </span>
           <input
             type="range"
             min={85}
@@ -459,8 +486,11 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           icon={<Eye size={15} />}
           iconBgClass="bg-[#30d158]/15"
           iconColorClass="text-[#30d158]"
-          title="Bayangan Teks Lembut"
-          subtitle="Di-cache ke bitmap offscreen agar hemat GPU"
+          title={tr("Bayangan Teks Lembut", "Soft Text Shadow")}
+          subtitle={tr(
+            "Di-cache ke bitmap offscreen agar hemat GPU",
+            "Cached into offscreen bitmaps for low GPU usage"
+          )}
           isLightMode={isLightMode}
           control={
             <IosSwitch
@@ -473,8 +503,11 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           icon={<SunMedium size={15} />}
           iconBgClass="bg-[#64d2ff]/15"
           iconColorClass="text-[#64d2ff]"
-          title="Halo Tipis di Sekitar Teks"
-          subtitle="Membantu keterbacaan di wallpaper terang atau ramai"
+          title={tr("Halo Tipis di Sekitar Teks", "Subtle Text Halo")}
+          subtitle={tr(
+            "Membantu keterbacaan di wallpaper terang atau ramai",
+            "Improves legibility on bright or busy wallpapers"
+          )}
           isLightMode={isLightMode}
           control={
             <IosSwitch
@@ -488,7 +521,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
       {/* Presets */}
       <div className="flex flex-col gap-2.5 pt-2 border-t border-white/[0.06]">
         <span className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${mutedText}`}>
-          Preset Warna Tersimpan
+          {tr("Preset Warna Tersimpan", "Saved Color Presets")}
         </span>
         <div className="flex flex-wrap gap-1.5">
           {presets.map((p) => (
@@ -501,7 +534,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
                 : "border-white/10 hover:border-[#0a84ff] bg-white/[0.04]"
                 }`}
             >
-              {p.name}
+              {localizePresetName(p, isId)}
             </button>
           ))}
         </div>
@@ -510,7 +543,10 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             type="text"
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
-            placeholder="Simpan gaya ini sebagai preset..."
+            placeholder={tr(
+              "Simpan gaya ini sebagai preset...",
+              "Save this style as a preset..."
+            )}
             className={`flex-1 h-9 px-3 rounded-[10px] border text-[12px] outline-none focus:border-[#0a84ff] ${isLightMode
               ? "bg-black/[0.03] border-black/10 text-neutral-900"
               : "bg-[#1a1b22] border-white/10 text-white"
@@ -525,7 +561,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             }}
             className="h-9 px-3.5 rounded-[10px] bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
           >
-            <Save size={13} /> Simpan
+            <Save size={13} /> {tr("Simpan", "Save")}
           </button>
         </div>
       </div>

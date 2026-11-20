@@ -1,7 +1,8 @@
 use crate::config::{RgbaColor, WidgetSize};
 use crate::layout::{RectF, SceneNode, TextAlign};
 use crate::widgets::{
-    indonesian_day_name, indonesian_month_name, local_datetime_parts, text_node, WidgetBuildCtx,
+    is_english, local_datetime_parts, localized_day_name, localized_month_name,
+    localized_short_month_name, text_node, WidgetBuildCtx,
 };
 
 fn indonesian_number_word(n: u32) -> &'static str {
@@ -61,30 +62,59 @@ pub fn format_indonesian_word_clock(hour24: u32, minute: u32) -> String {
     }
 }
 
-fn fit_clock_font(inner_w: f32, show_sec: bool, max_fs: f32) -> f32 {
-    (inner_w / if show_sec { 4.85 } else { 3.15 }).clamp(20.0, max_fs)
-}
-
-fn short_indonesian_month(month: u32) -> &'static str {
-    match month {
-        1 => "Jan",
-        2 => "Feb",
-        3 => "Mar",
-        4 => "Apr",
-        5 => "Mei",
-        6 => "Jun",
-        7 => "Jul",
-        8 => "Agt",
-        9 => "Sep",
-        10 => "Okt",
-        11 => "Nov",
-        12 => "Des",
+fn english_number_word(n: u32) -> &'static str {
+    match n {
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        4 => "four",
+        5 => "five",
+        6 => "six",
+        7 => "seven",
+        8 => "eight",
+        9 => "nine",
+        10 => "ten",
+        11 => "eleven",
+        12 => "twelve",
         _ => "",
     }
 }
 
-/// 19. Jam bergaya: 8 gaya termasuk tipografi kata Bahasa Indonesia (S, M, L)
+pub fn format_english_word_clock(hour24: u32, minute: u32) -> String {
+    let h12 = if hour24 % 12 == 0 { 12 } else { hour24 % 12 };
+    let next_h12 = if (hour24 + 1) % 12 == 0 {
+        12
+    } else {
+        (hour24 + 1) % 12
+    };
+    let period = match hour24 {
+        4..=11 => "in the morning",
+        12..=16 => "in the afternoon",
+        17..=20 => "in the evening",
+        _ => "at night",
+    };
+
+    match minute {
+        0..=2 => format!("It is {} {}", english_number_word(h12), period),
+        13..=17 => format!("Quarter past {} {}", english_number_word(h12), period),
+        28..=32 => format!("Half past {} {}", english_number_word(h12), period),
+        43..=47 => format!("Quarter to {} {}", english_number_word(next_h12), period),
+        _ => format!(
+            "{} minutes past {} {}",
+            minute,
+            english_number_word(h12),
+            period
+        ),
+    }
+}
+
+fn fit_clock_font(inner_w: f32, show_sec: bool, max_fs: f32) -> f32 {
+    (inner_w / if show_sec { 4.85 } else { 3.15 }).clamp(20.0, max_fs)
+}
+
+/// 19. Jam bergaya: 8 gaya termasuk tipografi kata (S, M, L)
 pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
     let (_year, month, day, hour, min, sec, dow) = local_datetime_parts();
     let style = ctx
@@ -105,19 +135,37 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     } else {
         format!("{:02}:{:02}", hour, min)
     };
-    let full_date_str = format!(
-        "{}, {} {}",
-        indonesian_day_name(dow),
-        day,
-        indonesian_month_name(month)
-    );
-    let date_str = if ctx.size == WidgetSize::Small {
+    let full_date_str = if en {
         format!(
             "{}, {} {}",
-            indonesian_day_name(dow),
-            day,
-            short_indonesian_month(month)
+            localized_day_name(dow, true),
+            localized_month_name(month, true),
+            day
         )
+    } else {
+        format!(
+            "{}, {} {}",
+            localized_day_name(dow, false),
+            day,
+            localized_month_name(month, false)
+        )
+    };
+    let date_str = if ctx.size == WidgetSize::Small {
+        if en {
+            format!(
+                "{}, {} {}",
+                localized_day_name(dow, true),
+                localized_short_month_name(month, true),
+                day
+            )
+        } else {
+            format!(
+                "{}, {} {}",
+                localized_day_name(dow, false),
+                day,
+                localized_short_month_name(month, false)
+            )
+        }
     } else {
         full_date_str
     };
@@ -144,7 +192,11 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             ),
             text_node(
                 RectF::new(inner.x, inner.y + 20.0, inner.w, inner.h - 42.0),
-                format_indonesian_word_clock(hour, min),
+                if en {
+                    format_english_word_clock(hour, min)
+                } else {
+                    format_indonesian_word_clock(hour, min)
+                },
                 if ctx.size == WidgetSize::Small {
                     20.0
                 } else {
@@ -353,7 +405,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             vec![
                 crate::widgets::text_node_line(
                     RectF::new(inner.x, inner.y, inner.w, 16.0),
-                    "WIB (LOKAL)",
+                    if en { "LOCAL TIME" } else { "WIB (LOKAL)" },
                     10.5,
                     600,
                     ctx.pal.secondary,
@@ -460,7 +512,11 @@ pub fn build_photo_frame(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     (ctx.frame.w - 28.0).max(20.0),
                     24.0,
                 ),
-                "Klik untuk Pilih Foto",
+                if is_english(ctx) {
+                    "Click to Pick Photos"
+                } else {
+                    "Klik untuk Pilih Foto"
+                },
                 13.5,
                 600,
                 ctx.pal.primary,
@@ -491,13 +547,30 @@ pub fn build_live_mascot(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let cx = inner.x + inner.w * 0.5;
     let cy = inner.y + inner.h * 0.44 + bob;
     let body = RectF::new(cx - 34.0, cy - 26.0, 68.0, 52.0);
+    let en = is_english(ctx);
     let pokes = ctx.hub.mascot_poke_count;
     let mood = if pokes > 0 {
-        match pokes % 4 {
-            1 => "Hehe! Semangat terus ya!",
-            2 => "Klik aku kalau butuh istirahat.",
-            3 => "Sip! Energi fokus terisi.",
-            _ => "Hai! Gili siap nemenin kerja.",
+        if en {
+            match pokes % 4 {
+                1 => "Hehe! Keep up the great work!",
+                2 => "Click me whenever you need a break.",
+                3 => "Nice! Focus energy recharged.",
+                _ => "Hey! Gili is ready to work with you.",
+            }
+        } else {
+            match pokes % 4 {
+                1 => "Hehe! Semangat terus ya!",
+                2 => "Klik aku kalau butuh istirahat.",
+                3 => "Sip! Energi fokus terisi.",
+                _ => "Hai! Gili siap nemenin kerja.",
+            }
+        }
+    } else if en {
+        match hour {
+            5..=10 => "Good morning! Have a great day.",
+            11..=14 => "Stay focused, remember to hydrate.",
+            15..=18 => "Easy afternoon with Gili.",
+            _ => "Calm night, get plenty of rest.",
         }
     } else {
         match hour {
@@ -567,7 +640,7 @@ pub fn build_live_mascot(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     if ctx.size == WidgetSize::Medium {
         nodes.push(text_node(
             RectF::new(inner.x, inner.y, inner.w, 16.0),
-            "MASKOT GILI",
+            if en { "GILI MASCOT" } else { "MASKOT GILI" },
             10.5,
             700,
             ctx.pal.secondary,
@@ -580,12 +653,17 @@ pub fn build_live_mascot(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 22. Visualizer: audio sistem via WASAPI loopback + FFT ringan (M)
 pub fn build_audio_visualizer(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(16.0);
     let bands = ctx.hub.audio_bands;
     let peak = bands.iter().copied().fold(0.0f32, f32::max);
     let active = peak > 0.04;
     let title = if ctx.hub.media.title.is_empty() {
-        "Spektrum Audio Sistem"
+        if en {
+            "System Audio Spectrum"
+        } else {
+            "Spektrum Audio Sistem"
+        }
     } else {
         &ctx.hub.media.title
     };
@@ -615,7 +693,13 @@ pub fn build_audio_visualizer(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
         crate::widgets::text_node_line(
             RectF::new(inner.x + inner.w - 70.0, inner.y + 1.0, 70.0, 16.0),
-            if active { "WASAPI" } else { "Hening" },
+            if active {
+                "WASAPI"
+            } else if en {
+                "Silent"
+            } else {
+                "Hening"
+            },
             10.5,
             600,
             if active {
@@ -637,6 +721,7 @@ pub fn build_audio_visualizer(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
 /// 23. Poster kutipan: tipografi kutipan harian atau teks sendiri (S, M, L)
 pub fn build_quote_poster(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
     let inner = ctx.frame.inset(16.0);
     let q = &ctx.hub.frontend.quote;
     let body = q
@@ -650,9 +735,17 @@ pub fn build_quote_poster(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 Some(q.text.as_str())
             }
         })
-        .unwrap_or("Langkah kecil yang konsisten selalu mengalahkan rencana besar yang ditunda.");
+        .unwrap_or(if en {
+            "Small consistent steps always beat big plans left waiting."
+        } else {
+            "Langkah kecil yang konsisten selalu mengalahkan rencana besar yang ditunda."
+        });
     let author = if q.author.trim().is_empty() {
-        "Kutipan Harian Gili"
+        if en {
+            "Gili Daily Quote"
+        } else {
+            "Kutipan Harian Gili"
+        }
     } else {
         &q.author
     };
@@ -711,7 +804,11 @@ pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     let mut nodes = vec![crate::widgets::text_node_line(
         RectF::new(inner.x, inner.y, inner.w, 16.0),
-        "JAM DUNIA",
+        if is_english(ctx) {
+            "WORLD CLOCK"
+        } else {
+            "JAM DUNIA"
+        },
         10.5,
         700,
         ctx.pal.secondary,

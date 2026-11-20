@@ -1224,4 +1224,144 @@ mod tests {
             "Cuaca tidak boleh fallback ke IconGlyph font tunggal"
         );
     }
+
+    #[test]
+    fn desktop_widgets_render_english_when_language_is_en() {
+        let extract_texts = |nodes: &[layout::SceneNode]| -> Vec<String> {
+            nodes
+                .iter()
+                .filter_map(|n| match n {
+                    layout::SceneNode::Text { content, .. } => Some(content.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        let style = WidgetStyleConfig::default();
+        let region = analyze_region_for_style(None, &style, 0.0, 0.0, 1.0, 1.0);
+        let rect = RectF::new(0.0, 0.0, 320.0, 170.0);
+        let large_rect = RectF::new(0.0, 0.0, 320.0, 320.0);
+
+        let mut hub_id = WidgetDataHub::default();
+        hub_id.weather.available = true;
+        hub_id.weather.location_name = "Jakarta".into();
+        hub_id.weather.current_code = 61;
+        hub_id.weather.daily = vec![providers::network_providers::DailyWeatherPoint {
+            day_label: "2026-11-21".into(),
+            min_c: 25.0,
+            max_c: 30.0,
+            code: 61,
+        }];
+        hub_id.air_quality.available = true;
+        hub_id.air_quality.location_name = "Jakarta".into();
+        hub_id.air_quality.us_aqi = 125;
+        hub_id.air_quality.category_label = "Sensitif".into();
+        hub_id.prayer.next_name = "Subuh".into();
+        hub_id.prayer.next_time = "04:10".into();
+        hub_id.currency_gold.usd_to_idr = Some(16_250.0);
+        hub_id.currency_gold.currency_source = "open.er-api.com".into();
+
+        let mut hub_en = hub_id.clone();
+        hub_en.frontend.language = "en".into();
+
+        let render_texts_with_settings =
+            |wtype: &str,
+             size: config::WidgetSize,
+             r: RectF,
+             hub: &WidgetDataHub,
+             settings: serde_json::Value| {
+                let slot = WidgetStackSlot {
+                    slot_id: format!("i18n_{wtype}"),
+                    size,
+                    widgets: vec![WidgetInstance {
+                        instance_id: "w1".into(),
+                        widget_type: wtype.into(),
+                        style_override: None,
+                        settings,
+                    }],
+                    ..Default::default()
+                };
+                let item = build_widget_render_item(&slot, r, &style, &region, hub, 0.0);
+                extract_texts(&item.nodes)
+            };
+        let render_texts = |wtype: &str, size: config::WidgetSize, r: RectF, hub: &WidgetDataHub| {
+            render_texts_with_settings(wtype, size, r, hub, serde_json::json!({}))
+        };
+
+        // 1. Default / "id" keeps Indonesian output intact
+        let cal_min_id = render_texts("calendar_agenda", config::WidgetSize::Medium, rect, &hub_id);
+        assert!(cal_min_id.iter().any(|t| t == "R"));
+        let cal_agenda_id = render_texts_with_settings(
+            "calendar_agenda",
+            config::WidgetSize::Medium,
+            rect,
+            &hub_id,
+            serde_json::json!({ "calendar_style": "tanggal_agenda" }),
+        );
+        assert!(cal_agenda_id.iter().any(|t| t == "Agenda kosong. Ketuk untuk menambah di Gili."));
+        let aq_id = render_texts("air_quality", config::WidgetSize::Medium, rect, &hub_id);
+        assert!(aq_id.iter().any(|t| t == "Sensitif"));
+        assert!(aq_id.iter().any(|t| t == "Indeks UV"));
+
+        // 2. language = "en" switches widget builders to English
+        let cal_min_en = render_texts("calendar_agenda", config::WidgetSize::Medium, rect, &hub_en);
+        assert!(cal_min_en.iter().any(|t| t == "W"));
+        let cal_en = render_texts_with_settings(
+            "calendar_agenda",
+            config::WidgetSize::Medium,
+            rect,
+            &hub_en,
+            serde_json::json!({ "calendar_style": "tanggal_agenda" }),
+        );
+        assert!(cal_en.iter().any(|t| t == "No events. Tap to add in Gili."));
+
+        let wf_en = render_texts("weather_forecast", config::WidgetSize::Large, large_rect, &hub_en);
+        assert!(wf_en.iter().any(|t| t == "Rain"));
+        assert!(wf_en.iter().any(|t| t == "5-DAY FORECAST"));
+        assert!(wf_en.iter().any(|t| t.starts_with("H:")));
+
+        let sys_en = render_texts("system_performance", config::WidgetSize::Large, large_rect, &hub_en);
+        assert!(sys_en.iter().any(|t| t == "SYSTEM PERFORMANCE"));
+        assert!(sys_en.iter().any(|t| t == "DISK STORAGE"));
+
+        let wc_en = render_texts("world_clock", config::WidgetSize::Medium, rect, &hub_en);
+        assert!(wc_en.iter().any(|t| t == "WORLD CLOCK"));
+
+        let pf_en = render_texts("photo_frame", config::WidgetSize::Small, rect, &hub_en);
+        assert!(pf_en.iter().any(|t| t == "Click to Pick Photos"));
+
+        let qc_en = render_texts("quick_controls", config::WidgetSize::Medium, rect, &hub_en);
+        assert!(qc_en.iter().any(|t| t == "Quick Controls"));
+        assert!(qc_en.iter().any(|t| t == "Dark Mode"));
+
+        let aq_en = render_texts("air_quality", config::WidgetSize::Medium, rect, &hub_en);
+        assert!(aq_en.iter().any(|t| t == "Sensitive"));
+        assert!(aq_en.iter().any(|t| t == "UV Index"));
+        assert!(aq_en.iter().any(|t| t == "Source: Open-Meteo Air Quality"));
+
+        let pr_en = render_texts("prayer_times", config::WidgetSize::Medium, rect, &hub_en);
+        assert!(pr_en.iter().any(|t| t.starts_with("PRAYER . ")));
+        assert!(pr_en.iter().any(|t| t == "Fajr"));
+
+        let cg_en = render_texts("currency_gold", config::WidgetSize::Medium, rect, &hub_en);
+        assert!(cg_en.iter().any(|t| t == "USD / IDR RATE"));
+        assert!(cg_en.iter().any(|t| t.starts_with("Rate source: ")));
+
+        let clk_slot = WidgetStackSlot {
+            slot_id: "i18n_clk_dual".into(),
+            size: config::WidgetSize::Small,
+            widgets: vec![WidgetInstance {
+                instance_id: "c_dual".into(),
+                widget_type: "styled_clock".into(),
+                style_override: None,
+                settings: serde_json::json!({ "clock_style": "dual_zone" }),
+            }],
+            ..Default::default()
+        };
+        let clk_texts = extract_texts(
+            &build_widget_render_item(&clk_slot, RectF::new(0.0, 0.0, 150.0, 150.0), &style, &region, &hub_en, 0.0)
+                .nodes,
+        );
+        assert!(clk_texts.iter().any(|t| t == "LOCAL TIME"));
+    }
 }

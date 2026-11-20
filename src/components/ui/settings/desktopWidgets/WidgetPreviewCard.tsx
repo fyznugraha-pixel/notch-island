@@ -15,13 +15,16 @@ interface WidgetPreviewCardProps {
   entry: WidgetCatalogEntry;
   size: WidgetSize;
   lightWallpaper: boolean;
+  isId?: boolean;
 }
 
 export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
   entry,
   size,
   lightWallpaper,
+  isId = true,
 }) => {
+  const tr = (idText: string, enText: string) => (isId ? idText : enText);
   const fg = lightWallpaper ? "text-slate-900" : "text-white";
   const sub = lightWallpaper ? "text-slate-600" : "text-white/60";
   const chip = lightWallpaper ? "bg-slate-900/[0.08]" : "bg-white/[0.11]";
@@ -37,7 +40,9 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
   const renderInner = () => {
     switch (entry.widget_type) {
       case "calendar_agenda": {
-        const headers = ["M", "S", "S", "R", "K", "J", "S"];
+        const headers = isId
+          ? ["M", "S", "S", "R", "K", "J", "S"]
+          : ["S", "M", "T", "W", "T", "F", "S"];
         const days = Array.from({ length: 30 }, (_, i) => i + 1);
         return (
           <div className="h-full flex flex-col justify-between">
@@ -65,12 +70,14 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <span className={`text-[10px] font-semibold uppercase tracking-wider ${accentLabel}`}>
-              Jumat, 20 November
+              {tr("Jumat, 20 November", "Friday, 20 November")}
             </span>
             <div className="text-[40px] font-bold tracking-tight tabular-nums leading-none">
               22:15
             </div>
-            <span className={`text-[11px] ${sub}`}>8 gaya termasuk kata Indonesia</span>
+            <span className={`text-[11px] ${sub}`}>
+              {tr("8 gaya termasuk kata Indonesia", "8 styles incl. Indonesian word clock")}
+            </span>
           </div>
         );
       case "system_performance":
@@ -78,7 +85,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className={`text-[10px] font-bold uppercase tracking-wider ${sub}`}>
-                Performa Sistem
+                {tr("Performa Sistem", "System Performance")}
               </span>
               <span className={`text-[10.5px] font-semibold tabular-nums ${sub}`}>
                 RAM 7.7/16 GB
@@ -178,14 +185,16 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
                 </div>
               )}
             </div>
-            <span className={`text-[11px] ${sub}`}>Cerah Berawan . Open-Meteo</span>
+            <span className={`text-[11px] ${sub}`}>
+              {tr("Cerah Berawan . Open-Meteo", "Partly Cloudy . Open-Meteo")}
+            </span>
           </div>
         );
       case "prayer_times":
         return (
           <div className="h-full flex flex-col justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-              Sholat . Jakarta
+              {tr("Sholat . Jakarta", "Prayer . Jakarta")}
             </span>
             <div>
               <div className="text-[32px] font-bold leading-none tabular-nums">17:58</div>
@@ -212,12 +221,14 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
       case "quick_controls":
         return (
           <div className="h-full flex flex-col justify-between">
-            <span className="text-[12px] font-semibold">Kontrol Cepat</span>
+            <span className="text-[12px] font-semibold">
+              {tr("Kontrol Cepat", "Quick Controls")}
+            </span>
             <div className={`grid gap-2 ${size === "small" ? "grid-cols-2" : "grid-cols-4"}`}>
               {[
                 { icon: <Wifi size={14} />, lbl: "Wi-Fi", on: true },
                 { icon: <Bluetooth size={14} />, lbl: "BT", on: true },
-                { icon: <Moon size={14} />, lbl: "Gelap", on: true },
+                { icon: <Moon size={14} />, lbl: tr("Gelap", "Dark"), on: true },
                 { icon: <Volume2 size={14} />, lbl: "Audio", on: false },
               ].map((t) => (
                 <div
@@ -238,9 +249,11 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-[12.5px] font-semibold flex items-center gap-1">
-                <Flame size={13} className="text-amber-400" /> Fokus Harian
+                <Flame size={13} className="text-amber-400" /> {tr("Fokus Harian", "Daily Focus")}
               </span>
-              <span className="text-[11px] font-bold text-emerald-400 tabular-nums">12 hari</span>
+              <span className="text-[11px] font-bold text-emerald-400 tabular-nums">
+                {tr("12 hari", "12 days")}
+              </span>
             </div>
             <div className="grid grid-cols-10 gap-1">
               {Array.from({ length: 40 }).map((_, i) => (
@@ -266,7 +279,9 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between text-[11.5px]">
-              <span className="font-semibold">Spektrum Audio</span>
+              <span className="font-semibold">
+                {tr("Spektrum Audio", "Audio Spectrum")}
+              </span>
               <span className="text-[10px] font-semibold text-emerald-400">WASAPI</span>
             </div>
             <div className="flex items-end gap-1.5 h-20">
@@ -285,12 +300,16 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className={`text-[10px] font-bold uppercase tracking-wider ${accentLabel}`}>
-                Screen Time Hari Ini
+                {tr("Screen Time Hari Ini", "Screen Time Today")}
               </span>
-              <span className={`text-[10.5px] tabular-nums ${sub}`}>Batas 8j</span>
+              <span className={`text-[10.5px] tabular-nums ${sub}`}>
+                {tr("Batas 8j", "8h limit")}
+              </span>
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-[34px] font-bold leading-none tabular-nums">4j 32m</span>
+              <span className="text-[34px] font-bold leading-none tabular-nums">
+                {tr("4j 32m", "4h 32m")}
+              </span>
               <span className={`text-[11px] tabular-nums ${sub}`}>56%</span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-white/15 overflow-hidden">
@@ -302,13 +321,17 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <span className={`text-[10px] font-bold uppercase tracking-wider ${accentLabel}`}>
-              Hitung Mundur
+              {tr("Hitung Mundur", "Countdown")}
             </span>
             <div>
               <div className="text-[38px] font-bold leading-none tabular-nums">42</div>
-              <div className={`text-[11px] mt-1 ${sub}`}>hari lagi . 2027-01-01</div>
+              <div className={`text-[11px] mt-1 ${sub}`}>
+                {tr("hari lagi . 2027-01-01", "days left . 2027-01-01")}
+              </div>
             </div>
-            <div className="text-[12.5px] font-semibold truncate">Target Rilis Proyek</div>
+            <div className="text-[12.5px] font-semibold truncate">
+              {tr("Target Rilis Proyek", "Project Release")}
+            </div>
           </div>
         );
       case "photo_frame":
@@ -334,7 +357,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
         return (
           <div className="h-full flex flex-col justify-between">
             <span className={`text-[10px] font-bold uppercase tracking-wider ${accentLabel}`}>
-              Jam Dunia
+              {tr("Jam Dunia", "World Clock")}
             </span>
             <div className="grid grid-cols-4 gap-1.5 text-center">
               {[
@@ -382,13 +405,20 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
       case "quick_snippets":
         return (
           <div className="h-full flex flex-col justify-between">
-            <span className="text-[12px] font-semibold">Papan Snippet (1 Klik Salin)</span>
+            <span className="text-[12px] font-semibold">
+              {tr("Papan Snippet (1 Klik Salin)", "Snippet Board (1-Click Copy)")}
+            </span>
             <div className={`grid gap-1.5 ${size === "small" ? "grid-cols-1" : "grid-cols-2"}`}>
-              {["Alamat Kantor", "Email Kerja", "Perintah Build", "Salam Pembuka"].slice(0, size === "small" ? 3 : 4).map((s) => (
-                <div key={s} className={`rounded-[10px] px-2.5 py-1.5 text-[11px] font-medium truncate ${chip}`}>
-                  {s}
-                </div>
-              ))}
+              {(isId
+                ? ["Alamat Kantor", "Email Kerja", "Perintah Build", "Salam Pembuka"]
+                : ["Office Address", "Work Email", "Build Command", "Greeting"]
+              )
+                .slice(0, size === "small" ? 3 : 4)
+                .map((s) => (
+                  <div key={s} className={`rounded-[10px] px-2.5 py-1.5 text-[11px] font-medium truncate ${chip}`}>
+                    {s}
+                  </div>
+                ))}
             </div>
           </div>
         );
@@ -401,7 +431,9 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             <div className="flex items-end justify-between">
               <div>
                 <div className="text-[36px] font-bold leading-none tabular-nums">74</div>
-                <div className="text-[11.5px] font-semibold text-amber-400 mt-0.5">Sedang</div>
+                <div className="text-[11.5px] font-semibold text-amber-400 mt-0.5">
+                  {tr("Sedang", "Moderate")}
+                </div>
               </div>
               {size !== "small" && (
                 <div className="flex gap-1.5 text-center">
@@ -428,7 +460,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
           <div className="h-full flex flex-col justify-between">
             <div className="flex items-center justify-between gap-2">
               <span className={`text-[10.5px] font-semibold uppercase tracking-wide ${accentLabel}`}>
-                Grup {entry.group}
+                {tr("Grup", "Group")} {entry.group}
               </span>
               <LayoutGrid size={13} className={accentLabel} />
             </div>

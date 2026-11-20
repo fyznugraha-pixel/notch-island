@@ -35,6 +35,7 @@ import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
 
 interface WidgetProvidersCardProps {
   isLightMode: boolean;
+  isId?: boolean;
   activeWidgetTypes: string[];
   onFlash: (msg: string) => void;
 }
@@ -51,6 +52,7 @@ interface ProviderRowProps {
   title: string;
   subtitle: string;
   installed?: boolean;
+  installedLabel?: string;
   isLightMode: boolean;
   children: React.ReactNode;
 }
@@ -64,6 +66,7 @@ const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
   title,
   subtitle,
   installed = false,
+  installedLabel = "Terpasang",
   isLightMode,
   children,
 }) => {
@@ -101,7 +104,7 @@ const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
               </span>
               {installed && (
                 <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold bg-[#34c759]/18 text-[#34c759]">
-                  Terpasang
+                  {installedLabel}
                 </span>
               )}
             </div>
@@ -141,16 +144,9 @@ const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
   );
 };
 
-const QUICK_WORLD_CITIES = [
-  { city: "Singapura", code: "SGT", offset: 8 },
-  { city: "Makassar", code: "WITA", offset: 8 },
-  { city: "Jayapura", code: "WIT", offset: 9 },
-  { city: "Seoul", code: "KST", offset: 9 },
-  { city: "Sydney", code: "AEDT", offset: 11 },
-];
-
 export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
   isLightMode,
+  isId = true,
   activeWidgetTypes,
   onFlash,
 }) => {
@@ -177,6 +173,15 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
 
   const activeSet = new Set(activeWidgetTypes);
   const toggleRow = (id: string) => setOpenId((cur) => (cur === id ? null : id));
+  const installedLabel = isId ? "Terpasang" : "Installed";
+
+  const quickWorldCities = [
+    { city: isId ? "Singapura" : "Singapore", code: "SGT", offset: 8 },
+    { city: "Makassar", code: "WITA", offset: 8 },
+    { city: "Jayapura", code: "WIT", offset: 9 },
+    { city: "Seoul", code: "KST", offset: 9 },
+    { city: "Sydney", code: "AEDT", offset: 11 },
+  ];
 
   const cardClass = `w-full rounded-[18px] p-3.5 flex flex-col gap-3 transition-colors ${
     isLightMode
@@ -208,18 +213,22 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
     <div className={cardClass}>
       <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
         <div>
-          <div className="text-[13.5px] font-semibold">Data & Sumber Widget</div>
+          <div className="text-[13.5px] font-semibold">
+            {isId ? "Data & Sumber Widget" : "Widget Data & Sources"}
+          </div>
           <div className={`text-[11px] ${isLightMode ? "text-neutral-500" : "text-zinc-400"}`}>
-            Klik salah satu widget di bawah untuk mengisi atau mengubah datanya
+            {isId
+              ? "Klik salah satu widget di bawah untuk mengisi atau mengubah datanya"
+              : "Click a widget below to populate or configure its data"}
           </div>
         </div>
         <IosSegmentedControl<ProviderGroup>
           value={group}
           onChange={setGroup}
           options={[
-            { value: "all", label: "Semua" },
-            { value: "productive", label: "Produktif" },
-            { value: "local", label: "Lokal" },
+            { value: "all", label: isId ? "Semua" : "All" },
+            { value: "productive", label: isId ? "Produktif" : "Productivity" },
+            { value: "local", label: isId ? "Lokal" : "Local" },
             { value: "online", label: "Online" },
           ]}
         />
@@ -235,24 +244,29 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<CalendarClock size={15} />}
               iconBg="bg-[#0a84ff]/15"
               iconColor="text-[#0a84ff]"
-              title="Hitung Mundur Momen"
-              subtitle="Tambah target tanggal ujian, deadline, gajian, atau liburan"
+              title={isId ? "Hitung Mundur Momen" : "Moment Countdown"}
+              subtitle={
+                isId
+                  ? "Tambah target tanggal ujian, deadline, gajian, atau liburan"
+                  : "Add target dates for exams, deadlines, payday, or vacations"
+              }
               installed={activeSet.has("countdown_moment")}
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Nama Momen</span>
+                  <span className={labelCls}>{isId ? "Nama Momen" : "Moment Name"}</span>
                   <input
                     type="text"
                     value={cdTitle}
                     onChange={(e) => setCdTitle(e.target.value)}
-                    placeholder="Contoh: Sidang Skripsi"
+                    placeholder={isId ? "Contoh: Sidang Skripsi" : "Example: Thesis Defense"}
                     className={inputCls}
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Tanggal Target</span>
+                  <span className={labelCls}>{isId ? "Tanggal Target" : "Target Date"}</span>
                   <input
                     type="date"
                     value={cdDate}
@@ -269,14 +283,18 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     try {
                       await addWidgetCountdown(cdTitle.trim(), cdDate.trim());
                       setCdTitle("");
-                      onFlash("Momen Hitung Mundur berhasil ditambahkan.");
+                      onFlash(
+                        isId
+                          ? "Momen Hitung Mundur berhasil ditambahkan."
+                          : "Countdown moment added."
+                      );
                     } catch (e) {
                       onFlash(String(e));
                     }
                   }}
                   className={primaryBtn}
                 >
-                  Simpan Momen
+                  {isId ? "Simpan Momen" : "Save Moment"}
                 </button>
               </div>
             </ProviderAccordionRow>
@@ -288,37 +306,50 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<ClipboardCopy size={15} />}
               iconBg="bg-[#af52de]/15"
               iconColor="text-[#c084fc]"
-              title="Papan Snippet Cepat"
-              subtitle="Simpan template teks pilihan untuk disalin 1 klik dari desktop"
+              title={isId ? "Papan Snippet Cepat" : "Quick Snippets Board"}
+              subtitle={
+                isId
+                  ? "Simpan template teks pilihan untuk disalin 1 klik dari desktop"
+                  : "Save custom text templates for 1-click copying from the desktop"
+              }
               installed={activeSet.has("quick_snippets")}
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Label Pendek</span>
+                  <span className={labelCls}>{isId ? "Label Pendek" : "Short Label"}</span>
                   <input
                     type="text"
                     value={snLabel}
                     onChange={(e) => setSnLabel(e.target.value)}
-                    placeholder="Contoh: Alamat Pengiriman"
+                    placeholder={isId ? "Contoh: Alamat Pengiriman" : "Example: Shipping Address"}
                     className={inputCls}
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Isi Teks yang Disalin</span>
+                  <span className={labelCls}>
+                    {isId ? "Isi Teks yang Disalin" : "Text Content to Copy"}
+                  </span>
                   <input
                     type="text"
                     value={snContent}
                     onChange={(e) => setSnContent(e.target.value)}
-                    placeholder="Teks lengkap yang akan masuk clipboard"
+                    placeholder={
+                      isId
+                        ? "Teks lengkap yang akan masuk clipboard"
+                        : "Full text copied to your clipboard"
+                    }
                     className={inputCls}
                   />
                 </label>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className={hintCls}>
-                  <ShieldCheck size={13} className="text-[#34c759]" /> Disimpan lokal saja, tidak
-                  merekam riwayat clipboard Anda
+                  <ShieldCheck size={13} className="text-[#34c759]" />{" "}
+                  {isId
+                    ? "Disimpan lokal saja, tidak merekam riwayat clipboard Anda"
+                    : "Stored locally only, never logs your clipboard history"}
                 </span>
                 <button
                   type="button"
@@ -327,11 +358,11 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     await addWidgetSnippet(snLabel.trim(), snContent);
                     setSnLabel("");
                     setSnContent("");
-                    onFlash("Snippet cepat disimpan.");
+                    onFlash(isId ? "Snippet cepat disimpan." : "Quick snippet saved.");
                   }}
                   className={primaryBtn}
                 >
-                  Tambah Snippet
+                  {isId ? "Tambah Snippet" : "Add Snippet"}
                 </button>
               </div>
             </ProviderAccordionRow>
@@ -343,19 +374,24 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<Timer size={15} />}
               iconBg="bg-[#34c759]/15"
               iconColor="text-[#34c759]"
-              title="Pelacak Waktu Proyek"
-              subtitle="Kelola nama proyek dan ekspor rekap durasi ke CSV"
+              title={isId ? "Pelacak Waktu Proyek" : "Project Time Tracker"}
+              subtitle={
+                isId
+                  ? "Kelola nama proyek dan ekspor rekap durasi ke CSV"
+                  : "Manage project names and export duration summaries to CSV"
+              }
               installed={activeSet.has("time_tracker")}
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <label className="flex flex-col gap-1">
-                <span className={labelCls}>Nama Proyek Baru</span>
+                <span className={labelCls}>{isId ? "Nama Proyek Baru" : "New Project Name"}</span>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
-                    placeholder="Contoh: Desain Aplikasi Gili"
+                    placeholder={isId ? "Contoh: Desain Aplikasi Gili" : "Example: Gili App Design"}
                     className={inputCls}
                   />
                   <button
@@ -364,11 +400,11 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                       if (!projectName.trim()) return;
                       await addWidgetTimeProject(projectName.trim());
                       setProjectName("");
-                      onFlash("Proyek pelacak waktu ditambahkan.");
+                      onFlash(isId ? "Proyek pelacak waktu ditambahkan." : "Time tracker project added.");
                     }}
                     className={primaryBtn}
                   >
-                    Tambah
+                    {isId ? "Tambah" : "Add"}
                   </button>
                 </div>
               </label>
@@ -377,11 +413,11 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                   type="button"
                   onClick={async () => {
                     const path = await exportWidgetTimeTrackerCsv();
-                    onFlash(`CSV tersimpan di: ${path}`);
+                    onFlash(isId ? `CSV tersimpan di: ${path}` : `CSV saved to: ${path}`);
                   }}
                   className={`${secondaryBtn} flex items-center gap-1.5`}
                 >
-                  <Download size={13} /> Ekspor Rekap CSV
+                  <Download size={13} /> {isId ? "Ekspor Rekap CSV" : "Export CSV Summary"}
                 </button>
               </div>
             </ProviderAccordionRow>
@@ -393,29 +429,36 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<Link2 size={15} />}
               iconBg="bg-[#5e5ce6]/15"
               iconColor="text-[#818cf8]"
-              title="Pintasan Cepat"
-              subtitle="Tambahkan aplikasi, folder, atau tautan yang sering dibuka"
+              title={isId ? "Pintasan Cepat" : "Quick Shortcuts"}
+              subtitle={
+                isId
+                  ? "Tambahkan aplikasi, folder, atau tautan yang sering dibuka"
+                  : "Add frequently opened apps, folders, or links"
+              }
               installed={activeSet.has("shortcuts_grid")}
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Nama Pintasan</span>
+                  <span className={labelCls}>{isId ? "Nama Pintasan" : "Shortcut Name"}</span>
                   <input
                     type="text"
                     value={shortcutName}
                     onChange={(e) => setShortcutName(e.target.value)}
-                    placeholder="Contoh: Folder Kerja"
+                    placeholder={isId ? "Contoh: Folder Kerja" : "Example: Work Folder"}
                     className={inputCls}
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Path Aplikasi, Folder, atau URL</span>
+                  <span className={labelCls}>
+                    {isId ? "Path Aplikasi, Folder, atau URL" : "App Path, Folder, or URL"}
+                  </span>
                   <input
                     type="text"
                     value={shortcutPath}
                     onChange={(e) => setShortcutPath(e.target.value)}
-                    placeholder="C:\Users\... atau https://..."
+                    placeholder={isId ? "C:\\Users\\... atau https://..." : "C:\\Users\\... or https://..."}
                     className={inputCls}
                   />
                 </label>
@@ -428,11 +471,11 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     await addWidgetShortcut(shortcutName.trim(), shortcutPath.trim());
                     setShortcutName("");
                     setShortcutPath("");
-                    onFlash("Pintasan cepat ditambahkan.");
+                    onFlash(isId ? "Pintasan cepat ditambahkan." : "Quick shortcut added.");
                   }}
                   className={primaryBtn}
                 >
-                  Tambah Pintasan
+                  {isId ? "Tambah Pintasan" : "Add Shortcut"}
                 </button>
               </div>
             </ProviderAccordionRow>
@@ -448,19 +491,28 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<Globe size={15} />}
               iconBg="bg-[#64d2ff]/15"
               iconColor="text-[#38bdf8]"
-              title="Jam Dunia Multi-Zona"
-              subtitle="Tambah kota dunia atau pilih preset cepat (default: Jakarta, Tokyo, London, NY)"
+              title={isId ? "Jam Dunia Multi-Zona" : "Multi-Zone World Clock"}
+              subtitle={
+                isId
+                  ? "Tambah kota dunia atau pilih preset cepat (default: Jakarta, Tokyo, London, NY)"
+                  : "Add world cities or pick quick presets (default: Jakarta, Tokyo, London, NY)"
+              }
               installed={activeSet.has("world_clock")}
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <div className="flex flex-wrap gap-1.5">
-                {QUICK_WORLD_CITIES.map((c) => (
+                {quickWorldCities.map((c) => (
                   <button
                     key={c.city}
                     type="button"
                     onClick={async () => {
                       await addWidgetWorldClock(c.city, c.code, c.offset);
-                      onFlash(`Kota ${c.city} (${c.code}) ditambahkan.`);
+                      onFlash(
+                        isId
+                          ? `Kota ${c.city} (${c.code}) ditambahkan.`
+                          : `Added ${c.city} (${c.code}).`
+                      );
                     }}
                     className={`px-2.5 py-1 rounded-full text-[11px] font-medium border cursor-pointer ${
                       isLightMode
@@ -474,17 +526,17 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Nama Kota</span>
+                  <span className={labelCls}>{isId ? "Nama Kota" : "City Name"}</span>
                   <input
                     type="text"
                     value={wcCity}
                     onChange={(e) => setWcCity(e.target.value)}
-                    placeholder="Contoh: Berlin"
+                    placeholder={isId ? "Contoh: Berlin" : "Example: Berlin"}
                     className={inputCls}
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Kode Zona</span>
+                  <span className={labelCls}>{isId ? "Kode Zona" : "Zone Code"}</span>
                   <input
                     type="text"
                     value={wcCode}
@@ -494,7 +546,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Offset UTC (Jam)</span>
+                  <span className={labelCls}>{isId ? "Offset UTC (Jam)" : "UTC Offset (Hours)"}</span>
                   <input
                     type="number"
                     value={wcOffset}
@@ -512,11 +564,15 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     if (!wcCity.trim() || !Number.isFinite(off)) return;
                     await addWidgetWorldClock(wcCity.trim(), wcCode.trim() || "UTC", off);
                     setWcCity("");
-                    onFlash("Kota kustom ditambahkan ke Jam Dunia.");
+                    onFlash(
+                      isId
+                        ? "Kota kustom ditambahkan ke Jam Dunia."
+                        : "Custom city added to World Clock."
+                    );
                   }}
                   className={primaryBtn}
                 >
-                  Tambah Kota
+                  {isId ? "Tambah Kota" : "Add City"}
                 </button>
               </div>
             </ProviderAccordionRow>
@@ -528,13 +584,20 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<Wallet size={15} />}
               iconBg="bg-[#ff9f0a]/15"
               iconColor="text-[#ff9f0a]"
-              title="Pengeluaran Cepat & Anggaran"
-              subtitle="Atur batas anggaran bulanan untuk bar progres pengeluaran"
+              title={isId ? "Pengeluaran Cepat & Anggaran" : "Quick Expense & Budget"}
+              subtitle={
+                isId
+                  ? "Atur batas anggaran bulanan untuk bar progres pengeluaran"
+                  : "Set a monthly budget limit for the spending progress bar"
+              }
               installed={activeSet.has("quick_expense")}
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <label className="flex flex-col gap-1">
-                <span className={labelCls}>Anggaran Bulanan (Rupiah)</span>
+                <span className={labelCls}>
+                  {isId ? "Anggaran Bulanan (Rupiah)" : "Monthly Budget (IDR)"}
+                </span>
                 <div className="flex gap-2">
                   <input
                     type="number"
@@ -549,17 +612,23 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                       const num = Number(budgetIdr);
                       if (!Number.isFinite(num) || num <= 0) return;
                       await setWidgetExpenseBudget(Math.round(num));
-                      onFlash("Anggaran bulanan tersimpan (terenkripsi DPAPI).");
+                      onFlash(
+                        isId
+                          ? "Anggaran bulanan tersimpan (terenkripsi DPAPI)."
+                          : "Monthly budget saved (DPAPI encrypted)."
+                      );
                     }}
                     className={primaryBtn}
                   >
-                    Simpan
+                    {isId ? "Simpan" : "Save"}
                   </button>
                 </div>
               </label>
               <span className={hintCls}>
-                <ShieldCheck size={13} className="text-[#34c759]" /> Data finansial dienkripsi lokal
-                dengan Windows DPAPI, nol telemetri
+                <ShieldCheck size={13} className="text-[#34c759]" />{" "}
+                {isId
+                  ? "Data finansial dienkripsi lokal dengan Windows DPAPI, nol telemetri"
+                  : "Financial data is encrypted locally with Windows DPAPI, zero telemetry"}
               </span>
             </ProviderAccordionRow>
 
@@ -570,41 +639,62 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<FolderOpen size={15} />}
               iconBg="bg-[#ff453a]/15"
               iconColor="text-[#ff6961]"
-              title="Folder Foto, Berkas Terbaru & Penyimpanan"
-              subtitle="Sumber folder lokal baca-saja untuk Bingkai Foto, Berkas Terbaru, dan Treemap"
+              title={
+                isId
+                  ? "Folder Foto, Berkas Terbaru & Penyimpanan"
+                  : "Photo Folders, Recent Files & Storage"
+              }
+              subtitle={
+                isId
+                  ? "Sumber folder lokal baca-saja untuk Bingkai Foto, Berkas Terbaru, dan Treemap"
+                  : "Read-only local folder sources for Photo Frame, Recent Files, and Treemap"
+              }
               installed={
                 activeSet.has("photo_frame") ||
                 activeSet.has("recent_files") ||
                 activeSet.has("storage_treemap")
               }
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <label className="flex flex-col gap-1">
-                <span className={labelCls}>Foto & Folder Bingkai Polaroid (Baca-Saja)</span>
+                <span className={labelCls}>
+                  {isId
+                    ? "Foto & Folder Bingkai Polaroid (Baca-Saja)"
+                    : "Polaroid Frame Photos & Folder (Read-Only)"}
+                </span>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={async () => {
                       const total = await pickWidgetPhotosDialog();
                       if (total > 0) {
-                        onFlash(`Foto bingkai diperbarui (${total} foto tersedia).`);
+                        onFlash(
+                          isId
+                            ? `Foto bingkai diperbarui (${total} foto tersedia).`
+                            : `Frame photos updated (${total} photos available).`
+                        );
                       }
                     }}
                     className={secondaryBtn}
                   >
-                    Pilih Foto...
+                    {isId ? "Pilih Foto..." : "Pick Photos..."}
                   </button>
                   <button
                     type="button"
                     onClick={async () => {
                       const total = await pickWidgetPhotoFolderDialog();
                       if (total > 0) {
-                        onFlash(`Folder foto dimuat (${total} gambar).`);
+                        onFlash(
+                          isId
+                            ? `Folder foto dimuat (${total} gambar).`
+                            : `Photo folder loaded (${total} images).`
+                        );
                       }
                     }}
                     className={secondaryBtn}
                   >
-                    Pilih Folder...
+                    {isId ? "Pilih Folder..." : "Pick Folder..."}
                   </button>
                 </div>
                 <div className="flex gap-2 mt-1">
@@ -612,7 +702,7 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     type="text"
                     value={photoFolder}
                     onChange={(e) => setPhotoFolder(e.target.value)}
-                    placeholder="Contoh: C:\Users\Nama\Pictures"
+                    placeholder={isId ? "Contoh: C:\\Users\\Nama\\Pictures" : "Example: C:\\Users\\Name\\Pictures"}
                     className={inputCls}
                   />
                   <button
@@ -620,23 +710,33 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     onClick={async () => {
                       if (!photoFolder.trim()) return;
                       const count = await configureWidgetPhotoFolder(photoFolder.trim());
-                      onFlash(`Folder foto dimuat (${count} gambar).`);
+                      onFlash(
+                        isId
+                          ? `Folder foto dimuat (${count} gambar).`
+                          : `Photo folder loaded (${count} images).`
+                      );
                     }}
                     className={secondaryBtn}
                   >
-                    Muat Foto
+                    {isId ? "Muat Foto" : "Load Photos"}
                   </button>
                 </div>
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className={labelCls}>Folder Berkas Terbaru (Opt-In, Metadata Saja)</span>
+                <span className={labelCls}>
+                  {isId
+                    ? "Folder Berkas Terbaru (Opt-In, Metadata Saja)"
+                    : "Recent Files Folder (Opt-In, Metadata Only)"}
+                </span>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={recentFolder}
                     onChange={(e) => setRecentFolder(e.target.value)}
-                    placeholder="Contoh: C:\Users\Nama\Documents"
+                    placeholder={
+                      isId ? "Contoh: C:\\Users\\Nama\\Documents" : "Example: C:\\Users\\Name\\Documents"
+                    }
                     className={inputCls}
                   />
                   <button
@@ -644,26 +744,38 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     onClick={async () => {
                       if (!recentFolder.trim()) return;
                       await configureWidgetRecentFolders(true, [recentFolder.trim()], []);
-                      onFlash("Pantauan Berkas Terbaru diaktifkan.");
+                      onFlash(
+                        isId
+                          ? "Pantauan Berkas Terbaru diaktifkan."
+                          : "Recent Files tracking enabled."
+                      );
                     }}
                     className={secondaryBtn}
                   >
-                    Aktifkan
+                    {isId ? "Aktifkan" : "Enable"}
                   </button>
                 </div>
               </label>
 
               <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/[0.06]">
-                <span className={hintCls}>Peta Penyimpanan (Treemap) dipindai sesuai permintaan</span>
+                <span className={hintCls}>
+                  {isId
+                    ? "Peta Penyimpanan (Treemap) dipindai sesuai permintaan"
+                    : "Storage Treemap scans only on demand"}
+                </span>
                 <button
                   type="button"
                   onClick={async () => {
                     await triggerWidgetStorageScan();
-                    onFlash("Pemindaian Peta Penyimpanan dimulai di latar belakang.");
+                    onFlash(
+                      isId
+                        ? "Pemindaian Peta Penyimpanan dimulai di latar belakang."
+                        : "Storage Treemap scan started in the background."
+                    );
                   }}
                   className={`${secondaryBtn} flex items-center gap-1.5`}
                 >
-                  <HardDrive size={13} /> Pindai Sekarang
+                  <HardDrive size={13} /> {isId ? "Pindai Sekarang" : "Scan Now"}
                 </button>
               </div>
             </ProviderAccordionRow>
@@ -679,29 +791,34 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<Activity size={15} />}
               iconBg="bg-[#30d158]/15"
               iconColor="text-[#30d158]"
-              title="Status Situs (Ping Uptime)"
-              subtitle="Pantau status HTTPS hingga 6 situs milik Anda (interval min 60 detik)"
+              title={isId ? "Status Situs (Ping Uptime)" : "Site Status (Uptime Ping)"}
+              subtitle={
+                isId
+                  ? "Pantau status HTTPS hingga 6 situs milik Anda (interval min 60 detik)"
+                  : "Monitor HTTPS status for up to 6 websites (min 60s interval)"
+              }
               installed={activeSet.has("site_status")}
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Nama Situs</span>
+                  <span className={labelCls}>{isId ? "Nama Situs" : "Site Name"}</span>
                   <input
                     type="text"
                     value={siteName}
                     onChange={(e) => setSiteName(e.target.value)}
-                    placeholder="Contoh: API Produksi"
+                    placeholder={isId ? "Contoh: API Produksi" : "Example: Production API"}
                     className={inputCls}
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>URL HTTPS</span>
+                  <span className={labelCls}>HTTPS URL</span>
                   <input
                     type="url"
                     value={siteUrl}
                     onChange={(e) => setSiteUrl(e.target.value)}
-                    placeholder="https://domain-anda.com"
+                    placeholder={isId ? "https://domain-anda.com" : "https://your-domain.com"}
                     className={inputCls}
                   />
                 </label>
@@ -714,14 +831,18 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     try {
                       await addWidgetUptimeSite(siteName.trim(), siteUrl.trim());
                       setSiteName("");
-                      onFlash("Situs ditambahkan ke pemantau uptime.");
+                      onFlash(
+                        isId
+                          ? "Situs ditambahkan ke pemantau uptime."
+                          : "Site added to uptime monitor."
+                      );
                     } catch (e) {
                       onFlash(String(e));
                     }
                   }}
                   className={primaryBtn}
                 >
-                  Tambah Situs
+                  {isId ? "Tambah Situs" : "Add Site"}
                 </button>
               </div>
             </ProviderAccordionRow>
@@ -733,19 +854,26 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               icon={<GitBranch size={15} />}
               iconBg="bg-[#636366]/20"
               iconColor="text-zinc-200"
-              title="Status GitHub"
-              subtitle="Pantau PR, issue, dan hasil GitHub Actions dengan ETag"
+              title={isId ? "Status GitHub" : "GitHub Status"}
+              subtitle={
+                isId
+                  ? "Pantau PR, issue, dan hasil GitHub Actions dengan ETag"
+                  : "Track PRs, issues, and GitHub Actions runs using ETag caching"
+              }
               installed={activeSet.has("github_status")}
+              installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <label className="flex flex-col gap-1">
-                  <span className={labelCls}>Repositori (owner/repo)</span>
+                  <span className={labelCls}>
+                    {isId ? "Repositori (owner/repo)" : "Repository (owner/repo)"}
+                  </span>
                   <input
                     type="text"
                     value={ghRepo}
                     onChange={(e) => setGhRepo(e.target.value)}
-                    placeholder="Contoh: faiz/gili"
+                    placeholder={isId ? "Contoh: faiz/gili" : "Example: faiz/gili"}
                     className={inputCls}
                   />
                 </label>
@@ -762,8 +890,10 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className={hintCls}>
-                  <ShieldCheck size={13} className="text-[#34c759]" /> Token disimpan aman di
-                  Windows Credential Manager
+                  <ShieldCheck size={13} className="text-[#34c759]" />{" "}
+                  {isId
+                    ? "Token disimpan aman di Windows Credential Manager"
+                    : "Token stored securely in Windows Credential Manager"}
                 </span>
                 <button
                   type="button"
@@ -771,11 +901,15 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     if (!ghRepo.trim() || !ghToken.trim()) return;
                     await saveGithubWidgetToken(ghToken.trim(), ghRepo.trim());
                     setGhToken("");
-                    onFlash("Kredensial GitHub tersimpan aman.");
+                    onFlash(
+                      isId
+                        ? "Kredensial GitHub tersimpan aman."
+                        : "GitHub credentials saved securely."
+                    );
                   }}
                   className={primaryBtn}
                 >
-                  Simpan Token
+                  {isId ? "Simpan Token" : "Save Token"}
                 </button>
               </div>
             </ProviderAccordionRow>

@@ -3054,6 +3054,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     window.addEventListener("island_todo_updated", triggerSync);
     window.addEventListener("island_shelf_updated", triggerSync);
     window.addEventListener("gili_widget_mirror_sync", triggerSync);
+    window.addEventListener("island_language_changed", triggerSync);
     return () => {
       if (timer !== null) window.clearTimeout(timer);
       window.clearTimeout(initialTimer);
@@ -3062,6 +3063,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       window.removeEventListener("island_todo_updated", triggerSync);
       window.removeEventListener("island_shelf_updated", triggerSync);
       window.removeEventListener("gili_widget_mirror_sync", triggerSync);
+      window.removeEventListener("island_language_changed", triggerSync);
     };
   }, [isSecondaryWindow, todoItems]);
 

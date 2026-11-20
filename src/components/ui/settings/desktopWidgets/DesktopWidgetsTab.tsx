@@ -39,33 +39,26 @@ import { IosSelect } from "../../../ios/IosSelect";
 import { WidgetColorCustomizer } from "./WidgetColorCustomizer";
 import { WidgetGalleryModal } from "./WidgetGalleryModal";
 import { WidgetProvidersCard } from "./WidgetProvidersCard";
+import {
+  getCalendarStyleOptions,
+  getClockStyleOptions,
+  localizeCatalogEntry,
+  localizePausedReason,
+} from "./desktopWidgetsI18n";
 
 interface DesktopWidgetsTabProps {
   optLanguage: Language;
   isLightMode: boolean;
 }
 
-const CLOCK_STYLE_OPTIONS = [
-  { value: "minimal_digital", label: "Digital Minimal" },
-  { value: "kata_indonesia", label: "Tipografi Kata Indonesia" },
-  { value: "analog_classic", label: "Analog Klasik" },
-  { value: "analog_skeleton", label: "Analog Rangka" },
-  { value: "stacked_bold", label: "Tumpuk Vertikal" },
-  { value: "retro_flip", label: "Flip Retro" },
-  { value: "editorial_thin", label: "Editorial Tipis" },
-  { value: "dual_zone", label: "Jam Dunia Ganda" },
-];
-
-const CALENDAR_STYLE_OPTIONS = [
-  { value: "bulan_minimal", label: "Bulan Minimalis" },
-  { value: "bulan_header", label: "Bulan + Judul" },
-  { value: "tanggal_fokus", label: "Tanggal Fokus" },
-  { value: "tanggal_agenda", label: "Tanggal + Agenda" },
-];
-
 export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
+  optLanguage,
   isLightMode,
 }) => {
+  const isId = optLanguage === "id";
+  const tr = (idText: string, enText: string) => (isId ? idText : enText);
+  const clockStyleOptions = getClockStyleOptions(isId);
+  const calendarStyleOptions = getCalendarStyleOptions(isId);
   const [config, setConfig] = useState<DesktopWidgetsConfig | null>(null);
   const [catalog, setCatalog] = useState<WidgetCatalogEntry[]>([]);
   const [metrics, setMetrics] = useState<WidgetRuntimeMetrics | null>(null);
@@ -115,6 +108,10 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    syncFrontendWidgetMirror().catch(() => { });
+  }, [optLanguage]);
+
   const flash = (msg: string) => {
     setStatusMsg(msg);
     window.setTimeout(() => setStatusMsg(null), 3500);
@@ -140,14 +137,22 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       configRef.current = saved;
       setConfig(saved);
     } catch (err) {
-      flash(`Gagal menyimpan pengaturan widget: ${String(err)}`);
+      flash(
+        tr(
+          `Gagal menyimpan pengaturan widget: ${String(err)}`,
+          `Failed to save widget settings: ${String(err)}`
+        )
+      );
     }
   };
 
   if (!config) {
     return (
       <div className="p-6 text-[13px] text-zinc-400">
-        Memuat pengaturan Widget Desktop native...
+        {tr(
+          "Memuat pengaturan Widget Desktop native...",
+          "Loading native Desktop Widgets settings..."
+        )}
       </div>
     );
   }
@@ -194,7 +199,13 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     };
     persistConfig({ ...config, enabled: true, slots: [...config.slots, newSlot] });
     setGalleryOpen(false);
-    flash(`Widget "${entry.name}" ditambahkan ke desktop.`);
+    const localized = localizeCatalogEntry(entry, isId);
+    flash(
+      tr(
+        `Widget "${localized.name}" ditambahkan ke desktop.`,
+        `Widget "${localized.name}" added to desktop.`
+      )
+    );
   };
 
   const handleRemoveSlot = (slotId: string) => {
@@ -265,7 +276,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       ...prev,
       presets: [...prev.presets, { id: `preset_${Date.now()}`, name, style }],
     }));
-    flash(`Preset "${name}" tersimpan.`);
+    flash(tr(`Preset "${name}" tersimpan.`, `Preset "${name}" saved.`));
   };
 
   const handleRecordRecentColor = (hex: string) => {
@@ -300,16 +311,22 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                 }`}
             />
             <span className="text-[14px] font-semibold">
-              Widget Desktop Native Direct2D
+              {tr("Widget Desktop Native Direct2D", "Native Direct2D Desktop Widgets")}
             </span>
           </div>
           <p className={`text-[12px] ${mutedCls}`}>
             {metrics
-              ? `${metrics.gpu_adapter || "Direct2D Siaga"} . ${metrics.monitor_count} monitor . ${metrics.target_fps} fps . ${metrics.working_set_mb.toFixed(1)} MB`
-              : "Transparan sejati tanpa kartu secara default dan menembus klik di area kosong."}
+              ? `${metrics.gpu_adapter || tr("Direct2D Siaga", "Direct2D Standby")} . ${metrics.monitor_count} monitor . ${metrics.target_fps} fps . ${metrics.working_set_mb.toFixed(1)} MB`
+              : tr(
+                  "Lapisan frosted adaptif yang bersih dan menembus klik di area kosong.",
+                  "Crisp frosted surface with seamless click-through on empty areas."
+                )}
           </p>
           <p className={`text-[11.5px] ${mutedCls}`}>
-            Cara pakai: aktifkan sakelar di bawah, lalu langsung klik dan geser widget di desktop untuk memindahkan posisi. Klik kanan pada widget untuk ubah ukuran, warna, atau hapus.
+            {tr(
+              "Cara pakai: aktifkan sakelar di bawah, lalu langsung klik dan geser widget di desktop untuk memindahkan posisi. Klik kanan pada widget untuk ubah ukuran, warna, atau hapus.",
+              "How to use: enable the toggle below, then click and drag widgets directly on the desktop to reposition them. Right-click a widget to resize, restyle, or remove it."
+            )}
           </p>
         </div>
 
@@ -319,7 +336,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             onClick={() => setGalleryOpen(true)}
             className="h-9 px-4 rounded-full bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-[0_6px_18px_rgba(10,132,255,0.32)]"
           >
-            <Plus size={14} /> Galeri (34)
+            <Plus size={14} /> {tr("Galeri (34)", "Gallery (34)")}
           </button>
           <button
             type="button"
@@ -329,7 +346,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
               : "border-white/12 hover:bg-white/[0.08]"
               }`}
           >
-            <AppWindow size={14} /> Papan Widget
+            <AppWindow size={14} /> {tr("Papan Widget", "Widget Board")}
           </button>
           <button
             type="button"
@@ -341,21 +358,27 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                 : "border-white/12 hover:bg-white/[0.08]"
               }`}
           >
-            <Pencil size={13} /> {metrics?.edit_mode ? "Selesai Edit" : "Edit"}
+            <Pencil size={13} />{" "}
+            {metrics?.edit_mode ? tr("Selesai Edit", "Done") : tr("Edit", "Edit")}
           </button>
         </div>
       </div>
 
       {/* Section 1: Umum & Perilaku */}
       <div className="flex flex-col gap-2">
-        <span className={sectionLabelClass}>Aktivasi & Perilaku Host</span>
+        <span className={sectionLabelClass}>
+          {tr("Aktivasi & Perilaku Host", "Host Activation & Behavior")}
+        </span>
         <div className={cardClass}>
           <SettingRow
             icon={<Power size={15} />}
             iconBgClass="bg-[#34c759]/15"
             iconColorClass="text-[#34c759]"
-            title="Aktifkan Widget Desktop"
-            subtitle="Menjalankan jendela DirectComposition transparan per monitor tanpa WebView"
+            title={tr("Aktifkan Widget Desktop", "Enable Desktop Widgets")}
+            subtitle={tr(
+              "Menjalankan jendela DirectComposition transparan per monitor tanpa WebView",
+              "Runs lightweight transparent DirectComposition windows per display without WebView"
+            )}
             isLightMode={isLightMode}
             control={
               <IosSwitch
@@ -368,16 +391,19 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             icon={<Monitor size={15} />}
             iconBgClass="bg-[#0a84ff]/15"
             iconColorClass="text-[#0a84ff]"
-            title="Mode Tampil"
-            subtitle={`Hotkey Papan Widget: ${config.board_hotkey} (tutup dengan Esc atau klik di luar)`}
+            title={tr("Mode Tampil", "Display Mode")}
+            subtitle={tr(
+              `Hotkey Papan Widget: ${config.board_hotkey} (tutup dengan Esc atau klik di luar)`,
+              `Widget Board shortcut: ${config.board_hotkey} (press Esc or click outside to close)`
+            )}
             isLightMode={isLightMode}
             control={
               <IosSegmentedControl<DisplayMode>
                 value={config.display_mode}
                 onChange={(display_mode) => persistConfig({ ...config, display_mode })}
                 options={[
-                  { value: "desktop_attached", label: "Tempel Desktop" },
-                  { value: "widget_board", label: "Papan Overlay" },
+                  { value: "desktop_attached", label: tr("Tempel Desktop", "Desktop Attached") },
+                  { value: "widget_board", label: tr("Papan Overlay", "Overlay Board") },
                 ]}
               />
             }
@@ -386,8 +412,11 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             icon={<Grid2x2 size={15} />}
             iconBgClass="bg-[#5e5ce6]/15"
             iconColorClass="text-[#5e5ce6]"
-            title="Skala Grid Widget"
-            subtitle="Mengubah proporsi ukuran S (160), M (336x160), dan L (336x336) secara serentak"
+            title={tr("Skala Grid Widget", "Widget Grid Scale")}
+            subtitle={tr(
+              "Mengubah proporsi ukuran S (160), M (336x160), dan L (336x336) secara serentak",
+              "Scales S (160), M (336x160), and L (336x336) widget sizes proportionally"
+            )}
             isLightMode={isLightMode}
             control={
               <IosSegmentedControl<number>
@@ -405,8 +434,11 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             icon={<Lock size={15} />}
             iconBgClass="bg-[#ff9f0a]/15"
             iconColorClass="text-[#ff9f0a]"
-            title="Kunci Posisi Widget"
-            subtitle="Mencegah widget tergeser tidak sengaja saat mode edit"
+            title={tr("Kunci Posisi Widget", "Lock Widget Positions")}
+            subtitle={tr(
+              "Mencegah widget tergeser tidak sengaja saat mode edit",
+              "Prevents accidental dragging while in edit mode"
+            )}
             isLightMode={isLightMode}
             control={
               <IosSwitch
@@ -420,8 +452,11 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             icon={<Gamepad2 size={15} />}
             iconBgClass="bg-[#ff375f]/15"
             iconColorClass="text-[#ff375f]"
-            title="Jeda Total Saat Layar Penuh / Game"
-            subtitle="Menghentikan render ke 0 fps saat aplikasi fullscreen aktif atau layar mati"
+            title={tr("Jeda Total Saat Layar Penuh / Game", "Auto-Pause in Fullscreen / Games")}
+            subtitle={tr(
+              "Menghentikan render ke 0 fps saat aplikasi fullscreen aktif atau layar mati",
+              "Drops rendering to 0 fps whenever a fullscreen app runs or display is off"
+            )}
             isLightMode={isLightMode}
             control={
               <IosSwitch
@@ -436,8 +471,11 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             icon={<BatteryCharging size={15} />}
             iconBgClass="bg-[#30d158]/15"
             iconColorClass="text-[#30d158]"
-            title="Hemat Daya Otomatis"
-            subtitle="Batasi animasi 30 fps dan alihkan mode Kaca ke Solid saat Penghemat Daya aktif"
+            title={tr("Hemat Daya Otomatis", "Automatic Power Saver")}
+            subtitle={tr(
+              "Batasi animasi 30 fps dan alihkan mode Kaca ke Solid saat Penghemat Daya aktif",
+              "Caps motion at 30 fps and switches Glass surfaces to Solid on Windows Battery Saver"
+            )}
             isLightMode={isLightMode}
             control={
               <IosSwitch
@@ -455,26 +493,30 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between px-1">
           <span className={sectionLabelClass}>
-            Widget Aktif di Desktop ({config.slots.length})
+            {tr("Widget Aktif di Desktop", "Active Desktop Widgets")} ({config.slots.length})
           </span>
           <button
             type="button"
             onClick={() => setGalleryOpen(true)}
             className="text-[11.5px] font-semibold text-[#0a84ff] hover:underline cursor-pointer"
           >
-            + Tambah Widget
+            + {tr("Tambah Widget", "Add Widget")}
           </button>
         </div>
 
         <div className={cardClass}>
           {config.slots.length === 0 ? (
             <div className={`px-3 py-4 text-[12px] ${mutedCls}`}>
-              Belum ada widget terpasang. Buka Galeri (34) untuk menambahkan widget pertama Anda.
+              {tr(
+                "Belum ada widget terpasang. Buka Galeri (34) untuk menambahkan widget pertama Anda.",
+                "No widgets installed yet. Open Gallery (34) to add your first desktop widget."
+              )}
             </div>
           ) : (
             config.slots.map((slot) => {
               const active = slot.widgets[slot.active_index] ?? slot.widgets[0];
-              const meta = catalog.find((c) => c.widget_type === active?.widget_type);
+              const rawMeta = catalog.find((c) => c.widget_type === active?.widget_type);
+              const meta = rawMeta ? localizeCatalogEntry(rawMeta, isId) : undefined;
               const supported = meta?.supported_sizes ?? (["small", "medium", "large"] as WidgetSize[]);
               return (
                 <div
@@ -491,13 +533,15 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                         {meta?.name ?? active?.widget_type}
                         {slot.widgets.length > 1 && (
                           <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-[#0a84ff]/20 text-[#0a84ff]">
-                            Tumpukan {slot.widgets.length}
+                            {tr("Tumpukan", "Stack")} {slot.widgets.length}
                           </span>
                         )}
                       </div>
                       <div className={`text-[11px] truncate ${mutedCls}`}>
-                        Kolom {slot.grid_col + 1}, Baris {slot.grid_row + 1} .{" "}
-                        {active?.style_override ? "Penimpaan gaya aktif" : "Ikut Tema Global"}
+                        {tr("Kolom", "Col")} {slot.grid_col + 1}, {tr("Baris", "Row")} {slot.grid_row + 1} .{" "}
+                        {active?.style_override
+                          ? tr("Penimpaan gaya aktif", "Style override active")
+                          : tr("Ikut Tema Global", "Follows Global Theme")}
                       </div>
                     </div>
                   </div>
@@ -506,20 +550,20 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                     {active?.widget_type === "calendar_agenda" && (
                       <IosSelect
                         value={String(active.settings?.calendar_style ?? "bulan_minimal")}
-                        options={CALENDAR_STYLE_OPTIONS}
+                        options={calendarStyleOptions}
                         onChange={(v) => handleUpdateWidgetSetting(slot.slot_id, "calendar_style", v)}
                         isLightMode={isLightMode}
-                        ariaLabel="Tipe kalender"
+                        ariaLabel={tr("Tipe kalender", "Calendar style")}
                         minWidthClass="w-[126px]"
                       />
                     )}
                     {active?.widget_type === "styled_clock" && (
                       <IosSelect
                         value={String(active.settings?.clock_style ?? "minimal_digital")}
-                        options={CLOCK_STYLE_OPTIONS}
+                        options={clockStyleOptions}
                         onChange={(v) => handleUpdateWidgetSetting(slot.slot_id, "clock_style", v)}
                         isLightMode={isLightMode}
-                        ariaLabel="Gaya jam"
+                        ariaLabel={tr("Gaya jam", "Clock style")}
                         minWidthClass="w-[126px]"
                       />
                     )}
@@ -543,12 +587,12 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                         : "border-white/10 hover:bg-white/10"
                         }`}
                     >
-                      <Sliders size={12} /> Gaya
+                      <Sliders size={12} /> {tr("Gaya", "Style")}
                     </button>
                     <button
                       type="button"
                       onClick={() => handleRemoveSlot(slot.slot_id)}
-                      aria-label="Hapus widget"
+                      aria-label={tr("Hapus widget", "Remove widget")}
                       className="w-8 h-8 rounded-[10px] hover:bg-red-500/20 text-red-400 flex items-center justify-center shrink-0 cursor-pointer"
                     >
                       <Trash2 size={14} />
@@ -566,22 +610,23 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between px-1">
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#0a84ff]">
-              Penimpaan Gaya Widget Terpilih
+              {tr("Penimpaan Gaya Widget Terpilih", "Selected Widget Style Override")}
             </span>
             <button
               type="button"
               onClick={() => handleUpdateSlotStyle(editingSlot.slot_id, null)}
               className="text-[11.5px] text-zinc-400 hover:text-white cursor-pointer"
             >
-              Reset ke Tema Global
+              {tr("Reset ke Tema Global", "Reset to Global Theme")}
             </button>
           </div>
           <WidgetColorCustomizer
-            title="Kustomisasi Warna & Latar Widget Ini"
+            title={tr("Kustomisasi Warna & Latar Widget Ini", "Customize This Widget Style")}
             style={editingWidget.style_override ?? config.global_theme}
             presets={config.presets}
             recentColors={config.recent_colors}
             isLightMode={isLightMode}
+            isId={isId}
             onChange={(nextStyle, recordedHex) =>
               handleUpdateSlotStyle(editingSlot.slot_id, nextStyle, recordedHex)
             }
@@ -593,13 +638,16 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
 
       {/* Section 3: Global Theme */}
       <div className="flex flex-col gap-2">
-        <span className={sectionLabelClass}>Tema Global & Keterbacaan</span>
+        <span className={sectionLabelClass}>
+          {tr("Tema Global & Keterbacaan", "Global Theme & Legibility")}
+        </span>
         <WidgetColorCustomizer
-          title="Tema Global Semua Widget"
+          title={tr("Tema Global Semua Widget", "Global Theme for All Widgets")}
           style={config.global_theme}
           presets={config.presets}
           recentColors={config.recent_colors}
           isLightMode={isLightMode}
+          isId={isId}
           onChange={handleUpdateGlobalStyle}
           onSavePreset={handleSavePreset}
           onRecordRecentColor={handleRecordRecentColor}
@@ -608,9 +656,12 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
 
       {/* Section 4: Providers */}
       <div className="flex flex-col gap-2">
-        <span className={sectionLabelClass}>Penyedia Data & Privasi Lokal</span>
+        <span className={sectionLabelClass}>
+          {tr("Penyedia Data & Privasi Lokal", "Data Providers & Local Privacy")}
+        </span>
         <WidgetProvidersCard
           isLightMode={isLightMode}
+          isId={isId}
           activeWidgetTypes={config.slots.flatMap((s) => s.widgets.map((w) => w.widget_type))}
           onFlash={flash}
         />
@@ -620,7 +671,10 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       {metrics?.paused_reason && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-[12px] bg-amber-500/10 border border-amber-500/30 text-[11.5px] text-amber-300">
           <Activity size={14} />
-          <span>Host Direct2D sedang jeda otomatis: {metrics.paused_reason}</span>
+          <span>
+            {tr("Host Direct2D sedang jeda otomatis:", "Direct2D host is auto-paused:")}{" "}
+            {localizePausedReason(metrics.paused_reason, isId)}
+          </span>
         </div>
       )}
 
@@ -628,6 +682,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         open={galleryOpen}
         catalog={catalog}
         isLightMode={isLightMode}
+        isId={isId}
         onClose={() => setGalleryOpen(false)}
         onAddWidget={handleAddWidget}
       />
