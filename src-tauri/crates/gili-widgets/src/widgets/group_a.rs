@@ -751,6 +751,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             rect: art_rect,
             radius: art_radius,
             source_path: src.to_string(),
+            interactive_action: None,
         });
     } else {
         nodes.push(SceneNode::IconGlyph {

@@ -4543,6 +4543,118 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       setIsExpanded(false);
     });
 
+    const openTabFromDesktopWidget = (tab: ExpandedTab) => {
+      finishClosing();
+      cancelCollapseTimer();
+      setIsHidden(false);
+      isClosingRef.current = false;
+      currentTabRef.current = null;
+      goToTabRef.current(tab, 0);
+      invoke("focus_notch_window").catch(() => { });
+      isShortcutPinnedRef.current = true;
+      if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
+      shortcutPinnedTimerRef.current = window.setTimeout(() => {
+        if (!isCursorInsideNotchRef.current && isShortcutPinnedRef.current) {
+          isShortcutPinnedRef.current = false;
+          handleCloseImmediate();
+        }
+      }, 15000);
+    };
+
+    const unlistenWidgetDeepLink = listenWindow<{ widget_type?: string; action_id?: string | null }>(
+      "desktop-widget-deep-link",
+      (event) => {
+        if (isSecondaryWindow) return;
+        const wtype = event.payload?.widget_type || "";
+        const act = event.payload?.action_id || "";
+
+        if (act === "open_class_schedule" || act === "open_streak") {
+          invoke("open_settings_window", { section: "widgets" }).catch(() => { });
+          return;
+        }
+        if (act === "open_media" || wtype === "now_playing" || wtype === "audio_visualizer") {
+          openTabFromDesktopWidget("media_expanded");
+          return;
+        }
+        if (act === "open_todo" || wtype === "todo_groups" || wtype === "calendar_agenda") {
+          openTabFromDesktopWidget("todo");
+          return;
+        }
+        if (act === "open_shelf" || wtype === "drop_zone") {
+          openTabFromDesktopWidget("drop_shelf");
+          return;
+        }
+        if (wtype === "sticky_notes" || wtype === "snippet_board") {
+          openTabFromDesktopWidget("mini_note");
+          return;
+        }
+        if (wtype === "clipboard_pins") {
+          openTabFromDesktopWidget("clipboard");
+          return;
+        }
+        if (wtype === "prayer_times") {
+          openTabFromDesktopWidget("prayer_reminder");
+          return;
+        }
+        if (wtype === "ai_quick_ask") {
+          openTabFromDesktopWidget("ai_chat");
+          return;
+        }
+        if (
+          wtype === "system_performance" ||
+          wtype === "screen_time" ||
+          wtype === "storage_treemap" ||
+          wtype === "network_speed" ||
+          wtype === "process_watchdog" ||
+          wtype === "uptime_ping"
+        ) {
+          openTabFromDesktopWidget("sys_monitor");
+          return;
+        }
+        if (wtype === "time_tracker" || wtype === "countdown_milestone") {
+          openTabFromDesktopWidget("pomodoro");
+          return;
+        }
+        if (
+          wtype === "quick_controls" ||
+          wtype === "weather_forecast" ||
+          wtype === "air_quality" ||
+          wtype === "world_clock" ||
+          wtype === "currency_gold"
+        ) {
+          openTabFromDesktopWidget("quick_control");
+          return;
+        }
+        if (
+          wtype === "class_schedule" ||
+          wtype === "habit_heatmap" ||
+          wtype === "quick_expense" ||
+          wtype === "stock_crypto" ||
+          wtype === "github_commits" ||
+          wtype === "football_scores"
+        ) {
+          invoke("open_settings_window", { section: "widgets" }).catch(() => { });
+          return;
+        }
+        openTabFromDesktopWidget("quick_control");
+      }
+    );
+
+    const unlistenWidgetAiAsk = listenWindow<{ prompt?: string }>(
+      "desktop-widget-ai-ask",
+      (event) => {
+        if (isSecondaryWindow) return;
+        const prompt = (event.payload?.prompt || "").trim();
+        if (!prompt) return;
+        aiChatHandoffNonceRef.current += 1;
+        setAiChatHandoff({
+          initialPrompt: prompt,
+          nonce: aiChatHandoffNonceRef.current,
+        });
+        openTabFromDesktopWidget("ai_chat");
+      }
+    );
+
     const unlistenMiniPlayerVis = listen<boolean>("miniplayer:visibility-changed", (event) => {
       setIsMiniPlayerOpen(Boolean(event.payload));
     });
@@ -4591,6 +4703,8 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       unlistenSettingsSync.then((f) => f());
       unlistenTriggerAction.then((f) => f());
       unlistenReturnToNotch.then((f) => f());
+      unlistenWidgetDeepLink.then((f) => f());
+      unlistenWidgetAiAsk.then((f) => f());
       unlistenMiniPlayerVis.then((f) => f());
       unlistenDragProx.then((f) => f());
     };

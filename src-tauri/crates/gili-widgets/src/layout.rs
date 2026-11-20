@@ -186,6 +186,8 @@ pub enum SceneNode {
         rect: RectF,
         radius: f32,
         source_path: String,
+        #[serde(default)]
+        interactive_action: Option<String>,
     },
     IconGlyph {
         rect: RectF,
@@ -287,11 +289,21 @@ impl WidgetRenderItem {
                         action_id: None,
                     });
                 }
+                SceneNode::ImageRef {
+                    rect,
+                    interactive_action,
+                    ..
+                } => {
+                    self.content_hit_rects.push(HitRegion {
+                        bounds: *rect,
+                        slot_id: self.slot_id.clone(),
+                        action_id: interactive_action.clone(),
+                    });
+                }
                 SceneNode::Sparkline { rect, .. }
                 | SceneNode::BarChart { rect, .. }
                 | SceneNode::HeatmapGrid { rect, .. }
-                | SceneNode::Treemap { rect, .. }
-                | SceneNode::ImageRef { rect, .. } => {
+                | SceneNode::Treemap { rect, .. } => {
                     self.content_hit_rects.push(HitRegion {
                         bounds: *rect,
                         slot_id: self.slot_id.clone(),

@@ -1,13 +1,11 @@
-use gili_widgets::config::{
-    gili_data_dir, DesktopWidgetsConfig, WidgetStyleConfig,
-};
+use gili_widgets::config::{gili_data_dir, DesktopWidgetsConfig, WidgetStyleConfig};
 use gili_widgets::contrast::WallpaperRegionAnalysis;
 use gili_widgets::d2d_host::{WidgetHostEvent, WidgetRuntimeMetrics};
 use gili_widgets::providers::audio_fft::sample_wasapi_loopback_bands;
 use gili_widgets::providers::local_stores::{
-    copy_text_to_clipboard_silently, parse_iso_ymd, scan_photo_folder_readonly,
-    scan_recent_files_metadata_only, CountdownMoment, ExpenseItem, KanbanCard, QuickSnippetItem,
-    ShortcutEntry, StickyNote, TimeProject, WorldClockZone,
+    add_manual_photos, copy_text_to_clipboard_silently, parse_iso_ymd, scan_photo_folder_readonly,
+    scan_recent_files_metadata_only, step_photo_index, CountdownMoment, ExpenseItem, KanbanCard,
+    QuickSnippetItem, ShortcutEntry, StickyNote, TimeProject, WorldClockZone,
 };
 use gili_widgets::providers::network_providers::{
     fetch_currency_and_gold, fetch_github_repo_status, fetch_open_meteo_air_quality,
@@ -23,6 +21,7 @@ use gili_widgets::providers::{FrontendMirrorSnapshot, MediaSnapshot};
 use gili_widgets::widgets::{widget_catalog, WidgetCatalogEntry};
 use gili_widgets::DesktopWidgetEngine;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -30,6 +29,7 @@ use tauri::{AppHandle, Emitter, Manager};
 static ENGINE: OnceLock<DesktopWidgetEngine> = OnceLock::new();
 static UPTIME_CONFIGS: OnceLock<Mutex<Vec<SiteMonitorConfig>>> = OnceLock::new();
 static GITHUB_REPO: OnceLock<Mutex<String>> = OnceLock::new();
+static PHOTO_PICKER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn engine() -> &'static DesktopWidgetEngine {
     ENGINE.get_or_init(DesktopWidgetEngine::new)
@@ -80,7 +80,8 @@ fn read_github_pat_credential() -> Option<String> {
     };
     let target_w: Vec<u16> = GITHUB_CRED_TARGET.encode_utf16().chain(Some(0)).collect();
     let mut ptr: *mut CREDENTIALW = std::ptr::null_mut();
-    let ok = unsafe { CredReadW(PCWSTR(target_w.as_ptr()), CRED_TYPE_GENERIC, 0, &mut ptr).is_ok() };
+    let ok =
+        unsafe { CredReadW(PCWSTR(target_w.as_ptr()), CRED_TYPE_GENERIC, 0, &mut ptr).is_ok() };
     if !ok || ptr.is_null() {
         return None;
     }
@@ -232,12 +233,14 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                     let _ = engine().persist_time_tracker();
                     return;
                 } else if let Some(sid) = act.strip_prefix("copy_snippet:") {
-                    let content_opt = engine().with_hub_mut(|hub| {
-                        hub.snippets
-                            .iter()
-                            .find(|s| s.id == sid)
-                            .map(|s| s.content.clone())
-                    }).flatten();
+                    let content_opt = engine()
+                        .with_hub_mut(|hub| {
+                            hub.snippets
+                                .iter()
+                                .find(|s| s.id == sid)
+                                .map(|s| s.content.clone())
+                        })
+                        .flatten();
                     if let Some(content) = content_opt {
                         let _ = copy_text_to_clipboard_silently(&content);
                     }
@@ -247,6 +250,82 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                     return;
                 } else if act == "open_widget_settings" {
                     crate::show_or_create_settings_window(&app_ev, Some("widgets".to_string()));
+                    return;
+                } else if act == "open_ai_settings" {
+                    crate::show_or_create_settings_window(&app_ev, Some("ai".to_string()));
+                    return;
+                } else if act == "photo_pick" {
+                    spawn_photo_picker_thread(false);
+                    return;
+                } else if act == "photo_pick_folder" {
+                    spawn_photo_picker_thread(true);
+                    return;
+                } else if act == "photo_next" || act == "photo_prev" {
+                    let delta = if act == "photo_prev" { -1 } else { 1 };
+                    engine().with_hub_mut(|h| {
+                        step_photo_index(&mut h.photo_frame, delta);
+                    });
+                    let _ = engine().persist_photo_frame();
+                    return;
+                } else if act == "toggle_media_playback" {
+                    tauri::async_runtime::spawn(async {
+                        let _ = crate::smtc_action("toggle".to_string()).await;
+                    });
+                    return;
+                } else if act == "mascot_poke" {
+                    engine().with_hub_mut(|h| {
+                        h.mascot_poke_count = h.mascot_poke_count.wrapping_add(1);
+                    });
+                    return;
+                } else if act == "export_time_csv" {
+                    if let Ok(csv_path) = export_widget_time_tracker_csv() {
+                        let _ = tauri_plugin_opener::reveal_item_in_dir(std::path::Path::new(
+                            &csv_path,
+                        ));
+                    }
+                    return;
+                } else if let Some(sc_id) = act.strip_prefix("launch_shortcut:") {
+                    let target = engine()
+                        .with_hub_mut(|h| {
+                            h.shortcuts
+                                .iter()
+                                .find(|s| s.id == sc_id)
+                                .map(|s| s.target_path.clone())
+                        })
+                        .flatten();
+                    if let Some(raw) = target {
+                        launch_widget_shortcut(&raw);
+                    }
+                    return;
+                } else if let Some(file_id) = act.strip_prefix("open_shelf_file:") {
+                    let item = engine()
+                        .with_hub_mut(|h| {
+                            h.frontend
+                                .shelf_files
+                                .iter()
+                                .find(|f| f.id == file_id)
+                                .map(|f| (f.path.clone(), f.name.clone()))
+                        })
+                        .flatten();
+                    if let Some((path, name)) = item {
+                        open_widget_shelf_file(&path, &name);
+                    }
+                    return;
+                } else if act == "refresh_processes" {
+                    std::thread::spawn(|| {
+                        let procs =
+                            gili_widgets::providers::system_data::sample_top_processes_readonly(10);
+                        engine().with_hub_mut(|h| {
+                            h.top_processes = procs;
+                        });
+                    });
+                    return;
+                } else if act == "refresh_weather"
+                    || act == "refresh_air_quality"
+                    || act == "refresh_currency"
+                    || act == "refresh_github"
+                {
+                    trigger_immediate_network_refresh(act);
                     return;
                 }
             }
@@ -307,46 +386,56 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                 }
             }
             "ai_quick_ask" => {
-                let _ = app_ev.emit("desktop-widget-ai-ask", serde_json::json!({ "prompt": text }));
+                let _ = app_ev.emit(
+                    "desktop-widget-ai-ask",
+                    serde_json::json!({ "prompt": text }),
+                );
             }
             _ => {}
         },
-        WidgetHostEvent::ToggleQuickControl { control } => {
-            match control.as_str() {
-                "dark_mode" => {
-                    let cur = read_windows_dark_mode();
-                    let _ = set_windows_dark_mode(!cur);
-                    engine().with_hub_mut(|hub| {
-                        hub.quick_controls.dark_mode_enabled = !cur;
-                    });
-                }
-                "wifi" => {
-                    tauri::async_runtime::spawn(async {
-                        if let Ok(st) = crate::connectivity::get_wifi_status().await {
-                            let next = !st.enabled;
-                            if let Ok(v) = crate::connectivity::toggle_wifi(next).await {
-                                engine().with_hub_mut(|hub| {
-                                    hub.quick_controls.wifi_enabled = Some(v);
-                                });
-                            }
-                        }
-                    });
-                }
-                "bluetooth" => {
-                    tauri::async_runtime::spawn(async {
-                        if let Ok(st) = crate::connectivity::get_bluetooth_status().await {
-                            let next = !st.enabled;
-                            if let Ok(v) = crate::connectivity::toggle_bluetooth(next).await {
-                                engine().with_hub_mut(|hub| {
-                                    hub.quick_controls.bluetooth_enabled = Some(v);
-                                });
-                            }
-                        }
-                    });
-                }
-                _ => {}
+        WidgetHostEvent::ToggleQuickControl { control } => match control.as_str() {
+            "audio_mute" => {
+                std::thread::spawn(|| {
+                    if let Some(next_muted) = toggle_windows_master_mute() {
+                        engine().with_hub_mut(|hub| {
+                            hub.quick_controls.audio_muted = Some(next_muted);
+                        });
+                    }
+                });
             }
-        }
+            "dark_mode" => {
+                let cur = read_windows_dark_mode();
+                let _ = set_windows_dark_mode(!cur);
+                engine().with_hub_mut(|hub| {
+                    hub.quick_controls.dark_mode_enabled = !cur;
+                });
+            }
+            "wifi" => {
+                tauri::async_runtime::spawn(async {
+                    if let Ok(st) = crate::connectivity::get_wifi_status().await {
+                        let next = !st.enabled;
+                        if let Ok(v) = crate::connectivity::toggle_wifi(next).await {
+                            engine().with_hub_mut(|hub| {
+                                hub.quick_controls.wifi_enabled = Some(v);
+                            });
+                        }
+                    }
+                });
+            }
+            "bluetooth" => {
+                tauri::async_runtime::spawn(async {
+                    if let Ok(st) = crate::connectivity::get_bluetooth_status().await {
+                        let next = !st.enabled;
+                        if let Ok(v) = crate::connectivity::toggle_bluetooth(next).await {
+                            engine().with_hub_mut(|hub| {
+                                hub.quick_controls.bluetooth_enabled = Some(v);
+                            });
+                        }
+                    }
+                });
+            }
+            _ => {}
+        },
     });
 
     if eng.get_config().enabled {
@@ -433,7 +522,9 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                 }
 
                 // Screen time sync from Gili's existing compute_windows_screen_time (15s cadence)
-                if has_widget("screen_time") && last_screen_time.elapsed() >= Duration::from_secs(15) {
+                if has_widget("screen_time")
+                    && last_screen_time.elapsed() >= Duration::from_secs(15)
+                {
                     last_screen_time = Instant::now();
                     let info = crate::compute_windows_screen_time();
                     engine().with_hub_mut(|h| {
@@ -498,7 +589,11 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                         .map(|g| g.clone())
                         .unwrap_or_default();
                     if !sites.is_empty() {
-                        let results: Vec<_> = sites.iter().take(MAX_UPTIME_SITES).map(ping_user_site).collect();
+                        let results: Vec<_> = sites
+                            .iter()
+                            .take(MAX_UPTIME_SITES)
+                            .map(ping_user_site)
+                            .collect();
                         uptime_backoff.record_success(now);
                         engine().with_hub_mut(|h| h.uptime_sites = results);
                     }
@@ -704,9 +799,14 @@ pub fn add_widget_shortcut(name: String, target_path: String) -> Result<(), Stri
 
 #[tauri::command]
 pub fn configure_widget_photo_folder(folder_path: String) -> Result<usize, String> {
+    let trimmed = folder_path.trim().to_string();
     let count = engine()
         .with_hub_mut(|h| {
-            h.photo_frame.folder_path = Some(folder_path.trim().to_string());
+            h.photo_frame.folder_path = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            };
             h.photo_frame.current_index = 0;
             scan_photo_folder_readonly(&mut h.photo_frame);
             h.photo_frame.photos.len()
@@ -714,6 +814,300 @@ pub fn configure_widget_photo_folder(folder_path: String) -> Result<usize, Strin
         .unwrap_or(0);
     engine().persist_photo_frame()?;
     Ok(count)
+}
+
+#[tauri::command]
+pub async fn pick_widget_photos_dialog() -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(run_pick_photos_sync)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn pick_widget_photo_folder_dialog() -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(run_pick_folder_sync)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn spawn_photo_picker_thread(pick_folder: bool) {
+    if PHOTO_PICKER_ACTIVE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("gili-photo-picker".into())
+        .spawn(move || {
+            let _reset = PickerActiveGuard;
+            let _ = if pick_folder {
+                run_pick_folder_inner()
+            } else {
+                run_pick_photos_inner()
+            };
+        });
+}
+
+struct PickerActiveGuard;
+impl Drop for PickerActiveGuard {
+    fn drop(&mut self) {
+        PHOTO_PICKER_ACTIVE.store(false, Ordering::SeqCst);
+    }
+}
+
+fn run_pick_photos_sync() -> Result<usize, String> {
+    if PHOTO_PICKER_ACTIVE.swap(true, Ordering::SeqCst) {
+        return Ok(0);
+    }
+    let _reset = PickerActiveGuard;
+    run_pick_photos_inner()
+}
+
+fn run_pick_folder_sync() -> Result<usize, String> {
+    if PHOTO_PICKER_ACTIVE.swap(true, Ordering::SeqCst) {
+        return Ok(0);
+    }
+    let _reset = PickerActiveGuard;
+    run_pick_folder_inner()
+}
+
+fn run_pick_photos_inner() -> Result<usize, String> {
+    let picked = open_native_photo_dialog(false)?;
+    if picked.is_empty() {
+        return Ok(0);
+    }
+    let total = engine()
+        .with_hub_mut(|h| {
+            add_manual_photos(&mut h.photo_frame, picked);
+            h.photo_frame.photos.len()
+        })
+        .unwrap_or(0);
+    engine().persist_photo_frame()?;
+    Ok(total)
+}
+
+fn run_pick_folder_inner() -> Result<usize, String> {
+    let picked = open_native_photo_dialog(true)?;
+    let Some(folder) = picked.into_iter().next() else {
+        return Ok(0);
+    };
+    configure_widget_photo_folder(folder)
+}
+
+#[cfg(windows)]
+fn open_native_photo_dialog(pick_folder: bool) -> Result<Vec<String>, String> {
+    use windows::core::{w, PWSTR};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
+    use windows::Win32::UI::Shell::{
+        FileOpenDialog, IFileOpenDialog, FILEOPENDIALOGOPTIONS, FOS_ALLOWMULTISELECT,
+        FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS,
+        SIGDN_FILESYSPATH,
+    };
+
+    struct ComStaGuard(bool);
+    impl Drop for ComStaGuard {
+        fn drop(&mut self) {
+            if self.0 {
+                unsafe { CoUninitialize() };
+            }
+        }
+    }
+
+    unsafe fn take_pwstr(pw: PWSTR) -> Option<String> {
+        if pw.0.is_null() {
+            return None;
+        }
+        let s = String::from_utf16_lossy(pw.as_wide());
+        CoTaskMemFree(Some(pw.0 as *const std::ffi::c_void));
+        Some(s)
+    }
+
+    unsafe {
+        let co_ok = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let _guard = ComStaGuard(co_ok);
+        let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)
+            .map_err(|e| format!("Gagal membuka dialog Windows: {e}"))?;
+
+        let opts = dialog.GetOptions().unwrap_or(FILEOPENDIALOGOPTIONS(0));
+        let mut flags = opts.0 | FOS_FORCEFILESYSTEM.0;
+        if pick_folder {
+            flags |= FOS_PICKFOLDERS.0 | FOS_PATHMUSTEXIST.0;
+            let _ = dialog.SetTitle(w!("Pilih Folder Foto Bingkai Gili"));
+        } else {
+            flags |= FOS_ALLOWMULTISELECT.0 | FOS_FILEMUSTEXIST.0;
+            let _ = dialog.SetTitle(w!("Pilih Foto untuk Bingkai Polaroid"));
+            let filters = [COMDLG_FILTERSPEC {
+                pszName: w!("Gambar (JPG, PNG, WebP, BMP)"),
+                pszSpec: w!("*.jpg;*.jpeg;*.png;*.webp;*.bmp"),
+            }];
+            let _ = dialog.SetFileTypes(&filters);
+        }
+        let _ = dialog.SetOptions(FILEOPENDIALOGOPTIONS(flags));
+
+        if dialog.Show(None).is_err() {
+            return Ok(Vec::new());
+        }
+
+        let mut out = Vec::new();
+        if pick_folder {
+            if let Ok(item) = dialog.GetResult() {
+                if let Ok(pw) = item.GetDisplayName(SIGDN_FILESYSPATH) {
+                    if let Some(p) = take_pwstr(pw) {
+                        out.push(p);
+                    }
+                }
+            }
+        } else if let Ok(arr) = dialog.GetResults() {
+            let count = arr.GetCount().unwrap_or(0);
+            for i in 0..count {
+                if let Ok(item) = arr.GetItemAt(i) {
+                    if let Ok(pw) = item.GetDisplayName(SIGDN_FILESYSPATH) {
+                        if let Some(p) = take_pwstr(pw) {
+                            out.push(p);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+#[cfg(not(windows))]
+fn open_native_photo_dialog(_pick_folder: bool) -> Result<Vec<String>, String> {
+    Ok(Vec::new())
+}
+
+fn launch_widget_shortcut(raw: &str) {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return;
+    }
+    if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+        let _ = tauri_plugin_opener::open_url(trimmed, None::<&str>);
+        return;
+    }
+    let _ = tauri_plugin_opener::open_path(trimmed, None::<&str>);
+}
+
+fn open_widget_shelf_file(raw_path: &str, name: &str) {
+    let trimmed = raw_path.trim();
+    if !trimmed.is_empty() {
+        let p = std::path::Path::new(trimmed);
+        if p.exists() {
+            if tauri_plugin_opener::open_path(p, None::<&str>).is_ok() {
+                return;
+            }
+            let _ = tauri_plugin_opener::reveal_item_in_dir(p);
+            return;
+        }
+    }
+    let dir = crate::shelf_server::get_shelf_received_dir();
+    if !name.trim().is_empty() {
+        let candidate = dir.join(name.trim());
+        if candidate.exists() {
+            let _ = tauri_plugin_opener::open_path(candidate, None::<&str>);
+            return;
+        }
+    }
+    if dir.exists() {
+        let _ = tauri_plugin_opener::open_path(dir, None::<&str>);
+    }
+}
+
+fn trigger_immediate_network_refresh(act: &str) {
+    let act_owned = act.to_string();
+    std::thread::spawn(move || match act_owned.as_str() {
+        "refresh_weather" | "refresh_air_quality" => {
+            let (city, lat, lon) = engine()
+                .with_hub_mut(|h| {
+                    let lat = h.frontend.custom_lat.unwrap_or(-6.2088);
+                    let lon = h.frontend.custom_lon.unwrap_or(106.8456);
+                    let city = h
+                        .frontend
+                        .custom_city_name
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or("Jakarta")
+                        .to_string();
+                    (city, lat, lon)
+                })
+                .unwrap_or_else(|| ("Jakarta".to_string(), -6.2088, 106.8456));
+            if act_owned == "refresh_weather" {
+                let w = fetch_open_meteo_forecast(&city, lat, lon);
+                if w.available {
+                    engine().with_hub_mut(|h| h.weather = w);
+                }
+            } else {
+                let a = fetch_open_meteo_air_quality(&city, lat, lon);
+                if a.available {
+                    engine().with_hub_mut(|h| h.air_quality = a);
+                }
+            }
+        }
+        "refresh_currency" => {
+            let c = fetch_currency_and_gold(&UnconfiguredGoldProvider);
+            engine().with_hub_mut(|h| h.currency_gold = c);
+        }
+        "refresh_github" => {
+            let repo = github_repo_store()
+                .lock()
+                .map(|r| r.clone())
+                .unwrap_or_default();
+            if let Some(token) = read_github_pat_credential() {
+                let prev = engine()
+                    .with_hub_mut(|h| h.github.clone())
+                    .unwrap_or_default();
+                let next = fetch_github_repo_status(&repo, &token, &prev);
+                engine().with_hub_mut(|h| h.github = next);
+            }
+        }
+        _ => {}
+    });
+}
+
+#[cfg(windows)]
+fn toggle_windows_master_mute() -> Option<bool> {
+    use windows::Win32::Foundation::BOOL;
+    use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+    use windows::Win32::Media::Audio::{
+        eMultimedia, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+    };
+
+    unsafe {
+        let co_ok = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+        let res = (|| -> Option<bool> {
+            let enumerator =
+                CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                    .ok()?;
+            let device = enumerator
+                .GetDefaultAudioEndpoint(eRender, eMultimedia)
+                .ok()?;
+            let volume_ctrl = device
+                .Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
+                .ok()?;
+            let cur = volume_ctrl.GetMute().ok()?.as_bool();
+            let next = !cur;
+            volume_ctrl
+                .SetMute(BOOL::from(next), std::ptr::null())
+                .ok()?;
+            Some(next)
+        })();
+        if co_ok {
+            CoUninitialize();
+        }
+        res
+    }
+}
+
+#[cfg(not(windows))]
+fn toggle_windows_master_mute() -> Option<bool> {
+    None
 }
 
 #[tauri::command]

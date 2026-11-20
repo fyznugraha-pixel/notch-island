@@ -355,34 +355,91 @@ pub struct PhotoSlideshowState {
     pub folder_path: Option<String>,
     pub interval_secs: u32,
     pub photos: Vec<String>,
+    #[serde(default)]
+    pub manual_photos: Vec<String>,
     pub current_index: usize,
     pub polaroid_caption: String,
 }
 
-pub fn scan_photo_folder_readonly(state: &mut PhotoSlideshowState) {
-    let Some(ref folder) = state.folder_path else {
-        state.photos.clear();
-        return;
-    };
-    let mut list = Vec::new();
-    if let Ok(rd) = fs::read_dir(folder) {
-        for e in rd.flatten().take(400) {
-            let p = e.path();
-            let ext = p
-                .extension()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_ascii_lowercase())
-                .unwrap_or_default();
-            if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "bmp") {
-                list.push(p.to_string_lossy().to_string());
-            }
+pub fn is_supported_photo_path(path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "bmp")
+}
+
+fn rebuild_photo_playlist(state: &mut PhotoSlideshowState, folder_items: Vec<String>) {
+    let mut merged = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for item in state.manual_photos.iter().chain(folder_items.iter()) {
+        let key = item.trim().to_ascii_lowercase();
+        if !key.is_empty() && seen.insert(key) {
+            merged.push(item.trim().to_string());
         }
     }
-    list.sort();
-    state.photos = list;
-    if state.current_index >= state.photos.len() {
+    state.photos = merged;
+    if state.photos.is_empty() || state.current_index >= state.photos.len() {
         state.current_index = 0;
     }
+}
+
+pub fn scan_photo_folder_readonly(state: &mut PhotoSlideshowState) {
+    let mut list = Vec::new();
+    if let Some(ref folder) = state.folder_path {
+        if let Ok(rd) = fs::read_dir(folder) {
+            for e in rd.flatten().take(400) {
+                let p = e.path();
+                if is_supported_photo_path(&p) {
+                    list.push(p.to_string_lossy().to_string());
+                }
+            }
+        }
+        list.sort();
+    }
+    rebuild_photo_playlist(state, list);
+}
+
+/// Prepends unique user-picked image files so newly chosen photos show up first without wiping any linked folder.
+pub fn add_manual_photos(state: &mut PhotoSlideshowState, picked_paths: Vec<String>) -> usize {
+    let mut added = Vec::new();
+    for raw in picked_paths {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let p = Path::new(trimmed);
+        if is_supported_photo_path(p) && p.is_file() {
+            added.push(trimmed.to_string());
+        }
+    }
+    let added_count = added.len();
+    if added_count > 0 {
+        let mut combined = added;
+        combined.append(&mut state.manual_photos);
+        let mut dedup = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for p in combined {
+            if seen.insert(p.to_ascii_lowercase()) {
+                dedup.push(p);
+            }
+        }
+        state.manual_photos = dedup;
+        state.current_index = 0;
+        scan_photo_folder_readonly(state);
+    }
+    added_count
+}
+
+pub fn step_photo_index(state: &mut PhotoSlideshowState, delta: isize) {
+    let len = state.photos.len();
+    if len == 0 {
+        state.current_index = 0;
+        return;
+    }
+    let cur = state.current_index % len;
+    state.current_index = (cur as isize + delta).rem_euclid(len as isize) as usize;
 }
 
 /// Reads JPEG EXIF Orientation tag (0x0112) without external crates, returning 1..=8.

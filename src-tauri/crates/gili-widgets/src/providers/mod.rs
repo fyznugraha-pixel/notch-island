@@ -127,4 +127,5 @@ pub struct WidgetDataHub {
     pub countdowns: Vec<local_stores::CountdownMoment>,
     pub snippets: Vec<local_stores::QuickSnippetItem>,
     pub world_clocks: Vec<local_stores::WorldClockZone>,
+    pub mascot_poke_count: u64,
 }

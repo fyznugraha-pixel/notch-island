@@ -772,4 +772,131 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn photo_frame_supports_direct_desktop_picker_and_hit_testing() {
+        let analysis = analyze_region_for_style(None, &WidgetStyleConfig::default(), 0.0, 0.0, 0.25, 0.25);
+        let theme = WidgetStyleConfig::default();
+
+        // 1. Empty state must expose direct desktop picker actions ("photo_pick" & "photo_pick_folder")
+        let mut hub = WidgetDataHub::default();
+        let slot = WidgetStackSlot {
+            slot_id: "pf_slot".into(),
+            size: config::WidgetSize::Small,
+            widgets: vec![WidgetInstance {
+                instance_id: "pf1".into(),
+                widget_type: "photo_frame".into(),
+                style_override: None,
+                settings: serde_json::json!({ "polaroid": true }),
+            }],
+            ..Default::default()
+        };
+        let mut empty_item = build_widget_render_item(
+            &slot,
+            RectF::new(0.0, 0.0, 152.0, 152.0),
+            &theme,
+            &analysis,
+            &hub,
+            0.0,
+        );
+        empty_item.compute_hit_regions(false);
+        assert!(
+            empty_item
+                .content_hit_rects
+                .iter()
+                .any(|r| r.action_id.as_deref() == Some("photo_pick")),
+            "Bingkai Foto kosong harus punya aksi langsung photo_pick di widget"
+        );
+        assert!(
+            empty_item
+                .content_hit_rects
+                .iter()
+                .any(|r| r.action_id.as_deref() == Some("photo_pick_folder")),
+            "Bingkai Foto kosong harus punya aksi langsung photo_pick_folder di widget"
+        );
+
+        // 2. Loaded manual photos without folder_path MUST render ImageRef (not empty state)
+        hub.photo_frame.folder_path = None;
+        hub.photo_frame.photos = vec!["C:\\tmp\\a.jpg".into(), "C:\\tmp\\b.jpg".into()];
+        let mut loaded_item = build_widget_render_item(
+            &slot,
+            RectF::new(0.0, 0.0, 152.0, 152.0),
+            &theme,
+            &analysis,
+            &hub,
+            0.0,
+        );
+        loaded_item.compute_hit_regions(false);
+        assert!(
+            loaded_item
+                .nodes
+                .iter()
+                .any(|n| matches!(n, layout::SceneNode::ImageRef { .. })),
+            "Foto manual tanpa folder_path harus tetap dirender sebagai ImageRef"
+        );
+        assert!(
+            loaded_item
+                .content_hit_rects
+                .iter()
+                .any(|r| r.action_id.as_deref() == Some("photo_next")),
+            "Klik foto harus punya action_id photo_next"
+        );
+        assert!(
+            loaded_item
+                .content_hit_rects
+                .iter()
+                .any(|r| r.action_id.as_deref() == Some("photo_pick")),
+            "Tombol + Foto harus selalu ada di polaroid aktif"
+        );
+
+        // 3. Even when polaroid frame is false, + Foto overlay pill must win hit test over background photo
+        let fullbleed_slot = WidgetStackSlot {
+            slot_id: "pf_full".into(),
+            size: config::WidgetSize::Small,
+            widgets: vec![WidgetInstance {
+                instance_id: "pf2".into(),
+                widget_type: "photo_frame".into(),
+                style_override: None,
+                settings: serde_json::json!({ "polaroid": false }),
+            }],
+            ..Default::default()
+        };
+        let mut full_item = build_widget_render_item(
+            &fullbleed_slot,
+            RectF::new(0.0, 0.0, 152.0, 152.0),
+            &theme,
+            &analysis,
+            &hub,
+            0.0,
+        );
+        full_item.compute_hit_regions(false);
+        let pick_region = full_item
+            .content_hit_rects
+            .iter()
+            .find(|r| r.action_id.as_deref() == Some("photo_pick"))
+            .expect("+ Foto pill region missing")
+            .bounds;
+        let hit = layout::hit_test_scene(
+            &[full_item],
+            false,
+            None,
+            pick_region.x + pick_region.w * 0.5,
+            pick_region.y + pick_region.h * 0.5,
+        );
+        assert_eq!(
+            hit,
+            layout::HitTestResult::WidgetContent {
+                slot_id: "pf_full".into(),
+                action_id: Some("photo_pick".into())
+            }
+        );
+
+        // 4. step_photo_index wraps safely forward & backward
+        providers::local_stores::step_photo_index(&mut hub.photo_frame, 1);
+        assert_eq!(hub.photo_frame.current_index, 1);
+        providers::local_stores::step_photo_index(&mut hub.photo_frame, 1);
+        assert_eq!(hub.photo_frame.current_index, 0);
+        providers::local_stores::step_photo_index(&mut hub.photo_frame, -1);
+        assert_eq!(hub.photo_frame.current_index, 1);
+    }
 }

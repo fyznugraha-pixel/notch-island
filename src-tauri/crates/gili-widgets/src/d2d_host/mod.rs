@@ -258,7 +258,7 @@ mod win_host {
         GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, ReleaseCapture, SetFocus, VK_ESCAPE, VK_LBUTTON, VK_RETURN,
+        GetAsyncKeyState, ReleaseCapture, SetCapture, SetFocus, VK_ESCAPE, VK_LBUTTON, VK_RETURN,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
@@ -285,6 +285,9 @@ mod win_host {
     const CMD_STACK_NEXT: i32 = 1006;
     const CMD_DELETE: i32 = 1007;
     const CMD_CYCLE_STYLE: i32 = 1008;
+    const CMD_PHOTO_ADD: i32 = 1009;
+    const CMD_PHOTO_FOLDER: i32 = 1010;
+    const CMD_PHOTO_NEXT: i32 = 1011;
     const DRAG_THRESHOLD_DP: f32 = 5.0;
 
     /// Lock-free atomic flags read by synchronous Win32 callbacks so `wnd_proc` never panics on re-entry.
@@ -787,6 +790,7 @@ mod win_host {
                 let mut spawn_editor_req: Option<(RectF, String, String)> = None;
                 let mut close_prev_editor: Option<InlineEditor> = None;
                 let mut deferred_ev: Option<(Arc<Mutex<HostSharedState>>, WidgetHostEvent)> = None;
+                let mut should_capture = false;
 
                 HOST_STATE.with(|cell| {
                     let Ok(mut b) = cell.try_borrow_mut() else {
@@ -872,6 +876,7 @@ mod win_host {
                                             work_w_dip,
                                             work_h_dip,
                                         });
+                                        should_capture = true;
                                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                                     } else {
                                         st.pending_press = Some(PendingPress {
@@ -889,6 +894,7 @@ mod win_host {
                                             work_h_dip,
                                             can_drag: !locked,
                                         });
+                                        should_capture = true;
                                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                                     }
                                 }
@@ -900,6 +906,11 @@ mod win_host {
                 // Execute Win32 calls & host events strictly OUTSIDE HOST_STATE borrow and shared lock
                 if let Some(prev) = close_prev_editor {
                     let _ = read_and_close_inline_editor(prev);
+                }
+                if should_capture {
+                    unsafe {
+                        let _ = SetCapture(hwnd);
+                    }
                 }
                 if let Some((rect, slot_id, wtype)) = spawn_editor_req {
                     let created =
@@ -1061,6 +1072,12 @@ mod win_host {
                         if wtype == "calendar_agenda" || wtype == "styled_clock" {
                             let _ = AppendMenuW(menu, MF_STRING, CMD_CYCLE_STYLE as usize, w!("Ganti tipe / gaya tampilan"));
                         }
+                        if wtype == "photo_frame" {
+                            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                            let _ = AppendMenuW(menu, MF_STRING, CMD_PHOTO_ADD as usize, w!("Tambah Foto..."));
+                            let _ = AppendMenuW(menu, MF_STRING, CMD_PHOTO_FOLDER as usize, w!("Pilih Folder Foto..."));
+                            let _ = AppendMenuW(menu, MF_STRING, CMD_PHOTO_NEXT as usize, w!("Foto Berikutnya"));
+                        }
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                         let _ = AppendMenuW(menu, MF_STRING, CMD_CUSTOMIZE as usize, w!("Latar dan warna"));
                         let _ = AppendMenuW(menu, MF_STRING, CMD_STACK_NEXT as usize, w!("Ganti widget di tumpukan"));
@@ -1172,6 +1189,18 @@ mod win_host {
                                     }
                                     CMD_CUSTOMIZE => Some(WidgetHostEvent::OpenCustomizer {
                                         slot_id: slot_id.clone(),
+                                    }),
+                                    CMD_PHOTO_ADD => Some(WidgetHostEvent::OpenFeature {
+                                        widget_type: wtype.clone(),
+                                        action_id: Some("photo_pick".to_string()),
+                                    }),
+                                    CMD_PHOTO_FOLDER => Some(WidgetHostEvent::OpenFeature {
+                                        widget_type: wtype.clone(),
+                                        action_id: Some("photo_pick_folder".to_string()),
+                                    }),
+                                    CMD_PHOTO_NEXT => Some(WidgetHostEvent::OpenFeature {
+                                        widget_type: wtype.clone(),
+                                        action_id: Some("photo_next".to_string()),
                                     }),
                                     CMD_STACK_NEXT => {
                                         if let Some(s) = sh

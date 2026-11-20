@@ -4969,6 +4969,8 @@ pub fn run() {
             desktop_widgets_bridge::add_widget_time_project,
             desktop_widgets_bridge::add_widget_shortcut,
             desktop_widgets_bridge::configure_widget_photo_folder,
+            desktop_widgets_bridge::pick_widget_photos_dialog,
+            desktop_widgets_bridge::pick_widget_photo_folder_dialog,
             desktop_widgets_bridge::configure_widget_recent_folders,
             desktop_widgets_bridge::add_widget_countdown,
             desktop_widgets_bridge::add_widget_snippet,

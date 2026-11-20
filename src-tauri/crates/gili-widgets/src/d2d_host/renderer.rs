@@ -260,9 +260,21 @@ pub mod render {
                     .or_else(|| trimmed.strip_prefix("file://"))
                     .map(|p| p.replace("%20", " "))
                     .unwrap_or_else(|| trimmed.to_string());
-                image::open(path).ok()?
+                let decoded = image::open(&path).ok()?;
+                let orient =
+                    crate::providers::local_stores::read_jpeg_exif_orientation(std::path::Path::new(&path));
+                match orient {
+                    2 => decoded.fliph(),
+                    3 => decoded.rotate180(),
+                    4 => decoded.flipv(),
+                    5 => decoded.rotate90().fliph(),
+                    6 => decoded.rotate90(),
+                    7 => decoded.rotate270().fliph(),
+                    8 => decoded.rotate270(),
+                    _ => decoded,
+                }
             };
-            let rgba = img.thumbnail(360, 360).to_rgba8();
+            let rgba = img.thumbnail(512, 512).to_rgba8();
             let (w, h) = rgba.dimensions();
             // Convert RGBA straight -> BGRA premultiplied for Direct2D
             let mut bgra = Vec::with_capacity((w * h * 4) as usize);
@@ -1402,11 +1414,42 @@ pub mod render {
                     rect,
                     radius,
                     source_path,
+                    ..
                 } => {
                     if let Some(bmp) = self.load_image_bitmap(res, source_path) {
                         if let Some(geom) = self.build_superellipse_geometry(res, *rect, *radius, 0.5)
                         {
                             unsafe {
+                                let bmp_sz = bmp.GetSize();
+                                let src_rect = if bmp_sz.width > 0.0
+                                    && bmp_sz.height > 0.0
+                                    && rect.w > 0.0
+                                    && rect.h > 0.0
+                                {
+                                    let src_aspect = bmp_sz.width / bmp_sz.height;
+                                    let dst_aspect = rect.w / rect.h;
+                                    if src_aspect > dst_aspect {
+                                        let crop_w = bmp_sz.height * dst_aspect;
+                                        let x0 = (bmp_sz.width - crop_w) * 0.5;
+                                        Some(D2D_RECT_F {
+                                            left: x0,
+                                            top: 0.0,
+                                            right: x0 + crop_w,
+                                            bottom: bmp_sz.height,
+                                        })
+                                    } else {
+                                        let crop_h = bmp_sz.width / dst_aspect;
+                                        let y0 = (bmp_sz.height - crop_h) * 0.5;
+                                        Some(D2D_RECT_F {
+                                            left: 0.0,
+                                            top: y0,
+                                            right: bmp_sz.width,
+                                            bottom: y0 + crop_h,
+                                        })
+                                    }
+                                } else {
+                                    None
+                                };
                                 let layer_params = D2D1_LAYER_PARAMETERS1 {
                                     contentBounds: d2d_rect(*rect),
                                     geometricMask: std::mem::ManuallyDrop::new(Some(geom.into())),
@@ -1424,7 +1467,7 @@ pub mod render {
                                     Some(&d2d_rect(*rect)),
                                     1.0,
                                     D2D1_INTERPOLATION_MODE_LINEAR,
-                                    None,
+                                    src_rect.as_ref().map(|r| r as *const _),
                                     None,
                                 );
                                 ctx.PopLayer();

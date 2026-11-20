@@ -25,6 +25,8 @@ import {
   configureWidgetPhotoFolder,
   configureWidgetRecentFolders,
   exportWidgetTimeTrackerCsv,
+  pickWidgetPhotoFolderDialog,
+  pickWidgetPhotosDialog,
   saveGithubWidgetToken,
   setWidgetExpenseBudget,
   triggerWidgetStorageScan,
@@ -578,8 +580,34 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               isLightMode={isLightMode}
             >
               <label className="flex flex-col gap-1">
-                <span className={labelCls}>Folder Slideshow Bingkai Foto (Baca-Saja)</span>
-                <div className="flex gap-2">
+                <span className={labelCls}>Foto & Folder Bingkai Polaroid (Baca-Saja)</span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const total = await pickWidgetPhotosDialog();
+                      if (total > 0) {
+                        onFlash(`Foto bingkai diperbarui (${total} foto tersedia).`);
+                      }
+                    }}
+                    className={secondaryBtn}
+                  >
+                    Pilih Foto...
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const total = await pickWidgetPhotoFolderDialog();
+                      if (total > 0) {
+                        onFlash(`Folder foto dimuat (${total} gambar).`);
+                      }
+                    }}
+                    className={secondaryBtn}
+                  >
+                    Pilih Folder...
+                  </button>
+                </div>
+                <div className="flex gap-2 mt-1">
                   <input
                     type="text"
                     value={photoFolder}

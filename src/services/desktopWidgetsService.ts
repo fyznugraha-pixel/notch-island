@@ -210,6 +210,14 @@ export async function configureWidgetPhotoFolder(folderPath: string): Promise<nu
   return invoke<number>("configure_widget_photo_folder", { folderPath });
 }
 
+export async function pickWidgetPhotosDialog(): Promise<number> {
+  return invoke<number>("pick_widget_photos_dialog");
+}
+
+export async function pickWidgetPhotoFolderDialog(): Promise<number> {
+  return invoke<number>("pick_widget_photo_folder_dialog");
+}
+
 export async function configureWidgetRecentFolders(
   enabled: boolean,
   folders: string[],
