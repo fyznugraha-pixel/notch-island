@@ -3,47 +3,57 @@ import {
   Plus,
   Layers,
   Lock,
-  Unlock,
   Pencil,
   Trash2,
   Sliders,
-  Download,
-  HardDrive,
   Activity,
   AppWindow,
+  Monitor,
+  Grid2x2,
+  Gamepad2,
+  BatteryCharging,
+  Power,
 } from "lucide-react";
 import { Language } from "../../../../services/i18n";
 import {
   DesktopWidgetsConfig,
+  DisplayMode,
   WidgetCatalogEntry,
   WidgetRuntimeMetrics,
   WidgetSize,
   WidgetStackSlot,
   WidgetStyleConfig,
-  addWidgetShortcut,
-  addWidgetTimeProject,
-  addWidgetUptimeSite,
-  configureWidgetPhotoFolder,
-  configureWidgetRecentFolders,
-  exportWidgetTimeTrackerCsv,
   getDesktopWidgetsCatalog,
   getDesktopWidgetsConfig,
   getDesktopWidgetsRuntimeMetrics,
   saveDesktopWidgetsConfig,
-  saveGithubWidgetToken,
   setDesktopWidgetEditMode,
-  setWidgetExpenseBudget,
   syncFrontendWidgetMirror,
   toggleDesktopWidgetBoard,
-  triggerWidgetStorageScan,
 } from "../../../../services/desktopWidgetsService";
+import { SettingRow } from "../SettingRow";
+import { IosSwitch } from "../../../ios/IosSwitch";
+import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
+import { IosSelect } from "../../../ios/IosSelect";
 import { WidgetColorCustomizer } from "./WidgetColorCustomizer";
 import { WidgetGalleryModal } from "./WidgetGalleryModal";
+import { WidgetProvidersCard } from "./WidgetProvidersCard";
 
 interface DesktopWidgetsTabProps {
   optLanguage: Language;
   isLightMode: boolean;
 }
+
+const CLOCK_STYLE_OPTIONS = [
+  { value: "minimal_digital", label: "Digital Minimal" },
+  { value: "kata_indonesia", label: "Tipografi Kata Indonesia" },
+  { value: "analog_classic", label: "Analog Klasik" },
+  { value: "analog_skeleton", label: "Analog Rangka" },
+  { value: "stacked_bold", label: "Tumpuk Vertikal" },
+  { value: "retro_flip", label: "Flip Retro" },
+  { value: "editorial_thin", label: "Editorial Tipis" },
+  { value: "dual_zone", label: "Jam Dunia Ganda" },
+];
 
 export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   isLightMode,
@@ -54,18 +64,6 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
-
-  // Quick provider setup fields
-  const [ghRepo, setGhRepo] = useState("");
-  const [ghToken, setGhToken] = useState("");
-  const [siteName, setSiteName] = useState("");
-  const [siteUrl, setSiteUrl] = useState("https://");
-  const [budgetIdr, setBudgetIdr] = useState("3000000");
-  const [projectName, setProjectName] = useState("");
-  const [shortcutName, setShortcutName] = useState("");
-  const [shortcutPath, setShortcutPath] = useState("");
-  const [photoFolder, setPhotoFolder] = useState("");
-  const [recentFolder, setRecentFolder] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -121,13 +119,15 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     );
   }
 
-  const cardCls = isLightMode
-    ? "rounded-2xl border border-black/10 bg-black/[0.025] p-4"
-    : "rounded-2xl border border-white/10 bg-white/[0.03] p-4";
+  const cardClass = `w-full rounded-[18px] p-3 flex flex-col gap-1 transition-colors ${
+    isLightMode
+      ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+      : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
+  }`;
+  const sectionLabelClass = `px-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${
+    isLightMode ? "text-neutral-500" : "text-zinc-500"
+  }`;
   const mutedCls = isLightMode ? "text-neutral-500" : "text-zinc-400";
-  const inputCls = isLightMode
-    ? "px-2.5 py-1.5 rounded-lg border border-black/15 bg-white text-[12px]"
-    : "px-2.5 py-1.5 rounded-lg border border-white/10 bg-black/30 text-[12px] text-white";
 
   const handleAddWidget = (entry: WidgetCatalogEntry, size: WidgetSize) => {
     const nextRow = config.slots.reduce((mx, s) => Math.max(mx, s.grid_row + 1), 0);
@@ -184,6 +184,23 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     });
   };
 
+  const handleUpdateWidgetSetting = (slotId: string, key: string, value: unknown) => {
+    persistConfig({
+      ...config,
+      slots: config.slots.map((s) => {
+        if (s.slot_id !== slotId) return s;
+        return {
+          ...s,
+          widgets: s.widgets.map((w, idx) =>
+            idx === s.active_index
+              ? { ...w, settings: { ...(w.settings || {}), [key]: value } }
+              : w
+          ),
+        };
+      }),
+    });
+  };
+
   const handleSavePreset = (name: string, style: WidgetStyleConfig) => {
     const next = {
       ...config,
@@ -204,232 +221,258 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   return (
     <div className="flex flex-col gap-5 w-full pb-8">
       {statusMsg && (
-        <div className="rounded-xl border border-blue-500/40 bg-blue-500/15 px-3.5 py-2.5 text-[12px] text-blue-200">
+        <div className="rounded-[14px] border border-[#0a84ff]/40 bg-[#0a84ff]/15 px-4 py-2.5 text-[12px] text-blue-200">
           {statusMsg}
         </div>
       )}
 
-      {/* Main Activation & Mode Controls */}
-      <div className={`${cardCls} flex flex-col gap-4`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-[15px] font-semibold">Widget Desktop Native (Direct2D)</h3>
-            <p className={`text-[12px] mt-0.5 ${mutedCls}`}>
-              Transparan tanpa kartu secara default, menembus klik di area kosong, dan hemat GPU.
-            </p>
-          </div>
-          <label className="flex items-center gap-2.5 cursor-pointer select-none">
-            <span className="text-[12.5px] font-medium">
-              {config.enabled ? "Aktif" : "Nonaktif"}
-            </span>
-            <input
-              type="checkbox"
-              checked={config.enabled}
-              onChange={(e) => persistConfig({ ...config, enabled: e.target.checked })}
-              className="w-4 h-4 accent-blue-500"
+      {/* Hero Action Banner matching StandbyTab */}
+      <div
+        className={`w-full rounded-[18px] p-4 flex flex-wrap items-center justify-between gap-4 border ${
+          isLightMode
+            ? "bg-white border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+            : "bg-gradient-to-br from-[#141720] to-[#111216] border-white/[0.08]"
+        }`}
+      >
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                metrics?.running ? "bg-[#34c759]" : "bg-zinc-500"
+              }`}
             />
-          </label>
+            <span className="text-[14px] font-semibold">
+              Widget Desktop Native Direct2D
+            </span>
+          </div>
+          <p className={`text-[12px] ${mutedCls}`}>
+            {metrics
+              ? `${metrics.gpu_adapter || "Direct2D Siaga"} . ${metrics.monitor_count} monitor . ${metrics.target_fps} fps . ${metrics.working_set_mb.toFixed(1)} MB`
+              : "Transparan sejati tanpa kartu secara default dan menembus klik di area kosong."}
+          </p>
         </div>
 
-        {/* Display mode */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          <button
-            type="button"
-            onClick={() => persistConfig({ ...config, display_mode: "desktop_attached" })}
-            className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-              config.display_mode === "desktop_attached"
-                ? "border-blue-500 bg-blue-500/15"
-                : "border-white/10 hover:bg-white/[0.04]"
-            }`}
-          >
-            <div className="text-[12.5px] font-semibold">1. Tempel di Desktop</div>
-            <div className={`text-[11px] mt-0.5 ${mutedCls}`}>
-              Selalu berada di z-order paling bawah tepat di atas wallpaper.
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => persistConfig({ ...config, display_mode: "widget_board" })}
-            className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-              config.display_mode === "widget_board"
-                ? "border-blue-500 bg-blue-500/15"
-                : "border-white/10 hover:bg-white/[0.04]"
-            }`}
-          >
-            <div className="text-[12.5px] font-semibold">2. Papan Widget (Overlay)</div>
-            <div className={`text-[11px] mt-0.5 ${mutedCls}`}>
-              Muncul lewat hotkey ({config.board_hotkey}), tutup dengan Esc atau klik di luar.
-            </div>
-          </button>
-        </div>
-
-        {/* Quick actions row */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setGalleryOpen(true)}
-            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
+            className="h-9 px-4 rounded-full bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-[0_6px_18px_rgba(10,132,255,0.32)]"
           >
-            <Plus size={14} /> Galeri Widget (29)
+            <Plus size={14} /> Galeri (29)
           </button>
           <button
             type="button"
             onClick={() => toggleDesktopWidgetBoard().catch(() => {})}
-            className="px-3 py-2 rounded-xl border border-white/15 hover:bg-white/10 text-[12px] font-medium flex items-center gap-1.5 cursor-pointer"
+            className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${
+              isLightMode
+                ? "border-black/10 hover:bg-black/[0.05]"
+                : "border-white/12 hover:bg-white/[0.08]"
+            }`}
           >
-            <AppWindow size={14} /> Buka / Tutup Papan
+            <AppWindow size={14} /> Papan Widget
           </button>
           <button
             type="button"
             onClick={() => setDesktopWidgetEditMode(!(metrics?.edit_mode ?? false))}
-            className="px-3 py-2 rounded-xl border border-white/15 hover:bg-white/10 text-[12px] font-medium flex items-center gap-1.5 cursor-pointer"
+            className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${
+              metrics?.edit_mode
+                ? "border-[#ff9f0a] bg-[#ff9f0a]/20 text-[#ff9f0a]"
+                : isLightMode
+                ? "border-black/10 hover:bg-black/[0.05]"
+                : "border-white/12 hover:bg-white/[0.08]"
+            }`}
           >
-            <Pencil size={14} /> {metrics?.edit_mode ? "Selesai Edit" : "Mode Edit"}
+            <Pencil size={13} /> {metrics?.edit_mode ? "Selesai Edit" : "Edit"}
           </button>
-          <button
-            type="button"
-            onClick={() =>
-              persistConfig({ ...config, positions_locked: !config.positions_locked })
-            }
-            className="px-3 py-2 rounded-xl border border-white/15 hover:bg-white/10 text-[12px] font-medium flex items-center gap-1.5 cursor-pointer"
-          >
-            {config.positions_locked ? <Lock size={14} /> : <Unlock size={14} />}
-            {config.positions_locked ? "Posisi Terkunci" : "Kunci Posisi"}
-          </button>
-        </div>
-
-        {/* Grid Scale & Power Policy */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/10 text-[12px]">
-          <div className="flex items-center gap-2">
-            <span className={mutedCls}>Skala Grid:</span>
-            {[0.85, 1.0, 1.2].map((sc) => (
-              <button
-                key={sc}
-                type="button"
-                onClick={() => persistConfig({ ...config, grid_scale: sc })}
-                className={`px-2.5 py-1 rounded-lg border cursor-pointer ${
-                  Math.abs(config.grid_scale - sc) < 0.02
-                    ? "border-blue-500 bg-blue-500/20 text-blue-300"
-                    : "border-white/10"
-                }`}
-              >
-                {sc}x
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.auto_pause_fullscreen}
-                onChange={(e) =>
-                  persistConfig({ ...config, auto_pause_fullscreen: e.target.checked })
-                }
-              />
-              <span>Jeda saat game/layar penuh</span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.auto_pause_power_saver}
-                onChange={(e) =>
-                  persistConfig({ ...config, auto_pause_power_saver: e.target.checked })
-                }
-              />
-              <span>Batasi 30 fps saat Penghemat Daya</span>
-            </label>
-          </div>
         </div>
       </div>
 
-      {/* Runtime Telemetry */}
-      {metrics && (
-        <div className={`${cardCls} flex flex-wrap items-center justify-between gap-3 text-[12px]`}>
-          <div className="flex items-center gap-2">
-            <Activity size={15} className="text-emerald-400" />
-            <span className="font-semibold">Status Host Direct2D</span>
-          </div>
-          <div className={`flex flex-wrap gap-3 ${mutedCls}`}>
-            <span>GPU: {metrics.gpu_adapter || "Siaga"}</span>
-            <span>Monitor: {metrics.monitor_count}</span>
-            <span>FPS: {metrics.target_fps}</span>
-            <span>Memori: {metrics.working_set_mb.toFixed(1)} MB</span>
-            {metrics.paused_reason && (
-              <span className="text-amber-300">({metrics.paused_reason})</span>
-            )}
-          </div>
+      {/* Section 1: Umum & Perilaku */}
+      <div className="flex flex-col gap-2">
+        <span className={sectionLabelClass}>Aktivasi & Perilaku Host</span>
+        <div className={cardClass}>
+          <SettingRow
+            icon={<Power size={15} />}
+            iconBgClass="bg-[#34c759]/15"
+            iconColorClass="text-[#34c759]"
+            title="Aktifkan Widget Desktop"
+            subtitle="Menjalankan jendela DirectComposition transparan per monitor tanpa WebView"
+            isLightMode={isLightMode}
+            control={
+              <IosSwitch
+                checked={config.enabled}
+                onChange={(enabled) => persistConfig({ ...config, enabled })}
+              />
+            }
+          />
+          <SettingRow
+            icon={<Monitor size={15} />}
+            iconBgClass="bg-[#0a84ff]/15"
+            iconColorClass="text-[#0a84ff]"
+            title="Mode Tampil"
+            subtitle={`Hotkey Papan Widget: ${config.board_hotkey} (tutup dengan Esc atau klik di luar)`}
+            isLightMode={isLightMode}
+            control={
+              <IosSegmentedControl<DisplayMode>
+                value={config.display_mode}
+                onChange={(display_mode) => persistConfig({ ...config, display_mode })}
+                options={[
+                  { value: "desktop_attached", label: "Tempel Desktop" },
+                  { value: "widget_board", label: "Papan Overlay" },
+                ]}
+              />
+            }
+          />
+          <SettingRow
+            icon={<Grid2x2 size={15} />}
+            iconBgClass="bg-[#5e5ce6]/15"
+            iconColorClass="text-[#5e5ce6]"
+            title="Skala Grid Widget"
+            subtitle="Mengubah proporsi ukuran S (160), M (336x160), dan L (336x336) secara serentak"
+            isLightMode={isLightMode}
+            control={
+              <IosSegmentedControl<number>
+                value={config.grid_scale}
+                onChange={(grid_scale) => persistConfig({ ...config, grid_scale })}
+                options={[
+                  { value: 0.85, label: "0.85x" },
+                  { value: 1.0, label: "1x" },
+                  { value: 1.2, label: "1.2x" },
+                ]}
+              />
+            }
+          />
+          <SettingRow
+            icon={<Lock size={15} />}
+            iconBgClass="bg-[#ff9f0a]/15"
+            iconColorClass="text-[#ff9f0a]"
+            title="Kunci Posisi Widget"
+            subtitle="Mencegah widget tergeser tidak sengaja saat mode edit"
+            isLightMode={isLightMode}
+            control={
+              <IosSwitch
+                checked={config.positions_locked}
+                onChange={(positions_locked) => persistConfig({ ...config, positions_locked })}
+                activeColor="blue"
+              />
+            }
+          />
+          <SettingRow
+            icon={<Gamepad2 size={15} />}
+            iconBgClass="bg-[#ff375f]/15"
+            iconColorClass="text-[#ff375f]"
+            title="Jeda Total Saat Layar Penuh / Game"
+            subtitle="Menghentikan render ke 0 fps saat aplikasi fullscreen aktif atau layar mati"
+            isLightMode={isLightMode}
+            control={
+              <IosSwitch
+                checked={config.auto_pause_fullscreen}
+                onChange={(auto_pause_fullscreen) =>
+                  persistConfig({ ...config, auto_pause_fullscreen })
+                }
+              />
+            }
+          />
+          <SettingRow
+            icon={<BatteryCharging size={15} />}
+            iconBgClass="bg-[#30d158]/15"
+            iconColorClass="text-[#30d158]"
+            title="Hemat Daya Otomatis"
+            subtitle="Batasi animasi 30 fps dan alihkan mode Kaca ke Solid saat Penghemat Daya aktif"
+            isLightMode={isLightMode}
+            control={
+              <IosSwitch
+                checked={config.auto_pause_power_saver}
+                onChange={(auto_pause_power_saver) =>
+                  persistConfig({ ...config, auto_pause_power_saver })
+                }
+              />
+            }
+          />
         </div>
-      )}
+      </div>
 
-      {/* Active Slots & Stacks */}
-      <div className={`${cardCls} flex flex-col gap-3`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Layers size={15} className="text-blue-400" />
-            <span className="text-[13.5px] font-semibold">
-              Widget Aktif di Desktop ({config.slots.length})
-            </span>
-          </div>
+      {/* Section 2: Active Slots */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between px-1">
+          <span className={sectionLabelClass}>
+            Widget Aktif di Desktop ({config.slots.length})
+          </span>
           <button
             type="button"
             onClick={() => setGalleryOpen(true)}
-            className="text-[12px] text-blue-400 hover:underline cursor-pointer"
+            className="text-[11.5px] font-semibold text-[#0a84ff] hover:underline cursor-pointer"
           >
             + Tambah Widget
           </button>
         </div>
 
-        {config.slots.length === 0 ? (
-          <p className={`text-[12px] ${mutedCls}`}>
-            Belum ada widget terpasang. Buka Galeri Widget untuk menambahkan.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {config.slots.map((slot) => {
+        <div className={cardClass}>
+          {config.slots.length === 0 ? (
+            <div className={`px-3 py-4 text-[12px] ${mutedCls}`}>
+              Belum ada widget terpasang. Buka Galeri (29) untuk menambahkan widget pertama Anda.
+            </div>
+          ) : (
+            config.slots.map((slot) => {
               const active = slot.widgets[slot.active_index] ?? slot.widgets[0];
               const meta = catalog.find((c) => c.widget_type === active?.widget_type);
+              const supported = meta?.supported_sizes ?? (["small", "medium", "large"] as WidgetSize[]);
               return (
                 <div
                   key={slot.slot_id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5"
+                  className={`flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-[12px] ${
+                    isLightMode ? "hover:bg-black/[0.025]" : "hover:bg-white/[0.03]"
+                  }`}
                 >
-                  <div>
-                    <div className="text-[12.5px] font-semibold">
-                      {meta?.name ?? active?.widget_type}
-                      {slot.widgets.length > 1 && (
-                        <span className="ml-2 text-[10.5px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">
-                          Tumpukan {slot.widgets.length}
-                        </span>
-                      )}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-[9px] bg-[#34c3a0]/15 text-[#34c3a0] flex items-center justify-center shrink-0">
+                      <Layers size={15} />
                     </div>
-                    <div className={`text-[11px] ${mutedCls}`}>
-                      Kolom {slot.grid_col + 1}, Baris {slot.grid_row + 1} .{" "}
-                      {active?.style_override ? "Gaya kustom" : "Ikut Tema Global"}
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold truncate">
+                        {meta?.name ?? active?.widget_type}
+                        {slot.widgets.length > 1 && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-[#0a84ff]/20 text-[#0a84ff]">
+                            Tumpukan {slot.widgets.length}
+                          </span>
+                        )}
+                      </div>
+                      <div className={`text-[11px] ${mutedCls}`}>
+                        Kolom {slot.grid_col + 1}, Baris {slot.grid_row + 1} .{" "}
+                        {active?.style_override ? "Penimpaan gaya aktif" : "Ikut Tema Global"}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    {(meta?.supported_sizes ?? (["small", "medium", "large"] as WidgetSize[])).map(
-                      (sz) => (
-                        <button
-                          key={sz}
-                          type="button"
-                          onClick={() => handleChangeSlotSize(slot.slot_id, sz)}
-                          className={`px-2 py-1 rounded text-[10.5px] uppercase border cursor-pointer ${
-                            slot.size === sz
-                              ? "border-blue-500 bg-blue-500/20 text-blue-300"
-                              : "border-white/10"
-                          }`}
-                        >
-                          {sz[0]}
-                        </button>
-                      )
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {active?.widget_type === "styled_clock" && (
+                      <IosSelect
+                        value={String(active.settings?.clock_style ?? "minimal_digital")}
+                        options={CLOCK_STYLE_OPTIONS}
+                        onChange={(v) => handleUpdateWidgetSetting(slot.slot_id, "clock_style", v)}
+                        isLightMode={isLightMode}
+                        ariaLabel="Gaya jam"
+                        minWidthClass="min-w-[140px]"
+                      />
                     )}
+                    <IosSegmentedControl<WidgetSize>
+                      value={slot.size}
+                      onChange={(sz) => handleChangeSlotSize(slot.slot_id, sz)}
+                      options={supported.map((sz) => ({
+                        value: sz,
+                        label: sz === "small" ? "S" : sz === "medium" ? "M" : "L",
+                      }))}
+                    />
                     <button
                       type="button"
                       onClick={() =>
                         setEditingSlotId((cur) => (cur === slot.slot_id ? null : slot.slot_id))
                       }
-                      className="px-2.5 py-1 rounded-lg border border-white/10 hover:bg-white/10 text-[11px] flex items-center gap-1 cursor-pointer"
+                      className={`h-8 px-2.5 rounded-[10px] border text-[11.5px] font-medium flex items-center gap-1 cursor-pointer ${
+                        editingSlotId === slot.slot_id
+                          ? "border-[#0a84ff] bg-[#0a84ff]/15 text-[#0a84ff]"
+                          : "border-white/10 hover:bg-white/10"
+                      }`}
                     >
                       <Sliders size={12} /> Gaya
                     </button>
@@ -437,31 +480,31 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                       type="button"
                       onClick={() => handleRemoveSlot(slot.slot_id)}
                       aria-label="Hapus widget"
-                      className="w-7 h-7 rounded-lg hover:bg-red-500/20 text-red-400 flex items-center justify-center cursor-pointer"
+                      className="w-8 h-8 rounded-[10px] hover:bg-red-500/20 text-red-400 flex items-center justify-center cursor-pointer"
                     >
-                      <Trash2 size={13} />
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
       </div>
 
-      {/* Per-Widget Override Customizer */}
+      {/* Per-Widget Style Override */}
       {editingSlot && editingWidget && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between px-1">
-            <span className="text-[12px] font-semibold text-blue-300">
-              Penimpaan Gaya Khusus Slot: {editingSlot.slot_id}
+            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#0a84ff]">
+              Penimpaan Gaya Widget Terpilih
             </span>
             <button
               type="button"
               onClick={() => handleUpdateSlotStyle(editingSlot.slot_id, null)}
               className="text-[11.5px] text-zinc-400 hover:text-white cursor-pointer"
             >
-              Kembalikan ke Tema Global
+              Reset ke Tema Global
             </button>
           </div>
           <WidgetColorCustomizer
@@ -477,226 +520,34 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         </div>
       )}
 
-      {/* Global Theme Customizer */}
-      <WidgetColorCustomizer
-        title="Tema Global Semua Widget"
-        style={config.global_theme}
-        presets={config.presets}
-        recentColors={config.recent_colors}
-        isLightMode={isLightMode}
-        onChange={(nextGlobal) => persistConfig({ ...config, global_theme: nextGlobal })}
-        onSavePreset={handleSavePreset}
-        onRecordRecentColor={handleRecordRecentColor}
-      />
-
-      {/* Provider Configuration Panel */}
-      <div className={`${cardCls} flex flex-col gap-4`}>
-        <h4 className="text-[13.5px] font-semibold">Konfigurasi Data & Penyedia Widget</h4>
-
-        {/* GitHub Read-only PAT (Windows Credential Manager) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <input
-            type="text"
-            value={ghRepo}
-            onChange={(e) => setGhRepo(e.target.value)}
-            placeholder="owner/repo GitHub"
-            className={inputCls}
-          />
-          <input
-            type="password"
-            value={ghToken}
-            onChange={(e) => setGhToken(e.target.value)}
-            placeholder="Fine-grained PAT (read-only)"
-            className={inputCls}
-          />
-          <button
-            type="button"
-            onClick={async () => {
-              if (!ghRepo.trim() || !ghToken.trim()) return;
-              await saveGithubWidgetToken(ghToken.trim(), ghRepo.trim());
-              setGhToken("");
-              flash("Token GitHub disimpan aman di Windows Credential Manager.");
-            }}
-            className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] font-medium cursor-pointer"
-          >
-            Simpan Status GitHub
-          </button>
-        </div>
-
-        {/* Site Uptime Monitor */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <input
-            type="text"
-            value={siteName}
-            onChange={(e) => setSiteName(e.target.value)}
-            placeholder="Nama situs (mis. API Utama)"
-            className={inputCls}
-          />
-          <input
-            type="url"
-            value={siteUrl}
-            onChange={(e) => setSiteUrl(e.target.value)}
-            placeholder="https://domain-anda.com"
-            className={inputCls}
-          />
-          <button
-            type="button"
-            onClick={async () => {
-              if (!siteName.trim() || !siteUrl.trim()) return;
-              try {
-                await addWidgetUptimeSite(siteName.trim(), siteUrl.trim());
-                setSiteName("");
-                flash("Situs ditambahkan ke pemantau uptime (min 60 detik).");
-              } catch (e) {
-                flash(String(e));
-              }
-            }}
-            className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] font-medium cursor-pointer"
-          >
-            Tambah Situs Uptime
-          </button>
-        </div>
-
-        {/* Time Tracker & Expense Budget */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <input
-            type="text"
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-            placeholder="Nama proyek Pelacak Waktu"
-            className={inputCls}
-          />
-          <button
-            type="button"
-            onClick={async () => {
-              if (!projectName.trim()) return;
-              await addWidgetTimeProject(projectName.trim());
-              setProjectName("");
-              flash("Proyek pelacak waktu ditambahkan.");
-            }}
-            className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] font-medium cursor-pointer"
-          >
-            + Proyek Waktu
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              const path = await exportWidgetTimeTrackerCsv();
-              flash(`CSV tersimpan di: ${path}`);
-            }}
-            className="px-3 py-1.5 rounded-lg border border-white/15 hover:bg-white/10 text-[12px] font-medium flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Download size={13} /> Ekspor CSV Waktu
-          </button>
-        </div>
-
-        {/* Expense DPAPI budget + Storage Treemap */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <input
-            type="number"
-            value={budgetIdr}
-            onChange={(e) => setBudgetIdr(e.target.value)}
-            placeholder="Anggaran bulanan (IDR)"
-            className={inputCls}
-          />
-          <button
-            type="button"
-            onClick={async () => {
-              const num = Number(budgetIdr);
-              if (!Number.isFinite(num) || num <= 0) return;
-              await setWidgetExpenseBudget(Math.round(num));
-              flash("Anggaran pengeluaran bulanan disimpan (terenkripsi DPAPI).");
-            }}
-            className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] font-medium cursor-pointer"
-          >
-            Atur Anggaran DPAPI
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              await triggerWidgetStorageScan();
-              flash("Pemindaian Peta Penyimpanan on-demand dimulai.");
-            }}
-            className="px-3 py-1.5 rounded-lg border border-white/15 hover:bg-white/10 text-[12px] font-medium flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <HardDrive size={13} /> Pindai Penyimpanan
-          </button>
-        </div>
-
-        {/* Shortcuts, Photo Frame, Recent Files (Opt-in) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <input
-            type="text"
-            value={shortcutName}
-            onChange={(e) => setShortcutName(e.target.value)}
-            placeholder="Nama pintasan"
-            className={inputCls}
-          />
-          <input
-            type="text"
-            value={shortcutPath}
-            onChange={(e) => setShortcutPath(e.target.value)}
-            placeholder="Path aplikasi/folder/URL"
-            className={inputCls}
-          />
-          <button
-            type="button"
-            onClick={async () => {
-              if (!shortcutName.trim() || !shortcutPath.trim()) return;
-              await addWidgetShortcut(shortcutName.trim(), shortcutPath.trim());
-              setShortcutName("");
-              setShortcutPath("");
-              flash("Pintasan cepat ditambahkan.");
-            }}
-            className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] font-medium cursor-pointer"
-          >
-            + Pintasan Cepat
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={photoFolder}
-              onChange={(e) => setPhotoFolder(e.target.value)}
-              placeholder="Folder foto lokal (Bingkai Foto)"
-              className={`flex-1 ${inputCls}`}
-            />
-            <button
-              type="button"
-              onClick={async () => {
-                if (!photoFolder.trim()) return;
-                const count = await configureWidgetPhotoFolder(photoFolder.trim());
-                flash(`Folder foto dimuat (${count} gambar baca-saja).`);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] cursor-pointer"
-            >
-              Muat
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={recentFolder}
-              onChange={(e) => setRecentFolder(e.target.value)}
-              placeholder="Folder pantauan Berkas Terbaru (opt-in)"
-              className={`flex-1 ${inputCls}`}
-            />
-            <button
-              type="button"
-              onClick={async () => {
-                if (!recentFolder.trim()) return;
-                await configureWidgetRecentFolders(true, [recentFolder.trim()], []);
-                flash("Folder Berkas Terbaru (metadata saja) diaktifkan.");
-              }}
-              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] cursor-pointer"
-            >
-              Aktifkan
-            </button>
-          </div>
-        </div>
+      {/* Section 3: Global Theme */}
+      <div className="flex flex-col gap-2">
+        <span className={sectionLabelClass}>Tema Global & Keterbacaan</span>
+        <WidgetColorCustomizer
+          title="Tema Global Semua Widget"
+          style={config.global_theme}
+          presets={config.presets}
+          recentColors={config.recent_colors}
+          isLightMode={isLightMode}
+          onChange={(nextGlobal) => persistConfig({ ...config, global_theme: nextGlobal })}
+          onSavePreset={handleSavePreset}
+          onRecordRecentColor={handleRecordRecentColor}
+        />
       </div>
+
+      {/* Section 4: Providers */}
+      <div className="flex flex-col gap-2">
+        <span className={sectionLabelClass}>Penyedia Data & Privasi Lokal</span>
+        <WidgetProvidersCard isLightMode={isLightMode} onFlash={flash} />
+      </div>
+
+      {/* Telemetry Footer */}
+      {metrics?.paused_reason && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-[12px] bg-amber-500/10 border border-amber-500/30 text-[11.5px] text-amber-300">
+          <Activity size={14} />
+          <span>Host Direct2D sedang jeda otomatis: {metrics.paused_reason}</span>
+        </div>
+      )}
 
       <WidgetGalleryModal
         open={galleryOpen}

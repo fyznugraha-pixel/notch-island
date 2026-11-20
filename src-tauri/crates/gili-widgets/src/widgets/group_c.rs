@@ -94,17 +94,18 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         false,
     )];
 
-    let mut tiles: Vec<(&str, &str, bool)> = Vec::new();
+    let mut tiles: Vec<(&str, &str, &str, bool)> = Vec::new();
     if let Some(wifi) = qc.wifi_enabled {
-        tiles.push(("Wi-Fi", "quick_toggle:wifi", wifi));
+        tiles.push(("\u{E701}", "Wi-Fi", "quick_toggle:wifi", wifi));
     }
     if let Some(bt) = qc.bluetooth_enabled {
-        tiles.push(("Bluetooth", "quick_toggle:bluetooth", bt));
+        tiles.push(("\u{E702}", "Bluetooth", "quick_toggle:bluetooth", bt));
     }
-    tiles.push(("Mode Gelap", "quick_toggle:dark_mode", qc.dark_mode_enabled));
+    tiles.push(("\u{E708}", "Mode Gelap", "quick_toggle:dark_mode", qc.dark_mode_enabled));
     if let Some(muted) = qc.audio_muted {
         tiles.push((
-            if muted { "Bisukan Aktif" } else { "Audio Aktif" },
+            if muted { "\u{E74F}" } else { "\u{E767}" },
+            if muted { "Bisukan" } else { "Audio" },
             "quick_toggle:audio_mute",
             !muted,
         ));
@@ -119,7 +120,7 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let cw = (inner.w - gap * (cols as f32 - 1.0)) / cols as f32;
     let ch = ((inner.h - 28.0) - gap * (rows as f32 - 1.0)) / rows as f32;
 
-    for (idx, (label, act, on)) in tiles.iter().take(cols * rows).enumerate() {
+    for (idx, (glyph, label, act, on)) in tiles.iter().take(cols * rows).enumerate() {
         let c = idx % cols;
         let r = idx / cols;
         let x = inner.x + c as f32 * (cw + gap);
@@ -132,7 +133,7 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         nodes.push(SceneNode::RoundedRect {
             rect: RectF::new(x, y, cw, ch),
             radius: 14.0,
-            smoothing: 0.55,
+            smoothing: 0.60,
             fill: Some(fill),
             stroke: Some((
                 if *on {
@@ -144,19 +145,26 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             )),
             interactive_action: Some((*act).to_string()),
         });
+        nodes.push(SceneNode::IconGlyph {
+            rect: RectF::new(x, y + ch * 0.14, cw, 22.0),
+            glyph: (*glyph).to_string(),
+            size: 16.0,
+            color: if *on { ctx.pal.primary } else { ctx.pal.secondary },
+            interactive_action: Some((*act).to_string()),
+        });
         nodes.push(text_node(
-            RectF::new(x + 6.0, y + ch * 0.30, cw - 12.0, 18.0),
+            RectF::new(x + 6.0, y + ch * 0.50, cw - 12.0, 16.0),
             *label,
-            12.0,
+            11.5,
             600,
             ctx.pal.primary,
             TextAlign::Center,
             false,
         ));
         nodes.push(text_node(
-            RectF::new(x + 6.0, y + ch * 0.30 + 18.0, cw - 12.0, 14.0),
+            RectF::new(x + 6.0, y + ch * 0.50 + 15.0, cw - 12.0, 14.0),
             if *on { "Aktif" } else { "Mati" },
-            10.5,
+            10.0,
             500,
             if *on { ctx.pal.accent } else { ctx.pal.secondary },
             TextAlign::Center,

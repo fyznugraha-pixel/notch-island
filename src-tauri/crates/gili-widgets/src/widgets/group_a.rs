@@ -516,26 +516,48 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         );
     }
     let inner = ctx.frame.inset(14.0);
-    let mut nodes = vec![
-        text_node(
-            RectF::new(inner.x, inner.y, inner.w - 30.0, 20.0),
-            &m.title,
-            15.0,
-            700,
-            ctx.pal.primary,
-            TextAlign::Left,
-            false,
-        ),
-        text_node(
-            RectF::new(inner.x, inner.y + 20.0, inner.w, 16.0),
-            &m.artist,
-            12.5,
-            500,
-            ctx.pal.secondary,
-            TextAlign::Left,
-            false,
-        ),
-    ];
+    let has_art = m
+        .thumbnail_path_or_data
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    let art_sz = if ctx.size == WidgetSize::Small { 34.0 } else { 42.0 };
+    let text_x = if has_art { inner.x + art_sz + 10.0 } else { inner.x };
+    let text_w = (inner.x + inner.w - text_x - 24.0).max(40.0);
+
+    let mut nodes = Vec::new();
+    if let Some(src) = m.thumbnail_path_or_data.as_deref().filter(|s| !s.trim().is_empty()) {
+        nodes.push(SceneNode::ImageRef {
+            rect: RectF::new(inner.x, inner.y, art_sz, art_sz),
+            radius: crate::layout::concentric_radius(24.0, 12.0),
+            source_path: src.to_string(),
+        });
+    }
+    nodes.push(SceneNode::IconGlyph {
+        rect: RectF::new(inner.x + inner.w - 22.0, inner.y + 2.0, 22.0, 22.0),
+        glyph: if m.is_playing { "\u{E769}".into() } else { "\u{E768}".into() },
+        size: 14.0,
+        color: ctx.pal.accent,
+        interactive_action: Some("toggle_media_playback".into()),
+    });
+    nodes.push(text_node(
+        RectF::new(text_x, inner.y + 1.0, text_w, 20.0),
+        &m.title,
+        14.5,
+        700,
+        ctx.pal.primary,
+        TextAlign::Left,
+        false,
+    ));
+    nodes.push(text_node(
+        RectF::new(text_x, inner.y + 21.0, text_w, 16.0),
+        &m.artist,
+        12.0,
+        500,
+        ctx.pal.secondary,
+        TextAlign::Left,
+        false,
+    ));
 
     let progress = if m.duration_sec > 0.0 {
         (m.position_sec / m.duration_sec).clamp(0.0, 1.0) as f32
@@ -543,7 +565,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         0.0
     };
 
-    let lyric_top = inner.y + 44.0;
+    let lyric_top = inner.y + art_sz + 10.0;
     let lyric_text = if !m.active_lyric_line.is_empty() {
         m.active_lyric_line.clone()
     } else if m.lyrics_state == "loading" {
@@ -636,6 +658,16 @@ fn weather_code_label(code: i32) -> &'static str {
     }
 }
 
+fn weather_code_fluent_glyph(code: i32) -> &'static str {
+    match code {
+        0 => "\u{E706}",
+        1..=3 | 45 | 48 => "\u{E753}",
+        51..=67 | 80..=82 => "\u{E9C0}",
+        95..=99 => "\u{E945}",
+        _ => "\u{E753}",
+    }
+}
+
 /// 6. Cuaca: sekarang, per jam, 5 hari (S, M, L)
 pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let w = &ctx.hub.weather;
@@ -653,7 +685,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let inner = ctx.frame.inset(14.0);
     let mut nodes = vec![
         text_node(
-            RectF::new(inner.x, inner.y, inner.w, 16.0),
+            RectF::new(inner.x, inner.y, inner.w - 28.0, 16.0),
             &w.location_name,
             13.0,
             600,
@@ -661,6 +693,13 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ),
+        SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 26.0, inner.y - 2.0, 26.0, 26.0),
+            glyph: weather_code_fluent_glyph(w.current_code).to_string(),
+            size: 18.0,
+            color: ctx.pal.warning,
+            interactive_action: None,
+        },
         text_node(
             RectF::new(inner.x, inner.y + 16.0, 120.0, 48.0),
             format!("{:.0}°", w.current_temp_c),

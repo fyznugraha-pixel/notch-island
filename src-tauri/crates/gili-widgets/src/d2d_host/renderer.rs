@@ -6,6 +6,7 @@ pub mod render {
         SystemVisualPolicy,
     };
     use crate::layout::{build_superellipse_points, RectF, SceneNode, TextAlign, WidgetRenderItem};
+    use crate::spring::DigitRollState;
     use std::collections::HashMap;
     use std::hash::{Hash, Hasher};
     use windows::core::{HSTRING, PCWSTR};
@@ -88,6 +89,7 @@ pub mod render {
         /// Cached offscreen bitmaps for text shadow/halo passes so shadows are never recomputed every frame.
         shadow_cache: HashMap<String, CachedBitmapEntry>,
         image_cache: HashMap<String, ID2D1Bitmap1>,
+        digit_rolls: HashMap<String, DigitRollState>,
         prev_hashes: HashMap<String, (u64, RectF)>,
     }
 
@@ -128,6 +130,7 @@ pub mod render {
                     text_formats: HashMap::new(),
                     shadow_cache: HashMap::new(),
                     image_cache: HashMap::new(),
+                    digit_rolls: HashMap::new(),
                     prev_hashes: HashMap::new(),
                 })
             }
@@ -222,12 +225,21 @@ pub mod render {
         fn load_image_bitmap(
             &mut self,
             res: &D2DDeviceResources,
-            path: &str,
+            source: &str,
         ) -> Option<ID2D1Bitmap1> {
-            if let Some(bmp) = self.image_cache.get(path) {
+            if let Some(bmp) = self.image_cache.get(source) {
                 return Some(bmp.clone());
             }
-            let img = image::open(path).ok()?;
+            let img = if let Some(b64_part) = source
+                .strip_prefix("data:")
+                .and_then(|rest| rest.split_once(";base64,").map(|(_, b)| b))
+            {
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::STANDARD.decode(b64_part).ok()?;
+                image::load_from_memory(&bytes).ok()?
+            } else {
+                image::open(source).ok()?
+            };
             let rgba = img.thumbnail(360, 360).to_rgba8();
             let (w, h) = rgba.dimensions();
             // Convert RGBA straight -> BGRA premultiplied for Direct2D
@@ -262,7 +274,7 @@ pub mod render {
             if self.image_cache.len() > 24 {
                 self.image_cache.clear();
             }
-            self.image_cache.insert(path.to_string(), bmp.clone());
+            self.image_cache.insert(source.to_string(), bmp.clone());
             Some(bmp)
         }
 
@@ -452,6 +464,36 @@ pub mod render {
                         };
                         self.brush.SetColor(&d2d_color(border_col));
                         ctx.DrawGeometry(&geom, &self.brush, 1.0, None);
+
+                        // Subtle specular top edge sheen for Glass and SubtleTint cards
+                        if !policy.high_contrast
+                            && (effective_bg == BackgroundMode::Glass
+                                || effective_bg == BackgroundMode::SubtleTint)
+                        {
+                            self.brush.SetColor(&D2D1_COLOR_F {
+                                r: 1.0,
+                                g: 1.0,
+                                b: 1.0,
+                                a: if effective_bg == BackgroundMode::Glass {
+                                    0.16
+                                } else {
+                                    0.08
+                                },
+                            });
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: item.frame.x + CARD_RADIUS_DP * 0.85,
+                                    y: item.frame.y + 1.0,
+                                },
+                                D2D_POINT_2F {
+                                    x: item.frame.x + item.frame.w - CARD_RADIUS_DP * 0.85,
+                                    y: item.frame.y + 1.0,
+                                },
+                                &self.brush,
+                                1.0,
+                                &self.round_stroke,
+                            );
+                        }
                     }
                 }
             } else if edit_mode {
@@ -479,8 +521,16 @@ pub mod render {
                 self.draw_cached_text_shadow(res, item, policy.text_scale_factor, dpi_scale);
             }
 
-            for node in &item.nodes {
-                self.draw_scene_node(res, node, &item.font_family, policy.text_scale_factor);
+            for (idx, node) in item.nodes.iter().enumerate() {
+                let roll_key = format!("{}:{}", item.slot_id, idx);
+                self.draw_scene_node(
+                    res,
+                    node,
+                    &item.font_family,
+                    policy.text_scale_factor,
+                    policy.reduced_motion,
+                    Some(&roll_key),
+                );
             }
 
             // Stack indicator dots on right edge when slot holds >1 widget
@@ -755,6 +805,8 @@ pub mod render {
             node: &SceneNode,
             font_family: &str,
             text_scale: f32,
+            reduced_motion: bool,
+            roll_key: Option<&str>,
         ) {
             let ctx = &res.d2d_context;
             match node {
@@ -815,6 +867,91 @@ pub mod render {
                     else {
                         return;
                     };
+
+                    // Rolling digit transition for large tabular clock/metric figures
+                    if *tabular_nums && *font_size >= 24.0 && !reduced_motion {
+                        if let Some(rk) = roll_key {
+                            let roll = self
+                                .digit_rolls
+                                .entry(rk.to_string())
+                                .or_insert_with(|| DigitRollState::new(content.clone()));
+                            roll.update(content, reduced_motion);
+                            let _ = roll.tick(1.0 / 60.0, reduced_motion);
+                            let p = roll.progress.value.clamp(0.0, 1.0);
+                            if p < 0.98 && roll.prev_text != roll.current_text {
+                                let shift = scaled_size * 0.36;
+                                // Previous digit sliding out upward
+                                let prev_w: Vec<u16> = roll.prev_text.encode_utf16().collect();
+                                if let Ok(prev_layout) = unsafe {
+                                    res.dwrite_factory.CreateTextLayout(
+                                        &prev_w,
+                                        &fmt,
+                                        rect.w.max(1.0),
+                                        rect.h.max(1.0),
+                                    )
+                                } {
+                                    let _ = unsafe {
+                                        prev_layout.SetTypography(
+                                            &res.tabular_typography,
+                                            DWRITE_TEXT_RANGE {
+                                                startPosition: 0,
+                                                length: prev_w.len() as u32,
+                                            },
+                                        )
+                                    };
+                                    unsafe {
+                                        self.brush.SetColor(&d2d_color(
+                                            color.with_alpha(color.a * (1.0 - p)),
+                                        ));
+                                        ctx.DrawTextLayout(
+                                            D2D_POINT_2F {
+                                                x: rect.x,
+                                                y: rect.y - shift * p,
+                                            },
+                                            &prev_layout,
+                                            &self.brush,
+                                            D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                                        );
+                                    }
+                                }
+                                // Incoming digit rolling in from below
+                                let cur_w: Vec<u16> = roll.current_text.encode_utf16().collect();
+                                if let Ok(cur_layout) = unsafe {
+                                    res.dwrite_factory.CreateTextLayout(
+                                        &cur_w,
+                                        &fmt,
+                                        rect.w.max(1.0),
+                                        rect.h.max(1.0),
+                                    )
+                                } {
+                                    let _ = unsafe {
+                                        cur_layout.SetTypography(
+                                            &res.tabular_typography,
+                                            DWRITE_TEXT_RANGE {
+                                                startPosition: 0,
+                                                length: cur_w.len() as u32,
+                                            },
+                                        )
+                                    };
+                                    unsafe {
+                                        self.brush
+                                            .SetColor(&d2d_color(color.with_alpha(color.a * p)));
+                                        ctx.DrawTextLayout(
+                                            D2D_POINT_2F {
+                                                x: rect.x,
+                                                y: rect.y + shift * (1.0 - p),
+                                            },
+                                            &cur_layout,
+                                            &self.brush,
+                                            D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                                        );
+                                    }
+                                }
+                                return;
+                            }
+                        }
+                    }
+
                     let text_w: Vec<u16> = content.encode_utf16().collect();
                     let Ok(layout) = (unsafe {
                         res.dwrite_factory.CreateTextLayout(
@@ -1106,6 +1243,8 @@ pub mod render {
                                 },
                                 font_family,
                                 text_scale,
+                                reduced_motion,
+                                None,
                             );
                         }
                         x_cursor += w + 3.0;
@@ -1235,6 +1374,48 @@ pub mod render {
                         }
                     }
                 }
+                SceneNode::IconGlyph {
+                    rect,
+                    glyph,
+                    size,
+                    color,
+                    ..
+                } => {
+                    let fmt = self
+                        .get_text_format(res, "Segoe Fluent Icons", 400, *size, TextAlign::Center)
+                        .or_else(|| {
+                            self.get_text_format(
+                                res,
+                                "Segoe MDL2 Assets",
+                                400,
+                                *size,
+                                TextAlign::Center,
+                            )
+                        });
+                    let Some(fmt) = fmt else { return };
+                    let text_w: Vec<u16> = glyph.encode_utf16().collect();
+                    if let Ok(layout) = unsafe {
+                        res.dwrite_factory.CreateTextLayout(
+                            &text_w,
+                            &fmt,
+                            rect.w.max(1.0),
+                            rect.h.max(1.0),
+                        )
+                    } {
+                        unsafe {
+                            self.brush.SetColor(&d2d_color(*color));
+                            ctx.DrawTextLayout(
+                                D2D_POINT_2F {
+                                    x: rect.x,
+                                    y: rect.y,
+                                },
+                                &layout,
+                                &self.brush,
+                                D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                            );
+                        }
+                    }
+                }
             }
         }
 
@@ -1273,6 +1454,8 @@ pub mod render {
                 },
                 "Segoe UI Variable",
                 1.0,
+                true,
+                None,
             );
         }
     }

@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, Sparkles, Save, Palette } from "lucide-react";
+import {
+  AlertTriangle,
+  Sparkles,
+  Save,
+  Palette,
+  Type,
+  Layers,
+  Eye,
+  SunMedium,
+} from "lucide-react";
 import {
   BackgroundMode,
   ColorPreset,
@@ -8,9 +17,13 @@ import {
   WallpaperRegionAnalysis,
   WidgetStyleConfig,
   analyzeWidgetWallpaperContrast,
-  hexToRgba,
   rgbaToHex,
 } from "../../../../services/desktopWidgetsService";
+import { SettingRow } from "../SettingRow";
+import { IosSwitch } from "../../../ios/IosSwitch";
+import { IosSelect } from "../../../ios/IosSelect";
+import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
+import { HsvColorWheel } from "./HsvColorWheel";
 
 interface WidgetColorCustomizerProps {
   style: WidgetStyleConfig;
@@ -23,30 +36,24 @@ interface WidgetColorCustomizerProps {
   onRecordRecentColor: (hex: string) => void;
 }
 
-const FONT_OPTIONS = [
-  "Segoe UI Variable",
-  "Segoe UI",
-  "Bahnschrift",
-  "Cascadia Code",
-  "Georgia",
-  "Trebuchet MS",
+const FONT_SELECT_OPTIONS = [
+  { value: "Segoe UI Variable", label: "Segoe UI Variable", sublabel: "Default sistem" },
+  { value: "Segoe UI", label: "Segoe UI" },
+  { value: "Bahnschrift", label: "Bahnschrift", sublabel: "Geometris tegas" },
+  { value: "Cascadia Code", label: "Cascadia Code", sublabel: "Monospace" },
+  { value: "Georgia", label: "Georgia", sublabel: "Editorial serif" },
+  { value: "Trebuchet MS", label: "Trebuchet MS" },
 ];
 
-const BG_MODES: { id: BackgroundMode; label: string; desc: string }[] = [
-  { id: "none", label: "Tanpa Latar", desc: "Hanya isi (default)" },
-  { id: "subtle_tint", label: "Tint Tipis", desc: "Kartu 10-25%" },
-  { id: "glass", label: "Kaca", desc: "Blur sistem" },
-  { id: "solid", label: "Solid", desc: "Kartu opak" },
+const WEIGHT_SELECT_OPTIONS = [
+  { value: 300, label: "Tipis (300)" },
+  { value: 400, label: "Reguler (400)" },
+  { value: 600, label: "Semibold (600)" },
+  { value: 700, label: "Tebal (700)" },
+  { value: 800, label: "Ekstra Tebal (800)" },
 ];
 
 type RoleKey = "text_primary" | "text_secondary" | "accent" | "card_color";
-
-const ROLE_LABELS: { key: RoleKey; label: string }[] = [
-  { key: "text_primary", label: "Teks Utama" },
-  { key: "text_secondary", label: "Teks Sekunder" },
-  { key: "accent", label: "Aksen & Grafik" },
-  { key: "card_color", label: "Warna Kartu" },
-];
 
 export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
   style,
@@ -60,7 +67,6 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
 }) => {
   const [activeRole, setActiveRole] = useState<RoleKey>("text_primary");
   const [analysis, setAnalysis] = useState<WallpaperRegionAnalysis | null>(null);
-  const [hexDraft, setHexDraft] = useState("#F5F5F7");
   const [presetName, setPresetName] = useState("");
   const [previewLightBg, setPreviewLightBg] = useState(false);
 
@@ -78,23 +84,20 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
     };
   }, [style]);
 
-  useEffect(() => {
-    if (currentRoleSource.mode === "custom") {
-      setHexDraft(rgbaToHex(currentRoleSource.color));
-    }
-  }, [activeRole, currentRoleSource]);
-
   const setRole = (role: RoleKey, src: ColorRoleSource) => {
     onChange({ ...style, [role]: src });
   };
 
-  const applyCustomHex = (hex: string, alpha?: number) => {
-    const baseAlpha =
-      currentRoleSource.mode === "custom" ? currentRoleSource.color.a : 1;
-    const parsed = hexToRgba(hex, alpha ?? baseAlpha);
-    if (!parsed) return;
-    setRole(activeRole, { mode: "custom", color: parsed });
-    onRecordRecentColor(rgbaToHex(parsed));
+  const activeRgba: RgbaColor =
+    currentRoleSource.mode === "custom"
+      ? currentRoleSource.color
+      : currentRoleSource.mode === "wallpaper_dominant" && analysis?.dominant_accent
+      ? analysis.dominant_accent
+      : { r: 245, g: 245, b: 247, a: 1 };
+
+  const handleWheelChange = (nextColor: RgbaColor) => {
+    setRole(activeRole, { mode: "custom", color: nextColor });
+    onRecordRecentColor(rgbaToHex(nextColor));
   };
 
   const resolvedPreviewColor = (src: ColorRoleSource, fallback: string): string => {
@@ -106,8 +109,8 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
       const c = analysis.dominant_accent;
       return `rgba(${c.r}, ${c.g}, ${c.b}, 1)`;
     }
-    if (previewLightBg) return fallback === "primary" ? "#111216" : "rgba(17,18,22,0.65)";
-    return fallback === "primary" ? "#F5F5F7" : "rgba(245,245,247,0.68)";
+    if (previewLightBg) return fallback === "primary" ? "#111216" : "rgba(17,18,22,0.62)";
+    return fallback === "primary" ? "#F5F5F7" : "rgba(245,245,247,0.65)";
   };
 
   const previewCardStyle = (): React.CSSProperties => {
@@ -125,8 +128,9 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
     if (style.background_mode === "glass") {
       return {
         backgroundColor: `rgba(${baseCard.r}, ${baseCard.g}, ${baseCard.b}, 0.30)`,
-        backdropFilter: "blur(18px)",
-        border: "1px solid rgba(255,255,255,0.12)",
+        backdropFilter: "blur(20px)",
+        border: "1px solid rgba(255,255,255,0.14)",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.16)",
       };
     }
     return {
@@ -135,159 +139,163 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
     };
   };
 
-  const borderCls = isLightMode ? "border-black/10 bg-black/[0.03]" : "border-white/10 bg-white/[0.03]";
+  const cardClass = `w-full rounded-[18px] p-4 flex flex-col gap-4 transition-colors ${
+    isLightMode
+      ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
+      : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
+  }`;
   const mutedText = isLightMode ? "text-neutral-500" : "text-zinc-400";
 
   return (
-    <div className={`rounded-2xl border p-4 flex flex-col gap-4 ${borderCls}`}>
+    <div className={cardClass}>
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Palette size={15} className="text-blue-400" />
-          <span className="text-[13px] font-semibold">{title}</span>
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-[9px] bg-[#5e5ce6]/20 text-[#5e5ce6] flex items-center justify-center">
+            <Palette size={15} />
+          </div>
+          <div>
+            <div className="text-[13.5px] font-semibold">{title}</div>
+            <div className={`text-[11px] ${mutedText}`}>
+              Pratinjau langsung dengan auto-kontras wallpaper
+            </div>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setPreviewLightBg((v) => !v)}
-          className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border cursor-pointer ${borderCls}`}
-        >
-          Pratinjau: {previewLightBg ? "Wallpaper Terang" : "Wallpaper Gelap"}
-        </button>
+        <IosSegmentedControl
+          value={previewLightBg ? "light" : "dark"}
+          onChange={(v) => setPreviewLightBg(v === "light")}
+          options={[
+            { value: "dark", label: "Gelap" },
+            { value: "light", label: "Terang" },
+          ]}
+        />
       </div>
 
-      {/* Live preview over wallpaper sample */}
+      {/* Live preview stage */}
       <div
-        className="rounded-2xl p-4 flex items-center justify-center transition-colors"
+        className="rounded-[18px] p-5 flex items-center justify-center transition-all"
         style={{
           background: previewLightBg
-            ? "linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 55%, #f8fafc 100%)"
-            : "linear-gradient(135deg, #0f172a 0%, #1e1b4b 55%, #09090b 100%)",
+            ? "linear-gradient(135deg, #dbeafe 0%, #e2e8f0 50%, #f8fafc 100%)"
+            : "linear-gradient(135deg, #0b1120 0%, #1e1b4b 55%, #09090b 100%)",
         }}
       >
         <div
-          className="w-[260px] rounded-[24px] p-4 transition-all"
+          className="w-[276px] rounded-[24px] p-4 transition-all"
           style={{
             ...previewCardStyle(),
             fontFamily: style.font_family,
           }}
         >
           <div
-            className="text-[11px] font-semibold tracking-wide uppercase"
+            className="text-[10.5px] font-bold tracking-wider uppercase"
             style={{ color: resolvedPreviewColor(style.accent, "accent") }}
           >
-            Pratinjau Langsung
+            Jumat, 20 November
           </div>
           <div
-            className="mt-1 tabular-nums leading-none"
+            className="mt-1 tabular-nums leading-none tracking-tight"
             style={{
-              fontSize: `${Math.round(34 * style.text_scale)}px`,
+              fontSize: `${Math.round(38 * style.text_scale)}px`,
               fontWeight: style.font_weight,
               color: resolvedPreviewColor(style.text_primary, "primary"),
               textShadow: style.shadow_enabled
-                ? `0 2px 6px rgba(${style.shadow_color.r},${style.shadow_color.g},${style.shadow_color.b},${style.shadow_color.a})`
+                ? `0 2px 8px rgba(${style.shadow_color.r},${style.shadow_color.g},${style.shadow_color.b},${style.shadow_color.a})`
                 : undefined,
             }}
           >
-            21:45
+            22:15
           </div>
           <div
             className="mt-1.5 text-[12px]"
             style={{ color: resolvedPreviewColor(style.text_secondary, "secondary") }}
           >
-            Jumat, 20 November
+            29° Cerah Berawan . Jakarta
           </div>
         </div>
       </div>
 
-      {/* Low contrast warning banner */}
+      {/* Low contrast warning */}
       {analysis?.low_contrast_warning && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-300">
+        <div className="flex items-start gap-2.5 rounded-[14px] border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-[12px] text-amber-300">
           <AlertTriangle size={15} className="shrink-0 mt-0.5" />
           <div>
             <div className="font-semibold">
               Kontras rendah terdeteksi ({analysis.measured_contrast_ratio}:1)
             </div>
             <div className="opacity-85 text-[11px]">
-              Warna teks pilihan mungkin sulit dibaca di atas area wallpaper saat ini. Gunakan warna
-              Otomatis, aktifkan bayangan/halo, atau pilih latar Tint Tipis.
+              Warna teks pilihan sulit dibaca di atas area wallpaper tersebut. Pilih warna Otomatis,
+              aktifkan bayangan/halo, atau gunakan latar Tint Tipis.
             </div>
           </div>
         </div>
       )}
 
-      {/* Background mode (1-4) */}
-      <div className="flex flex-col gap-1.5">
-        <span className={`text-[11px] font-semibold uppercase tracking-wide ${mutedText}`}>
-          Mode Latar Widget
-        </span>
-        <div className="grid grid-cols-4 gap-2">
-          {BG_MODES.map((m) => {
-            const active = style.background_mode === m.id;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => onChange({ ...style, background_mode: m.id })}
-                className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
-                  active
-                    ? "border-blue-500 bg-blue-500/15"
-                    : `${borderCls} hover:border-white/20`
-                }`}
-              >
-                <div className="text-[12px] font-semibold">{m.label}</div>
-                <div className={`text-[10px] ${mutedText}`}>{m.desc}</div>
-              </button>
-            );
-          })}
-        </div>
-        {style.background_mode === "subtle_tint" && (
-          <label className="flex items-center justify-between gap-3 mt-1 text-[12px]">
-            <span className={mutedText}>
-              Opasitas Tint ({Math.round(style.tint_opacity * 100)}%)
-            </span>
-            <input
-              type="range"
-              min={10}
-              max={25}
-              value={Math.round(style.tint_opacity * 100)}
-              onChange={(e) =>
-                onChange({ ...style, tint_opacity: Number(e.target.value) / 100 })
-              }
-              className="w-40 accent-blue-500"
-            />
-          </label>
-        )}
-      </div>
+      {/* Background mode selector */}
+      <SettingRow
+        icon={<Layers size={15} />}
+        iconBgClass="bg-[#0a84ff]/15"
+        iconColorClass="text-[#0a84ff]"
+        title="Mode Latar Widget"
+        subtitle="Tanpa latar adalah default agar widget menyatu dengan wallpaper"
+        isLightMode={isLightMode}
+        control={
+          <IosSegmentedControl<BackgroundMode>
+            value={style.background_mode}
+            onChange={(m) => onChange({ ...style, background_mode: m })}
+            options={[
+              { value: "none", label: "Bening" },
+              { value: "subtle_tint", label: "Tint" },
+              { value: "glass", label: "Kaca" },
+              { value: "solid", label: "Solid" },
+            ]}
+          />
+        }
+      />
 
-      {/* Role tabs + color source picker */}
-      <div className="flex flex-col gap-2">
-        <span className={`text-[11px] font-semibold uppercase tracking-wide ${mutedText}`}>
-          Peran Warna
-        </span>
-        <div className="flex flex-wrap gap-1.5">
-          {ROLE_LABELS.map((r) => (
-            <button
-              key={r.key}
-              type="button"
-              onClick={() => setActiveRole(r.key)}
-              className={`px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium border cursor-pointer ${
-                activeRole === r.key
-                  ? "border-blue-500 bg-blue-500/20 text-blue-300"
-                  : borderCls
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
+      {style.background_mode === "subtle_tint" && (
+        <div className="px-3.5 flex items-center justify-between gap-4 text-[12px]">
+          <span className={mutedText}>
+            Opasitas Tint Tipis ({Math.round(style.tint_opacity * 100)}%)
+          </span>
+          <input
+            type="range"
+            min={10}
+            max={25}
+            value={Math.round(style.tint_opacity * 100)}
+            onChange={(e) =>
+              onChange({ ...style, tint_opacity: Number(e.target.value) / 100 })
+            }
+            className="w-44 accent-[#0a84ff] cursor-pointer"
+          />
+        </div>
+      )}
+
+      {/* Role picker + HSV Color Wheel */}
+      <div className="flex flex-col gap-3 pt-2 border-t border-white/[0.06]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${mutedText}`}>
+            Peran Warna
+          </span>
+          <IosSegmentedControl<RoleKey>
+            value={activeRole}
+            onChange={setActiveRole}
+            options={[
+              { value: "text_primary", label: "Utama" },
+              { value: "text_secondary", label: "Sekunder" },
+              { value: "accent", label: "Aksen" },
+              { value: "card_color", label: "Kartu" },
+            ]}
+          />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 mt-1">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setRole(activeRole, { mode: "auto_contrast" })}
-            className={`px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium border cursor-pointer ${
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer transition-colors ${
               currentRoleSource.mode === "auto_contrast"
-                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
-                : borderCls
+                ? "border-[#34c759] bg-[#34c759]/15 text-[#34c759]"
+                : "border-white/10 hover:bg-white/[0.06]"
             }`}
           >
             Otomatis (Kontras Wallpaper)
@@ -295,65 +303,36 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           <button
             type="button"
             onClick={() => setRole(activeRole, { mode: "wallpaper_dominant" })}
-            className={`px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium border cursor-pointer flex items-center gap-1 ${
+            className={`px-3 py-1.5 rounded-[10px] text-[11.5px] font-medium border cursor-pointer flex items-center gap-1.5 transition-colors ${
               currentRoleSource.mode === "wallpaper_dominant"
-                ? "border-purple-500 bg-purple-500/20 text-purple-300"
-                : borderCls
+                ? "border-[#af52de] bg-[#af52de]/15 text-[#c084fc]"
+                : "border-white/10 hover:bg-white/[0.06]"
             }`}
           >
             <Sparkles size={12} /> Ambil dari Wallpaper
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 mt-1">
-          <input
-            type="color"
-            value={hexDraft}
-            onChange={(e) => {
-              setHexDraft(e.target.value.toUpperCase());
-              applyCustomHex(e.target.value);
-            }}
-            className="w-9 h-8 rounded-lg cursor-pointer bg-transparent border-0"
-          />
-          <input
-            type="text"
-            value={hexDraft}
-            onChange={(e) => {
-              setHexDraft(e.target.value);
-              if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
-                applyCustomHex(e.target.value);
-              }
-            }}
-            placeholder="#3882F6"
-            className={`w-24 px-2.5 py-1.5 rounded-lg border text-[12px] font-mono ${borderCls}`}
-          />
-          <label className="flex items-center gap-2 text-[11.5px]">
-            <span className={mutedText}>Opasitas</span>
-            <input
-              type="range"
-              min={15}
-              max={100}
-              value={Math.round(
-                (currentRoleSource.mode === "custom" ? currentRoleSource.color.a : 1) * 100
-              )}
-              onChange={(e) => applyCustomHex(hexDraft, Number(e.target.value) / 100)}
-              className="w-24 accent-blue-500"
-            />
-          </label>
-        </div>
+        <HsvColorWheel
+          color={activeRgba}
+          isLightMode={isLightMode}
+          onChange={handleWheelChange}
+        />
 
-        {/* Recent & wallpaper palette swatches */}
-        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+        {/* Swatches: recent + wallpaper dominant palette */}
+        <div className="flex flex-wrap items-center gap-2">
           {recentColors.slice(0, 10).map((hex) => (
             <button
               key={hex}
               type="button"
               title={hex}
               onClick={() => {
-                setHexDraft(hex);
-                applyCustomHex(hex);
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                if (!Number.isNaN(r)) handleWheelChange({ r, g, b, a: activeRgba.a });
               }}
-              className="w-5 h-5 rounded-full border border-white/25 cursor-pointer"
+              className="w-6 h-6 rounded-full border border-white/25 cursor-pointer hover:scale-110 transition-transform"
               style={{ backgroundColor: hex }}
             />
           ))}
@@ -363,36 +342,57 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
               type="button"
               title={`Palet wallpaper ${hex}`}
               onClick={() => {
-                setHexDraft(hex);
-                applyCustomHex(hex);
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                if (!Number.isNaN(r)) handleWheelChange({ r, g, b, a: activeRgba.a });
               }}
-              className="w-5 h-5 rounded-md border border-blue-400/50 cursor-pointer"
+              className="w-6 h-6 rounded-[7px] border border-[#0a84ff]/70 cursor-pointer hover:scale-110 transition-transform"
               style={{ backgroundColor: hex }}
             />
           ))}
         </div>
       </div>
 
-      {/* Legibility & Typography */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-white/10">
-        <label className="flex flex-col gap-1 text-[12px]">
-          <span className={mutedText}>Font Sistem</span>
-          <select
-            value={style.font_family}
-            onChange={(e) => onChange({ ...style, font_family: e.target.value })}
-            className={`px-2.5 py-1.5 rounded-lg border text-[12px] ${borderCls}`}
-          >
-            {FONT_OPTIONS.map((f) => (
-              <option key={f} value={f} className="bg-zinc-900 text-white">
-                {f}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-[12px]">
-          <span className={mutedText}>
-            Skala Teks ({Math.round(style.text_scale * 100)}%)
-          </span>
+      {/* Typography & Legibility */}
+      <div className="flex flex-col gap-0.5 pt-2 border-t border-white/[0.06]">
+        <SettingRow
+          icon={<Type size={15} />}
+          iconBgClass="bg-[#ff9f0a]/15"
+          iconColorClass="text-[#ff9f0a]"
+          title="Font Sistem"
+          subtitle="Font terpasang yang dipakai oleh renderer DirectWrite"
+          isLightMode={isLightMode}
+          control={
+            <IosSelect
+              value={style.font_family}
+              options={FONT_SELECT_OPTIONS}
+              onChange={(font_family) => onChange({ ...style, font_family })}
+              isLightMode={isLightMode}
+              ariaLabel="Font sistem widget"
+            />
+          }
+        />
+        <SettingRow
+          icon={<Type size={15} />}
+          iconBgClass="bg-[#636366]/20"
+          iconColorClass="text-zinc-300"
+          title="Ketebalan Font"
+          subtitle={`Skala teks saat ini ${Math.round(style.text_scale * 100)}%`}
+          isLightMode={isLightMode}
+          control={
+            <IosSelect
+              value={style.font_weight}
+              options={WEIGHT_SELECT_OPTIONS}
+              onChange={(font_weight) => onChange({ ...style, font_weight })}
+              isLightMode={isLightMode}
+              ariaLabel="Ketebalan font widget"
+              minWidthClass="min-w-[136px]"
+            />
+          }
+        />
+        <div className="px-3.5 py-1.5 flex items-center justify-between gap-4 text-[12px]">
+          <span className={mutedText}>Skala Ukuran Teks (85% - 140%)</span>
           <input
             type="range"
             min={85}
@@ -401,30 +401,42 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             onChange={(e) =>
               onChange({ ...style, text_scale: Number(e.target.value) / 100 })
             }
-            className="accent-blue-500 mt-1.5"
+            className="w-44 accent-[#0a84ff] cursor-pointer"
           />
-        </label>
-        <label className="flex items-center gap-2 text-[12px] cursor-pointer">
-          <input
-            type="checkbox"
-            checked={style.shadow_enabled}
-            onChange={(e) => onChange({ ...style, shadow_enabled: e.target.checked })}
-          />
-          <span>Bayangan teks lembut (cache)</span>
-        </label>
-        <label className="flex items-center gap-2 text-[12px] cursor-pointer">
-          <input
-            type="checkbox"
-            checked={style.halo_enabled}
-            onChange={(e) => onChange({ ...style, halo_enabled: e.target.checked })}
-          />
-          <span>Halo tipis di sekitar teks</span>
-        </label>
+        </div>
+        <SettingRow
+          icon={<Eye size={15} />}
+          iconBgClass="bg-[#30d158]/15"
+          iconColorClass="text-[#30d158]"
+          title="Bayangan Teks Lembut"
+          subtitle="Di-cache ke bitmap offscreen agar hemat GPU"
+          isLightMode={isLightMode}
+          control={
+            <IosSwitch
+              checked={style.shadow_enabled}
+              onChange={(shadow_enabled) => onChange({ ...style, shadow_enabled })}
+            />
+          }
+        />
+        <SettingRow
+          icon={<SunMedium size={15} />}
+          iconBgClass="bg-[#64d2ff]/15"
+          iconColorClass="text-[#64d2ff]"
+          title="Halo Tipis di Sekitar Teks"
+          subtitle="Membantu keterbacaan di wallpaper terang atau ramai"
+          isLightMode={isLightMode}
+          control={
+            <IosSwitch
+              checked={style.halo_enabled}
+              onChange={(halo_enabled) => onChange({ ...style, halo_enabled })}
+            />
+          }
+        />
       </div>
 
       {/* Presets */}
-      <div className="flex flex-col gap-2 pt-2 border-t border-white/10">
-        <span className={`text-[11px] font-semibold uppercase tracking-wide ${mutedText}`}>
+      <div className="flex flex-col gap-2.5 pt-2 border-t border-white/[0.06]">
+        <span className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${mutedText}`}>
           Preset Warna Tersimpan
         </span>
         <div className="flex flex-wrap gap-1.5">
@@ -433,19 +445,27 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
               key={p.id}
               type="button"
               onClick={() => onChange(p.style)}
-              className={`px-2.5 py-1 rounded-lg border text-[11.5px] font-medium cursor-pointer hover:border-blue-400 ${borderCls}`}
+              className={`px-3 py-1.5 rounded-[10px] border text-[11.5px] font-medium cursor-pointer transition-colors ${
+                isLightMode
+                  ? "border-black/10 hover:border-[#0a84ff] bg-black/[0.03]"
+                  : "border-white/10 hover:border-[#0a84ff] bg-white/[0.04]"
+              }`}
             >
               {p.name}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 mt-1">
+        <div className="flex items-center gap-2">
           <input
             type="text"
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
-            placeholder="Nama preset baru..."
-            className={`flex-1 px-2.5 py-1.5 rounded-lg border text-[12px] ${borderCls}`}
+            placeholder="Simpan gaya ini sebagai preset..."
+            className={`flex-1 h-9 px-3 rounded-[10px] border text-[12px] outline-none focus:border-[#0a84ff] ${
+              isLightMode
+                ? "bg-black/[0.03] border-black/10 text-neutral-900"
+                : "bg-[#1a1b22] border-white/10 text-white"
+            }`}
           />
           <button
             type="button"
@@ -454,9 +474,9 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
               onSavePreset(presetName.trim(), style);
               setPresetName("");
             }}
-            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[12px] font-medium flex items-center gap-1.5 cursor-pointer"
+            className="h-9 px-3.5 rounded-[10px] bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
           >
-            <Save size={13} /> Simpan Preset
+            <Save size={13} /> Simpan
           </button>
         </div>
       </div>

@@ -27,8 +27,15 @@ pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let city = if p.city_name.is_empty() { "Jakarta" } else { &p.city_name };
 
     let mut nodes = vec![
+        SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
+            glyph: "\u{E708}".into(),
+            size: 15.0,
+            color: ctx.pal.positive,
+            interactive_action: None,
+        },
         text_node(
-            RectF::new(inner.x, inner.y, inner.w * 0.65, 16.0),
+            RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
             format!("SHOLAT . {}", city.to_uppercase()),
             10.5,
             700,

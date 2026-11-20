@@ -188,6 +188,13 @@ pub enum SceneNode {
         radius: f32,
         source_path: String,
     },
+    IconGlyph {
+        rect: RectF,
+        glyph: String,
+        size: f32,
+        color: RgbaColor,
+        interactive_action: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -243,6 +250,11 @@ impl WidgetRenderItem {
                     ..
                 }
                 | SceneNode::ProgressBar {
+                    rect,
+                    interactive_action,
+                    ..
+                }
+                | SceneNode::IconGlyph {
                     rect,
                     interactive_action,
                     ..
