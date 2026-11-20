@@ -235,18 +235,32 @@ pub mod render {
             res: &D2DDeviceResources,
             source: &str,
         ) -> Option<ID2D1Bitmap1> {
-            if let Some(bmp) = self.image_cache.get(source) {
+            let trimmed = source.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Some(bmp) = self.image_cache.get(trimmed) {
                 return Some(bmp.clone());
             }
-            let img = if let Some(b64_part) = source
+            let img = if let Some(b64_part) = trimmed
                 .strip_prefix("data:")
                 .and_then(|rest| rest.split_once(";base64,").map(|(_, b)| b))
             {
                 use base64::Engine;
-                let bytes = base64::engine::general_purpose::STANDARD.decode(b64_part).ok()?;
+                let cleaned: String = b64_part.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(&cleaned)
+                    .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(&cleaned))
+                    .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(&cleaned))
+                    .ok()?;
                 image::load_from_memory(&bytes).ok()?
             } else {
-                image::open(source).ok()?
+                let path = trimmed
+                    .strip_prefix("file:///")
+                    .or_else(|| trimmed.strip_prefix("file://"))
+                    .map(|p| p.replace("%20", " "))
+                    .unwrap_or_else(|| trimmed.to_string());
+                image::open(path).ok()?
             };
             let rgba = img.thumbnail(360, 360).to_rgba8();
             let (w, h) = rgba.dimensions();
@@ -282,7 +296,7 @@ pub mod render {
             if self.image_cache.len() > 24 {
                 self.image_cache.clear();
             }
-            self.image_cache.insert(source.to_string(), bmp.clone());
+            self.image_cache.insert(trimmed.to_string(), bmp.clone());
             Some(bmp)
         }
 

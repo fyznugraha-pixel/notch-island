@@ -723,25 +723,47 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         );
     }
     let inner = ctx.frame.inset(14.0);
-    let has_art = m
+    let art_src = m
         .thumbnail_path_or_data
         .as_deref()
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let art_sz = match ctx.size {
-        WidgetSize::Small => 36.0,
-        WidgetSize::Medium => (inner.h * 0.38).clamp(38.0, 48.0),
-        WidgetSize::Large => 54.0,
+        WidgetSize::Small => 40.0,
+        WidgetSize::Medium => (inner.h * 0.44).clamp(46.0, 52.0),
+        WidgetSize::Large => 56.0,
     };
-    let text_x = if has_art { inner.x + art_sz + 11.0 } else { inner.x };
+    let art_rect = RectF::new(inner.x, inner.y, art_sz, art_sz);
+    let art_radius = crate::layout::concentric_radius(24.0, 12.0);
+    let text_x = inner.x + art_sz + 12.0;
     let text_w = (inner.x + inner.w - text_x - 26.0).max(40.0);
 
-    let mut nodes = Vec::new();
-    if let Some(src) = m.thumbnail_path_or_data.as_deref().filter(|s| !s.trim().is_empty()) {
+    let mut nodes = vec![SceneNode::RoundedRect {
+        rect: art_rect,
+        radius: art_radius,
+        smoothing: 0.5,
+        fill: Some(ctx.pal.surface_chip),
+        stroke: None,
+        interactive_action: None,
+    }];
+    if let Some(src) = art_src {
         nodes.push(SceneNode::ImageRef {
-            rect: RectF::new(inner.x, inner.y, art_sz, art_sz),
-            radius: crate::layout::concentric_radius(24.0, 12.0),
+            rect: art_rect,
+            radius: art_radius,
             source_path: src.to_string(),
+        });
+    } else {
+        nodes.push(SceneNode::IconGlyph {
+            rect: RectF::new(
+                art_rect.x + (art_sz - 18.0) * 0.5,
+                art_rect.y + (art_sz - 18.0) * 0.5,
+                18.0,
+                18.0,
+            ),
+            glyph: "\u{E8D6}".into(),
+            size: 16.0,
+            color: ctx.pal.secondary,
+            interactive_action: None,
         });
     }
 
@@ -802,7 +824,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     };
 
     let bar_y = inner.y + inner.h - 5.0;
-    let lyric_top = inner.y + art_sz + 8.0;
+    let lyric_top = inner.y + art_sz + 7.0;
     let lyrics_avail_h = (bar_y - 6.0 - lyric_top).max(16.0);
     let lyric_text = if !m.active_lyric_line.is_empty() {
         m.active_lyric_line.clone()

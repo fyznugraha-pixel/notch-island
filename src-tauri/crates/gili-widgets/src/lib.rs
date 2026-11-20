@@ -663,6 +663,24 @@ mod tests {
             }
         }
 
+        // With album thumbnail provided, cover ImageRef must always be emitted at >= 46dp
+        hub.media.thumbnail_path_or_data = Some("data:image/png;base64,AAA".into());
+        let np_with_cover = build_widget_render_item(
+            &np_slot,
+            RectF::new(16.0, 16.0, 285.6, 136.0),
+            &white_theme,
+            &analysis,
+            &hub,
+            0.0,
+        );
+        let has_cover = np_with_cover.nodes.iter().any(|n| {
+            matches!(
+                n,
+                layout::SceneNode::ImageRef { rect, .. } if rect.w >= 46.0 && rect.h >= 46.0
+            )
+        });
+        assert!(has_cover, "Cover album Now Playing wajib selalu dirender");
+
         // All 4 calendar styles build cleanly across S/M/L; bulan_minimal bolds today without a blue box
         let default_cfg = DesktopWidgetsConfig::default();
         assert_eq!(
