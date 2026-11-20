@@ -196,6 +196,12 @@ pub enum SceneNode {
         color: RgbaColor,
         interactive_action: Option<String>,
     },
+    WeatherIcon {
+        rect: RectF,
+        code: i32,
+        cloud_color: RgbaColor,
+        accent_color: RgbaColor,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -274,8 +280,14 @@ impl WidgetRenderItem {
                     let padded = RectF::new(
                         (rect.x - pad).max(self.frame.x),
                         (rect.y - pad).max(self.frame.y),
-                        (rect.w + pad * 2.0).min((self.frame.x + self.frame.w - (rect.x - pad).max(self.frame.x)).max(0.0)),
-                        (rect.h + pad * 2.0).min((self.frame.y + self.frame.h - (rect.y - pad).max(self.frame.y)).max(0.0)),
+                        (rect.w + pad * 2.0).min(
+                            (self.frame.x + self.frame.w - (rect.x - pad).max(self.frame.x))
+                                .max(0.0),
+                        ),
+                        (rect.h + pad * 2.0).min(
+                            (self.frame.y + self.frame.h - (rect.y - pad).max(self.frame.y))
+                                .max(0.0),
+                        ),
                     );
                     self.content_hit_rects.push(HitRegion {
                         bounds: padded,
@@ -305,7 +317,8 @@ impl WidgetRenderItem {
                 SceneNode::Sparkline { rect, .. }
                 | SceneNode::BarChart { rect, .. }
                 | SceneNode::HeatmapGrid { rect, .. }
-                | SceneNode::Treemap { rect, .. } => {
+                | SceneNode::Treemap { rect, .. }
+                | SceneNode::WeatherIcon { rect, .. } => {
                     self.content_hit_rects.push(HitRegion {
                         bounds: *rect,
                         slot_id: self.slot_id.clone(),
@@ -379,7 +392,12 @@ pub fn hit_test_scene(
     HitTestResult::Transparent
 }
 
-pub fn slot_rect_dp(slot: &WidgetStackSlot, grid_scale: f32, origin_x: f32, origin_y: f32) -> RectF {
+pub fn slot_rect_dp(
+    slot: &WidgetStackSlot,
+    grid_scale: f32,
+    origin_x: f32,
+    origin_y: f32,
+) -> RectF {
     let cell = GRID_SMALL_DP * grid_scale;
     let gap = GRID_GAP_DP * grid_scale;
     let is_photo_frame = slot
@@ -550,6 +568,9 @@ mod tests {
             area2 += x1 * y2 - x2 * y1;
         }
         let area = area2 * 0.5;
-        assert!(area > 24_000.0 && area < 25_600.0, "Superellipse area invalid: {area}");
+        assert!(
+            area > 24_000.0 && area < 25_600.0,
+            "Superellipse area invalid: {area}"
+        );
     }
 }

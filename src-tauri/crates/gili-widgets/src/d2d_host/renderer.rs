@@ -324,6 +324,230 @@ pub mod render {
             }
         }
 
+        fn draw_weather_icon(
+            &self,
+            res: &D2DDeviceResources,
+            rect: RectF,
+            code: i32,
+            cloud_color: RgbaColor,
+            accent_color: RgbaColor,
+        ) {
+            let s = rect.w.min(rect.h).max(8.0);
+            let ox = rect.x + (rect.w - s) * 0.5;
+            let oy = rect.y + (rect.h - s) * 0.5;
+            let ctx = &res.d2d_context;
+
+            let draw_sun = |cx: f32, cy: f32, r: f32, ray_in: f32, ray_out: f32, sw: f32, col: RgbaColor| unsafe {
+                self.brush.SetColor(&d2d_color(col));
+                ctx.FillEllipse(
+                    &D2D1_ELLIPSE {
+                        point: D2D_POINT_2F { x: cx, y: cy },
+                        radiusX: r,
+                        radiusY: r,
+                    },
+                    &self.brush,
+                );
+                for i in 0..8 {
+                    let a = (i as f32) * std::f32::consts::FRAC_PI_4;
+                    ctx.DrawLine(
+                        D2D_POINT_2F {
+                            x: cx + ray_in * a.cos(),
+                            y: cy + ray_in * a.sin(),
+                        },
+                        D2D_POINT_2F {
+                            x: cx + ray_out * a.cos(),
+                            y: cy + ray_out * a.sin(),
+                        },
+                        &self.brush,
+                        sw,
+                        &self.round_stroke,
+                    );
+                }
+            };
+
+            let draw_cloud = |cx_base: f32, cy_base: f32, scale: f32, col: RgbaColor| unsafe {
+                let u = s * scale;
+                self.brush.SetColor(&d2d_color(col));
+                ctx.FillRoundedRectangle(
+                    &D2D1_ROUNDED_RECT {
+                        rect: D2D_RECT_F {
+                            left: cx_base - 0.36 * u,
+                            top: cy_base - 0.08 * u,
+                            right: cx_base + 0.36 * u,
+                            bottom: cy_base + 0.16 * u,
+                        },
+                        radiusX: 0.12 * u,
+                        radiusY: 0.12 * u,
+                    },
+                    &self.brush,
+                );
+                for (dx, dy, r) in [(-0.19, -0.02, 0.18), (0.02, -0.11, 0.22), (0.22, 0.01, 0.15)] {
+                    ctx.FillEllipse(
+                        &D2D1_ELLIPSE {
+                            point: D2D_POINT_2F {
+                                x: cx_base + dx * u,
+                                y: cy_base + dy * u,
+                            },
+                            radiusX: r * u,
+                            radiusY: r * u,
+                        },
+                        &self.brush,
+                    );
+                }
+            };
+
+            match code {
+                0 => {
+                    draw_sun(
+                        ox + 0.50 * s,
+                        oy + 0.50 * s,
+                        0.21 * s,
+                        0.29 * s,
+                        0.39 * s,
+                        (0.085 * s).max(1.3),
+                        accent_color,
+                    );
+                }
+                1..=2 => {
+                    draw_sun(
+                        ox + 0.67 * s,
+                        oy + 0.33 * s,
+                        0.14 * s,
+                        0.20 * s,
+                        0.27 * s,
+                        (0.070 * s).max(1.1),
+                        accent_color,
+                    );
+                    draw_cloud(ox + 0.45 * s, oy + 0.57 * s, 0.92, cloud_color);
+                }
+                3 => {
+                    draw_cloud(
+                        ox + 0.58 * s,
+                        oy + 0.42 * s,
+                        0.72,
+                        cloud_color.with_alpha(cloud_color.a * 0.52),
+                    );
+                    draw_cloud(ox + 0.45 * s, oy + 0.57 * s, 0.94, cloud_color);
+                }
+                45 | 48 => {
+                    draw_cloud(ox + 0.50 * s, oy + 0.43 * s, 0.92, cloud_color);
+                    let mist_sw = (0.085 * s).max(1.4);
+                    unsafe {
+                        self.brush
+                            .SetColor(&d2d_color(cloud_color.with_alpha(cloud_color.a * 0.75)));
+                        for (x0, x1, y) in [(0.20, 0.80, 0.68), (0.26, 0.74, 0.81)] {
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: ox + x0 * s,
+                                    y: oy + y * s,
+                                },
+                                D2D_POINT_2F {
+                                    x: ox + x1 * s,
+                                    y: oy + y * s,
+                                },
+                                &self.brush,
+                                mist_sw,
+                                &self.round_stroke,
+                            );
+                        }
+                    }
+                }
+                51..=57 => {
+                    draw_cloud(ox + 0.50 * s, oy + 0.43 * s, 0.92, cloud_color);
+                    let drop_sw = (0.090 * s).max(1.4);
+                    unsafe {
+                        self.brush.SetColor(&d2d_color(accent_color));
+                        for (dx, y0) in [(-0.14, 0.65), (0.10, 0.67)] {
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: ox + (0.50 + dx) * s,
+                                    y: oy + y0 * s,
+                                },
+                                D2D_POINT_2F {
+                                    x: ox + (0.50 + dx - 0.05) * s,
+                                    y: oy + (y0 + 0.14) * s,
+                                },
+                                &self.brush,
+                                drop_sw,
+                                &self.round_stroke,
+                            );
+                        }
+                    }
+                }
+                61..=67 | 80..=82 => {
+                    draw_cloud(ox + 0.50 * s, oy + 0.41 * s, 0.94, cloud_color);
+                    let rain_sw = (0.095 * s).max(1.45);
+                    unsafe {
+                        self.brush.SetColor(&d2d_color(accent_color));
+                        for (dx, y0) in [(-0.20, 0.64), (0.00, 0.68), (0.20, 0.64)] {
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: ox + (0.50 + dx) * s,
+                                    y: oy + y0 * s,
+                                },
+                                D2D_POINT_2F {
+                                    x: ox + (0.50 + dx - 0.06) * s,
+                                    y: oy + (y0 + 0.16) * s,
+                                },
+                                &self.brush,
+                                rain_sw,
+                                &self.round_stroke,
+                            );
+                        }
+                    }
+                }
+                95..=99 => {
+                    draw_cloud(ox + 0.50 * s, oy + 0.40 * s, 0.94, cloud_color);
+                    let bolt_sw = (0.095 * s).max(1.45);
+                    let rain_sw = (0.080 * s).max(1.2);
+                    unsafe {
+                        self.brush
+                            .SetColor(&d2d_color(cloud_color.with_alpha(cloud_color.a * 0.72)));
+                        for dx in [-0.22f32, 0.22] {
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: ox + (0.50 + dx) * s,
+                                    y: oy + 0.63 * s,
+                                },
+                                D2D_POINT_2F {
+                                    x: ox + (0.50 + dx - 0.05) * s,
+                                    y: oy + 0.77 * s,
+                                },
+                                &self.brush,
+                                rain_sw,
+                                &self.round_stroke,
+                            );
+                        }
+                        self.brush.SetColor(&d2d_color(accent_color));
+                        let pts = [
+                            (0.53, 0.56),
+                            (0.43, 0.70),
+                            (0.53, 0.70),
+                            (0.45, 0.87),
+                        ];
+                        for w in pts.windows(2) {
+                            ctx.DrawLine(
+                                D2D_POINT_2F {
+                                    x: ox + w[0].0 * s,
+                                    y: oy + w[0].1 * s,
+                                },
+                                D2D_POINT_2F {
+                                    x: ox + w[1].0 * s,
+                                    y: oy + w[1].1 * s,
+                                },
+                                &self.brush,
+                                bolt_sw,
+                                &self.round_stroke,
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    draw_cloud(ox + 0.50 * s, oy + 0.54 * s, 0.96, cloud_color);
+                }
+            }
+        }
+
         fn build_superellipse_geometry(
             &self,
             res: &D2DDeviceResources,
@@ -1862,6 +2086,14 @@ pub mod render {
                             }
                         }
                     }
+                }
+                SceneNode::WeatherIcon {
+                    rect,
+                    code,
+                    cloud_color,
+                    accent_color,
+                } => {
+                    self.draw_weather_icon(res, *rect, *code, *cloud_color, *accent_color);
                 }
                 SceneNode::IconGlyph {
                     rect,

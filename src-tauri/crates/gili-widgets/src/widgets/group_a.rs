@@ -1049,13 +1049,17 @@ fn weather_code_label(code: i32) -> &'static str {
     }
 }
 
-fn weather_code_fluent_glyph(code: i32) -> &'static str {
+fn weather_icon_accent(ctx: &WidgetBuildCtx<'_>, code: i32) -> crate::config::RgbaColor {
+    if ctx.pal.is_monochrome {
+        return match code {
+            0..=2 | 95..=99 => ctx.pal.primary,
+            _ => ctx.pal.primary.with_alpha((ctx.pal.primary.a * 0.85).clamp(0.0, 1.0)),
+        };
+    }
     match code {
-        0 => "\u{E706}",
-        1..=3 | 45 | 48 => "\u{E753}",
-        51..=67 | 80..=82 => "\u{EB42}",
-        95..=99 => "\u{E945}",
-        _ => "\u{E753}",
+        0..=2 | 95..=99 => ctx.pal.warning,
+        51..=67 | 80..=82 => crate::config::RgbaColor::new(0x60, 0xA5, 0xFA, 1.0),
+        _ => ctx.pal.secondary,
     }
 }
 
@@ -1074,14 +1078,9 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         );
     }
     let inner = ctx.frame.inset(16.0);
-    let icon_col = if ctx.pal.is_monochrome {
-        ctx.pal.primary
-    } else {
-        ctx.pal.warning
-    };
     let mut nodes = vec![
         crate::widgets::text_node_line(
-            RectF::new(inner.x, inner.y, inner.w - 28.0, 16.0),
+            RectF::new(inner.x, inner.y, inner.w - 30.0, 16.0),
             &w.location_name,
             12.5,
             600,
@@ -1089,12 +1088,11 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ),
-        SceneNode::IconGlyph {
-            rect: RectF::new(inner.x + inner.w - 24.0, inner.y - 2.0, 24.0, 24.0),
-            glyph: weather_code_fluent_glyph(w.current_code).to_string(),
-            size: 18.0,
-            color: icon_col,
-            interactive_action: None,
+        SceneNode::WeatherIcon {
+            rect: RectF::new(inner.x + inner.w - 26.0, inner.y - 4.0, 26.0, 26.0),
+            code: w.current_code,
+            cloud_color: ctx.pal.primary,
+            accent_color: weather_icon_accent(ctx, w.current_code),
         },
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 15.0, 108.0, 48.0),
@@ -1145,12 +1143,11 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 TextAlign::Center,
                 true,
             ));
-            nodes.push(SceneNode::IconGlyph {
-                rect: RectF::new(x + (col_w - 18.0) * 0.5, inner.y + 37.0, 18.0, 18.0),
-                glyph: weather_code_fluent_glyph(pt.code).to_string(),
-                size: 13.5,
-                color: icon_col,
-                interactive_action: None,
+            nodes.push(SceneNode::WeatherIcon {
+                rect: RectF::new(x + (col_w - 20.0) * 0.5, inner.y + 36.0, 20.0, 20.0),
+                code: pt.code,
+                cloud_color: ctx.pal.primary,
+                accent_color: weather_icon_accent(ctx, pt.code),
             });
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(x, inner.y + 58.0, col_w, 17.0),
@@ -1200,7 +1197,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             let track_w = 54.0;
             let track_x = hi_x - 6.0 - track_w;
             let lo_x = track_x - 36.0;
-            let day_w = (lo_x - inner.x - 24.0).max(52.0);
+            let day_w = (lo_x - inner.x - 26.0).max(52.0);
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(inner.x, y, day_w, 18.0),
                 &d.day_label,
@@ -1210,12 +1207,11 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 TextAlign::Left,
                 false,
             ));
-            nodes.push(SceneNode::IconGlyph {
-                rect: RectF::new(inner.x + day_w + 2.0, y + 1.0, 16.0, 16.0),
-                glyph: weather_code_fluent_glyph(d.code).to_string(),
-                size: 13.0,
-                color: icon_col,
-                interactive_action: None,
+            nodes.push(SceneNode::WeatherIcon {
+                rect: RectF::new(inner.x + day_w + 2.0, y - 1.0, 20.0, 20.0),
+                code: d.code,
+                cloud_color: ctx.pal.primary,
+                accent_color: weather_icon_accent(ctx, d.code),
             });
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(lo_x, y, 32.0, 18.0),

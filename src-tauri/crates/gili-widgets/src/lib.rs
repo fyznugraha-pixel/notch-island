@@ -1179,7 +1179,7 @@ mod tests {
             "Nominal kurs Small 0.85x harus mengecil < 24pt & 1 baris"
         );
 
-        // 7. Weather forecast rain codes emit valid Windows glyph U+EB42 instead of missing U+E9C0
+        // 7. Weather forecast renders native vector WeatherIcon nodes with monochrome compliance
         hub.weather.available = true;
         hub.weather.location_name = "Jakarta".into();
         hub.weather.current_code = 61;
@@ -1208,15 +1208,20 @@ mod tests {
             &hub,
             0.0,
         );
-        let glyphs: Vec<&str> = wf_item
-            .nodes
-            .iter()
-            .filter_map(|n| match n {
-                layout::SceneNode::IconGlyph { glyph, .. } => Some(glyph.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert!(!glyphs.contains(&"\u{E9C0}"), "Kode U+E9C0 tidak tersedia di font ikon Windows");
-        assert!(glyphs.contains(&"\u{EB42}"), "Ikon hujan harus memakai glyph valid U+EB42");
+        let has_weather_vec = wf_item.nodes.iter().any(|n| {
+            matches!(
+                n,
+                layout::SceneNode::WeatherIcon { code: 61, cloud_color, accent_color, .. }
+                    if cloud_color.r == cloud_color.g && accent_color.r == accent_color.g
+            )
+        });
+        assert!(has_weather_vec, "Cuaca wajib memakai vektor WeatherIcon netral saat monokrom");
+        assert!(
+            !wf_item
+                .nodes
+                .iter()
+                .any(|n| matches!(n, layout::SceneNode::IconGlyph { .. })),
+            "Cuaca tidak boleh fallback ke IconGlyph font tunggal"
+        );
     }
 }
