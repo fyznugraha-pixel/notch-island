@@ -21,6 +21,10 @@ import {
   type DockPosition,
 } from "../../../services/taskbarI18n";
 import { useNavbarLightMode } from "../navbarThemeUtils";
+import {
+  isStandbyDeepEcoPaused,
+  subscribeStandbyDeepEcoPaused,
+} from "../../../utils/standbyDeepEcoGuard";
 
 interface SystemTrayGroupProps {
   accentColor?: string;
@@ -159,8 +163,16 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
     updateDateTime();
     if (isPreview) return;
 
-    const interval = setInterval(updateDateTime, showSeconds ? 1000 : 10000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (!isStandbyDeepEcoPaused()) updateDateTime();
+    }, showSeconds ? 1000 : 10000);
+    const unsubDeepEco = subscribeStandbyDeepEcoPaused((paused) => {
+      if (!paused) updateDateTime();
+    });
+    return () => {
+      clearInterval(interval);
+      unsubDeepEco();
+    };
   }, [renderClock, isHidden, isPreview, showSeconds, use24HourClock, showDayOfWeek, effectiveLocale]);
 
   useEffect(() => {
@@ -181,11 +193,21 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
     };
 
     fetchBattery();
-    const batteryPollInterval = !isPreview ? setInterval(fetchBattery, 5000) : null;
+    const batteryPollInterval = !isPreview
+      ? setInterval(() => {
+          if (!isStandbyDeepEcoPaused()) fetchBattery();
+        }, 5000)
+      : null;
+    const unsubDeepEco = !isPreview
+      ? subscribeStandbyDeepEcoPaused((paused) => {
+          if (!paused) fetchBattery();
+        })
+      : null;
 
     return () => {
       isMounted = false;
       if (batteryPollInterval) clearInterval(batteryPollInterval);
+      unsubDeepEco?.();
     };
   }, [renderSys, isHidden, isPreview]);
 

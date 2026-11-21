@@ -19,6 +19,7 @@ interface StandbyMediaViewProps {
   palette: StandbyPalette;
   language: Language;
   reducedMotion: boolean;
+  deepEcoActive?: boolean;
 }
 
 function fmtSec(sec: number): string {
@@ -38,10 +39,12 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
   palette,
   language,
   reducedMotion,
+  deepEcoActive = false,
 }) => {
   const isId = language === "id";
   const resolvedArt = useResolvedThumbnail(media);
   const [tintHex, setTintHex] = useState("#1a1423");
+  const [preblurredBackdrop, setPreblurredBackdrop] = useState<string | null>(null);
   const lyricsViewportRef = useRef<HTMLDivElement | null>(null);
   const activeLineRef = useRef<HTMLButtonElement | null>(null);
   const manualScrollUntilRef = useRef(0);
@@ -55,6 +58,40 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
       cancelled = true;
     };
   }, [resolvedArt]);
+
+  // Bake the ambient blur once onto a 96x96 canvas instead of running a live 95px fullscreen CSS blur.
+  useEffect(() => {
+    if (!resolvedArt || palette.night || deepEcoActive) {
+      setPreblurredBackdrop(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 96;
+        canvas.height = 96;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.filter = "blur(10px) saturate(1.85) brightness(0.55)";
+        ctx.drawImage(img, -12, -12, 120, 120);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+        if (!cancelled) setPreblurredBackdrop(dataUrl);
+      } catch {
+        if (!cancelled) setPreblurredBackdrop(null);
+      }
+    };
+    img.onerror = () => {
+      if (!cancelled) setPreblurredBackdrop(null);
+    };
+    img.src = resolvedArt;
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedArt, palette.night, deepEcoActive]);
 
   useEffect(() => {
     if (performance.now() < manualScrollUntilRef.current) return;
@@ -119,13 +156,19 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
       {/* Full-bleed edge-to-edge macOS Apple Music backdrop */}
       {!palette.night && (
         <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden bg-[#070709]">
-          {resolvedArt && (
+          {!deepEcoActive && preblurredBackdrop ? (
+            <img
+              src={preblurredBackdrop}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover scale-110 transition-opacity duration-700"
+            />
+          ) : !deepEcoActive && resolvedArt ? (
             <img
               src={resolvedArt}
               alt=""
-              className="absolute inset-0 w-full h-full object-cover scale-125 blur-[95px] saturate-[1.85] brightness-[0.55] transition-opacity duration-700"
+              className="absolute inset-0 w-full h-full object-cover scale-125 blur-[24px] saturate-[1.6] brightness-[0.55] transition-opacity duration-700"
             />
-          )}
+          ) : null}
           <div
             className="absolute inset-0 transition-colors duration-700"
             style={{
@@ -181,7 +224,7 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
           >
             <div className="text-center md:text-left">
               <div className="flex items-center justify-center md:justify-start gap-2 mb-1">
-                {media.is_playing && !reducedMotion && (
+                {media.is_playing && !reducedMotion && !deepEcoActive && (
                   <span className="inline-flex items-end gap-[2.5px] h-3">
                     <span className="w-[3px] h-full rounded-full animate-eq-bar" style={{ backgroundColor: palette.textPrimary }} />
                     <span className="w-[3px] h-full rounded-full animate-eq-bar" style={{ backgroundColor: palette.textPrimary, animationDelay: "0.18s" }} />
@@ -324,8 +367,8 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
                         nextLineTime={nextLineTime}
                         effectiveTime={effectiveTime}
                         isActive={isActive}
-                        isPlaying={media.is_playing}
-                        prefersReducedMotion={reducedMotion}
+                        isPlaying={media.is_playing && !deepEcoActive}
+                        prefersReducedMotion={reducedMotion || deepEcoActive}
                         baseColor={
                           palette.night
                             ? "rgba(255, 69, 58, 0.38)"

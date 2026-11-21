@@ -32,6 +32,7 @@ interface StandbyWidgetStackProps {
   use24h: boolean;
   showSeconds: boolean;
   reducedMotion: boolean;
+  deepEcoActive?: boolean;
   battery: StandbyPowerState | null;
   weather: WeatherData | null;
   weatherLoading: boolean;
@@ -69,6 +70,7 @@ export const StandbyWidgetStack: React.FC<StandbyWidgetStackProps> = ({
   use24h,
   showSeconds,
   reducedMotion,
+  deepEcoActive = false,
   battery,
   weather,
   weatherLoading,
@@ -150,6 +152,7 @@ export const StandbyWidgetStack: React.FC<StandbyWidgetStackProps> = ({
             use24h={use24h}
             showSeconds={showSeconds}
             reducedMotion={reducedMotion}
+            deepEcoActive={deepEcoActive}
             language={language}
             battery={battery}
           />
@@ -199,6 +202,7 @@ export const StandbyWidgetStack: React.FC<StandbyWidgetStackProps> = ({
             palette={palette}
             language={language}
             reducedMotion={reducedMotion}
+            deepEcoActive={deepEcoActive}
           />
         );
       case "calendar":

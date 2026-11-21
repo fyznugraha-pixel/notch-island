@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  isStandbyDeepEcoPaused,
+  subscribeStandbyDeepEcoPaused,
+} from "../utils/standbyDeepEcoGuard";
 
 const LEASE_RENEW_MS = 1000;
 const STALE_AFTER_MS = 1200;
@@ -30,10 +34,15 @@ export function useTaskbarAudioSpectrum(enabled: boolean): TaskbarAudioSpectrumS
     const startedAt = Date.now();
     let lastEventAt = 0;
     const renewLease = () => {
+      if (isStandbyDeepEcoPaused()) return;
       invoke("renew_taskbar_spectrum_lease").catch(() => {});
     };
     renewLease();
+    const unsubDeepEco = subscribeStandbyDeepEcoPaused((paused) => {
+      if (!paused) renewLease();
+    });
     const leaseTimer = setInterval(() => {
+      if (isStandbyDeepEcoPaused()) return;
       renewLease();
       const now = Date.now();
       if (lastEventAt && now - lastEventAt > STALE_AFTER_MS) {
@@ -49,6 +58,7 @@ export function useTaskbarAudioSpectrum(enabled: boolean): TaskbarAudioSpectrumS
     });
     return () => {
       clearInterval(leaseTimer);
+      unsubDeepEco();
       unlisten.then((fn) => fn());
       setState({ bands: null, unavailable: false });
     };

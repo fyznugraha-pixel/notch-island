@@ -33,6 +33,10 @@ import { Tooltip } from "./components/ui/Tooltip";
 import { NotchSurface } from "./components/ui/NotchSurface";
 import { subscribeToSystemMetrics } from "./services/systemMetricsService";
 import {
+  isStandbyDeepEcoPaused,
+  subscribeStandbyDeepEcoPaused,
+} from "./utils/standbyDeepEcoGuard";
+import {
   getDefaultBlurForOpacity,
   resolveNotchThemeMode,
   computeNotchGlassCssVars,
@@ -4942,7 +4946,22 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     let pauseTimer: number | null = null;
     const maxHz = screenRefreshRate || 60;
 
+    const clearScheduled = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      if (pauseTimer !== null) {
+        clearTimeout(pauseTimer);
+        pauseTimer = null;
+      }
+    };
+
     const tick = (now: number) => {
+      if (isStandbyDeepEcoPaused()) {
+        rafId = null;
+        return;
+      }
       frameCount++;
       const elapsed = now - lastTime;
       if (elapsed >= 350) {
@@ -4952,6 +4971,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         setFps((prev) => (prev === displayFps ? prev : displayFps));
         rafId = null;
         pauseTimer = window.setTimeout(() => {
+          if (isStandbyDeepEcoPaused()) return;
           frameCount = 0;
           lastTime = performance.now();
           rafId = requestAnimationFrame(tick);
@@ -4961,10 +4981,23 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       rafId = requestAnimationFrame(tick);
     };
 
-    rafId = requestAnimationFrame(tick);
+    const startSampling = () => {
+      clearScheduled();
+      if (isStandbyDeepEcoPaused()) return;
+      frameCount = 0;
+      lastTime = performance.now();
+      rafId = requestAnimationFrame(tick);
+    };
+
+    startSampling();
+    const unsubDeepEco = subscribeStandbyDeepEcoPaused((paused) => {
+      if (paused) clearScheduled();
+      else startSampling();
+    });
+
     return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      if (pauseTimer !== null) clearTimeout(pauseTimer);
+      unsubDeepEco();
+      clearScheduled();
     };
   }, [needsFpsCounter, screenRefreshRate]);
 

@@ -6,6 +6,7 @@ import { WeatherData } from "../../../services/weatherService";
 import { MediaPayload } from "../../../services/mediaLyricsStore";
 import { useResolvedThumbnail } from "../../ui/MediaThumbnail";
 import { StandbyPalette, formatTimeParts } from "../standbyTheme";
+import { shouldStepStandbyColon } from "../standbyClockPolicy";
 import { StandbyAnalogClockWidget } from "../widgets/StandbyAnalogClockWidget";
 import { StandbyPowerState } from "../widgets/StandbyDigitalClockWidget";
 import { describeWeatherCode, renderWeatherIcon } from "../widgets/StandbyWeatherPrayerWidget";
@@ -17,6 +18,7 @@ interface StandbyClockFaceViewProps {
   use24h: boolean;
   showSeconds: boolean;
   reducedMotion?: boolean;
+  deepEcoActive?: boolean;
   language: Language;
   battery: StandbyPowerState | null;
   weather: WeatherData | null;
@@ -32,6 +34,7 @@ export const StandbyClockFaceView: React.FC<StandbyClockFaceViewProps> = ({
   use24h,
   showSeconds,
   reducedMotion = false,
+  deepEcoActive = false,
   language,
   battery,
   weather,
@@ -62,7 +65,11 @@ export const StandbyClockFaceView: React.FC<StandbyClockFaceViewProps> = ({
     : {
         color: primaryColor,
       };
-  const colonClass = reducedMotion ? "" : "animate-standby-colon";
+  const colonOpacity = shouldStepStandbyColon(showSeconds, reducedMotion, deepEcoActive)
+    ? now.getSeconds() % 2 === 0
+      ? 0.92
+      : 0.42
+    : 0.92;
 
   return (
     <div className="w-[min(94vw,1540px)] max-h-screen mx-auto px-6 py-16 flex flex-col items-center justify-center gap-6 select-none">
@@ -136,7 +143,7 @@ export const StandbyClockFaceView: React.FC<StandbyClockFaceViewProps> = ({
               }}
             >
               {hours}
-              <span className={colonClass}>:</span>
+              <span style={{ opacity: colonOpacity }}>:</span>
               {minutes}
             </span>
             {showSeconds && (
@@ -173,7 +180,7 @@ export const StandbyClockFaceView: React.FC<StandbyClockFaceViewProps> = ({
                 }}
               >
                 {hours}
-                <span className={colonClass}>:</span>
+                <span style={{ opacity: colonOpacity }}>:</span>
                 {minutes}
               </span>
               {showSeconds && (
@@ -210,7 +217,7 @@ export const StandbyClockFaceView: React.FC<StandbyClockFaceViewProps> = ({
               }}
             >
               {hours}
-              <span className={colonClass}>:</span>
+              <span style={{ opacity: colonOpacity }}>:</span>
               {minutes}
             </span>
             <div className="flex flex-col items-start gap-1.5">

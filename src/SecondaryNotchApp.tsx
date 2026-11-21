@@ -26,6 +26,10 @@ import { getCachedWeather, startWeatherAutoSync } from "./services/weatherServic
 import { getTextWidth } from "./utils/text";
 import { getPerceivedLuminance } from "./utils/colorUtils";
 import {
+  isStandbyDeepEcoPaused,
+  subscribeStandbyDeepEcoPaused,
+} from "./utils/standbyDeepEcoGuard";
+import {
   NotchPosition,
   isBottomNotchPosition,
   isSideCenterNotchPosition,
@@ -151,8 +155,16 @@ export const SecondaryNotchApp: React.FC = () => {
   });
 
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
+    const timer = setInterval(() => {
+      if (!isStandbyDeepEcoPaused()) setTime(new Date());
+    }, 1000);
+    const unsubDeepEco = subscribeStandbyDeepEcoPaused((paused) => {
+      if (!paused) setTime(new Date());
+    });
+    return () => {
+      clearInterval(timer);
+      unsubDeepEco();
+    };
   }, []);
 
   useEffect(() => {
@@ -187,10 +199,16 @@ export const SecondaryNotchApp: React.FC = () => {
     };
 
     fetchMetrics();
-    const interval = setInterval(fetchMetrics, 1500);
+    const interval = setInterval(() => {
+      if (!isStandbyDeepEcoPaused()) fetchMetrics();
+    }, 1500);
+    const unsubDeepEco = subscribeStandbyDeepEcoPaused((paused) => {
+      if (!paused) fetchMetrics();
+    });
     return () => {
       mounted = false;
       clearInterval(interval);
+      unsubDeepEco();
     };
   }, [needsSystemMetrics]);
 

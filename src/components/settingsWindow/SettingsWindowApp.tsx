@@ -143,7 +143,7 @@ export const SettingsWindowApp: React.FC = () => {
   }, []);
 
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("5.2.0");
+  const [currentAppVersion, setCurrentAppVersion] = useState("5.2.1");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());

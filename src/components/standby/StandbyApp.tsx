@@ -59,6 +59,12 @@ import {
 } from "../../services/todoUtils";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { resolveStandbyPalette } from "./standbyTheme";
+import {
+  computeNextClockDelayMs,
+  isStandbyMediaSurfaceVisible,
+  standbyLyricsTickIntervalMs,
+  standbyNeedsSecondTicks,
+} from "./standbyClockPolicy";
 import { StandbyPowerState } from "./widgets/StandbyDigitalClockWidget";
 import { StandbyWidgetStack } from "./views/StandbyWidgetStack";
 import { StandbyClockFaceView } from "./views/StandbyClockFaceView";
@@ -119,8 +125,10 @@ export const StandbyApp: React.FC = () => {
   const resolvedMediaArt = useResolvedThumbnail(media);
   const [mediaGlowHex, setMediaGlowHex] = useState<string | null>(null);
 
+  const mediaSurfaceVisible = isStandbyMediaSurfaceVisible(config);
+
   useEffect(() => {
-    if (!resolvedMediaArt) {
+    if (!resolvedMediaArt || !mediaSurfaceVisible) {
       setMediaGlowHex(null);
       return;
     }
@@ -131,16 +139,21 @@ export const StandbyApp: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [resolvedMediaArt]);
+  }, [resolvedMediaArt, mediaSurfaceVisible]);
 
   const pomodoro = usePomodoro({ isSecondary: true });
+  const lyricsTickMs = standbyLyricsTickIntervalMs(
+    Boolean(lyrics.synced && lyrics.lines.length > 0),
+    deepEcoActive,
+  );
   const { activeIndex, livePosition, liveDuration, seekLocal } = useLyricsSync(
     lyrics,
     media.position || 0,
     media.duration || 0,
     media.is_playing,
     lyrics.offset || 0,
-    config.active_screen !== "media" && config.right_widget !== "media",
+    !mediaSurfaceVisible,
+    lyricsTickMs,
   );
 
   const dismissingRef = useRef(false);
@@ -286,10 +299,30 @@ export const StandbyApp: React.FC = () => {
     };
   }, [bumpHud]);
 
+  const needsSecondTicks = standbyNeedsSecondTicks(config);
+
   useEffect(() => {
-    const clockTimer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(clockTimer);
-  }, []);
+    let timerId: number | null = null;
+    let disposed = false;
+
+    const scheduleNextTick = () => {
+      if (disposed) return;
+      const delayMs = computeNextClockDelayMs(Date.now(), needsSecondTicks);
+      timerId = window.setTimeout(() => {
+        if (disposed) return;
+        setNow(new Date());
+        scheduleNextTick();
+      }, delayMs);
+    };
+
+    setNow(new Date());
+    scheduleNextTick();
+
+    return () => {
+      disposed = true;
+      if (timerId !== null) window.clearTimeout(timerId);
+    };
+  }, [needsSecondTicks]);
 
   useEffect(() => {
     if (!config.burn_in_protection || reducedMotion) {
@@ -483,14 +516,22 @@ export const StandbyApp: React.FC = () => {
     persistUpdate({ clock_style: CLOCK_STYLES[nextIdx] });
   }, [config.clock_style, persistUpdate]);
 
-  const hudSurfaceStyle: React.CSSProperties = {
+  const hudPhaseHidden = transitionPhase !== "visible";
+  const topHudVisible = !hudPhaseHidden && (launchContext.close_on_activity || hudVisible);
+  const bottomHudVisible = !hudPhaseHidden && hudVisible && !launchContext.close_on_activity;
+
+  const makeHudSurfaceStyle = (visible: boolean): React.CSSProperties => ({
     backgroundColor: palette.hudBg,
     borderColor: palette.cardBorder,
-    backdropFilter: palette.night ? "none" : "blur(26px) saturate(180%)",
-    boxShadow: palette.night
-      ? "none"
-      : "0 14px 34px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.16)",
-  };
+    backdropFilter:
+      !palette.night && !deepEcoActive && visible ? "blur(26px) saturate(180%)" : "none",
+    boxShadow:
+      !palette.night && visible
+        ? "0 14px 34px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.16)"
+        : "none",
+  });
+  const topHudSurfaceStyle = makeHudSurfaceStyle(topHudVisible);
+  const bottomHudSurfaceStyle = makeHudSurfaceStyle(bottomHudVisible);
 
   const stageMotionStyle: React.CSSProperties = reducedMotion
     ? { opacity: transitionPhase === "exiting" ? 0 : 1 }
@@ -498,21 +539,23 @@ export const StandbyApp: React.FC = () => {
     ? {
         opacity: 0,
         transform: "scale(1.032)",
+        willChange: "transform, opacity",
         transition: "opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 460ms cubic-bezier(0.22, 1, 0.36, 1)",
       }
     : transitionPhase === "exiting"
     ? {
         opacity: 0,
         transform: "scale(0.972)",
+        willChange: "transform, opacity",
         transition: "opacity 230ms cubic-bezier(0.4, 0, 0.2, 1), transform 230ms cubic-bezier(0.4, 0, 0.2, 1)",
       }
     : {
         opacity: 1,
         transform: "scale(1)",
+        willChange: "auto",
         transition: "opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 460ms cubic-bezier(0.22, 1, 0.36, 1)",
       };
 
-  const hudPhaseHidden = transitionPhase !== "visible";
   const screensaverDimActive =
     deepEcoActive &&
     config.screensaver_dim_enabled &&
@@ -558,7 +601,7 @@ export const StandbyApp: React.FC = () => {
       >
         <div
           className="px-3.5 py-1.5 rounded-full border text-[12px] font-semibold flex items-center gap-2"
-          style={{ ...hudSurfaceStyle, color: palette.textSecondary }}
+          style={{ ...topHudSurfaceStyle, color: palette.textSecondary }}
         >
           <span
             className="w-2 h-2 rounded-full"
@@ -595,7 +638,7 @@ export const StandbyApp: React.FC = () => {
           <nav
             aria-label={isId ? "Mode Layar StandBy" : "StandBy Screen Modes"}
             className="flex items-center gap-1 p-1 rounded-full border"
-            style={hudSurfaceStyle}
+            style={topHudSurfaceStyle}
           >
             {(
               [
@@ -637,7 +680,7 @@ export const StandbyApp: React.FC = () => {
               aria-label={isId ? "Ubah Mode Malam" : "Toggle Night Mode"}
               onClick={() => setNightOverride((prev) => !(prev ?? nightActive))}
               className="w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-transform hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]"
-              style={{ ...hudSurfaceStyle, color: palette.textPrimary }}
+              style={{ ...topHudSurfaceStyle, color: palette.textPrimary }}
             >
               {nightActive ? <Sun size={16} /> : <Moon size={16} />}
             </button>
@@ -653,7 +696,7 @@ export const StandbyApp: React.FC = () => {
                 }
               }}
               className="w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-transform hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]"
-              style={{ ...hudSurfaceStyle, color: palette.textPrimary }}
+              style={{ ...topHudSurfaceStyle, color: palette.textPrimary }}
             >
               <Settings size={16} />
             </button>
@@ -663,7 +706,7 @@ export const StandbyApp: React.FC = () => {
               aria-label={isId ? "Tutup StandBy" : "Exit StandBy"}
               onClick={handleDismiss}
               className="px-3.5 h-9 rounded-full border flex items-center gap-1.5 text-[12px] font-semibold cursor-pointer transition-transform hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]"
-              style={{ ...hudSurfaceStyle, color: palette.textPrimary }}
+              style={{ ...topHudSurfaceStyle, color: palette.textPrimary }}
             >
               <X size={15} />
               <span>{isId ? "Keluar" : "Exit"}</span>
@@ -674,7 +717,7 @@ export const StandbyApp: React.FC = () => {
 
       {/* Full-Bleed Screen Stage (100vw x 100vh) */}
       <div
-        className="absolute inset-0 w-full h-full flex items-center justify-center will-change-transform"
+        className="absolute inset-0 w-full h-full flex items-center justify-center"
         style={stageMotionStyle}
       >
         <div
@@ -684,11 +727,11 @@ export const StandbyApp: React.FC = () => {
           }`}
           style={{
             transform: `translate(${shiftX}px, ${shiftY}px)`,
-            opacity: screensaverDimActive ? 0.78 : 1,
-            filter: screensaverDimActive ? "brightness(0.84)" : "none",
+            // Dim via opacity alone over #000000 to avoid a fullscreen CSS filter pass.
+            opacity: screensaverDimActive ? 0.66 : 1,
             transition: reducedMotion
               ? "none"
-              : "transform 1000ms ease, opacity 1400ms ease, filter 1400ms ease",
+              : "transform 1000ms ease, opacity 1400ms ease",
           }}
         >
           {config.active_screen === "widgets" && (
@@ -704,6 +747,7 @@ export const StandbyApp: React.FC = () => {
               use24h={config.use_24h}
               showSeconds={config.show_seconds}
               reducedMotion={reducedMotion}
+              deepEcoActive={deepEcoActive}
               battery={battery}
               weather={weather}
               weatherLoading={weatherLoading}
@@ -733,6 +777,7 @@ export const StandbyApp: React.FC = () => {
               use24h={config.use_24h}
               showSeconds={config.show_seconds}
               reducedMotion={reducedMotion}
+              deepEcoActive={deepEcoActive}
               language={optLanguage}
               battery={battery}
               weather={weather}
@@ -753,6 +798,7 @@ export const StandbyApp: React.FC = () => {
               palette={palette}
               language={optLanguage}
               reducedMotion={reducedMotion}
+              deepEcoActive={deepEcoActive}
             />
           )}
 
@@ -786,7 +832,7 @@ export const StandbyApp: React.FC = () => {
               ? "pointer-events-none"
               : "pointer-events-auto"
           }`}
-          style={hudSurfaceStyle}
+          style={bottomHudSurfaceStyle}
         >
           {SCREENS.map((scr) => {
             const active = config.active_screen === scr;

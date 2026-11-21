@@ -18,6 +18,7 @@ interface StandbyMediaWidgetProps {
   palette: StandbyPalette;
   language: Language;
   reducedMotion: boolean;
+  deepEcoActive?: boolean;
 }
 
 function fmtSec(sec: number): string {
@@ -37,6 +38,7 @@ export const StandbyMediaWidget: React.FC<StandbyMediaWidgetProps> = ({
   palette,
   language,
   reducedMotion,
+  deepEcoActive = false,
 }) => {
   const isId = language === "id";
   const resolvedArt = useResolvedThumbnail(media);
@@ -141,7 +143,7 @@ export const StandbyMediaWidget: React.FC<StandbyMediaWidgetProps> = ({
                 ? "Dijeda"
                 : "Paused"}
             </span>
-            {media.is_playing && !reducedMotion && (
+            {media.is_playing && !reducedMotion && !deepEcoActive && (
               <span className="inline-flex items-end gap-[2px] h-2.5">
                 <span className="w-[2.5px] h-full rounded-full animate-eq-bar" style={{ backgroundColor: palette.accent }} />
                 <span className="w-[2.5px] h-full rounded-full animate-eq-bar" style={{ backgroundColor: palette.accent, animationDelay: "0.2s" }} />
@@ -215,8 +217,8 @@ export const StandbyMediaWidget: React.FC<StandbyMediaWidgetProps> = ({
                       nextLineTime={nextLineTime}
                       effectiveTime={effectiveTime}
                       isActive={isActive}
-                      isPlaying={media.is_playing}
-                      prefersReducedMotion={reducedMotion}
+                      isPlaying={media.is_playing && !deepEcoActive}
+                      prefersReducedMotion={reducedMotion || deepEcoActive}
                       baseColor={
                         palette.night
                           ? "rgba(255, 69, 58, 0.4)"

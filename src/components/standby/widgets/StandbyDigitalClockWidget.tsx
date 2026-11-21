@@ -1,6 +1,7 @@
 import React from "react";
 import { Battery, BatteryCharging } from "lucide-react";
 import { StandbyPalette, formatTimeParts } from "../standbyTheme";
+import { shouldStepStandbyColon } from "../standbyClockPolicy";
 import { Language } from "../../../services/i18n";
 
 export interface StandbyPowerState {
@@ -14,20 +15,27 @@ interface StandbyDigitalClockWidgetProps {
   use24h: boolean;
   showSeconds: boolean;
   reducedMotion?: boolean;
+  deepEcoActive?: boolean;
   language: Language;
   battery: StandbyPowerState | null;
 }
 
-export const StandbyDigitalClockWidget: React.FC<StandbyDigitalClockWidgetProps> = ({
+export const StandbyDigitalClockWidget: React.FC<StandbyDigitalClockWidgetProps> = React.memo(({
   now,
   palette,
   use24h,
   showSeconds,
   reducedMotion = false,
+  deepEcoActive = false,
   language,
   battery,
 }) => {
   const { hours, minutes, seconds, period } = formatTimeParts(now, use24h);
+  const colonOpacity = shouldStepStandbyColon(showSeconds, reducedMotion, deepEcoActive)
+    ? now.getSeconds() % 2 === 0
+      ? 0.92
+      : 0.42
+    : 0.92;
   const locale = language === "id" ? "id-ID" : "en-US";
   const dateLabel = now.toLocaleDateString(locale, {
     weekday: "long",
@@ -66,7 +74,7 @@ export const StandbyDigitalClockWidget: React.FC<StandbyDigitalClockWidgetProps>
           }}
         >
           {hours}
-          <span className={reducedMotion ? "" : "animate-standby-colon"}>:</span>
+          <span style={{ opacity: colonOpacity }}>:</span>
           {minutes}
         </span>
         <div className="flex flex-col items-start justify-end gap-1 pb-1 shrink-0">
@@ -98,4 +106,4 @@ export const StandbyDigitalClockWidget: React.FC<StandbyDigitalClockWidgetProps>
       <div className="h-2 shrink-0" aria-hidden="true" />
     </div>
   );
-};
+});

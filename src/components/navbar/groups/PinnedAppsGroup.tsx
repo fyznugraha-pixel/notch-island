@@ -20,6 +20,10 @@ import {
   getNavbarTooltipSide,
 } from "../../../services/taskbarI18n";
 import { useNavbarLightMode } from "../navbarThemeUtils";
+import {
+  isStandbyDeepEcoPaused,
+  subscribeStandbyDeepEcoPaused,
+} from "../../../utils/standbyDeepEcoGuard";
 
 export interface NavbarAppItem {
   id: string;
@@ -348,7 +352,12 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     }
 
     syncWindows();
-    const interval = setInterval(syncWindows, 1200);
+    const interval = setInterval(() => {
+      if (!isStandbyDeepEcoPaused()) syncWindows();
+    }, 1200);
+    const unsubDeepEco = subscribeStandbyDeepEcoPaused((paused) => {
+      if (!paused) syncWindows();
+    });
     const handleFastSync = () => {
       syncWindows();
     };
@@ -356,6 +365,7 @@ export const PinnedAppsGroup: React.FC<PinnedAppsGroupProps> = ({
     return () => {
       isCancelled = true;
       clearInterval(interval);
+      unsubDeepEco();
       window.removeEventListener("gili_sync_running_windows", handleFastSync);
     };
   }, [isPreview, isHidden]);

@@ -113,7 +113,7 @@ export const lrclibProvider: LyricsProvider = {
       }
     }
 
-    const headers = { "User-Agent": "Gili/5.2.0 (https://github.com/faiz)" };
+    const headers = { "User-Agent": "Gili/5.2.1 (https://github.com/faiz)" };
 
     try {
       // 1. Run exact get + targeted search in parallel for instant response (< 500ms)

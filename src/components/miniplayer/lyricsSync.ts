@@ -32,7 +32,8 @@ export function useLyricsSync(
   initialDuration: number,
   isPlaying: boolean,
   offset: number = 0,
-  isPaused: boolean = false
+  isPaused: boolean = false,
+  tickIntervalMs: number = 50
 ) {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [livePosition, setLivePosition] = useState<number>(initialPosition);
@@ -122,10 +123,11 @@ export function useLyricsSync(
     }
 
     syncPlaybackState();
-    const interval = setInterval(syncPlaybackState, 50);
+    const safeIntervalMs = Math.max(50, Math.round(tickIntervalMs));
+    const interval = setInterval(syncPlaybackState, safeIntervalMs);
 
     return () => clearInterval(interval);
-  }, [lyrics?.synced, lyrics?.lines, lyrics?.offset, isPlaying, isPaused, liveDuration, offset]);
+  }, [lyrics?.synced, lyrics?.lines, lyrics?.offset, isPlaying, isPaused, liveDuration, offset, tickIntervalMs]);
 
   // When lyrics track changes or offset changes, re-evaluate immediately
   useEffect(() => {

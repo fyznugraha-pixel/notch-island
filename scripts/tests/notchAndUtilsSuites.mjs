@@ -1614,6 +1614,104 @@ function registerAiRouterAndConversationSuite(getLoader) {
   });
 }
 
+function registerStandbyClockPolicySuite(getLoader) {
+  describe("StandBy Clock & Power Policy", () => {
+    let policy;
+
+    before(async () => {
+      const loader = getLoader();
+      policy = await loader.loadModule("/src/components/standby/standbyClockPolicy.ts");
+    });
+
+    it("gates 1-second clock ticks strictly to screens displaying seconds", () => {
+      assert.equal(
+        policy.standbyNeedsSecondTicks({
+          active_screen: "widgets",
+          left_widget: "clock_analog",
+          show_seconds: true,
+        }),
+        true
+      );
+      assert.equal(
+        policy.standbyNeedsSecondTicks({
+          active_screen: "widgets",
+          left_widget: "clock_digital",
+          show_seconds: true,
+        }),
+        true
+      );
+      assert.equal(
+        policy.standbyNeedsSecondTicks({
+          active_screen: "widgets",
+          left_widget: "clock_analog",
+          show_seconds: false,
+        }),
+        false
+      );
+      assert.equal(
+        policy.standbyNeedsSecondTicks({
+          active_screen: "widgets",
+          left_widget: "pomodoro",
+          show_seconds: true,
+        }),
+        false
+      );
+      assert.equal(
+        policy.standbyNeedsSecondTicks({
+          active_screen: "clock",
+          left_widget: "todo",
+          show_seconds: true,
+        }),
+        true
+      );
+      assert.equal(
+        policy.standbyNeedsSecondTicks({
+          active_screen: "weather",
+          left_widget: "clock_analog",
+          show_seconds: true,
+        }),
+        false
+      );
+      assert.equal(
+        policy.standbyNeedsSecondTicks({
+          active_screen: "media",
+          left_widget: "clock_analog",
+          show_seconds: true,
+        }),
+        false
+      );
+    });
+
+    it("aligns next clock delay cleanly to second or minute boundaries", () => {
+      assert.equal(policy.computeNextClockDelayMs(10_250, true), 765);
+      assert.equal(policy.computeNextClockDelayMs(10_995, true), 100);
+      assert.equal(policy.computeNextClockDelayMs(60_000 + 15_000, false), 45_025);
+      assert.equal(policy.computeNextClockDelayMs(60_000 + 59_900, false), 1000);
+    });
+
+    it("tracks visible media surfaces and throttles lyrics ticks in deep eco", () => {
+      assert.equal(
+        policy.isStandbyMediaSurfaceVisible({ active_screen: "media", right_widget: "weather_prayer" }),
+        true
+      );
+      assert.equal(
+        policy.isStandbyMediaSurfaceVisible({ active_screen: "widgets", right_widget: "media" }),
+        true
+      );
+      assert.equal(
+        policy.isStandbyMediaSurfaceVisible({ active_screen: "clock", right_widget: "media" }),
+        false
+      );
+      assert.equal(policy.standbyLyricsTickIntervalMs(true, false), 120);
+      assert.equal(policy.standbyLyricsTickIntervalMs(false, false), 500);
+      assert.equal(policy.standbyLyricsTickIntervalMs(true, true), 1000);
+      assert.equal(policy.shouldStepStandbyColon(true, false, false), true);
+      assert.equal(policy.shouldStepStandbyColon(true, false, true), false);
+      assert.equal(policy.shouldStepStandbyColon(false, false, false), false);
+    });
+  });
+}
+
 export function registerNotchAndUtilsSuites(getLoader) {
   registerNotchGeometrySuite(getLoader);
   registerCalculatorSuite(getLoader);
@@ -1622,6 +1720,7 @@ export function registerNotchAndUtilsSuites(getLoader) {
   registerProductivitySuite(getLoader);
   registerNotificationHistorySuite(getLoader);
   registerAiRouterAndConversationSuite(getLoader);
+  registerStandbyClockPolicySuite(getLoader);
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {

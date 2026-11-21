@@ -58,6 +58,7 @@ pub fn start(app: AppHandle) {
             let mut was_esc_down = false;
             let mut last_loop_mono = now_monotonic_ms();
             let mut last_wake_mono: u64 = 0;
+            let mut last_sec_monitor_check_mono: u64 = 0;
 
             loop {
                 let cfg = get_config_snapshot();
@@ -142,7 +143,11 @@ pub fn start(app: AppHandle) {
                         }
                     }
 
-                    if cfg.activation_mode == "secondary_permanent" && ctx.trigger == "secondary_permanent" {
+                    if cfg.activation_mode == "secondary_permanent"
+                        && ctx.trigger == "secondary_permanent"
+                        && now_mono.saturating_sub(last_sec_monitor_check_mono) >= 2_000
+                    {
+                        last_sec_monitor_check_mono = now_mono;
                         let monitors = enumerate_physical_monitors();
                         if select_target_monitor(&monitors, cfg.target_monitor_id.as_deref(), true)
                             .is_none()

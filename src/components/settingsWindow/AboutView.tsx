@@ -18,6 +18,36 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "5.2.1",
+    date: "22 Nov 2026",
+    highlights: [
+      {
+        icon: <Cpu size={14} />,
+        titleId: "Optimasi CPU WebView2 & Hemat Daya Mode StandBy",
+        titleEn: "StandBy Mode WebView2 CPU & Overnight Power Optimization",
+        descId: "Memperbaiki lonjakan pemakaian CPU WebView2 (~25%) dan kenaikan suhu saat mode StandBy aktif atau idle semalaman dengan mengganti loop rAF 60-144Hz dan drop-shadow SVG Jam Analog menjadi dial statis ter-memoisasi, melepas WS_EX_LAYERED setelah animasi masuk selesai, menghapus filter CSS layar penuh saat layar diredupkan, memanggang blur backdrop Media sekali per lagu, serta menjeda poller latar belakang Taskbar dan Notch saat Deep Eco aktif.",
+        descEn: "Fixes sustained WebView2 CPU spikes (~25%) and heat buildup while StandBy mode runs idle overnight by replacing the 60-144Hz Analog Clock rAF loop and SVG drop-shadow with a memoized static dial and 1Hz hand, clearing WS_EX_LAYERED after fade-in completes, removing fullscreen dim CSS filters, pre-blurring Media backdrops once per track, and pausing background Taskbar and Notch pollers during Deep Eco.",
+        badge: "fix",
+      },
+      {
+        icon: <BarChart2 size={14} />,
+        titleId: "Audio Visualizer Taskbar Realtime via WASAPI Loopback",
+        titleEn: "Realtime Taskbar Audio Visualizer via WASAPI Loopback",
+        descId: "Menggerakkan modul Audio Visualizer di Gili Taskbar dengan spektrum FFT realtime dari WASAPI loopback sehingga batang equalizer langsung merespons audio sistem yang sedang diputar.",
+        descEn: "Drives the Gili Taskbar Audio Visualizer module with realtime WASAPI loopback FFT spectrum bands so equalizer bars react live to active system audio.",
+        badge: "improve",
+      },
+      {
+        icon: <LayoutGrid size={14} />,
+        titleId: "Perbaikan Skala Teks Windows & Batas Widget Frameless",
+        titleEn: "Windows Text-Scale Clipping Fix & Tighter Frameless Widget Bounds",
+        descId: "Memperbaiki teks yang terpotong ketika pengaturan Windows Text Scale diperbesar serta merapikan batas tampilan widget desktop mode frameless agar tetap proporsional di berbagai DPI.",
+        descEn: "Fixes clipped text under elevated Windows Text Scale settings and tightens frameless desktop widget bounds for clean proportions across DPI configurations.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "5.2.0",
     date: "21 Nov 2026",
     highlights: [

@@ -53,11 +53,16 @@ fn is_os_animations_enabled() -> bool {
     }
 }
 
+pub(crate) fn should_use_layered_window(alpha: u8) -> bool {
+    alpha < 255
+}
+
 #[cfg(windows)]
 fn apply_standby_alpha(win: &tauri::WebviewWindow, alpha: u8) -> bool {
     use windows::Win32::Foundation::{COLORREF, HWND};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, SetLayeredWindowAttributes, SetWindowLongW, GWL_EXSTYLE, LWA_ALPHA,
+        GetWindowLongW, SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos, GWL_EXSTYLE,
+        LWA_ALPHA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
         WS_EX_LAYERED,
     };
     let Ok(raw_hwnd) = win.hwnd() else {
@@ -66,6 +71,23 @@ fn apply_standby_alpha(win: &tauri::WebviewWindow, alpha: u8) -> bool {
     let hwnd = HWND(raw_hwnd.0);
     unsafe {
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+        if !should_use_layered_window(alpha) {
+            // Clear WS_EX_LAYERED once fully opaque so DWM can use DirectFlip/MPO on fullscreen WebView2.
+            if (ex_style & WS_EX_LAYERED.0) != 0 {
+                SetWindowLongW(hwnd, GWL_EXSTYLE, (ex_style & !WS_EX_LAYERED.0) as i32);
+                let _ = SetWindowPos(
+                    hwnd,
+                    HWND(std::ptr::null_mut()),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+            }
+            CURRENT_ALPHA.store(255, Ordering::SeqCst);
+            return true;
+        }
         if (ex_style & WS_EX_LAYERED.0) == 0 {
             SetWindowLongW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_LAYERED.0) as i32);
         }
@@ -736,11 +758,16 @@ fn position_standby_hwnd(
         unsafe {
             let mut ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
             ex_style &= !WS_EX_APPWINDOW.0;
-            ex_style |= WS_EX_TOOLWINDOW.0 | WS_EX_LAYERED.0;
-            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style as i32);
-
+            ex_style |= WS_EX_TOOLWINDOW.0;
             let initial_alpha = if start_transparent { 0 } else { 255 };
-            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), initial_alpha, LWA_ALPHA);
+            if should_use_layered_window(initial_alpha) {
+                ex_style |= WS_EX_LAYERED.0;
+                SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style as i32);
+                let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), initial_alpha, LWA_ALPHA);
+            } else {
+                ex_style &= !WS_EX_LAYERED.0;
+                SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style as i32);
+            }
             CURRENT_ALPHA.store(initial_alpha, Ordering::SeqCst);
 
             let insert_after = if top_most {
@@ -1025,6 +1052,14 @@ mod tests {
         // Partial fade-out when interrupted mid-enter
         assert_eq!(compute_eased_alpha(140, 0, 0.0, true), 140);
         assert_eq!(compute_eased_alpha(140, 0, 1.0, true), 0);
+    }
+
+    #[test]
+    fn layered_window_flag_only_active_during_alpha_fade() {
+        assert!(should_use_layered_window(0));
+        assert!(should_use_layered_window(128));
+        assert!(should_use_layered_window(254));
+        assert!(!should_use_layered_window(255));
     }
 
     #[test]
