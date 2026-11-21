@@ -6,7 +6,7 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 3;
 pub const GRID_SMALL_DP: f32 = 160.0;
 pub const GRID_MEDIUM_W_DP: f32 = 336.0;
 pub const GRID_LARGE_DP: f32 = 336.0;
-pub const GRID_GAP_DP: f32 = 16.0;
+pub const GRID_GAP_DP: f32 = 8.0;
 pub const CARD_RADIUS_DP: f32 = 26.0;
 pub const CARD_CORNER_SMOOTHING: f32 = 0.65;
 

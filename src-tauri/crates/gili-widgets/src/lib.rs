@@ -2222,4 +2222,114 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn frameless_widgets_use_tight_visual_content_bounds_for_collision_and_hit_testing() {
+        let mut hub = WidgetDataHub::default();
+        hub.frontend.todos = vec![
+            providers::TodoSnapshotItem {
+                id: "t1".into(),
+                text: "Take Home SIA Praktikum 1".into(),
+                completed: false,
+                group: None,
+            },
+            providers::TodoSnapshotItem {
+                id: "t2".into(),
+                text: "Submit Tugas 2 - DATA WAREHOUSE".into(),
+                completed: false,
+                group: None,
+            },
+            providers::TodoSnapshotItem {
+                id: "t3".into(),
+                text: "ERWJ Assignment - BAHASA INGGRIS".into(),
+                completed: true,
+                group: None,
+            },
+        ];
+        hub.currency_gold.usd_to_idr = Some(18_262.0);
+        hub.currency_gold.eur_to_idr = Some(20_052.0);
+        hub.currency_gold.sgd_to_idr = Some(14_147.0);
+        hub.currency_gold.gold_usd_per_oz = Some(3_550.0);
+        hub.currency_gold.currency_source = "open.er-api.com".into();
+
+        let frameless_theme = WidgetStyleConfig {
+            background_mode: config::BackgroundMode::None,
+            ..WidgetStyleConfig::default()
+        };
+        let scale = 0.85f32;
+        let (large_w, large_h) = config::WidgetSize::Large.dimensions_dp(scale);
+        let (med_w, med_h) = config::WidgetSize::Medium.dimensions_dp(scale);
+
+        let cal_slot = WidgetStackSlot {
+            slot_id: "cal_lg".into(),
+            size: config::WidgetSize::Large,
+            pos_x: Some(32.0),
+            pos_y: Some(48.0),
+            widgets: vec![WidgetInstance {
+                instance_id: "c1".into(),
+                widget_type: "calendar_agenda".into(),
+                style_override: None,
+                settings: serde_json::json!({ "calendar_style": "bulan_header" }),
+            }],
+            ..Default::default()
+        };
+        let cal_off = widgets::slot_content_offset_dp(
+            &cal_slot,
+            large_w,
+            large_h,
+            &frameless_theme,
+            &hub,
+            false,
+        );
+        // Large calendar month grid must not stretch across the entire 285.6dp outer height
+        assert!(
+            cal_off.1 + cal_off.3 < large_h - 45.0,
+            "Large frameless calendar visual bounds should be compact, got {:?} vs outer_h={}",
+            cal_off,
+            large_h
+        );
+
+        let todo_slot = WidgetStackSlot {
+            slot_id: "todo_med".into(),
+            size: config::WidgetSize::Medium,
+            pos_x: Some(32.0),
+            // Placed directly below the Large calendar's visual content (inside the outer 285.6dp box)
+            pos_y: Some(48.0 + cal_off.1 + cal_off.3 + 4.0),
+            widgets: vec![WidgetInstance {
+                instance_id: "td1".into(),
+                widget_type: "todo_groups".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let todo_off = widgets::slot_content_offset_dp(
+            &todo_slot,
+            med_w,
+            med_h,
+            &frameless_theme,
+            &hub,
+            false,
+        );
+        assert!(
+            todo_off.3 < med_h - 28.0,
+            "3-item todo widget visual height should be tighter than 136dp box, got {:?}",
+            todo_off
+        );
+
+        let mut slots = vec![cal_slot, todo_slot];
+        let offsets = vec![cal_off, todo_off];
+        let pushed = layout::resolve_all_rect_collisions_with_offsets(
+            &mut slots,
+            &offsets,
+            None,
+            scale,
+            1920.0,
+            1040.0,
+        );
+        assert!(
+            !pushed,
+            "Frameless todo placed below Large calendar's visual content must not be pushed away by empty outer box"
+        );
+    }
 }

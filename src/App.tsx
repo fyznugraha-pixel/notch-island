@@ -5617,6 +5617,44 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   );
 
   const currentVariantSize = variants[variant as keyof typeof variants] || variants.idle;
+  const [viewportBounds, setViewportBounds] = useState(() => ({
+    w: typeof window !== "undefined" ? window.innerWidth : 820,
+    h: typeof window !== "undefined" ? window.innerHeight : 500,
+  }));
+  const notchFitScale = useMemo(() => {
+    const earReserve = effectiveEars && !isIsland && !isSideCenter ? 56 : 0;
+    const reqW = currentVariantSize.width + earReserve + 8;
+    const reqH = currentVariantSize.height + (isIsland ? islandTopOffset : 0) + 8;
+    if (reqW <= 0 || reqH <= 0 || viewportBounds.w <= 0 || viewportBounds.h <= 0) return 1;
+    if (reqW <= viewportBounds.w && reqH <= viewportBounds.h) return 1;
+    return Math.max(0.55, Math.min(1, viewportBounds.w / reqW, viewportBounds.h / reqH));
+  }, [
+    currentVariantSize.width,
+    currentVariantSize.height,
+    effectiveEars,
+    isIsland,
+    isSideCenter,
+    islandTopOffset,
+    viewportBounds.w,
+    viewportBounds.h,
+  ]);
+  const notchFitScaleRef = useRef(1);
+  notchFitScaleRef.current = notchFitScale;
+  const fitTransformOrigin = isTopPos
+    ? isLeftPos
+      ? "top left"
+      : isRightPos
+        ? "top right"
+        : "top center"
+    : isBot
+      ? isLeftPos
+        ? "bottom left"
+        : isRightPos
+          ? "bottom right"
+          : "bottom center"
+      : isLeftPos
+        ? "center left"
+        : "center right";
   const lastExpandedSizeRef = useRef({ width: tabWidth, height: Math.round(385 * tabHeightMultiplier) });
   if (isExpandedPanel) {
     lastExpandedSizeRef.current = {
@@ -5637,12 +5675,13 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
   const syncPillSize = useCallback(() => {
     const currentSize = variantsRef.current?.[variantRef.current] || variantsRef.current?.idle || { width: 120, height: 35 };
+    const fitScale = notchFitScaleRef.current || 1;
     invoke("update_pill_size", {
-      width: currentSize.width,
-      height: currentSize.height,
+      width: currentSize.width * fitScale,
+      height: currentSize.height * fitScale,
       isBottom: isBottomNotchPosition(optPositionRef.current),
       position: optPositionRef.current,
-      topOffset: islandTopOffsetRef.current,
+      topOffset: islandTopOffsetRef.current * fitScale,
       isIsland: isIslandRef.current,
       dpr: window.devicePixelRatio || 1.0,
     }).catch(console.error);
@@ -5651,16 +5690,27 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   useEffect(() => {
     syncPillSize();
     invoke("enforce_always_on_top").catch(console.error);
-  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, idleSideWidth, idleSideHeight, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast, prayerToast, isQuickTodoSaved, isQuickTodoHasDue, isQuickNoteSaved, isQuickAiChatExpanded, syncPillSize]);
+  }, [variant, optPosition, notchShape, islandTopOffset, showLyrics, dynamicWidth, idleWidth, idleSideWidth, idleSideHeight, mediaPillWidth, lyricsIdleWidth, effectiveIdleSize, effectiveTabSize, optFontSize, controlCenterSubmenu, isNoteEditing, todoDynamicHeight, isAnyPanelOpen, waterToast, prayerToast, isQuickTodoSaved, isQuickTodoHasDue, isQuickNoteSaved, isQuickAiChatExpanded, notchFitScale, syncPillSize]);
 
   useEffect(() => {
+    let unlistenTextScale: (() => void) | null = null;
+    const handleViewportUpdate = () => {
+      setViewportBounds({ w: window.innerWidth, h: window.innerHeight });
+      syncPillSize();
+    };
     const mediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-    window.addEventListener("resize", syncPillSize);
-    mediaQuery.addEventListener?.("change", syncPillSize);
+    window.addEventListener("resize", handleViewportUpdate);
+    mediaQuery.addEventListener?.("change", handleViewportUpdate);
+    listen<number>("system:text-scale-changed", handleViewportUpdate)
+      .then((fn) => {
+        unlistenTextScale = fn;
+      })
+      .catch(() => {});
 
     return () => {
-      window.removeEventListener("resize", syncPillSize);
-      mediaQuery.removeEventListener?.("change", syncPillSize);
+      window.removeEventListener("resize", handleViewportUpdate);
+      mediaQuery.removeEventListener?.("change", handleViewportUpdate);
+      if (unlistenTextScale) unlistenTextScale();
     };
   }, [syncPillSize]);
 
@@ -5880,6 +5930,17 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         isInZone={miniPlayerProximity.is_in_zone}
         notchShape={notchShape}
       />
+      <div
+        className="flex pointer-events-none"
+        style={
+          notchFitScale < 0.999
+            ? {
+                transform: `scale(${notchFitScale})`,
+                transformOrigin: fitTransformOrigin,
+              }
+            : undefined
+        }
+      >
       <motion.div
         ref={notchPillRef}
         id="notch-pill"
@@ -7494,6 +7555,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           </AnimatePresence>
         </div>
       </motion.div>
+      </div>
     </div>
   );
 }

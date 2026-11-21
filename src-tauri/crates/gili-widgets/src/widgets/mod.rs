@@ -359,7 +359,8 @@ pub fn empty_state_nodes(
         ),
     ];
     let btn_w = (inner.w * 0.78).clamp(96.0, 136.0).min(inner.w);
-    let btn_rect = RectF::new(inner.x, inner.y + inner.h - 30.0, btn_w, 28.0);
+    let btn_y = (inner.y + 62.0).min(inner.y + inner.h - 30.0);
+    let btn_rect = RectF::new(inner.x, btn_y, btn_w, 28.0);
     nodes.extend(action_pill(
         btn_rect,
         cta_label,
@@ -368,6 +369,38 @@ pub fn empty_state_nodes(
         action_id,
     ));
     nodes
+}
+
+/// Computes the visual collision offset `(dx, dy, cw, ch)` of a slot relative to its outer `slot_rect`.
+/// For `BackgroundMode::None` (when not in high-contrast mode), this equals `item.visual_content_bounds()`
+/// relative to `(0, 0)` so unused card space does not block neighboring widgets.
+pub fn slot_content_offset_dp(
+    slot: &WidgetStackSlot,
+    outer_w: f32,
+    outer_h: f32,
+    global_theme: &WidgetStyleConfig,
+    hub: &WidgetDataHub,
+    high_contrast: bool,
+) -> (f32, f32, f32, f32) {
+    let style = slot
+        .active_widget()
+        .and_then(|w| w.style_override.as_ref())
+        .unwrap_or(global_theme);
+    if high_contrast || style.background_mode != BackgroundMode::None {
+        return (0.0, 0.0, outer_w, outer_h);
+    }
+    let dummy_analysis = crate::contrast::analyze_region_for_style(None, style, 0.0, 0.0, 0.25, 0.25);
+    let item = build_widget_render_item_with_policy(
+        slot,
+        RectF::new(0.0, 0.0, outer_w, outer_h),
+        global_theme,
+        &dummy_analysis,
+        hub,
+        0.0,
+        false,
+    );
+    let vb = item.visual_content_bounds();
+    (vb.x, vb.y, vb.w, vb.h)
 }
 
 fn resolve_widget_card_gradient(

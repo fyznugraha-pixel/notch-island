@@ -1931,6 +1931,53 @@ fn resolve_target_monitor(
         .or_else(|| monitors.into_iter().next())
 }
 
+pub(crate) const NOTCH_LOGICAL_WIDTH: f64 = 820.0;
+pub(crate) const NOTCH_LOGICAL_HEIGHT: f64 = 500.0;
+
+pub(crate) fn effective_webview_scale(monitor_sf: f64) -> f64 {
+    monitor_sf.max(1.0) * get_system_text_scale().clamp(1.0, 2.25)
+}
+
+fn compute_notch_window_rect_for_scale(
+    work_area_y: i32,
+    work_area_h: u32,
+    mon_x: i32,
+    mon_y: i32,
+    mon_w: u32,
+    mon_h: u32,
+    effective_sf: f64,
+    pos: NotchPos,
+    top_offset_phys: i32,
+) -> (i32, i32, u32, u32) {
+    let sf = effective_sf.max(1.0);
+    let max_h = if pos.is_bottom() && work_area_h > 0 {
+        work_area_h
+    } else {
+        mon_h
+    };
+    let expected_w = ((NOTCH_LOGICAL_WIDTH * sf).round() as u32).min(mon_w.max(1));
+    let expected_h = ((NOTCH_LOGICAL_HEIGHT * sf).round() as u32).min(max_h.max(1));
+
+    let x = if pos.is_left() {
+        mon_x + top_offset_phys
+    } else if pos.is_right() {
+        mon_x + (mon_w as i32 - expected_w as i32) - top_offset_phys
+    } else {
+        mon_x + (mon_w as i32 - expected_w as i32) / 2
+    };
+
+    let y = if pos.is_bottom() {
+        let base = work_area_y + (work_area_h as i32 - expected_h as i32);
+        (base - top_offset_phys).max(work_area_y)
+    } else if pos.is_top() {
+        mon_y + top_offset_phys
+    } else {
+        mon_y + (mon_h as i32 - expected_h as i32) / 2
+    };
+
+    (x, y, expected_w, expected_h)
+}
+
 fn compute_notch_window_rect(
     monitor: &tauri::Monitor,
     pos: NotchPos,
@@ -1939,28 +1986,18 @@ fn compute_notch_window_rect(
     let work_area = monitor.work_area();
     let physical_size = monitor.size();
     let physical_pos = monitor.position();
-    let m_sf = monitor.scale_factor();
-    let expected_w = (820.0 * m_sf).round() as u32;
-    let expected_h = (460.0 * m_sf).round() as u32;
-
-    let x = if pos.is_left() {
-        physical_pos.x + top_offset_phys
-    } else if pos.is_right() {
-        physical_pos.x + (physical_size.width as i32 - expected_w as i32) - top_offset_phys
-    } else {
-        physical_pos.x + (physical_size.width as i32 - expected_w as i32) / 2
-    };
-
-    let y = if pos.is_bottom() {
-        let base = work_area.position.y + (work_area.size.height as i32 - expected_h as i32);
-        base - top_offset_phys
-    } else if pos.is_top() {
-        physical_pos.y + top_offset_phys
-    } else {
-        physical_pos.y + (physical_size.height as i32 - expected_h as i32) / 2
-    };
-
-    (x, y, expected_w, expected_h)
+    let effective_sf = effective_webview_scale(monitor.scale_factor());
+    compute_notch_window_rect_for_scale(
+        work_area.position.y,
+        work_area.size.height,
+        physical_pos.x,
+        physical_pos.y,
+        physical_size.width,
+        physical_size.height,
+        effective_sf,
+        pos,
+        top_offset_phys,
+    )
 }
 
 fn position_notch_window_on_monitor(
@@ -2190,6 +2227,38 @@ fn reconcile_displays_on_change(app: &tauri::AppHandle) {
         use tauri::Emitter;
         let _ = app.emit("monitors-changed", ());
     }
+}
+
+pub(crate) fn reposition_notch_windows_on_text_scale_change(app: &tauri::AppHandle) {
+    let Some(main_win) = app.get_webview_window("main") else {
+        return;
+    };
+    let (pos, top_offset, is_island, target_mon) = app
+        .state::<PillSize>()
+        .0
+        .lock()
+        .map(|s| (s.pos, s.top_offset, s.is_island, s.target_monitor.clone()))
+        .unwrap_or((NotchPos::Top, 0.0, false, None));
+    let effective_sf = effective_webview_scale(main_win.scale_factor().unwrap_or(1.0));
+    let phys_offset = if is_island {
+        (top_offset as f64 * effective_sf).round() as i32
+    } else {
+        0
+    };
+    position_notch_window(&main_win, pos, phys_offset, target_mon.as_deref());
+    let is_all = target_mon
+        .as_deref()
+        .is_some_and(|t| t.trim().eq_ignore_ascii_case("all"));
+    if is_all {
+        sync_all_displays_windows(app, true);
+    }
+    use tauri::Emitter;
+    for (label, _) in app.webview_windows() {
+        if navbar_window::is_navbar_window_label(&label) {
+            let _ = app.emit_to(&label, "navbar-request-sync-bounds", ());
+        }
+    }
+    backdrop_blur::invalidate_all_backdrops();
 }
 
 fn sync_all_displays_windows_inner(
@@ -2462,10 +2531,12 @@ fn update_pill_size(
     let dpr = dpr.unwrap_or(0.0);
     let mut reposition_params: Option<(f32, Option<String>)> = None;
     if let Ok(mut size) = state.0.lock() {
+        let dpr_changed = dpr > 0.0 && (size.dpr - dpr).abs() > 0.01;
         let should_reposition = size.top_offset != top_offset
             || size.is_island != is_island
             || size.is_bottom != pos.is_bottom()
-            || size.pos != pos;
+            || size.pos != pos
+            || dpr_changed;
         size.width = width;
         size.height = height;
         size.is_bottom = pos.is_bottom();
@@ -5143,9 +5214,8 @@ pub fn run() {
             // 1. Awalnya buat window tembus klik & paksa matikan DWM shadow bawaan Windows
             navbar_window::set_overlay_click_through(&window, true);
             let _ = window.set_shadow(false);
-            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(820.0, 460.0)));
 
-            // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI / display berubah
+            // 2. Posisikan di tengah atas layar & re-center otomatis saat resolusi / DPI / TextScale berubah
             position_notch_window(&window, NotchPos::Top, 0, None);
             let app_for_display = app.handle().clone();
             display_topology::start_display_change_watcher(move || {
@@ -6895,6 +6965,34 @@ mod hit_test {
         // Cursor on Monitor 1 at same relative location (e.g. x = 768) should NOT hit
         let cursor_on_monitor_1 = POINT { x: 768, y: 15 };
         assert!(!calculate_notch_hit(cursor_on_monitor_1, win_pos, win_size, 1.0, &pill));
+    }
+
+    #[test]
+    fn test_compute_notch_window_rect_respects_text_scale_and_clamps_monitor() {
+        // 1920x1080 @ 125% Display Scale + 135% Windows Text Size => effective 1.6875
+        let (x, y, w, h) = compute_notch_window_rect_for_scale(
+            0, 1032, 0, 0, 1920, 1080, 1.25 * 1.35, NotchPos::Top, 0,
+        );
+        assert_eq!(w, (820.0 * 1.6875_f64).round() as u32);
+        assert_eq!(h, (500.0 * 1.6875_f64).round() as u32);
+        assert_eq!(x, (1920 - w as i32) / 2);
+        assert_eq!(y, 0);
+
+        // Extreme 1366x768 @ 150% Display Scale + 150% Text Size (2.25x): must clamp to monitor bounds
+        let (cx, cy, cw, ch) = compute_notch_window_rect_for_scale(
+            0, 728, 0, 0, 1366, 768, 2.25, NotchPos::Top, 0,
+        );
+        assert_eq!(cw, 1366);
+        assert_eq!(ch, 768);
+        assert_eq!(cx, 0);
+        assert_eq!(cy, 0);
+
+        // Bottom notch clamps cleanly to work_area height
+        let (_, by, _, bh) = compute_notch_window_rect_for_scale(
+            0, 728, 0, 0, 1366, 768, 2.25, NotchPos::Bottom, 12,
+        );
+        assert_eq!(bh, 728);
+        assert_eq!(by, 0);
     }
 
     #[test]

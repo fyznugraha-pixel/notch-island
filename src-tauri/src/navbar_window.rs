@@ -1307,7 +1307,11 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                             .unwrap_or_else(|e| e.into_inner())
                             .get(&label)
                             .is_none_or(|m| m.is_empty())
-                        || is_cursor_near_navbar_edge(pt, win.scale_factor().unwrap_or(1.0), &get_window_hit_geom(&label));
+                        || is_cursor_near_navbar_edge(
+                            pt,
+                            crate::effective_webview_scale(win.scale_factor().unwrap_or(1.0)),
+                            &get_window_hit_geom(&label),
+                        );
 
                     let fs_due = fg_raw != state.last_fs_fg_hwnd
                         || desktop_zcheck_due
@@ -1356,11 +1360,12 @@ fn start_navbar_cursor_watcher(app: tauri::AppHandle) {
                         }
                     }
 
-                    let (Ok(win_pos), Ok(win_size), Ok(sf)) =
+                    let (Ok(win_pos), Ok(win_size), Ok(raw_sf)) =
                         (win.outer_position(), win.outer_size(), win.scale_factor())
                     else {
                         continue;
                     };
+                    let sf = crate::effective_webview_scale(raw_sf);
 
                     let geom = get_window_hit_geom(&label);
                     let active_popups: Vec<Option<PopupHitRect>> = popup_regions_map()
@@ -2112,7 +2117,7 @@ pub fn sync_navbar_bounds(
     }
 
     if let Some(monitor) = resolve_target_monitor_for_window(&window, monitor_id.as_deref()) {
-        let scale_factor = monitor.scale_factor();
+        let scale_factor = crate::effective_webview_scale(monitor.scale_factor());
         let mon_pos = monitor.position();
         let mon_size = monitor.size();
 
@@ -2178,14 +2183,14 @@ pub fn sync_navbar_bounds(
         };
 
         let phys_w = if is_vertical {
-            (window_w * scale_factor).round() as i32
+            ((window_w * scale_factor).round() as i32).min(mon_size.width as i32)
         } else {
             mon_size.width as i32
         };
         let phys_h = if is_vertical {
             mon_size.height as i32
         } else {
-            (window_h * scale_factor).round() as i32
+            ((window_h * scale_factor).round() as i32).min(mon_size.height as i32)
         };
         let mon_right_phys = mon_pos.x + mon_size.width as i32;
         let mon_bottom_phys = mon_pos.y + mon_size.height as i32;

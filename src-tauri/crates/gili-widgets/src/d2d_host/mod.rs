@@ -10,8 +10,8 @@ use crate::d2d_host::device::{
     query_dynamic_visual_policy, query_system_visual_policy, SystemVisualPolicy,
 };
 use crate::layout::{
-    effective_slot_rect_dp, find_non_overlapping_pos, hit_test_scene, resolve_all_rect_collisions,
-    slot_rect_dp, snap_position_to_grid, HitTestResult, RectF, WidgetRenderItem,
+    effective_slot_rect_dp, hit_test_scene, slot_rect_dp, snap_position_to_grid, HitTestResult,
+    RectF, WidgetRenderItem,
 };
 use crate::providers::WidgetDataHub;
 use crate::spring::{edit_jiggle_degrees, SpringParams, SpringValue};
@@ -526,6 +526,8 @@ mod win_host {
 
     fn resolve_collisions_for_surfaces(
         cfg: &mut DesktopWidgetsConfig,
+        hub: &WidgetDataHub,
+        high_contrast: bool,
         surfaces: &[MonitorSurface],
         priority_slot_id: Option<&str>,
     ) -> bool {
@@ -571,8 +573,24 @@ mod win_host {
                 .map(|(i, _)| i)
                 .collect();
             let mut subset: Vec<_> = indices.iter().map(|&i| cfg.slots[i].clone()).collect();
-            if resolve_all_rect_collisions(
+            let offsets: Vec<(f32, f32, f32, f32)> = subset
+                .iter()
+                .map(|s| {
+                    let outer =
+                        effective_slot_rect_dp(s, cfg.grid_scale, work_w_dip, work_h_dip);
+                    crate::widgets::slot_content_offset_dp(
+                        s,
+                        outer.w,
+                        outer.h,
+                        &cfg.global_theme,
+                        hub,
+                        high_contrast,
+                    )
+                })
+                .collect();
+            if crate::layout::resolve_all_rect_collisions_with_offsets(
                 &mut subset,
+                &offsets,
                 priority_slot_id,
                 cfg.grid_scale,
                 work_w_dip,
@@ -594,8 +612,8 @@ mod win_host {
         if let Some(drag) = st.dragging.take() {
             let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
             let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
-            let final_x = ((drag.cur_x / 16.0).round() * 16.0).clamp(8.0, max_x);
-            let final_y = ((drag.cur_y / 16.0).round() * 16.0).clamp(8.0, max_y);
+            let final_x = ((drag.cur_x / 2.0).round() * 2.0).clamp(8.0, max_x);
+            let final_y = ((drag.cur_y / 2.0).round() * 2.0).clamp(8.0, max_y);
 
             let mutated_cfg = if let Ok(mut sh) = st.shared.lock() {
                 let scale = sh.config.grid_scale;
@@ -606,15 +624,44 @@ mod win_host {
                     .find(|s| s.slot_id == drag.slot_id)
                     .map(|s| s.monitor_id.clone())
                     .unwrap_or_else(|| "primary".to_string());
+                let moved_offset = sh
+                    .config
+                    .slots
+                    .iter()
+                    .find(|s| s.slot_id == drag.slot_id)
+                    .map(|s| {
+                        crate::widgets::slot_content_offset_dp(
+                            s,
+                            drag.item_w,
+                            drag.item_h,
+                            &sh.config.global_theme,
+                            &sh.hub,
+                            sh.policy.high_contrast,
+                        )
+                    })
+                    .unwrap_or((0.0, 0.0, drag.item_w, drag.item_h));
                 let others: Vec<RectF> = sh
                     .config
                     .slots
                     .iter()
                     .filter(|s| s.slot_id != drag.slot_id && s.monitor_id == moved_mon)
-                    .map(|s| effective_slot_rect_dp(s, scale, drag.work_w_dip, drag.work_h_dip))
+                    .map(|s| {
+                        let outer =
+                            effective_slot_rect_dp(s, scale, drag.work_w_dip, drag.work_h_dip);
+                        let (dx, dy, cw, ch) = crate::widgets::slot_content_offset_dp(
+                            s,
+                            outer.w,
+                            outer.h,
+                            &sh.config.global_theme,
+                            &sh.hub,
+                            sh.policy.high_contrast,
+                        );
+                        RectF::new(outer.x + dx, outer.y + dy, cw, ch)
+                    })
                     .collect();
-                let (safe_x, safe_y) = find_non_overlapping_pos(
+                let (safe_x, safe_y) = crate::layout::find_non_overlapping_pos_with_offset(
                     RectF::new(final_x, final_y, drag.item_w, drag.item_h),
+                    moved_offset,
                     &others,
                     drag.work_w_dip,
                     drag.work_h_dip,
@@ -1515,11 +1562,21 @@ mod win_host {
                                             {
                                                 s.size = sz;
                                             }
-                                            resolve_collisions_for_surfaces(
-                                                &mut sh.config,
-                                                &st.surfaces,
-                                                Some(&slot_id),
-                                            );
+                                            {
+                                                let HostSharedState {
+                                                    ref mut config,
+                                                    ref hub,
+                                                    ref policy,
+                                                    ..
+                                                } = *sh;
+                                                resolve_collisions_for_surfaces(
+                                                    config,
+                                                    hub,
+                                                    policy.high_contrast,
+                                                    &st.surfaces,
+                                                    Some(&slot_id),
+                                                );
+                                            }
                                             sh.mark_data_changed();
                                             Some(WidgetHostEvent::ConfigMutated {
                                                 config: sh.config.clone(),
@@ -1952,7 +2009,19 @@ mod win_host {
                     };
                     let st = b.as_ref()?;
                     let mut sh = shared.lock().ok()?;
-                    if resolve_collisions_for_surfaces(&mut sh.config, &st.surfaces, None) {
+                    let HostSharedState {
+                        ref mut config,
+                        ref hub,
+                        ref policy,
+                        ..
+                    } = *sh;
+                    if resolve_collisions_for_surfaces(
+                        config,
+                        hub,
+                        policy.high_contrast,
+                        &st.surfaces,
+                        None,
+                    ) {
                         sh.mark_data_changed();
                         Some(sh.config.clone())
                     } else {

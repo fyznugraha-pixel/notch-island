@@ -363,6 +363,7 @@ pub fn ensure_miniplayer_tracker(app: &AppHandle) {
                 if current_percent != last_emitted_scale {
                     last_emitted_scale = current_percent;
                     let _ = app_handle.emit("system:text-scale-changed", current_raw_scale);
+                    crate::reposition_notch_windows_on_text_scale_change(&app_handle);
                     if *get_open_state().lock().unwrap() {
                         let _ = resize_miniplayer_internal(&app_handle, 440.0, 340.0, false);
                     }

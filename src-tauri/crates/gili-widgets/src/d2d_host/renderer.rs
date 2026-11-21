@@ -1545,11 +1545,12 @@ pub mod render {
                     }
                 }
             } else if edit_mode {
-                // Frameless widget shows a dashed rounded outline ONLY while in edit mode
+                // Frameless widget shows a dashed rounded outline around its visual content ONLY while in edit mode
+                let edit_rect = item.visual_content_bounds();
                 if let Some(geom) = self.build_superellipse_geometry(
                     res,
-                    item.frame,
-                    CARD_RADIUS_DP,
+                    edit_rect,
+                    CARD_RADIUS_DP.min(18.0),
                     CARD_CORNER_SMOOTHING,
                 ) {
                     unsafe {
@@ -1634,8 +1635,13 @@ pub mod render {
 
             // Edit-mode top-left remove badge ("-")
             if edit_mode {
-                let bx = item.frame.x + 2.0;
-                let by = item.frame.y + 2.0;
+                let badge_anchor = if effective_bg == BackgroundMode::None {
+                    item.visual_content_bounds()
+                } else {
+                    item.frame
+                };
+                let bx = badge_anchor.x + 2.0;
+                let by = badge_anchor.y + 2.0;
                 unsafe {
                     self.brush.SetColor(&D2D1_COLOR_F {
                         r: 0.92,

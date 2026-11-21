@@ -261,12 +261,139 @@ pub struct WidgetRenderItem {
 }
 
 impl WidgetRenderItem {
+    pub fn node_visual_bounds(node: &SceneNode, text_scale: f32) -> Option<RectF> {
+        match node {
+            SceneNode::Text {
+                rect,
+                content,
+                font_size,
+                align,
+                max_lines,
+                ..
+            } => {
+                let trimmed = content.trim();
+                if trimmed.is_empty() || rect.w <= 0.0 || rect.h <= 0.0 {
+                    return None;
+                }
+                let fs = (font_size * text_scale.clamp(0.85, 1.35)).max(8.0);
+                let max_line_chars = content
+                    .lines()
+                    .map(|l| l.chars().count())
+                    .max()
+                    .unwrap_or(0);
+                if max_line_chars == 0 {
+                    return None;
+                }
+                let raw_line_w = max_line_chars as f32 * fs * 0.58 + 4.0;
+                let explicit_lines = content.lines().count().max(1);
+                let max_allowed_lines = (*max_lines as usize).max(1);
+                let wrapped_lines = if max_allowed_lines > 1 && raw_line_w > rect.w.max(1.0) {
+                    let est = (raw_line_w / rect.w.max(1.0)).ceil() as usize;
+                    explicit_lines.max(est).clamp(1, max_allowed_lines)
+                } else {
+                    explicit_lines.min(max_allowed_lines)
+                };
+                let tw = if wrapped_lines > explicit_lines {
+                    rect.w
+                } else {
+                    raw_line_w.min(rect.w)
+                };
+                let tx = match align {
+                    TextAlign::Left => rect.x,
+                    TextAlign::Center => rect.x + (rect.w - tw).max(0.0) * 0.5,
+                    TextAlign::Right => rect.x + (rect.w - tw).max(0.0),
+                };
+                let th = (wrapped_lines as f32 * fs * 1.32 + 2.0).min(rect.h);
+                Some(RectF::new(tx, rect.y, tw, th))
+            }
+            SceneNode::RoundedRect { rect, .. }
+            | SceneNode::ProgressBar { rect, .. }
+            | SceneNode::Sparkline { rect, .. }
+            | SceneNode::BarChart { rect, .. }
+            | SceneNode::HeatmapGrid { rect, .. }
+            | SceneNode::Treemap { rect, .. }
+            | SceneNode::ImageRef { rect, .. }
+            | SceneNode::IconGlyph { rect, .. }
+            | SceneNode::WeatherIcon { rect, .. }
+            | SceneNode::GiliMascot { rect, .. } => Some(*rect),
+            SceneNode::ProgressRing {
+                cx,
+                cy,
+                radius,
+                stroke_width,
+                ..
+            } => {
+                let r = radius + stroke_width * 0.5;
+                Some(RectF::new(cx - r, cy - r, r * 2.0, r * 2.0))
+            }
+            SceneNode::AnalogClock { cx, cy, radius, .. } => {
+                Some(RectF::new(cx - radius, cy - radius, radius * 2.0, radius * 2.0))
+            }
+            SceneNode::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                width,
+                ..
+            } => {
+                let half = width * 0.5;
+                let min_x = x1.min(*x2) - half;
+                let min_y = y1.min(*y2) - half;
+                let max_x = x1.max(*x2) + half;
+                let max_y = y1.max(*y2) + half;
+                Some(RectF::new(
+                    min_x,
+                    min_y,
+                    (max_x - min_x).max(*width),
+                    (max_y - min_y).max(*width),
+                ))
+            }
+        }
+    }
+
+    /// Computes the tight visual content bounding box of the widget.
+    /// For Glass/Solid/SubtleTint cards, returns `self.frame`.
+    /// For frameless (`BackgroundMode::None`) widgets, returns the union of rendered nodes
+    /// clamped to `self.frame` so unused card space does not block neighboring widgets.
+    pub fn visual_content_bounds(&self) -> RectF {
+        if self.background_mode != BackgroundMode::None {
+            return self.frame;
+        }
+        let mut union_rect: Option<RectF> = None;
+        for node in &self.nodes {
+            if let Some(nr) = Self::node_visual_bounds(node, self.text_scale) {
+                union_rect = Some(match union_rect {
+                    Some(acc) => acc.union(nr),
+                    None => nr,
+                });
+            }
+        }
+        let Some(bounds) = union_rect else {
+            return self.frame;
+        };
+        let pad = 4.0;
+        let x0 = (bounds.x - pad).clamp(self.frame.x, self.frame.x + self.frame.w);
+        let y0 = (bounds.y - pad).clamp(self.frame.y, self.frame.y + self.frame.h);
+        let x1 = (bounds.x + bounds.w + pad).clamp(x0, self.frame.x + self.frame.w);
+        let y1 = (bounds.y + bounds.h + pad).clamp(y0, self.frame.y + self.frame.h);
+        let w = (x1 - x0).max(24.0).min(self.frame.w);
+        let h = (y1 - y0).max(24.0).min(self.frame.h);
+        RectF::new(x0, y0, w, h)
+    }
+
     /// Collects strict content hit regions so empty transparent space remains click-through.
     pub fn compute_hit_regions(&mut self, edit_mode: bool) {
         self.content_hit_rects.clear();
-        if edit_mode || self.background_mode != BackgroundMode::None {
+        if self.background_mode != BackgroundMode::None {
             self.content_hit_rects.push(HitRegion {
                 bounds: self.frame,
+                slot_id: self.slot_id.clone(),
+                action_id: None,
+            });
+        } else if edit_mode {
+            self.content_hit_rects.push(HitRegion {
+                bounds: self.visual_content_bounds(),
                 slot_id: self.slot_id.clone(),
                 action_id: None,
             });
@@ -274,11 +401,6 @@ impl WidgetRenderItem {
         for node in &self.nodes {
             match node {
                 SceneNode::RoundedRect {
-                    rect,
-                    interactive_action,
-                    ..
-                }
-                | SceneNode::Text {
                     rect,
                     interactive_action,
                     ..
@@ -293,8 +415,6 @@ impl WidgetRenderItem {
                     interactive_action,
                     ..
                 } => {
-                    // Slight 4dp grab margin around drawn content prevents accidental click-through
-                    // between adjacent text lines while keeping unused transparent areas click-through.
                     let pad = 4.0;
                     let padded = RectF::new(
                         (rect.x - pad).max(self.frame.x),
@@ -305,6 +425,37 @@ impl WidgetRenderItem {
                         ),
                         (rect.h + pad * 2.0).min(
                             (self.frame.y + self.frame.h - (rect.y - pad).max(self.frame.y))
+                                .max(0.0),
+                        ),
+                    );
+                    self.content_hit_rects.push(HitRegion {
+                        bounds: padded,
+                        slot_id: self.slot_id.clone(),
+                        action_id: interactive_action.clone(),
+                    });
+                }
+                SceneNode::Text {
+                    rect,
+                    interactive_action,
+                    ..
+                } => {
+                    let base_rect = if self.background_mode == BackgroundMode::None
+                        && interactive_action.is_none()
+                    {
+                        Self::node_visual_bounds(node, self.text_scale).unwrap_or(*rect)
+                    } else {
+                        *rect
+                    };
+                    let pad = 4.0;
+                    let padded = RectF::new(
+                        (base_rect.x - pad).max(self.frame.x),
+                        (base_rect.y - pad).max(self.frame.y),
+                        (base_rect.w + pad * 2.0).min(
+                            (self.frame.x + self.frame.w - (base_rect.x - pad).max(self.frame.x))
+                                .max(0.0),
+                        ),
+                        (base_rect.h + pad * 2.0).min(
+                            (self.frame.y + self.frame.h - (base_rect.y - pad).max(self.frame.y))
                                 .max(0.0),
                         ),
                     );
@@ -385,7 +536,12 @@ pub fn hit_test_scene(
 
     for item in items.iter().rev() {
         if edit_mode {
-            let badge = RectF::new(item.frame.x - 8.0, item.frame.y - 8.0, 24.0, 24.0);
+            let badge_anchor = if item.background_mode == BackgroundMode::None {
+                item.visual_content_bounds()
+            } else {
+                item.frame
+            };
+            let badge = RectF::new(badge_anchor.x - 8.0, badge_anchor.y - 8.0, 24.0, 24.0);
             if badge.contains(px, py) {
                 return HitTestResult::RemoveBadge {
                     slot_id: item.slot_id.clone(),
@@ -529,18 +685,41 @@ pub fn find_non_overlapping_pos(
     work_h_dip: f32,
     grid_scale: f32,
 ) -> (f32, f32) {
-    let max_x = (work_w_dip - desired.w - 8.0).max(8.0);
-    let max_y = (work_h_dip - desired.h - 8.0).max(8.0);
-    let clamped_x = desired.x.clamp(8.0, max_x);
-    let clamped_y = desired.y.clamp(8.0, max_y);
-    let gap = (12.0 * grid_scale.clamp(0.8, 1.35)).max(8.0);
+    find_non_overlapping_pos_with_offset(
+        desired,
+        (0.0, 0.0, desired.w, desired.h),
+        others,
+        work_w_dip,
+        work_h_dip,
+        grid_scale,
+    )
+}
+
+/// Finds the closest valid outer position `(x, y)` for `desired_outer` such that its visual content rect
+/// `RectF::new(x + dx, y + dy, cw, ch)` does not overlap any rect in `others_content`.
+pub fn find_non_overlapping_pos_with_offset(
+    desired_outer: RectF,
+    content_offset: (f32, f32, f32, f32),
+    others_content: &[RectF],
+    work_w_dip: f32,
+    work_h_dip: f32,
+    grid_scale: f32,
+) -> (f32, f32) {
+    let (dx, dy, cw, ch) = content_offset;
+    let max_x = (work_w_dip - desired_outer.w - 8.0).max(8.0);
+    let max_y = (work_h_dip - desired_outer.h - 8.0).max(8.0);
+    let clamped_x = desired_outer.x.clamp(8.0, max_x);
+    let clamped_y = desired_outer.y.clamp(8.0, max_y);
+    let gap = (GRID_GAP_DP * grid_scale.clamp(0.8, 1.35)).max(6.0);
 
     let fits = |x: f32, y: f32, pad: f32| -> bool {
         if x < 8.0 - 0.5 || y < 8.0 - 0.5 || x > max_x + 0.5 || y > max_y + 0.5 {
             return false;
         }
-        let cand = RectF::new(x, y, desired.w, desired.h);
-        !others.iter().any(|o| cand.intersects_with_gap(*o, pad))
+        let cand = RectF::new(x + dx, y + dy, cw, ch);
+        !others_content
+            .iter()
+            .any(|o| cand.intersects_with_gap(*o, pad))
     };
 
     if fits(clamped_x, clamped_y, gap) {
@@ -555,36 +734,38 @@ pub fn find_non_overlapping_pos(
             if !fits(x, y, pad) {
                 return;
             }
-            let dx = x - clamped_x;
-            let dy = y - clamped_y;
-            let dist2 = dx * dx + dy * dy;
+            let diff_x = x - clamped_x;
+            let diff_y = y - clamped_y;
+            let dist2 = diff_x * diff_x + diff_y * diff_y;
             if best.map(|(_, d)| dist2 < d).unwrap_or(true) {
                 best = Some(((x, y), dist2));
             }
         };
 
-        // Try edge-aligned placements directly beside every existing widget first
-        let push = pad + 2.0;
-        for o in others {
-            let right_x = o.x + o.w + push;
-            let left_x = o.x - desired.w - push;
-            let below_y = o.y + o.h + push;
-            let above_y = o.y - desired.h - push;
+        // Try edge-aligned placements directly beside every existing widget's visual content first
+        let push = pad;
+        for o in others_content {
+            let right_x = o.x + o.w + push - dx;
+            let left_x = o.x - cw - push - dx;
+            let below_y = o.y + o.h + push - dy;
+            let above_y = o.y - ch - push - dy;
+            let align_x = o.x - dx;
+            let align_y = o.y - dy;
             consider(right_x, clamped_y);
-            consider(right_x, o.y);
+            consider(right_x, align_y);
             consider(left_x, clamped_y);
-            consider(left_x, o.y);
+            consider(left_x, align_y);
             consider(clamped_x, below_y);
-            consider(o.x, below_y);
+            consider(align_x, below_y);
             consider(clamped_x, above_y);
-            consider(o.x, above_y);
+            consider(align_x, above_y);
         }
 
-        // Sweep the work area on a 24dp grid to guarantee finding a free spot even when crowded
-        let step = 24.0f32;
-        let mut y = 16.0f32;
+        // Sweep the work area on an 8dp grid to guarantee finding a tight free spot even when crowded
+        let step = 8.0f32;
+        let mut y = 8.0f32;
         while y <= max_y {
-            let mut x = 16.0f32;
+            let mut x = 8.0f32;
             while x <= max_x {
                 consider(x, y);
                 x += step;
@@ -614,6 +795,24 @@ pub fn resolve_all_rect_collisions(
     work_w_dip: f32,
     work_h_dip: f32,
 ) -> bool {
+    resolve_all_rect_collisions_with_offsets(
+        slots,
+        &[],
+        priority_slot_id,
+        grid_scale,
+        work_w_dip,
+        work_h_dip,
+    )
+}
+
+pub fn resolve_all_rect_collisions_with_offsets(
+    slots: &mut [WidgetStackSlot],
+    content_offsets: &[(f32, f32, f32, f32)],
+    priority_slot_id: Option<&str>,
+    grid_scale: f32,
+    work_w_dip: f32,
+    work_h_dip: f32,
+) -> bool {
     let mut changed = false;
     let mut order: Vec<usize> = (0..slots.len()).collect();
     if let Some(pid) = priority_slot_id {
@@ -629,12 +828,26 @@ pub fn resolve_all_rect_collisions(
     for idx in order {
         let mon = slots[idx].monitor_id.clone();
         let rect = effective_slot_rect_dp(&slots[idx], grid_scale, work_w_dip, work_h_dip);
+        let (dx, dy, cw, ch) = content_offsets
+            .get(idx)
+            .copied()
+            .unwrap_or((0.0, 0.0, rect.w, rect.h));
+        let content_rect = RectF::new(rect.x + dx, rect.y + dy, cw, ch);
         let placed = placed_by_mon.entry(mon).or_default();
-        let gap = (12.0 * grid_scale.clamp(0.8, 1.35)).max(8.0);
-        let overlaps = placed.iter().any(|o| rect.intersects_with_gap(*o, gap));
+        let gap = (GRID_GAP_DP * grid_scale.clamp(0.8, 1.35)).max(6.0);
+        let overlaps = placed
+            .iter()
+            .any(|o| content_rect.intersects_with_gap(*o, gap));
 
         let final_rect = if overlaps {
-            let (nx, ny) = find_non_overlapping_pos(rect, placed, work_w_dip, work_h_dip, grid_scale);
+            let (nx, ny) = find_non_overlapping_pos_with_offset(
+                rect,
+                (dx, dy, cw, ch),
+                placed,
+                work_w_dip,
+                work_h_dip,
+                grid_scale,
+            );
             let (col, row) = snap_position_to_grid(nx, ny, grid_scale, 32.0, 48.0);
             slots[idx].pos_x = Some(nx);
             slots[idx].pos_y = Some(ny);
@@ -645,7 +858,7 @@ pub fn resolve_all_rect_collisions(
         } else {
             rect
         };
-        placed.push(final_rect);
+        placed.push(RectF::new(final_rect.x + dx, final_rect.y + dy, cw, ch));
     }
 
     changed
@@ -687,7 +900,10 @@ mod tests {
         assert!(changed, "overlapping slots must be separated");
         let ra = effective_slot_rect_dp(&slots[0], 1.0, 1920.0, 1040.0);
         let rb = effective_slot_rect_dp(&slots[1], 1.0, 1920.0, 1040.0);
-        assert!(!ra.intersects_with_gap(rb, 10.0), "resolved rects must not overlap: {ra:?} vs {rb:?}");
+        assert!(
+            !ra.intersects_with_gap(rb, GRID_GAP_DP - 0.5),
+            "resolved rects must not overlap: {ra:?} vs {rb:?}"
+        );
         assert_eq!(ra.x, 32.0);
         assert_eq!(ra.y, 48.0);
 
@@ -695,8 +911,8 @@ mod tests {
         let desired = RectF::new(32.0, 48.0, 336.0, 160.0);
         let (nx, ny) = find_non_overlapping_pos(desired, &[ra, rb], 1920.0, 1040.0, 1.0);
         let rc = RectF::new(nx, ny, 336.0, 160.0);
-        assert!(!rc.intersects_with_gap(ra, 10.0));
-        assert!(!rc.intersects_with_gap(rb, 10.0));
+        assert!(!rc.intersects_with_gap(ra, GRID_GAP_DP - 0.5));
+        assert!(!rc.intersects_with_gap(rb, GRID_GAP_DP - 0.5));
     }
 
     #[test]

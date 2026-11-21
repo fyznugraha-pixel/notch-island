@@ -48,7 +48,12 @@ fn push_month_grid_nodes(
     let total_rows = week_rows + 1; // +1 for weekday header
 
     let col_w = grid_rect.w / 7.0;
-    let row_h = grid_rect.h / total_rows as f32;
+    let raw_row_h = grid_rect.h / total_rows as f32;
+    let row_h = if ctx.size == WidgetSize::Large {
+        raw_row_h.min(col_w * 0.72)
+    } else {
+        raw_row_h
+    };
     let cell_scale = col_w.min(row_h);
     let header_fs = (cell_scale * 0.56).clamp(9.5, 14.5);
     let day_fs = (cell_scale * 0.58).clamp(9.5, 15.0);
@@ -61,11 +66,12 @@ fn push_month_grid_nodes(
     } else {
         ["M", "S", "S", "R", "K", "J", "S"]
     };
+    let header_box_h = (header_fs * 1.35).min(row_h);
     for (i, lbl) in labels.iter().enumerate() {
         let x = grid_rect.x + i as f32 * col_w;
         let y = grid_rect.y + (row_h - header_fs * 1.25) * 0.5;
         nodes.push(text_node(
-            RectF::new(x, y, col_w, row_h),
+            RectF::new(x, y, col_w, header_box_h),
             *lbl,
             header_fs,
             700,
@@ -93,6 +99,7 @@ fn push_month_grid_nodes(
         let is_today = d == today;
         let is_sunday = col == 0;
         let cur_fs = if is_today { day_fs + 1.4 } else { day_fs };
+        let day_box_h = (cur_fs * 1.35).min(row_h);
         let text_y = cy + (row_h - cur_fs * 1.25) * 0.46;
         let day_color = if is_today && is_sunday {
             sunday_today_red
@@ -104,7 +111,7 @@ fn push_month_grid_nodes(
             dim_day
         };
         nodes.push(text_node(
-            RectF::new(cx, text_y, col_w, row_h),
+            RectF::new(cx, text_y, col_w, day_box_h),
             format!("{}", d),
             cur_fs,
             if is_today { 900 } else if is_sunday { 600 } else { 400 },

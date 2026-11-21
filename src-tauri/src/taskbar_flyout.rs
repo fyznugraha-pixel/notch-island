@@ -296,7 +296,7 @@ fn resolve_navbar_anchor_for_target(
     let Some(navbar_win) = crate::navbar_window::get_active_navbar_window(app) else {
         return (None, None);
     };
-    let n_scale = navbar_win.scale_factor().unwrap_or(1.0);
+    let n_scale = crate::effective_webview_scale(navbar_win.scale_factor().unwrap_or(1.0));
     let Ok(raw_hwnd) = navbar_win.hwnd() else {
         return (None, None);
     };
@@ -848,11 +848,14 @@ fn compute_flyout_placement_in_phys_work(
 }
 
 fn resolve_target_monitor_context(win: &WebviewWindow) -> (f64, f64, f64, RECT) {
-    let fallback_scale = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let raw_fallback = win.scale_factor().unwrap_or(1.0).max(1.0);
+    let fallback_scale = crate::effective_webview_scale(raw_fallback);
     let active_nav = crate::navbar_window::get_active_navbar_window(win.app_handle());
 
     let (nav_x_px, nav_y_px, nav_scale, target_hwnd) = if let Some(ref navbar_win) = active_nav {
-        let n_scale = navbar_win.scale_factor().unwrap_or(fallback_scale).max(1.0);
+        let n_scale = crate::effective_webview_scale(
+            navbar_win.scale_factor().unwrap_or(raw_fallback),
+        );
         if let Ok(raw_hwnd) = navbar_win.hwnd() {
             let hwnd = HWND(raw_hwnd.0);
             let mut r = RECT::default();
