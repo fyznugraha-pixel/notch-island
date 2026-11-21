@@ -5110,7 +5110,8 @@ pub fn run() {
             desktop_widgets_bridge::add_widget_kanban_card,
             desktop_widgets_bridge::move_widget_kanban_card,
             desktop_widgets_bridge::delete_widget_kanban_card,
-            desktop_widgets_bridge::add_widget_world_clock
+            desktop_widgets_bridge::add_widget_world_clock,
+            desktop_widgets_bridge::renew_taskbar_spectrum_lease
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());

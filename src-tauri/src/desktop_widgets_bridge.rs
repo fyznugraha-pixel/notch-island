@@ -24,7 +24,7 @@ use gili_widgets::providers::{FrontendMirrorSnapshot, MediaSnapshot};
 use gili_widgets::widgets::{widget_catalog, WidgetCatalogEntry};
 use gili_widgets::DesktopWidgetEngine;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -39,9 +39,45 @@ static AUDIO_LOOP_STOP: AtomicBool = AtomicBool::new(false);
 static WEATHER_FORCE_REFRESH: AtomicBool = AtomicBool::new(false);
 static UPTIME_FORCE_REFRESH: AtomicBool = AtomicBool::new(false);
 static GITHUB_FORCE_REFRESH: AtomicBool = AtomicBool::new(false);
+// Taskbar visualizer keeps a short lease alive instead of a mount/unmount flag, so a
+// navbar webview that reloads or crashes can never leave WASAPI capture running.
+static TASKBAR_SPECTRUM_LEASE_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+const TASKBAR_SPECTRUM_LEASE_MS: u64 = 2_500;
 
 pub fn engine() -> &'static DesktopWidgetEngine {
     ENGINE.get_or_init(DesktopWidgetEngine::new)
+}
+
+fn now_epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn taskbar_spectrum_wanted() -> bool {
+    TASKBAR_SPECTRUM_LEASE_UNTIL_MS.load(Ordering::Relaxed) > now_epoch_ms()
+        && crate::store_license::can_use_taskbar()
+        && !crate::standby_window::is_deep_eco_active()
+}
+
+fn emit_taskbar_spectrum(bands: &[f32; 16]) {
+    let Some(app) = BRIDGE_APP_HANDLE.get() else {
+        return;
+    };
+    for label in app.webview_windows().into_keys() {
+        if crate::navbar_window::is_navbar_window_label(&label) {
+            let _ = app.emit_to(label.as_str(), "taskbar-audio-spectrum", bands);
+        }
+    }
+}
+
+#[tauri::command]
+pub fn renew_taskbar_spectrum_lease() {
+    TASKBAR_SPECTRUM_LEASE_UNTIL_MS.store(
+        now_epoch_ms() + TASKBAR_SPECTRUM_LEASE_MS,
+        Ordering::Relaxed,
+    );
 }
 
 fn emit_widgets_data_updated(kind: &str) {
@@ -631,7 +667,8 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
         eng.start_host_if_needed();
     }
 
-    // Dedicated real-time WASAPI loopback FFT capture thread (~30 Hz active, 250ms silent backoff)
+    // Dedicated real-time WASAPI loopback FFT capture thread (~30 Hz active, 250ms silent backoff).
+    // Shared by the desktop Audio Visualizer widget and the taskbar Visualizer module.
     std::thread::Builder::new()
         .name("gili-widgets-audio".into())
         .spawn(move || {
@@ -639,18 +676,26 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
             let mut last_pushed = [0.0f32; 16];
             let mut last_open_attempt = Instant::now() - Duration::from_secs(5);
             let mut consecutive_silent: u32 = 0;
+            let mut widget_has_bands = false;
+            let mut taskbar_synced = false;
 
             while !AUDIO_LOOP_STOP.load(Ordering::Relaxed) {
-                let active = crate::store_license::can_use_pro_bundle()
+                let widget_active = crate::store_license::can_use_pro_bundle()
                     && engine().should_poll_audio_visualizer();
+                let taskbar_active = taskbar_spectrum_wanted();
 
-                if !active {
+                if !widget_active && widget_has_bands {
+                    engine().update_audio_bands([0.0; 16]);
+                    widget_has_bands = false;
+                }
+                if !taskbar_active {
+                    taskbar_synced = false;
+                }
+
+                if !widget_active && !taskbar_active {
                     stream = None;
                     consecutive_silent = 0;
-                    if last_pushed.iter().any(|&v| v > 0.0) {
-                        last_pushed = [0.0; 16];
-                        engine().update_audio_bands(last_pushed);
-                    }
+                    last_pushed = [0.0; 16];
                     std::thread::sleep(Duration::from_millis(350));
                     continue;
                 }
@@ -679,9 +724,17 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
                             .iter()
                             .zip(last_pushed.iter())
                             .any(|(a, b)| (a - b).abs() > 0.004);
-                        if changed || (was_non_zero && is_all_zero) {
+                        let should_push = changed || (was_non_zero && is_all_zero);
+                        if should_push {
                             last_pushed = next;
-                            engine().update_audio_bands(next);
+                            if widget_active {
+                                engine().update_audio_bands(next);
+                                widget_has_bands = true;
+                            }
+                        }
+                        if taskbar_active && (should_push || !taskbar_synced) {
+                            emit_taskbar_spectrum(&next);
+                            taskbar_synced = true;
                         }
                     }
                     Err(()) => {

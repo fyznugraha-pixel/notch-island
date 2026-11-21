@@ -12,6 +12,10 @@ import {
 import { Tooltip } from "../../components/ui/Tooltip";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
 import { useCityModulePolling } from "../../hooks/useCityModulePolling";
+import {
+  spectrumToBarHeights,
+  useTaskbarAudioSpectrum,
+} from "../../hooks/useTaskbarAudioSpectrum";
 import { getLocalDateKey } from "../../utils/dateTime";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 
@@ -52,18 +56,33 @@ export const VisualizerNavbarModule: React.FC<NavbarModuleProps> = ({
     };
   }, []);
 
+  const barCount = isCompact ? 5 : 13;
+  const { bands: liveSpectrum, unavailable: spectrumUnavailable } =
+    useTaskbarAudioSpectrum(isPlaying && !isHidden);
+  const hasLiveSpectrum = liveSpectrum !== null;
+
+  useEffect(() => {
+    if (liveSpectrum) {
+      setBars(spectrumToBarHeights(liveSpectrum, barCount, 4, 22));
+    }
+  }, [liveSpectrum, barCount]);
+
+  // Random pulse stays as fallback only when WASAPI loopback is unavailable on this device.
   useEffect(() => {
     if (!isPlaying || isHidden) {
       if (!isPlaying && !isHidden) {
-        setBars([4, 6, 8, 5, 7, 4, 6, 5, 8, 6, 4, 7, 4]);
+        setBars([4, 6, 8, 5, 7, 4, 6, 5, 8, 6, 4, 7, 4].slice(0, barCount));
       }
       return;
     }
+    if (!spectrumUnavailable) {
+      return;
+    }
     const id = setInterval(() => {
-      setBars((prev) => prev.map(() => Math.floor(6 + Math.random() * 17)));
+      setBars(Array.from({ length: barCount }, () => Math.floor(6 + Math.random() * 17)));
     }, 160);
     return () => clearInterval(id);
-  }, [isPlaying, isHidden]);
+  }, [isPlaying, isHidden, spectrumUnavailable, barCount]);
 
   const colors = ["#ec4899", "#a855f7", "#6366f1", "#3882F6"];
   const handleToggle = () => setIsOpen((v) => !v);
@@ -98,14 +117,16 @@ export const VisualizerNavbarModule: React.FC<NavbarModuleProps> = ({
           }`}
         >
           <div className="flex items-center gap-[2.5px] h-[min(22px,calc(var(--navbar-mod-size,40px)-8px))] overflow-hidden">
-            {(isCompact ? bars.slice(0, 5) : bars).map((h, i) => (
+            {bars.slice(0, barCount).map((h, i) => (
               <i
                 key={i}
                 style={{
                   height: `${h}px`,
                   background: colors[i % colors.length],
                 }}
-                className="w-[3px] rounded-[1.5px] transition-all duration-150"
+                className={`w-[3px] rounded-[1.5px] transition-all ${
+                  hasLiveSpectrum ? "duration-75" : "duration-150"
+                }`}
               />
             ))}
           </div>
