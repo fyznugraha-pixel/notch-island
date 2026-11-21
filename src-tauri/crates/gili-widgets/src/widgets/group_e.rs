@@ -1,0 +1,928 @@
+use crate::config::WidgetSize;
+use crate::layout::{RectF, SceneNode, TextAlign};
+use crate::widgets::{action_pill, empty_state_nodes, is_english, text_node, WidgetBuildCtx};
+
+fn format_idr(amount: i64) -> String {
+    let neg = amount < 0;
+    let digits = amount.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, ch) in digits.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push('.');
+        }
+        out.push(ch);
+    }
+    let grouped: String = out.chars().rev().collect();
+    if neg {
+        format!("-Rp{}", grouped)
+    } else {
+        format!("Rp{}", grouped)
+    }
+}
+
+/// 24. Jadwal sholat offline Kemenag RI + mode Ramadan (S, M, L)
+pub fn build_prayer_times(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
+    let inner = ctx.frame.inset(16.0);
+    let p = &ctx.hub.prayer;
+    let city = if p.city_name.is_empty() {
+        "Jakarta"
+    } else {
+        &p.city_name
+    };
+    let next_lbl = if en {
+        match p.next_name.as_str() {
+            "Subuh" => "Fajr",
+            "Dzuhur" => "Dhuhr",
+            "Ashar" => "Asr",
+            "Maghrib" => "Maghrib",
+            "Isya" => "Isha",
+            other => other,
+        }
+    } else {
+        &p.next_name
+    };
+
+    let compact_med = ctx.size == WidgetSize::Medium && inner.h < 114.0;
+    let time_fs = if compact_med { 28.0 } else { 34.0 };
+    let time_h = if compact_med { 33.0 } else { 40.0 };
+    let time_w = if ctx.size == WidgetSize::Small {
+        inner.w
+    } else if p.ramadan_mode {
+        (inner.w * 0.44).max(96.0)
+    } else {
+        inner.w
+    };
+    let countdown_y = if compact_med {
+        inner.y + 49.0
+    } else {
+        inner.y + 56.0
+    };
+
+    let mut nodes = vec![
+        SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
+            glyph: "\u{E708}".into(),
+            size: 15.0,
+            color: ctx.pal.positive,
+            interactive_action: None,
+        },
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y, inner.w - 26.0, 16.0),
+            format!(
+                "{} . {}",
+                if en { "PRAYER" } else { "SHOLAT" },
+                city.to_uppercase()
+            ),
+            10.5,
+            700,
+            ctx.pal.positive,
+            TextAlign::Left,
+            false,
+        ),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 16.0, time_w, time_h),
+            if p.next_time.is_empty() {
+                "--:--"
+            } else {
+                &p.next_time
+            },
+            time_fs,
+            700,
+            ctx.pal.primary,
+            TextAlign::Left,
+            true,
+        ),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, countdown_y, inner.w, 16.0),
+            {
+                let cd = if en {
+                    let mins = p.countdown_mins.max(0);
+                    let dh = mins / 60;
+                    let dm = mins % 60;
+                    if mins == 0 && !p.countdown_label.is_empty() {
+                        p.countdown_label
+                            .replace(" jam ", "h ")
+                            .replace(" mnt", "m")
+                            .replace(" menit", "m")
+                    } else if dh > 0 {
+                        format!("{dh}h {dm}m")
+                    } else {
+                        format!("{dm}m")
+                    }
+                } else {
+                    p.countdown_label.clone()
+                };
+                format!("{} . {}", next_lbl, cd)
+            },
+            11.5,
+            600,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            true,
+        ),
+    ];
+
+    if p.ramadan_mode {
+        let ramadan_rect = if ctx.size == WidgetSize::Small {
+            RectF::new(inner.x, inner.y + inner.h - 16.0, inner.w, 16.0)
+        } else {
+            RectF::new(
+                inner.x + time_w + 4.0,
+                inner.y + 24.0,
+                (inner.w - time_w - 4.0).max(60.0),
+                16.0,
+            )
+        };
+        nodes.push(crate::widgets::text_node_line(
+            ramadan_rect,
+            if en {
+                format!("Sahur {} | Iftar {}", p.sahur_time, p.buka_time)
+            } else {
+                format!("Imsak {} | Buka {}", p.sahur_time, p.buka_time)
+            },
+            10.5,
+            600,
+            ctx.pal.warning,
+            if ctx.size == WidgetSize::Small {
+                TextAlign::Left
+            } else {
+                TextAlign::Right
+            },
+            true,
+        ));
+    }
+
+    if ctx.size != WidgetSize::Small {
+        let rows = [
+            ("Subuh", "Fajr", &p.times.subuh),
+            ("Dzuhur", "Dhuhr", &p.times.dzuhur),
+            ("Ashar", "Asr", &p.times.ashar),
+            ("Maghrib", "Maghrib", &p.times.maghrib),
+            ("Isya", "Isha", &p.times.isya),
+        ];
+        if ctx.size == WidgetSize::Medium {
+            let gap = 5.0;
+            let col_w = (inner.w - gap * 4.0) / 5.0;
+            let avail_pill_h = (inner.y + inner.h - (countdown_y + 18.0)).max(32.0);
+            let pill_h = avail_pill_h.min(42.0);
+            let base_y = inner.y + inner.h - pill_h;
+            let subtle_stroke = ctx
+                .pal
+                .inner_border
+                .map(|b| (b.with_alpha(b.a * 0.55), 0.7));
+            for (i, (key, en_lbl, val)) in rows.iter().enumerate() {
+                let x = inner.x + i as f32 * (col_w + gap);
+                let active = *key == p.next_name;
+                let lbl = if en { *en_lbl } else { *key };
+                nodes.push(SceneNode::RoundedRect {
+                    rect: RectF::new(x, base_y, col_w, pill_h),
+                    radius: 12.0,
+                    smoothing: 0.60,
+                    fill: Some(if active {
+                        ctx.pal.positive.with_alpha(0.18)
+                    } else {
+                        ctx.pal.surface_chip
+                    }),
+                    stroke: if active {
+                        Some((ctx.pal.positive.with_alpha(0.55), 0.85))
+                    } else {
+                        subtle_stroke
+                    },
+                    interactive_action: None,
+                });
+                let lbl_top = if pill_h < 38.0 { 3.0 } else { 6.0 };
+                let val_top = if pill_h < 38.0 { 16.0 } else { 21.0 };
+                nodes.push(crate::widgets::text_node_line(
+                    RectF::new(x + 2.0, base_y + lbl_top, col_w - 4.0, 14.0),
+                    lbl,
+                    if pill_h < 38.0 { 9.5 } else { 10.0 },
+                    if active { 700 } else { 500 },
+                    if active {
+                        ctx.pal.positive
+                    } else {
+                        ctx.pal.secondary
+                    },
+                    TextAlign::Center,
+                    false,
+                ));
+                nodes.push(crate::widgets::text_node_line(
+                    RectF::new(x + 2.0, base_y + val_top, col_w - 4.0, 16.0),
+                    *val,
+                    if pill_h < 38.0 { 11.0 } else { 12.0 },
+                    700,
+                    ctx.pal.primary,
+                    TextAlign::Center,
+                    true,
+                ));
+            }
+        } else {
+            let mut y = inner.y + 92.0;
+            let footer_y = inner.y + inner.h - 16.0;
+            let row_stride = ((footer_y - 4.0 - y) / 5.0).clamp(24.0, 34.0);
+            for (key, en_lbl, val) in rows {
+                let active = key == p.next_name;
+                let lbl = if en { en_lbl } else { key };
+                nodes.push(text_node(
+                    RectF::new(inner.x, y, inner.w * 0.55, 22.0),
+                    lbl,
+                    14.0,
+                    if active { 700 } else { 500 },
+                    if active {
+                        ctx.pal.positive
+                    } else {
+                        ctx.pal.primary
+                    },
+                    TextAlign::Left,
+                    false,
+                ));
+                nodes.push(text_node(
+                    RectF::new(inner.x + inner.w * 0.55, y, inner.w * 0.45, 22.0),
+                    val,
+                    14.0,
+                    700,
+                    ctx.pal.primary,
+                    TextAlign::Right,
+                    true,
+                ));
+                y += row_stride;
+            }
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, footer_y, inner.w, 16.0),
+                &p.method_label,
+                10.5,
+                400,
+                ctx.pal.secondary,
+                TextAlign::Left,
+                false,
+            ));
+        }
+    }
+    nodes
+}
+
+fn format_usd_int(amount: i64) -> String {
+    let neg = amount < 0;
+    let digits = amount.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, ch) in digits.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    let grouped: String = out.chars().rev().collect();
+    if neg {
+        format!("-${}", grouped)
+    } else {
+        format!("${}", grouped)
+    }
+}
+
+/// 25. Kurs & harga emas (S, M)
+pub fn build_currency_gold(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
+    let cg = &ctx.hub.currency_gold;
+    if cg.usd_to_idr.is_none() && cg.gold_idr_per_gram.is_none() && cg.gold_usd_per_oz.is_none() {
+        return empty_state_nodes(
+            ctx,
+            if en {
+                "Currency & Gold"
+            } else {
+                "Kurs & Emas"
+            },
+            if en {
+                "Exchange rates not loaded yet. Tap Retry to fetch from open.er-api.com."
+            } else {
+                "Data kurs belum termuat. Ketuk Coba Lagi untuk mengambil dari open.er-api.com."
+            },
+            if en { "Retry" } else { "Coba Lagi" },
+            "refresh_currency",
+        );
+    }
+    let inner = ctx.frame.inset(16.0);
+    let usd_str = cg
+        .usd_to_idr
+        .map(|v| format_idr(v.round() as i64))
+        .unwrap_or_else(|| {
+            if en {
+                "Unavailable"
+            } else {
+                "Belum tersedia"
+            }
+            .into()
+        });
+    let char_count = usd_str.chars().count().max(6) as f32;
+    let usd_fs = (inner.w / (char_count * 0.66)).clamp(17.0, 28.0);
+    let usd_h = (usd_fs * 1.32).max(26.0);
+
+    let mut nodes = vec![
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y, inner.w, 16.0),
+            if en {
+                "USD / IDR RATE"
+            } else {
+                "KURS USD / IDR"
+            },
+            10.5,
+            600,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            false,
+        ),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 16.0, inner.w, usd_h),
+            usd_str,
+            usd_fs,
+            700,
+            ctx.pal.primary,
+            TextAlign::Left,
+            true,
+        ),
+    ];
+
+    if ctx.size == WidgetSize::Medium {
+        let eur = cg
+            .eur_to_idr
+            .map(|v| format!("EUR {}", format_idr(v.round() as i64)))
+            .unwrap_or_default();
+        let sgd = cg
+            .sgd_to_idr
+            .map(|v| format!("SGD {}", format_idr(v.round() as i64)))
+            .unwrap_or_default();
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 52.0, inner.w, 18.0),
+            format!("{}   {}", eur, sgd),
+            12.0,
+            500,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            true,
+        ));
+    }
+
+    let gold_missing = cg.gold_usd_per_oz.is_none() && cg.gold_idr_per_gram.is_none();
+    let gold_lbl = if en {
+        match (cg.gold_usd_per_oz, cg.gold_idr_per_gram) {
+            (Some(oz), _) => format!("Gold: {}/oz", format_usd_int(oz.round() as i64)),
+            (None, Some(g)) => format!("Gold/gr: {}", format_idr(g.round() as i64)),
+            (None, None) => {
+                if ctx.size == WidgetSize::Small {
+                    "Gold: tap to retry".to_string()
+                } else {
+                    "Gold: tap here to sync".to_string()
+                }
+            }
+        }
+    } else {
+        match (cg.gold_idr_per_gram, cg.gold_usd_per_oz) {
+            (Some(g), _) => format!("Emas/gr: {}", format_idr(g.round() as i64)),
+            (None, Some(oz)) => format!("Emas: {}/oz", format_usd_int(oz.round() as i64)),
+            (None, None) => {
+                if ctx.size == WidgetSize::Small {
+                    "Emas: ketuk muat ulang".to_string()
+                } else {
+                    "Emas: ketuk di sini untuk muat".to_string()
+                }
+            }
+        }
+    };
+    let source_lbl = if ctx.size == WidgetSize::Small {
+        if en {
+            format!("Rate: {}", cg.currency_source)
+        } else {
+            format!("Kurs: {}", cg.currency_source)
+        }
+    } else if en {
+        format!("Rate source: {}", cg.currency_source)
+    } else {
+        format!("Sumber kurs: {}", cg.currency_source)
+    };
+    nodes.push(SceneNode::Text {
+        rect: RectF::new(inner.x, inner.y + inner.h - 32.0, inner.w, 16.0),
+        content: gold_lbl,
+        font_size: 11.0,
+        font_weight: 600,
+        color: ctx.pal.warning,
+        align: TextAlign::Left,
+        tabular_nums: true,
+        tight_kerning: false,
+        max_lines: 1,
+        interactive_action: if gold_missing {
+            Some("refresh_currency".into())
+        } else {
+            None
+        },
+    });
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(inner.x, inner.y + inner.h - 15.0, inner.w, 15.0),
+        source_lbl,
+        10.0,
+        400,
+        ctx.pal.secondary,
+        TextAlign::Left,
+        false,
+    ));
+    nodes
+}
+
+/// 26. Kalender hijriyah + hari libur SKB 3 Menteri (S, M)
+pub fn build_hijri_holidays(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
+    let inner = ctx.frame.inset(14.0);
+    let hh = &ctx.hub.hijri_holidays;
+    let mut nodes = vec![
+        text_node(
+            RectF::new(inner.x, inner.y, inner.w, 16.0),
+            if en {
+                "HIJRI CALENDAR"
+            } else {
+                "KALENDER HIJRIYAH"
+            },
+            10.5,
+            700,
+            ctx.pal.positive,
+            TextAlign::Left,
+            false,
+        ),
+        text_node(
+            RectF::new(
+                inner.x,
+                inner.y + 16.0,
+                inner.w,
+                if ctx.size == WidgetSize::Small {
+                    36.0
+                } else {
+                    28.0
+                },
+            ),
+            if hh.hijri_formatted.is_empty() {
+                if en { "Loading..." } else { "Memuat..." }
+            } else {
+                &hh.hijri_formatted
+            },
+            if ctx.size == WidgetSize::Small {
+                15.0
+            } else {
+                20.0
+            },
+            700,
+            ctx.pal.primary,
+            TextAlign::Left,
+            true,
+        ),
+    ];
+
+    if hh.upcoming_holidays.is_empty() {
+        nodes.push(text_node(
+            RectF::new(inner.x, inner.y + 54.0, inner.w, 46.0),
+            if hh.holiday_source_note.is_empty() {
+                if en {
+                    "National holiday list not loaded yet."
+                } else {
+                    "Data libur nasional belum dimuat."
+                }
+            } else {
+                &hh.holiday_source_note
+            },
+            11.5,
+            400,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            false,
+        ));
+    } else {
+        for (i, h) in hh.upcoming_holidays.iter().take(2).enumerate() {
+            let y = inner.y + 52.0 + i as f32 * 24.0;
+            if y + 16.0 > inner.y + inner.h {
+                break;
+            }
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, y, inner.w, 16.0),
+                format!("{} . {}", h.date, h.name),
+                12.0,
+                600,
+                ctx.pal.primary,
+                TextAlign::Left,
+                true,
+            ));
+        }
+    }
+    nodes
+}
+
+/// 27. Catat pengeluaran cepat: DPAPI lokal terenkripsi + bar anggaran (S, M)
+pub fn build_quick_expense(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
+    let inner = ctx.frame.inset(14.0);
+    let exp = &ctx.hub.expenses;
+    let spent = exp.total_spent();
+    let ratio = exp.budget_ratio();
+    let compact = inner.h < 114.0;
+    let spent_str = format_idr(spent);
+    let spent_fs = if ctx.size == WidgetSize::Small {
+        (inner.w / (spent_str.chars().count().max(6) as f32 * 0.65)).clamp(16.0, 23.0)
+    } else if compact {
+        22.0
+    } else {
+        26.0
+    };
+    let bar_y = if compact { inner.y + 46.0 } else { inner.y + 54.0 };
+    let budget_y = bar_y + 11.0;
+
+    let mut nodes = vec![
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y, inner.w, 16.0),
+            if en { "EXPENSES" } else { "PENGELUARAN" },
+            10.5,
+            700,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            false,
+        ),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 16.0, inner.w, 30.0),
+            spent_str,
+            spent_fs,
+            700,
+            ctx.pal.primary,
+            TextAlign::Left,
+            true,
+        ),
+        SceneNode::ProgressBar {
+            rect: RectF::new(inner.x, bar_y, inner.w, 6.5),
+            progress: ratio,
+            track_color: ctx.pal.surface_chip,
+            fill_color: if ratio > 0.85 {
+                ctx.pal.danger
+            } else {
+                ctx.pal.accent
+            },
+            interactive_action: None,
+        },
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, budget_y, inner.w, 15.0),
+            if exp.monthly_budget_idr > 0 {
+                let raw_pct = (spent as f32 / exp.monthly_budget_idr as f32) * 100.0;
+                if en {
+                    format!(
+                        "Budget {} ({:.0}%)",
+                        format_idr(exp.monthly_budget_idr),
+                        raw_pct
+                    )
+                } else {
+                    format!(
+                        "Anggaran {} ({:.0}%)",
+                        format_idr(exp.monthly_budget_idr),
+                        raw_pct
+                    )
+                }
+            } else if en {
+                "Encrypted locally . Tap to log".into()
+            } else {
+                "Terenkripsi lokal . Ketuk catat".into()
+            },
+            10.5,
+            500,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            true,
+        ),
+    ];
+
+    let btn_w = (inner.w * 0.62).clamp(84.0, 112.0);
+    nodes.extend(action_pill(
+        RectF::new(inner.x, inner.y + inner.h - 24.0, btn_w, 24.0),
+        if en { "+ Log" } else { "+ Catat" },
+        ctx.pal.accent.with_alpha(0.24),
+        ctx.pal.primary,
+        "open_widget_settings",
+    ));
+    nodes
+}
+
+/// 28. Papan skor bola: antarmuka provider berlisensi (M)
+pub fn build_football_scores(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
+    let fb = &ctx.hub.football;
+    if !fb.provider_configured || fb.matches.is_empty() {
+        return empty_state_nodes(
+            ctx,
+            if en {
+                "Football Scores"
+            } else {
+                "Papan Skor Bola"
+            },
+            if fb.provider_note.is_empty() {
+                if en {
+                    "Requires a licensed match data provider (no scraping or fake scores)."
+                } else {
+                    "Membutuhkan penyedia data pertandingan berlisensi (tanpa scraping atau skor palsu)."
+                }
+            } else {
+                &fb.provider_note
+            },
+            if en { "Set Provider" } else { "Atur Provider" },
+            "open_widget_settings",
+        );
+    }
+    let inner = ctx.frame.inset(14.0);
+    let mut nodes = vec![text_node(
+        RectF::new(inner.x, inner.y, inner.w, 18.0),
+        if en {
+            "Match Scores"
+        } else {
+            "Skor Pertandingan"
+        },
+        14.5,
+        600,
+        ctx.pal.primary,
+        TextAlign::Left,
+        false,
+    )];
+    for (i, m) in fb.matches.iter().take(3).enumerate() {
+        let y = inner.y + 28.0 + i as f32 * 30.0;
+        if y + 18.0 > inner.y + inner.h {
+            break;
+        }
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x, y, (inner.w - 74.0).max(40.0), 18.0),
+            format!("{} vs {}", m.home, m.away),
+            13.0,
+            600,
+            ctx.pal.primary,
+            TextAlign::Left,
+            false,
+        ));
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x + inner.w - 70.0, y, 70.0, 18.0),
+            &m.score,
+            13.0,
+            700,
+            ctx.pal.accent,
+            TextAlign::Right,
+            true,
+        ));
+    }
+    nodes
+}
+
+/// 29. Tanya cepat AI: memakai router & BYOK Gili (M)
+pub fn build_ai_quick_ask(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
+    let ai = &ctx.hub.frontend.ai_quick;
+    if !ai.configured {
+        return empty_state_nodes(
+            ctx,
+            if en { "Quick AI Ask" } else { "Tanya Cepat AI" },
+            if en {
+                "Connect a BYOK API key in Gili AI Settings (stored securely in Credential Manager)."
+            } else {
+                "Hubungkan kunci API BYOK di Pengaturan AI Gili (disimpan aman di Credential Manager)."
+            },
+            if en { "AI Settings" } else { "Atur AI" },
+            "open_ai_settings",
+        );
+    }
+    let inner = ctx.frame.inset(14.0);
+    let mut nodes = vec![
+        text_node(
+            RectF::new(inner.x, inner.y, inner.w * 0.65, 18.0),
+            if en { "Quick AI Ask" } else { "Tanya Cepat AI" },
+            14.5,
+            600,
+            ctx.pal.primary,
+            TextAlign::Left,
+            false,
+        ),
+        text_node(
+            RectF::new(
+                inner.x + inner.w * 0.65,
+                inner.y + 2.0,
+                inner.w * 0.35,
+                16.0,
+            ),
+            &ai.active_model_label,
+            10.5,
+            600,
+            ctx.pal.accent,
+            TextAlign::Right,
+            false,
+        ),
+    ];
+
+    let body = if ai.is_streaming {
+        if en {
+            "Answering..."
+        } else {
+            "Menjawab..."
+        }
+        .to_string()
+    } else if let Some(err) = &ai.error {
+        err.clone()
+    } else if !ai.last_response.is_empty() {
+        ai.last_response.clone()
+    } else if en {
+        "Tap the button below to type a quick question right from your desktop.".to_string()
+    } else {
+        "Ketuk tombol di bawah untuk mengetik pertanyaan singkat langsung dari desktop.".to_string()
+    };
+
+    nodes.push(text_node(
+        RectF::new(inner.x, inner.y + 24.0, inner.w, inner.h - 56.0),
+        body,
+        12.0,
+        400,
+        ctx.pal.secondary,
+        TextAlign::Left,
+        false,
+    ));
+
+    nodes.extend(action_pill(
+        RectF::new(inner.x, inner.y + inner.h - 26.0, 128.0, 24.0),
+        if en {
+            "Ask AI..."
+        } else {
+            "Tanya AI..."
+        },
+        ctx.pal.accent.with_alpha(0.24),
+        ctx.pal.primary,
+        "open_ai_chat",
+    ));
+    nodes
+}
+
+/// 34. Kualitas Udara (AQI) & Indeks UV via Open-Meteo Air Quality API (S, M)
+pub fn build_air_quality(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
+    let aq = &ctx.hub.air_quality;
+    if !aq.available {
+        return empty_state_nodes(
+            ctx,
+            if en { "Air Quality" } else { "Kualitas Udara" },
+            aq.error.as_deref().unwrap_or(if en {
+                "AQI and UV Index data not loaded from Open-Meteo yet."
+            } else {
+                "Data AQI dan Indeks UV belum termuat dari Open-Meteo."
+            }),
+            if en { "Retry" } else { "Coba Lagi" },
+            "refresh_air_quality",
+        );
+    }
+    let inner = ctx.frame.inset(16.0);
+    let badge_col = match aq.us_aqi {
+        0..=50 => ctx.pal.positive,
+        51..=100 => ctx.pal.warning,
+        101..=150 => {
+            if ctx.pal.is_monochrome {
+                ctx.pal.primary
+            } else {
+                crate::config::RgbaColor::new(0xFB, 0x92, 0x3C, 1.0)
+            }
+        }
+        _ => ctx.pal.danger,
+    };
+
+    let compact = inner.h < 114.0;
+    let aqi_fs = if compact { 32.0 } else { 38.0 };
+    let cat_y = if compact { inner.y + 52.0 } else { inner.y + 60.0 };
+    let cat_w = if ctx.size == WidgetSize::Small {
+        inner.w
+    } else {
+        106.0
+    };
+    let bar_y = if compact {
+        inner.y + inner.h - 26.0
+    } else {
+        inner.y + 82.0
+    };
+
+    let mut nodes = vec![
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y, inner.w - 28.0, 16.0),
+            format!("AQI . {}", aq.location_name.to_uppercase()),
+            10.5,
+            700,
+            badge_col,
+            TextAlign::Left,
+            false,
+        ),
+        SceneNode::IconGlyph {
+            rect: RectF::new(inner.x + inner.w - 22.0, inner.y - 2.0, 22.0, 22.0),
+            glyph: "\u{E9CA}".into(),
+            size: 15.0,
+            color: badge_col,
+            interactive_action: None,
+        },
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + 15.0, 106.0, 42.0),
+            format!("{}", aq.us_aqi),
+            aqi_fs,
+            700,
+            ctx.pal.primary,
+            TextAlign::Left,
+            true,
+        ),
+        crate::widgets::text_node_line(
+            RectF::new(inner.x, cat_y, cat_w, 18.0),
+            if en {
+                match aq.category_label.as_str() {
+                    "Baik" => "Good",
+                    "Sedang" => "Moderate",
+                    "Sensitif" => "Sensitive",
+                    "Tidak Sehat" => "Unhealthy",
+                    "Sangat Tidak Sehat" => "Very Unhealthy",
+                    "Berbahaya" => "Hazardous",
+                    other => other,
+                }
+            } else {
+                &aq.category_label
+            },
+            12.5,
+            600,
+            badge_col,
+            TextAlign::Left,
+            false,
+        ),
+        SceneNode::ProgressBar {
+            rect: RectF::new(inner.x, bar_y, inner.w, 6.0),
+            progress: (aq.us_aqi as f32 / 250.0).clamp(0.05, 1.0),
+            track_color: ctx.pal.surface_chip,
+            fill_color: badge_col,
+            interactive_action: None,
+        },
+    ];
+
+    if ctx.size == WidgetSize::Small {
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + inner.h - 16.0, inner.w, 16.0),
+            format!("PM2.5 {:.0} . UV {:.1}", aq.pm2_5, aq.uv_index),
+            11.0,
+            500,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            true,
+        ));
+    } else {
+        let pills = [
+            ("PM2.5", format!("{:.1}", aq.pm2_5)),
+            ("PM10", format!("{:.1}", aq.pm10)),
+            (
+                if en { "UV Index" } else { "Indeks UV" },
+                format!("{:.1}", aq.uv_index),
+            ),
+        ];
+        let start_x = inner.x + 114.0;
+        let gap = 6.0;
+        let pw = (inner.w - 114.0 - gap * 2.0) / 3.0;
+        let pill_h = if compact { 40.0 } else { 46.0 };
+        let pill_y = inner.y + 18.0;
+        let pill_stroke = ctx
+            .pal
+            .inner_border
+            .map(|b| (b.with_alpha(b.a * 0.60), 0.75));
+        for (i, (lbl, val)) in pills.iter().enumerate() {
+            let x = start_x + i as f32 * (pw + gap);
+            nodes.push(SceneNode::RoundedRect {
+                rect: RectF::new(x, pill_y, pw, pill_h),
+                radius: 12.0,
+                smoothing: 0.60,
+                fill: Some(ctx.pal.surface_chip),
+                stroke: pill_stroke,
+                interactive_action: None,
+            });
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(x + 2.0, pill_y + 4.0, pw - 4.0, 14.0),
+                *lbl,
+                9.5,
+                600,
+                ctx.pal.secondary,
+                TextAlign::Center,
+                false,
+            ));
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(x + 2.0, pill_y + if compact { 19.0 } else { 22.0 }, pw - 4.0, 18.0),
+                val,
+                if compact { 13.0 } else { 14.0 },
+                700,
+                ctx.pal.primary,
+                TextAlign::Center,
+                true,
+            ));
+        }
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x, inner.y + inner.h - 15.0, inner.w, 14.0),
+            if en {
+                "Source: Open-Meteo Air Quality"
+            } else {
+                "Sumber: Open-Meteo Air Quality"
+            },
+            10.0,
+            400,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            false,
+        ));
+    }
+    nodes
+}

@@ -8,6 +8,7 @@ import "@fontsource/inter/latin-700.css";
 import "./App.css";
 import "./index.css";
 import { getLanguage } from "./services/languageStore";
+import { initStandbyDeepEcoGuard } from "./utils/standbyDeepEcoGuard";
 
 const App = lazy(() => import("./App"));
 const SettingsWindowApp = lazy(() =>
@@ -33,6 +34,11 @@ const MiniPlayerApp = lazy(() =>
 const LyricsShareWindowApp = lazy(() =>
   import("./components/lyricsShare/LyricsShareWindowApp").then((m) => ({
     default: m.LyricsShareWindowApp,
+  }))
+);
+const StandbyApp = lazy(() =>
+  import("./components/standby/StandbyApp").then((m) => ({
+    default: m.StandbyApp,
   }))
 );
 
@@ -234,6 +240,43 @@ const isLyricsShareWindow = (() => {
   return result;
 })();
 
+const isStandbyWindow = (() => {
+  if (typeof window === "undefined") return false;
+  let result = false;
+  if ((window as any).__IS_STANDBY_WINDOW__ === true) {
+    result = true;
+  } else if ((window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "standby") {
+    result = true;
+  } else {
+    try {
+      if (getCurrentWindow().label === "standby") {
+        result = true;
+      }
+    } catch {}
+    if (!result) {
+      result =
+        new URLSearchParams(window.location.search).get("window") === "standby" ||
+        window.location.search.includes("window=standby") ||
+        window.location.href.includes("window=standby");
+    }
+  }
+  if (result) {
+    document.documentElement.classList.add("standby-window");
+    if (document.body) {
+      document.body.classList.add("standby-window");
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add("standby-window");
+      });
+    }
+  }
+  return result;
+})();
+
+if (!isStandbyWindow) {
+  initStandbyDeepEcoGuard();
+}
+
 interface Props {
   children: ReactNode;
 }
@@ -283,6 +326,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         <MiniPlayerApp />
       ) : isLyricsShareWindow ? (
         <LyricsShareWindowApp />
+      ) : isStandbyWindow ? (
+        <StandbyApp />
       ) : (
         <App isSecondaryWindow={isSecondaryWindow} />
       )}

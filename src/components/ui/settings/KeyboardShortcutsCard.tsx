@@ -13,6 +13,7 @@ import {
   Monitor,
   PictureInPicture2,
   MessageCircle,
+  LayoutDashboard,
 } from "lucide-react";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { Tooltip } from "../Tooltip";
@@ -50,6 +51,8 @@ const ACTION_ICONS: Record<ShortcutActionId, React.ReactNode> = {
   switch_monitor: <Monitor size={17} strokeWidth={2} />,
   toggle_miniplayer: <PictureInPicture2 size={17} strokeWidth={2} />,
   open_ai_chat: <MessageCircle size={17} strokeWidth={2} />,
+  toggle_standby: <Monitor size={17} strokeWidth={2} />,
+  toggle_widget_board: <LayoutDashboard size={17} strokeWidth={2} />,
 };
 
 const ACTION_COLORS: Record<ShortcutActionId, { bg: string; text: string }> = {
@@ -63,6 +66,8 @@ const ACTION_COLORS: Record<ShortcutActionId, { bg: string; text: string }> = {
   switch_monitor: { bg: "bg-[#142333]", text: "text-[#3882F6]" },
   toggle_miniplayer: { bg: "bg-[#1a2333]", text: "text-[#38bdf8]" },
   open_ai_chat: { bg: "bg-[#142333]", text: "text-[#3882F6]" },
+  toggle_standby: { bg: "bg-[#2c2210]", text: "text-[#ff9f0a]" },
+  toggle_widget_board: { bg: "bg-[#102b24]", text: "text-[#34c3a0]" },
 };
 
 const ACTION_COLORS_LIGHT: Record<ShortcutActionId, { bg: string; text: string }> = {
@@ -76,6 +81,8 @@ const ACTION_COLORS_LIGHT: Record<ShortcutActionId, { bg: string; text: string }
   switch_monitor: { bg: "bg-[#007aff]/15", text: "text-[#007aff]" },
   toggle_miniplayer: { bg: "bg-[#0284c7]/15", text: "text-[#0284c7]" },
   open_ai_chat: { bg: "bg-[#007aff]/15", text: "text-[#007aff]" },
+  toggle_standby: { bg: "bg-[#ff9f0a]/15", text: "text-[#ea580c]" },
+  toggle_widget_board: { bg: "bg-[#34c3a0]/15", text: "text-[#0f766e]" },
 };
 
 export const KeyboardShortcutsCard: React.FC<KeyboardShortcutsCardProps> = ({

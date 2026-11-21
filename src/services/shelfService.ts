@@ -446,6 +446,9 @@ export async function persistShelfFiles(files: StashedFile[], immediate = false)
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanFiles));
     localStorage.setItem(STORAGE_META_KEY, JSON.stringify({ updatedAt }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("gili_shelf_updated"));
+    }
   } catch (err) {
     console.warn("localStorage sync warning:", err);
   }

@@ -31,6 +31,7 @@ import { SettingRow } from "./SettingRow";
 import { NotchPosition } from "../../../utils/notchGeometry";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
+import { IosSelect } from "../../ios/IosSelect";
 import { NotifSoundPicker } from "./NotifSoundPicker";
 import { t, Language } from "../../../services/i18n";
 import { SettingsSubtab } from "./SettingsSubnav";
@@ -634,24 +635,23 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
       iconBgClass: "bg-[#142333]",
       iconColorClass: "text-[#32ade6]",
       control: (
-        <select
+        <IosSelect
+          ariaLabel={t("settings_position")}
+          isLightMode={isLightMode}
           value={optPosition || "top"}
-          onChange={(e) => onChangePosition?.(e.target.value as NotchPosition)}
-          className={`rounded-[10px] px-2.5 py-1.5 text-[12px] font-medium outline-none cursor-pointer border ${
-            isLightMode
-              ? "bg-black/[0.05] text-neutral-800 border-black/10"
-              : "bg-[#1c1c23] text-white border-white/10"
-          }`}
-        >
-          <option value="top-left">{t("settings_pos_top_left")}</option>
-          <option value="top">{t("settings_pos_top")}</option>
-          <option value="top-right">{t("settings_pos_top_right")}</option>
-          <option value="left">{t("settings_pos_left")}</option>
-          <option value="right">{t("settings_pos_right")}</option>
-          <option value="bottom-left">{t("settings_pos_bottom_left")}</option>
-          <option value="bottom">{t("settings_pos_bottom")}</option>
-          <option value="bottom-right">{t("settings_pos_bottom_right")}</option>
-        </select>
+          onChange={(val) => onChangePosition?.(val as NotchPosition)}
+          minWidthClass="min-w-[152px]"
+          options={[
+            { value: "top-left", label: t("settings_pos_top_left") },
+            { value: "top", label: t("settings_pos_top") },
+            { value: "top-right", label: t("settings_pos_top_right") },
+            { value: "left", label: t("settings_pos_left") },
+            { value: "right", label: t("settings_pos_right") },
+            { value: "bottom-left", label: t("settings_pos_bottom_left") },
+            { value: "bottom", label: t("settings_pos_bottom") },
+            { value: "bottom-right", label: t("settings_pos_bottom_right") },
+          ]}
+        />
       ),
     },
     {

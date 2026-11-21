@@ -18,6 +18,44 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "5.2.0",
+    date: "21 Nov 2026",
+    highlights: [
+      {
+        icon: <LayoutGrid size={14} />,
+        titleId: "34 Widget Desktop Native Direct2D",
+        titleEn: "34 Native Direct2D Desktop Widgets",
+        descId: "Widget desktop native dengan rendering Direct2D langsung di wallpaper: jam 8 gaya, kalender & sinkron iCal (Google/Outlook/iCloud), cuaca & AQI, kurs mata uang + spot emas publik, performa CPU/RAM/GPU, proses teratas, audio visualizer WASAPI, Now Playing & lirik, Polaroid berbasis folder, jadwal sholat, dan Mini Note tersinkron dengan Notch.",
+        descEn: "Native Direct2D widgets rendered directly on the Windows desktop: 8-style clocks, calendar with read-only iCal sync (Google/Outlook/iCloud), weather & AQI, currency and public spot gold rates, CPU/RAM/GPU performance, top processes, WASAPI audio visualizer, Now Playing lyrics, folder-based Polaroid frame, prayer times, and Mini Note synced with the Notch.",
+        badge: "new",
+      },
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Mode StandBy Layar Penuh untuk PC",
+        titleEn: "Full-Screen StandBy Mode for Windows",
+        descId: "Mengubah layar Windows saat idle atau charging menjadi tampilan jam dan dashboard widget layar penuh dengan pilihan tema jam, perlindungan burn-in, dan bundling dalam paket Gili Pro bersama Taskbar dan Widget Desktop.",
+        descEn: "Turns an idle or charging Windows display into a full-screen desk clock and widget view with clock styles, burn-in pixel shift, and bundled access in Gili Pro alongside Taskbar and Desktop Widgets.",
+        badge: "new",
+      },
+      {
+        icon: <Layers size={14} />,
+        titleId: "Anti-Tumpuk Widget, Routing Klik Cerdas & Pratinjau Aktif",
+        titleEn: "Anti-Overlap Collision Resolver, Smart Click Routing & Live Previews",
+        descId: "Mencegah widget saling menindih saat digeser, diubah ukuran, atau ditambah; mengarahkan klik widget berbasis input langsung ke bagian pengaturan terkait, menutup Notch saat klik di luar setelah dibuka dari widget, serta menampilkan pratinjau visual langsung di daftar Widget Aktif.",
+        descEn: "Prevents desktop widgets from overlapping when dragged, resized, or added; routes data-driven widget clicks directly to their matching settings section, restores click-outside Notch dismissal after widget triggers, and shows visual thumbnails in the Active Widgets list.",
+        badge: "improve",
+      },
+      {
+        icon: <Cpu size={14} />,
+        titleId: "Optimasi CPU & GPU Direct2D (Per-Slot Cache & Audio Fast Path)",
+        titleEn: "Direct2D CPU & GPU Optimization (Per-Slot Cache & Audio Fast Path)",
+        descId: "Menambahkan cache bitmap GPU per slot untuk widget statis, hashing scene tanpa alokasi, fast path audio 64-byte pada 30 FPS adaptif, serta memangkas polling WinRT, disk, dan NVML agar pemakaian CPU dan RAM tetap rendah saat banyak widget aktif.",
+        descEn: "Adds per-slot GPU offscreen bitmap caching for static widgets, zero-allocation scene hashing, a 64-byte audio fast path at adaptive 30 FPS, and throttled WinRT, disk, and NVML polling to keep CPU and memory low with multiple active widgets.",
+        badge: "improve",
+      },
+    ],
+  },
+  {
     version: "5.1.2",
     date: "19 Nov 2026",
     highlights: [

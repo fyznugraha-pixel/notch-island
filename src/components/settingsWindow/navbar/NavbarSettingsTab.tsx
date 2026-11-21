@@ -7,14 +7,6 @@ import {
   saveNavbarConfig,
   subscribeToNavbarConfig,
 } from "../../../services/navbarConfigService";
-import {
-  DEFAULT_TASKBAR_PRO_STATUS,
-  TaskbarProStatus,
-  getTaskbarProStatus,
-  purchaseTaskbarPro,
-  refreshTaskbarProLicense,
-  subscribeTaskbarProStatus,
-} from "../../../services/taskbarProService";
 import { NavbarLivePreview } from "./NavbarLivePreview";
 import { NavbarShapeCard } from "./NavbarShapeCard";
 import { NavbarPositionCard } from "./NavbarPositionCard";
@@ -25,11 +17,12 @@ import { NavbarModulesOrderCard } from "./NavbarModulesOrderCard";
 import { AddModuleDialog } from "./AddModuleDialog";
 import { NavbarPresetsModal } from "./NavbarPresetsModal";
 import { NavbarStyleShareModal } from "./NavbarStyleShareModal";
-import { TaskbarProBanner, ProPurchaseFeedback } from "./TaskbarProBanner";
+import { TaskbarProBanner } from "./TaskbarProBanner";
 import { getNavbarModuleById } from "../../../modules/registry";
 import { isSameCatalogModuleId } from "../../../modules/moduleAliases";
 import { LayoutTemplate, RotateCcw, Share2 } from "lucide-react";
 import { Language, getLanguage } from "../../../services/i18n";
+import { useGiliProLicense } from "../../../hooks/useGiliProLicense";
 
 interface NavbarSettingsTabProps {
   isLightMode?: boolean;
@@ -47,12 +40,18 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
   const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
   const [isStyleShareOpen, setIsStyleShareOpen] = useState(false);
-  const [proStatus, setProStatus] = useState<TaskbarProStatus>(DEFAULT_TASKBAR_PRO_STATUS);
-  const [isPurchasing, setIsPurchasing] = useState(false);
-  const [isRefreshingLicense, setIsRefreshingLicense] = useState(false);
-  const [proFeedback, setProFeedback] = useState<ProPurchaseFeedback | null>(null);
-  const [bannerPulse, setBannerPulse] = useState(false);
-  const proBannerRef = useRef<HTMLDivElement>(null);
+  const {
+    proStatus,
+    isProLocked,
+    isPurchasing,
+    isRefreshingLicense,
+    proFeedback,
+    bannerPulse,
+    proBannerRef,
+    handlePurchasePro,
+    handleRefreshLicense,
+    promptProUpgrade,
+  } = useGiliProLicense(currentLang);
   const configRef = useRef<NavbarConfig>(DEFAULT_NAVBAR_CONFIG);
   configRef.current = config;
 
@@ -68,23 +67,15 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
       setConfig(loaded);
       setIsLoading(false);
     });
-    getTaskbarProStatus().then((status) => {
-      if (active) setProStatus(status);
-    });
     const unsubscribe = subscribeToNavbarConfig((synced) => {
       setConfig(synced);
-    });
-    const unsubscribePro = subscribeTaskbarProStatus((nextStatus) => {
-      if (active) setProStatus(nextStatus);
     });
     return () => {
       active = false;
       unsubscribe();
-      unsubscribePro();
     };
   }, []);
 
-  const isProLocked = proStatus.isLocked;
   const effectiveEnabled = !isProLocked && config.enabled;
 
   const handleAddModule = (
@@ -173,86 +164,24 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
     }
   };
 
-  const handlePurchasePro = async (autoEnableAfter = false) => {
-    if (isPurchasing) return;
-    setIsPurchasing(true);
-    setProFeedback(null);
-    try {
-      const outcome = await purchaseTaskbarPro();
-      if (outcome.licenseStatus) {
-        setProStatus(outcome.licenseStatus);
-      }
-      if (outcome.status === "succeeded" || outcome.status === "already_purchased") {
-        setProFeedback({ kind: "success", message: outcome.message });
-        if (autoEnableAfter || outcome.status === "succeeded") {
-          const unlockedConfig: NavbarConfig = {
-            ...configRef.current,
-            enabled: true,
-          };
-          setConfig(unlockedConfig);
-          await saveNavbarConfig(unlockedConfig);
-          await invoke("toggle_navbar", { enabled: true }).catch(() => {});
-          if (unlockedConfig.hideWindowsTaskbar) {
-            await invoke("set_windows_taskbar_visible", { visible: false }).catch(() => {});
-          }
-        }
-      } else if (outcome.status === "cancelled") {
-        setProFeedback({ kind: "info", message: outcome.message });
-      } else if (outcome.status !== "not_required") {
-        setProFeedback({ kind: "error", message: outcome.message });
-      }
-    } catch (err) {
-      setProFeedback({
-        kind: "error",
-        message: isId
-          ? `Gagal memproses pembelian: ${String(err)}`
-          : `Failed to start Store purchase: ${String(err)}`,
-      });
-    } finally {
-      setIsPurchasing(false);
+  const enableUnlockedNavbar = async (autoEnable: boolean) => {
+    if (!autoEnable) return;
+    const unlockedConfig: NavbarConfig = {
+      ...configRef.current,
+      enabled: true,
+    };
+    setConfig(unlockedConfig);
+    await saveNavbarConfig(unlockedConfig);
+    await invoke("toggle_navbar", { enabled: true }).catch(() => {});
+    if (unlockedConfig.hideWindowsTaskbar) {
+      await invoke("set_windows_taskbar_visible", { visible: false }).catch(() => {});
     }
   };
 
-  const handleRefreshLicense = async () => {
-    if (isRefreshingLicense || isPurchasing) return;
-    setIsRefreshingLicense(true);
-    setProFeedback(null);
-    try {
-      const status = await refreshTaskbarProLicense();
-      setProStatus(status);
-      if (!status.isLocked) {
-        setProFeedback({
-          kind: "success",
-          message: isId
-            ? "Lisensi Taskbar Pro ditemukan dan aktif."
-            : "Taskbar Pro license verified and active.",
-        });
-      } else {
-        setProFeedback({
-          kind: "info",
-          message:
-            status.lastError ||
-            (isId
-              ? "Belum ada pembelian Taskbar Pro yang aktif di akun Microsoft Store ini."
-              : "No active Taskbar Pro license was found on this Microsoft Store account."),
-        });
-      }
-    } catch (err) {
-      setProFeedback({
-        kind: "error",
-        message: String(err),
-      });
-    } finally {
-      setIsRefreshingLicense(false);
-    }
-  };
+  const handlePurchase = (autoEnableAfter = false) =>
+    handlePurchasePro(( ) => enableUnlockedNavbar(autoEnableAfter));
 
-  const handleRequirePro = () => {
-    proBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    setBannerPulse(true);
-    window.setTimeout(() => setBannerPulse(false), 1200);
-    handlePurchasePro(true);
-  };
+  const handleRequirePro = () => promptProUpgrade(() => enableUnlockedNavbar(true));
 
   const handleApplyPreset = (
     presetPatch: Partial<NavbarConfig>,
@@ -335,8 +264,8 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
                 : "Taskbar Enabled"
               : isProLocked
               ? isId
-                ? "Taskbar Pro · Mode Preview"
-                : "Taskbar Pro · Preview Only"
+                ? "Gili Pro · Mode Preview"
+                : "Gili Pro · Preview Only"
               : isId
               ? "Taskbar Nonaktif"
               : "Taskbar Disabled"}
@@ -429,13 +358,14 @@ export const NavbarSettingsTab: React.FC<NavbarSettingsTabProps> = ({
       {isProLocked && (
         <div ref={proBannerRef}>
           <TaskbarProBanner
+            context="taskbar"
             proStatus={proStatus}
             isPurchasing={isPurchasing}
             isRefreshing={isRefreshingLicense}
             feedback={proFeedback}
             highlightPulse={bannerPulse}
-            onPurchase={() => handlePurchasePro(true)}
-            onRefreshLicense={handleRefreshLicense}
+            onPurchase={() => handlePurchase(true)}
+            onRefreshLicense={() => handleRefreshLicense()}
             isLightMode={isLightMode}
             optLanguage={currentLang}
           />

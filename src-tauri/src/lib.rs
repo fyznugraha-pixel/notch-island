@@ -44,6 +44,8 @@ pub mod lyrics_share;
 pub mod display_topology;
 mod http_guard;
 mod style_file_dialog;
+pub mod standby_window;
+pub mod desktop_widgets_bridge;
 
 pub(crate) struct ComGuard(bool);
 
@@ -934,7 +936,7 @@ async fn smtc_action(action: String) -> Result<(), String> {
         let session = resolve_smtc_session(&manager).ok_or_else(|| "No media session found".to_string())?;
 
         match action.as_str() {
-            "toggle" => { let _ = session.TryTogglePlayPauseAsync().map_err(|e| e.to_string())?.get(); },
+            "toggle" | "playpause" => { let _ = session.TryTogglePlayPauseAsync().map_err(|e| e.to_string())?.get(); },
             "play" => { let _ = session.TryPlayAsync().map_err(|e| e.to_string())?.get(); },
             "pause" => { let _ = session.TryPauseAsync().map_err(|e| e.to_string())?.get(); },
             "next" => { let _ = session.TrySkipNextAsync().map_err(|e| e.to_string())?.get(); },
@@ -2181,6 +2183,7 @@ fn reconcile_displays_on_change(app: &tauri::AppHandle) {
     position_notch_window(&main_win, pos, phys_offset, target_mon.as_deref());
     sync_all_displays_windows(app, is_all);
     navbar_window::on_display_topology_changed(app);
+    standby_window::on_display_topology_changed(app);
     backdrop_blur::invalidate_all_backdrops();
 
     if topology_changed {
@@ -2956,7 +2959,7 @@ extern "system" {
     fn GetLocalTime(lp_system_time: *mut LocalSystemTime);
 }
 
-fn compute_windows_screen_time() -> WindowsScreenTimeInfo {
+pub(crate) fn compute_windows_screen_time() -> WindowsScreenTimeInfo {
     use windows::Win32::System::Power::{CallNtPowerInformation, LastWakeTime};
 
     let mut lt = LocalSystemTime::default();
@@ -4449,6 +4452,51 @@ fn detect_browser_web_source(current_title: &str, current_artist: &str) -> Optio
             } else if win_title.contains("netflix") {
                 ctx.found = Some("Netflix".to_string());
                 return BOOL(0);
+            } else if win_title.contains("twitch") {
+                ctx.found = Some("Twitch".to_string());
+                return BOOL(0);
+            } else if win_title.contains("bilibili") {
+                ctx.found = Some("Bilibili".to_string());
+                return BOOL(0);
+            } else if win_title.contains("disney+") || win_title.contains("disneyplus") || win_title.contains("hotstar") {
+                ctx.found = Some("Disney+".to_string());
+                return BOOL(0);
+            } else if win_title.contains("prime video") || win_title.contains("primevideo") {
+                ctx.found = Some("Prime Video".to_string());
+                return BOOL(0);
+            } else if win_title.contains("crunchyroll") {
+                ctx.found = Some("Crunchyroll".to_string());
+                return BOOL(0);
+            } else if win_title.contains("vidio") {
+                ctx.found = Some("Vidio".to_string());
+                return BOOL(0);
+            } else if win_title.contains("viu") {
+                ctx.found = Some("Viu".to_string());
+                return BOOL(0);
+            } else if win_title.contains("vimeo") {
+                ctx.found = Some("Vimeo".to_string());
+                return BOOL(0);
+            } else if win_title.contains("tiktok") {
+                ctx.found = Some("TikTok".to_string());
+                return BOOL(0);
+            } else if win_title.contains("kick") {
+                ctx.found = Some("Kick".to_string());
+                return BOOL(0);
+            } else if win_title.contains("iqiyi") {
+                ctx.found = Some("iQIYI".to_string());
+                return BOOL(0);
+            } else if win_title.contains("wetv") {
+                ctx.found = Some("WeTV".to_string());
+                return BOOL(0);
+            } else if win_title.contains("hbo") || win_title.contains("max |") || win_title.contains("play.max.com") {
+                ctx.found = Some("Max".to_string());
+                return BOOL(0);
+            } else if win_title.contains("apple tv") {
+                ctx.found = Some("Apple TV".to_string());
+                return BOOL(0);
+            } else if win_title.contains("dailymotion") {
+                ctx.found = Some("Dailymotion".to_string());
+                return BOOL(0);
             }
         }
         BOOL(1)
@@ -4601,6 +4649,18 @@ fn broadcast_settings_sync(app: tauri::AppHandle, payload: serde_json::Value) {
 
 #[tauri::command]
 fn trigger_notch_action(app: tauri::AppHandle, action: String) {
+    if action == "toggle_standby" {
+        standby_window::toggle_standby_window(app);
+        return;
+    }
+    if action == "open_standby" {
+        standby_window::open_standby_window(app, Some("manual".to_string()));
+        return;
+    }
+    if action == "close_standby" {
+        standby_window::close_standby_window(app);
+        return;
+    }
     use tauri::Emitter;
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.emit_to("main", "settings-trigger-action", action);
@@ -4630,6 +4690,7 @@ unsafe extern "system" fn console_ctrl_exit_handler(ctrl_type: u32) -> windows::
 
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
+    standby_window::destroy_standby_on_exit(&app);
     cleanup_shell_state_on_exit();
     app.restart();
 }
@@ -4661,7 +4722,12 @@ pub fn run() {
         if arg == "--taskbar-watchdog" {
             if let Some(pid_str) = args.get(i + 1) {
                 if let Ok(pid) = pid_str.parse::<u32>() {
-                    taskbar_safety::run_taskbar_watchdog(pid);
+                    let flag_path = args
+                        .iter()
+                        .position(|a| a == "--flag-path")
+                        .and_then(|idx| args.get(idx + 1))
+                        .map(std::path::PathBuf::from);
+                    taskbar_safety::run_taskbar_watchdog_with_flag(pid, flag_path);
                     return;
                 }
             }
@@ -4669,7 +4735,7 @@ pub fn run() {
     }
 
     if std::env::args().any(|arg| arg == "--restore-taskbar") {
-        taskbar_manager::set_taskbar_visible(true);
+        taskbar_manager::restore_taskbars_from_watchdog(Some(0), None);
         println!("Windows Taskbar has been restored.");
         return;
     }
@@ -4928,7 +4994,52 @@ pub fn run() {
             store_license::refresh_taskbar_pro_license,
             store_license::purchase_taskbar_pro,
             install_repair::get_autostart_state,
-            install_repair::sync_autostart_state
+            install_repair::sync_autostart_state,
+            standby_window::get_standby_config,
+            standby_window::save_standby_config,
+            standby_window::open_standby_window,
+            standby_window::close_standby_window,
+            standby_window::toggle_standby_window,
+            standby_window::is_standby_open,
+            standby_window::is_standby_deep_eco_active,
+            standby_window::get_standby_launch_context,
+            standby_window::notify_standby_ready,
+            desktop_widgets_bridge::get_desktop_widgets_config,
+            desktop_widgets_bridge::save_desktop_widgets_config,
+            desktop_widgets_bridge::get_desktop_widgets_catalog,
+            desktop_widgets_bridge::toggle_desktop_widget_board,
+            desktop_widgets_bridge::set_desktop_widget_edit_mode,
+            desktop_widgets_bridge::get_desktop_widgets_runtime_metrics,
+            desktop_widgets_bridge::analyze_widget_wallpaper_contrast,
+            desktop_widgets_bridge::sync_frontend_widget_mirror,
+            desktop_widgets_bridge::save_widget_ical_url,
+            desktop_widgets_bridge::clear_widget_ical_url,
+            desktop_widgets_bridge::get_widget_ical_status,
+            desktop_widgets_bridge::take_pending_widget_provider,
+            desktop_widgets_bridge::save_github_widget_token,
+            desktop_widgets_bridge::get_widget_storage_status,
+            desktop_widgets_bridge::trigger_widget_storage_scan,
+            desktop_widgets_bridge::pick_widget_storage_folder_dialog,
+            desktop_widgets_bridge::export_widget_time_tracker_csv,
+            desktop_widgets_bridge::set_widget_expense_budget,
+            desktop_widgets_bridge::get_widget_expenses,
+            desktop_widgets_bridge::add_widget_expense,
+            desktop_widgets_bridge::delete_widget_expense,
+            desktop_widgets_bridge::add_widget_uptime_site,
+            desktop_widgets_bridge::add_widget_time_project,
+            desktop_widgets_bridge::add_widget_shortcut,
+            desktop_widgets_bridge::configure_widget_photo_folder,
+            desktop_widgets_bridge::get_widget_photo_folder_status,
+            desktop_widgets_bridge::pick_widget_photos_dialog,
+            desktop_widgets_bridge::pick_widget_photo_folder_dialog,
+            desktop_widgets_bridge::configure_widget_recent_folders,
+            desktop_widgets_bridge::add_widget_countdown,
+            desktop_widgets_bridge::add_widget_snippet,
+            desktop_widgets_bridge::get_widget_kanban_board,
+            desktop_widgets_bridge::add_widget_kanban_card,
+            desktop_widgets_bridge::move_widget_kanban_card,
+            desktop_widgets_bridge::delete_widget_kanban_card,
+            desktop_widgets_bridge::add_widget_world_clock
         ])
         .setup(|app| {
             shared_sampler::SharedSampler::global().start_worker(app.handle().clone());
@@ -4938,11 +5049,13 @@ pub fn run() {
             
             let toggle_i = MenuItem::with_id(app, "toggle_visibility", "Show / Hide Gili (Ctrl+Shift+D)", true, None::<&str>)?;
             let cc_i = MenuItem::with_id(app, "open_control_center", "Open Control Center", true, None::<&str>)?;
+            let standby_i = MenuItem::with_id(app, "toggle_standby", "StandBy Desk Display (Ctrl+Alt+S)", true, None::<&str>)?;
+            let widgets_i = MenuItem::with_id(app, "toggle_widget_board", "Papan Widget Desktop (Ctrl+Alt+W)", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
             let restore_tb_i = MenuItem::with_id(app, "restore_taskbar", "Restore Windows Taskbar", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Gili", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &settings_i, &restore_tb_i, &sep, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &cc_i, &standby_i, &widgets_i, &settings_i, &restore_tb_i, &sep, &quit_i])?;
 
             let mut tray_builder = TrayIconBuilder::new()
                 .tooltip("Gili (Running in Background)")
@@ -4971,6 +5084,16 @@ pub fn run() {
                                 let _ = w.emit_to("main", "tray-open-control-center", serde_json::json!({ "target": "main" }));
                             }
                         }
+                        "toggle_standby" => {
+                            standby_window::toggle_standby_window(app.clone());
+                        }
+                        "toggle_widget_board" => {
+                            if store_license::can_use_pro_bundle() {
+                                let _ = desktop_widgets_bridge::toggle_desktop_widget_board(None);
+                            } else {
+                                show_or_create_settings_window(app, Some("widgets".to_string()));
+                            }
+                        }
                         "open_settings" => {
                             show_or_create_settings_window(app, None);
                         }
@@ -4978,6 +5101,8 @@ pub fn run() {
                             taskbar_manager::set_taskbar_visible(true);
                         }
                         "quit" => {
+                            desktop_widgets_bridge::shutdown_desktop_widgets_on_exit();
+                            standby_window::destroy_standby_on_exit(app);
                             cleanup_shell_state_on_exit();
                             app.exit(0);
                         }
@@ -4992,6 +5117,15 @@ pub fn run() {
             let _tray = tray_builder.build(app)?;
 
             let app_h = app.handle().clone();
+            store_license::init_cached_license_from_disk();
+            standby_window::start_standby_watcher(app.handle().clone());
+            let widgets_app = app.handle().clone();
+            std::thread::Builder::new()
+                .name("gili-widgets-init".into())
+                .spawn(move || {
+                    desktop_widgets_bridge::start_desktop_widgets_bridge(widgets_app);
+                })
+                .ok();
             std::thread::spawn(move || {
                 windows_pinned_apps::start_pinned_apps_watcher(app_h.clone());
                 window_preview::start_preview_prewarmer();
@@ -5113,9 +5247,14 @@ pub fn run() {
                 let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
                 let mut last_desktop_geom_sig = display_topology::quick_desktop_geometry_signature();
                 let mut notch_desktop_burst: u8 = 0;
+                let mut fast_poll = true;
                 let own_pid = std::process::id();
                 loop {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    if standby_window::is_deep_eco_active() {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        continue;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(if fast_poll { 20 } else { 60 }));
                     
                     loop_count = loop_count.wrapping_add(1);
                     if loop_count.is_multiple_of(25) {
@@ -5239,6 +5378,17 @@ pub fn run() {
                                     && pt.x <= wp.x + ws.width as i32 + pad
                                     && pt.y >= wp.y - pad
                                     && pt.y <= wp.y + ws.height as i32 + pad
+                            });
+
+                        fast_poll = cursor_near_edge
+                            || notch_desktop_burst > 0
+                            || !sec_hit_map.is_empty()
+                            || cached_geom.is_some_and(|(wp, ws, sf)| {
+                                let approach_pad = (140.0 * sf).round() as i32;
+                                pt.x >= wp.x - approach_pad
+                                    && pt.x <= wp.x + ws.width as i32 + approach_pad
+                                    && pt.y >= wp.y - approach_pad
+                                    && pt.y <= wp.y + ws.height as i32 + approach_pad
                             });
 
                         // Polling hit test untuk notch di layar sekunder
@@ -5465,6 +5615,10 @@ pub fn run() {
                 let mut last_ping: Option<u32> = None;
                 let mut initialized = false;
                 loop {
+                    if standby_window::is_deep_eco_active() {
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        continue;
+                    }
                     unsafe {
                         if let Ok(handle) = IcmpCreateFile() {
                             let ip_addr = 0x08080808u32; // 8.8.8.8
@@ -5845,7 +5999,7 @@ pub fn run() {
                     let mut title = String::new();
                     let mut artist = String::new();
                     let mut is_playing = false;
-                    let mut playback_type = 1;
+                    let mut playback_type = 0;
                     let mut position_sec = 0.0;
                     let mut duration_sec = 0.0;
                     let mut is_browser_session = false;
@@ -6205,6 +6359,32 @@ pub fn run() {
                                         current_web_source = Some("Plex".to_string());
                                     } else if a_lower == "netflix" || t_lower.contains("netflix") {
                                         current_web_source = Some("Netflix".to_string());
+                                    } else if a_lower == "twitch" || t_lower.contains("twitch") {
+                                        current_web_source = Some("Twitch".to_string());
+                                    } else if a_lower == "bilibili" || t_lower.contains("bilibili") {
+                                        current_web_source = Some("Bilibili".to_string());
+                                    } else if a_lower.contains("disney") || t_lower.contains("disney+") || t_lower.contains("hotstar") {
+                                        current_web_source = Some("Disney+".to_string());
+                                    } else if a_lower.contains("prime video") || t_lower.contains("prime video") {
+                                        current_web_source = Some("Prime Video".to_string());
+                                    } else if a_lower == "crunchyroll" || t_lower.contains("crunchyroll") {
+                                        current_web_source = Some("Crunchyroll".to_string());
+                                    } else if a_lower == "vidio" || t_lower.contains("vidio") {
+                                        current_web_source = Some("Vidio".to_string());
+                                    } else if a_lower == "viu" || t_lower.contains("viu") {
+                                        current_web_source = Some("Viu".to_string());
+                                    } else if a_lower == "vimeo" || t_lower.contains("vimeo") {
+                                        current_web_source = Some("Vimeo".to_string());
+                                    } else if a_lower == "tiktok" || t_lower.contains("tiktok") {
+                                        current_web_source = Some("TikTok".to_string());
+                                    } else if a_lower == "iqiyi" || t_lower.contains("iqiyi") {
+                                        current_web_source = Some("iQIYI".to_string());
+                                    } else if a_lower == "wetv" || t_lower.contains("wetv") {
+                                        current_web_source = Some("WeTV".to_string());
+                                    } else if a_lower.contains("apple tv") || t_lower.contains("apple tv") {
+                                        current_web_source = Some("Apple TV".to_string());
+                                    } else if a_lower == "dailymotion" || t_lower.contains("dailymotion") {
+                                        current_web_source = Some("Dailymotion".to_string());
                                     } else {
                                         current_web_source = detect_browser_web_source(&title, &artist);
                                     }
@@ -6217,10 +6397,15 @@ pub fn run() {
                                         }
                                     }
                                 } else if is_browser_session {
-                                    if let (Some(ref aid), Some((ref cached_aid, ref cached_ws))) = (&current_app_id, &cached_browser_web_source) {
-                                        if aid.to_lowercase() == *cached_aid {
-                                            current_web_source = Some(cached_ws.clone());
+                                    // Only reuse cached browser source while track identity is unchanged so a stale music tab never masks a new video tab
+                                    if title == last_title && artist == last_artist {
+                                        if let (Some(ref aid), Some((ref cached_aid, ref cached_ws))) = (&current_app_id, &cached_browser_web_source) {
+                                            if aid.to_lowercase() == *cached_aid {
+                                                current_web_source = Some(cached_ws.clone());
+                                            }
                                         }
+                                    } else {
+                                        cached_browser_web_source = None;
                                     }
                                 }
                                 
@@ -6422,11 +6607,12 @@ pub fn run() {
                 }
             });
 
-            store_license::init_cached_license_from_disk();
             taskbar_flyout::init_flyout_manager(app.handle());
             taskbar_safety::init_taskbar_switches_from_disk();
             taskbar_hotkey::init_taskbar_hotkey_layer(app.handle().clone());
-            taskbar_safety::ensure_taskbar_watchdog_spawned();
+            std::thread::spawn(|| {
+                taskbar_safety::ensure_taskbar_watchdog_spawned();
+            });
 
             if store_license::can_use_taskbar() {
                 let (navbar_enabled, hide_taskbar) = store_license::read_disk_navbar_flags();

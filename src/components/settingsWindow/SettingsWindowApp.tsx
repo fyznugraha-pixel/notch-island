@@ -73,6 +73,14 @@ const AppearanceTab = React.lazy(() =>
 const IdleTab = React.lazy(() =>
   import("../ui/settings/IdleTab").then((m) => ({ default: m.IdleTab }))
 );
+const StandbyTab = React.lazy(() =>
+  import("../ui/settings/StandbyTab").then((m) => ({ default: m.StandbyTab }))
+);
+const DesktopWidgetsTab = React.lazy(() =>
+  import("../ui/settings/desktopWidgets/DesktopWidgetsTab").then((m) => ({
+    default: m.DesktopWidgetsTab,
+  }))
+);
 const GeneralTab = React.lazy(() =>
   import("../ui/settings/GeneralTab").then((m) => ({ default: m.GeneralTab }))
 );
@@ -135,7 +143,7 @@ export const SettingsWindowApp: React.FC = () => {
   }, []);
 
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("5.1.2");
+  const [currentAppVersion, setCurrentAppVersion] = useState("5.2.0");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
@@ -1537,11 +1545,25 @@ export const SettingsWindowApp: React.FC = () => {
                     />
                   )}
 
+                  {activeSection === "widgets" && (
+                    <DesktopWidgetsTab
+                      optLanguage={optLanguage}
+                      isLightMode={isLightMode}
+                    />
+                  )}
+
                   {activeSection === "idle" && (
                     <IdleTab
                       layout={idleLayout}
                       onChangeLayout={handleChangeIdleLayout}
                       runtimeData={idleRuntimeData}
+                    />
+                  )}
+
+                  {activeSection === "standby" && (
+                    <StandbyTab
+                      optLanguage={optLanguage}
+                      isLightMode={isLightMode}
                     />
                   )}
 

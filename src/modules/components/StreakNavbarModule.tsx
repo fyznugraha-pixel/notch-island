@@ -11,14 +11,16 @@ import {
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
 import type { Language } from "../../services/i18n";
+import {
+  applyHabitToggleForDate,
+  HABIT_STREAK_STORAGE_KEY,
+  HabitStreakRecord,
+  parseHabitStreakRecord,
+} from "../../services/habitHistoryService";
 
-interface HabitStreakState {
-  title: string;
-  count: number;
-  lastCheckedDate: string | null;
-}
+type HabitStreakState = HabitStreakRecord;
 
-const STREAK_KEY = "gili_habit_streak_v2";
+const STREAK_KEY = HABIT_STREAK_STORAGE_KEY;
 
 function normalizeStreakForDate(
   data: HabitStreakState,
@@ -39,16 +41,11 @@ function loadInitialStreak(lang: Language): HabitStreakState {
   try {
     const raw = localStorage.getItem(STREAK_KEY);
     if (raw) {
-      const p = JSON.parse(raw);
-      const parsed: HabitStreakState = {
-        title: typeof p?.title === "string" && p.title.trim() ? p.title : defaultTitle,
-        count: typeof p?.count === "number" && p.count >= 0 ? p.count : 0,
-        lastCheckedDate: typeof p?.lastCheckedDate === "string" ? p.lastCheckedDate : null,
-      };
+      const parsed = parseHabitStreakRecord(JSON.parse(raw), defaultTitle);
       return normalizeStreakForDate(parsed, today, yesterday);
     }
   } catch {}
-  return { title: defaultTitle, count: 0, lastCheckedDate: null };
+  return { title: defaultTitle, count: 0, lastCheckedDate: null, history: {} };
 }
 
 export const StreakNavbarModule: React.FC<NavbarModuleProps> = ({
@@ -85,19 +82,7 @@ export const StreakNavbarModule: React.FC<NavbarModuleProps> = ({
   const checkedToday = streak.lastCheckedDate === todayKey;
 
   const handleToggleToday = () => {
-    if (checkedToday) {
-      persist({
-        ...streak,
-        count: Math.max(0, streak.count - 1),
-        lastCheckedDate: streak.count > 1 ? yesterdayKey : null,
-      });
-    } else {
-      persist({
-        ...streak,
-        count: streak.count + 1,
-        lastCheckedDate: todayKey,
-      });
-    }
+    persist(applyHabitToggleForDate(streak, todayKey, yesterdayKey));
   };
 
   const handleToggle = () => setIsOpen((v) => !v);

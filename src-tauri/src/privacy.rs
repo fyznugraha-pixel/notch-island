@@ -584,6 +584,9 @@ pub fn start_privacy_monitor(app_handle: AppHandle) {
 
         loop {
             std::thread::sleep(Duration::from_millis(2500));
+            if crate::standby_window::is_deep_eco_active() {
+                continue;
+            }
 
             let sensor_streaming = CAMERA_STREAMING_FLAG.load(Ordering::Relaxed);
             let cam_reg_candidate = has_any_registry_candidate("webcam");

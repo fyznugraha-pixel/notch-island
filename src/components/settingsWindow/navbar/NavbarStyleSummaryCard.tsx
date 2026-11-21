@@ -1,5 +1,5 @@
 import React from "react";
-import { Sparkles, Layers, LayoutGrid, Maximize2, Tag } from "lucide-react";
+import { ZoomIn, Layers, LayoutGrid, Maximize2, Tag } from "lucide-react";
 import { Language } from "../../../services/i18n";
 import { NavbarModuleConfig } from "../../../types/navbar";
 import { NavbarStylePatch } from "../../../services/navbarStyleShareService";
@@ -127,7 +127,7 @@ export const NavbarStyleSummaryCard: React.FC<NavbarStyleSummaryCardProps> = ({
           {styleData.taskbarHeight}px · {styleData.iconSize}px · {spacingText}
         </span>
         <span className={`px-2 py-0.5 rounded-[7px] border inline-flex items-center gap-1 ${chipClass}`}>
-          <Sparkles size={10} />
+          <ZoomIn size={10} />
           Magnify: {styleData.magnify ? (isId ? "Aktif" : "On") : isId ? "Mati" : "Off"}
         </span>
         <span className={`px-2 py-0.5 rounded-[7px] border inline-flex items-center gap-1 ${chipClass}`}>

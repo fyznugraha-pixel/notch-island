@@ -3,7 +3,8 @@ import {
   LayoutGrid,
   Sliders,
   Palette,
-  PanelTop,
+  Columns3,
+  Clock,
   Bell,
   Keyboard,
   ShieldCheck,
@@ -12,6 +13,7 @@ import {
   X,
   Info,
   PanelBottom,
+  LayoutDashboard,
 } from "lucide-react";
 import { Language } from "../../services/i18n";
 import { Tooltip } from "../ui/Tooltip";
@@ -22,7 +24,9 @@ export type SettingsWindowSection =
   | "general"
   | "appearance"
   | "navbar"
+  | "widgets"
   | "idle"
+  | "standby"
   | "notifications"
   | "shortcuts"
   | "system"
@@ -55,6 +59,8 @@ interface SidebarItemMeta {
   icon: React.ReactNode;
   bgClass: string;
 }
+
+const PRO_SECTION_IDS = new Set<SettingsWindowSection>(["navbar", "standby", "widgets"]);
 
 const SIDEBAR_GROUPS: { id: SidebarGroupId; titleId: string; titleEn: string }[] = [
   { id: "info", titleId: "Informasi", titleEn: "Information" },
@@ -111,8 +117,18 @@ export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
     labelEn: "Idle Bar Layout",
     subId: "Widget kiri, tengah, kanan",
     subEn: "Left, center & right slots",
-    icon: <PanelTop size={15} strokeWidth={2.2} />,
+    icon: <Columns3 size={15} strokeWidth={2.2} />,
     bgClass: "bg-[#ff9f0a]",
+  },
+  {
+    id: "standby",
+    group: "island",
+    labelId: "StandBy",
+    labelEn: "StandBy",
+    subId: "Jam meja & layar idle penuh",
+    subEn: "Desk display & idle screensaver",
+    icon: <Clock size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#ff453a]",
   },
   {
     id: "navbar",
@@ -123,6 +139,16 @@ export const SIDEBAR_SECTIONS: SidebarItemMeta[] = [
     subEn: "Dock shape, modules & behavior",
     icon: <PanelBottom size={15} strokeWidth={2.2} />,
     bgClass: "bg-[#0a84ff]",
+  },
+  {
+    id: "widgets",
+    group: "taskbar",
+    labelId: "Widget Desktop",
+    labelEn: "Desktop Widgets",
+    subId: "34 widget native Direct2D & tema",
+    subEn: "34 native Direct2D widgets & themes",
+    icon: <LayoutDashboard size={15} strokeWidth={2.2} />,
+    bgClass: "bg-[#34c3a0]",
   },
   {
     id: "general",
@@ -185,7 +211,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   const renderCollapsedItem = (item: SidebarItemMeta) => {
     const isActive = activeSection === item.id && !searchQuery.trim();
     const showUpdateDot = item.id === "system" && hasUpdate;
-    const showProBadge = item.id === "navbar" && isTaskbarProLocked;
+    const showProBadge = PRO_SECTION_IDS.has(item.id) && isTaskbarProLocked;
 
     const tooltipContent = (
       <div className="flex flex-col gap-0.5 text-left py-0.5 px-0.5 whitespace-normal max-w-[210px]">
@@ -373,7 +399,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                     {items.map((item) => {
                       const isActive = activeSection === item.id && !searchQuery.trim();
                       const showUpdateDot = item.id === "system" && hasUpdate;
-                      const showProBadge = item.id === "navbar" && isTaskbarProLocked;
+                      const showProBadge = PRO_SECTION_IDS.has(item.id) && isTaskbarProLocked;
 
                       return (
                         <button

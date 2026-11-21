@@ -8,7 +8,7 @@ import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
 import { Tooltip } from "../../components/ui/Tooltip";
 
-const QUOTES = [
+export const DAILY_QUOTES = [
   {
     en: "Start first, refine along the way.",
     id: "Mulai dulu, sempurnakan sambil jalan.",
@@ -39,6 +39,8 @@ const QUOTES = [
   },
 ];
 
+const QUOTES = DAILY_QUOTES;
+
 const QUOTE_KEY = "gili_quote_daily_v1";
 
 function getInitialQuoteIdx(): number {
@@ -51,7 +53,7 @@ function getInitialQuoteIdx(): number {
         return parsed.idx % QUOTES.length;
       }
     }
-  } catch {}
+  } catch { }
   const now = new Date();
   const daySeed = now.getFullYear() * 366 + now.getMonth() * 31 + now.getDate();
   return daySeed % QUOTES.length;
@@ -78,11 +80,18 @@ export const KutipanHarianNavbarModule: React.FC<NavbarModuleProps> = ({
     const nextIdx = (idx + 1) % QUOTES.length;
     setIdx(nextIdx);
     try {
+      const nextQuote = QUOTES[nextIdx];
       localStorage.setItem(
         QUOTE_KEY,
-        JSON.stringify({ date: getLocalDateKey(), idx: nextIdx })
+        JSON.stringify({
+          date: getLocalDateKey(),
+          idx: nextIdx,
+          text: tx(lang, nextQuote.en, nextQuote.id),
+          author: "Gili",
+        })
       );
-    } catch {}
+      window.dispatchEvent(new Event("gili_quote_updated"));
+    } catch { }
   };
 
   const handleCopy = async () => {
@@ -113,13 +122,12 @@ export const KutipanHarianNavbarModule: React.FC<NavbarModuleProps> = ({
             `${titleText}: ${currentQuote}`,
             isOpen
           )}
-          className={`flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${
-            isCompact
+          className={`flex items-center cursor-pointer select-none transition-all ${TRIGGER_FOCUS_RING} ${isCompact
               ? isVertical
                 ? "gili-mod-compact gili-mod-vertical justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]"
                 : "gili-mod-compact justify-center rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11]"
               : "gili-mod-pill px-3 gap-2 rounded-[12px] bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.07]"
-          }`}
+            }`}
         >
           <Quote size={15} className="text-[#f472b6] shrink-0" />
           {!isCompact && (
