@@ -23,7 +23,23 @@ pub struct MediaSnapshot {
     pub lyrics_state: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl MediaSnapshot {
+    pub fn visibly_eq(&self, other: &Self) -> bool {
+        self.title == other.title
+            && self.artist == other.artist
+            && self.album == other.album
+            && self.thumbnail_path_or_data == other.thumbnail_path_or_data
+            && self.is_playing == other.is_playing
+            && self.active_lyric_line == other.active_lyric_line
+            && self.next_lyric_line == other.next_lyric_line
+            && self.lyrics_lines == other.lyrics_lines
+            && self.lyrics_state == other.lyrics_state
+            && (self.duration_sec.round() as i64) == (other.duration_sec.round() as i64)
+            && (self.position_sec.floor() as i64) == (other.position_sec.floor() as i64)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct AgendaItem {
     pub id: String,
     pub title: String,
@@ -31,7 +47,7 @@ pub struct AgendaItem {
     pub date_key: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ClassScheduleItem {
     pub id: String,
     pub subject: String,
@@ -41,7 +57,7 @@ pub struct ClassScheduleItem {
     pub day: Option<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct TodoSnapshotItem {
     pub id: String,
     pub text: String,
@@ -49,7 +65,7 @@ pub struct TodoSnapshotItem {
     pub group: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ShelfFileSnapshot {
     pub id: String,
     pub name: String,
@@ -57,14 +73,14 @@ pub struct ShelfFileSnapshot {
     pub size_formatted: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct QuoteSnapshot {
     pub text: String,
     pub author: String,
     pub custom_text: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct AiQuickAskSnapshot {
     pub configured: bool,
     pub active_model_label: String,
@@ -74,12 +90,15 @@ pub struct AiQuickAskSnapshot {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct FrontendMirrorSnapshot {
     pub events: Vec<AgendaItem>,
     pub classes: Vec<ClassScheduleItem>,
     pub todos: Vec<TodoSnapshotItem>,
     pub shelf_files: Vec<ShelfFileSnapshot>,
+    /// Mirrors the Notch Mini Note store so the desktop widget shows the same notes.
+    #[serde(default)]
+    pub mini_notes: Vec<local_stores::StickyNote>,
     pub quote: QuoteSnapshot,
     pub ai_quick: AiQuickAskSnapshot,
     pub habit_title: String,

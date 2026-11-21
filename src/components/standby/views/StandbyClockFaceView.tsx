@@ -150,6 +150,17 @@ export const StandbyClockFaceView: React.FC<StandbyClockFaceViewProps> = ({
                 {seconds}
               </span>
             )}
+            {!use24h && period && (
+              <span
+                className="font-semibold tracking-[0.14em] uppercase whitespace-nowrap"
+                style={{
+                  color: palette.accent,
+                  fontSize: "clamp(20px, min(2.4vw, 4.4vh), 40px)",
+                }}
+              >
+                {period}
+              </span>
+            )}
           </div>
         ) : style === "minimal_mono" ? (
           <div className="flex flex-col items-center max-w-full">

@@ -71,13 +71,17 @@ export const StandbyCalendarWidget: React.FC<StandbyCalendarWidgetProps> = ({
           <div
             key={`${name}-${idx}`}
             className="text-[11.5px] font-bold pb-1"
-            style={{ color: palette.textSecondary }}
+            style={{
+              color:
+                idx === 0 && !palette.night ? "#ff5a5f" : palette.textSecondary,
+            }}
           >
             {name}
           </div>
         ))}
         {cells.map((day, idx) => {
           const isToday = day === todayDate;
+          const isSunday = idx % 7 === 0;
           return (
             <div
               key={idx}
@@ -98,7 +102,8 @@ export const StandbyCalendarWidget: React.FC<StandbyCalendarWidgetProps> = ({
                           fontWeight: 800,
                         }
                       : {
-                          color: palette.textPrimary,
+                          color:
+                            isSunday && !palette.night ? "#ff5a5f" : palette.textPrimary,
                         }),
                   }}
                 >

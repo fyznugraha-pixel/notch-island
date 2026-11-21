@@ -126,6 +126,59 @@ pub fn query_system_visual_policy() -> SystemVisualPolicy {
     policy
 }
 
+/// Lightweight periodic refresh that only queries power-saver and fullscreen/game state,
+/// avoiding repeated registry and WinRT `UISettings` activation between `WM_SETTINGCHANGE` events.
+pub fn query_dynamic_visual_policy(prev: &SystemVisualPolicy) -> SystemVisualPolicy {
+    let mut policy = prev.clone();
+    policy.fullscreen_or_game_active = false;
+
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+        use windows::Win32::UI::Shell::{
+            SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
+            QUNS_RUNNING_D3D_FULL_SCREEN,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow};
+
+        unsafe {
+            let mut sps = SYSTEM_POWER_STATUS::default();
+            if GetSystemPowerStatus(&mut sps).is_ok() {
+                policy.power_saver = sps.SystemStatusFlag != 0;
+            }
+
+            if let Ok(state) = SHQueryUserNotificationState() {
+                if state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE {
+                    policy.fullscreen_or_game_active = true;
+                } else if state == QUNS_BUSY {
+                    let fg = GetForegroundWindow();
+                    let mut is_desktop_shell = fg.0.is_null();
+                    if !fg.0.is_null() {
+                        let mut cls = [0u16; 64];
+                        let len = GetClassNameW(fg, &mut cls);
+                        if len > 0 {
+                            let name = String::from_utf16_lossy(&cls[..len as usize]);
+                            if matches!(
+                                name.as_str(),
+                                "Progman"
+                                    | "WorkerW"
+                                    | "Shell_TrayWnd"
+                                    | "Shell_SecondaryTrayWnd"
+                                    | "GiliDesktopWidgetsHostV1"
+                            ) {
+                                is_desktop_shell = true;
+                            }
+                        }
+                    }
+                    policy.fullscreen_or_game_active = !is_desktop_shell;
+                }
+            }
+        }
+    }
+
+    policy
+}
+
 #[cfg(windows)]
 pub mod gpu {
     use windows::core::{Interface, HRESULT};
@@ -150,8 +203,8 @@ pub mod gpu {
         DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
     };
     use windows::Win32::Graphics::DirectWrite::{
-        DWriteCreateFactory, IDWriteFactory, IDWriteTypography, DWRITE_FACTORY_TYPE_SHARED,
-        DWRITE_FONT_FEATURE, DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES,
+        DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, IDWriteTypography,
+        DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_FEATURE, DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES,
     };
     use windows::Win32::Graphics::Dxgi::Common::{
         DXGI_ALPHA_MODE_PREMULTIPLIED, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC,
@@ -161,8 +214,10 @@ pub mod gpu {
         IDXGISurface, IDXGISwapChain1, DXGI_CREATE_FACTORY_FLAGS, DXGI_ERROR_DEVICE_REMOVED,
         DXGI_ERROR_DEVICE_RESET, DXGI_GPU_PREFERENCE_MINIMUM_POWER, DXGI_PRESENT,
         DXGI_PRESENT_PARAMETERS, DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1,
-        DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        DXGI_SWAP_CHAIN_FLAG, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_USAGE_RENDER_TARGET_OUTPUT,
     };
+
+    const D2DERR_RECREATE_TARGET_HR: HRESULT = HRESULT(0x8899_000Cu32 as i32);
 
     pub struct D2DDeviceResources {
         pub dxgi_factory: IDXGIFactory2,
@@ -174,6 +229,7 @@ pub mod gpu {
         pub tabular_typography: IDWriteTypography,
         pub dcomp_device: IDCompositionDevice,
         pub adapter_name: String,
+        pub icon_font_family: &'static str,
     }
 
     impl D2DDeviceResources {
@@ -301,6 +357,26 @@ pub mod gpu {
                 let dcomp_device: IDCompositionDevice = DCompositionCreateDevice(&dxgi_device)
                     .map_err(|e| format!("DCompositionCreateDevice gagal: {e}"))?;
 
+                let icon_font_family = {
+                    let mut coll: Option<IDWriteFontCollection> = None;
+                    let mut has_fluent = false;
+                    if dwrite_factory.GetSystemFontCollection(&mut coll, false).is_ok() {
+                        if let Some(c) = coll {
+                            let mut idx = 0u32;
+                            let mut exists = windows::Win32::Foundation::BOOL(0);
+                            let name = windows::core::w!("Segoe Fluent Icons");
+                            if c.FindFamilyName(name, &mut idx, &mut exists).is_ok() {
+                                has_fluent = exists.as_bool();
+                            }
+                        }
+                    }
+                    if has_fluent {
+                        "Segoe Fluent Icons"
+                    } else {
+                        "Segoe MDL2 Assets"
+                    }
+                };
+
                 Ok(Self {
                     dxgi_factory,
                     d3d_device,
@@ -311,12 +387,15 @@ pub mod gpu {
                     tabular_typography,
                     dcomp_device,
                     adapter_name,
+                    icon_font_family,
                 })
             }
         }
 
         pub fn is_device_lost(hr: HRESULT) -> bool {
-            hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET
+            hr == DXGI_ERROR_DEVICE_REMOVED
+                || hr == DXGI_ERROR_DEVICE_RESET
+                || hr == D2DERR_RECREATE_TARGET_HR
         }
     }
 
@@ -328,7 +407,7 @@ pub mod gpu {
         pub swap_chain: IDXGISwapChain1,
         pub dcomp_target: IDCompositionTarget,
         pub dcomp_visual: IDCompositionVisual,
-        pub target_bitmap: ID2D1Bitmap1,
+        pub target_bitmap: Option<ID2D1Bitmap1>,
         pub has_presented_once: bool,
     }
 
@@ -382,7 +461,7 @@ pub mod gpu {
                     .Commit()
                     .map_err(|e| format!("DComp Commit gagal: {e}"))?;
 
-                let target_bitmap = Self::bind_backbuffer(&res.d2d_context, &swap_chain, dpi)?;
+                let target_bitmap = Some(Self::bind_backbuffer(&res.d2d_context, &swap_chain, dpi)?);
 
                 Ok(Self {
                     hwnd,
@@ -435,11 +514,19 @@ pub mod gpu {
                 return Ok(());
             }
             unsafe {
+                // Release backbuffer reference before ResizeBuffers while keeping the DComp target intact
                 res.d2d_context.SetTarget(None);
-                // Temporarily create a tiny placeholder before releasing? No, drop happens on assign
-                // after ResizeBuffers, so recreate swap chain if backbuffer is held.
-                let fresh = Self::create(res, self.hwnd, w, h, dpi)?;
-                *self = fresh;
+                self.target_bitmap = None;
+                self.swap_chain
+                    .ResizeBuffers(2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SWAP_CHAIN_FLAG(0))
+                    .map_err(|e| format!("SwapChain ResizeBuffers gagal: {e}"))?;
+                let bmp = Self::bind_backbuffer(&res.d2d_context, &self.swap_chain, dpi)?;
+                self.target_bitmap = Some(bmp);
+                self.width_px = w;
+                self.height_px = h;
+                self.dpi = dpi;
+                self.has_presented_once = false;
+                let _ = res.dcomp_device.Commit();
             }
             Ok(())
         }

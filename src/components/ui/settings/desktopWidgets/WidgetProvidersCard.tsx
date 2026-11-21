@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown,
@@ -14,6 +15,7 @@ import {
   Activity,
   GitBranch,
   FolderOpen,
+  KanbanSquare,
   ShieldCheck,
 } from "lucide-react";
 import {
@@ -28,15 +30,20 @@ import {
   configureWidgetRecentFolders,
   exportWidgetTimeTrackerCsv,
   getWidgetIcalStatus,
+  getWidgetPhotoFolderStatus,
+  getWidgetStorageStatus,
   pickWidgetPhotoFolderDialog,
-  pickWidgetPhotosDialog,
+  pickWidgetStorageFolderDialog,
   saveGithubWidgetToken,
   saveWidgetIcalUrl,
-  setWidgetExpenseBudget,
   triggerWidgetStorageScan,
   WidgetIcalStatus,
+  WidgetPhotoFolderStatus,
+  WidgetStorageFolderStatus,
 } from "../../../../services/desktopWidgetsService";
 import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
+import { KanbanProviderPanel } from "./KanbanProviderPanel";
+import { ExpenseProviderPanel } from "./ExpenseProviderPanel";
 
 interface WidgetProvidersCardProps {
   isLightMode: boolean;
@@ -82,15 +89,14 @@ const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
   return (
     <div
       ref={rowRef}
-      className={`rounded-[14px] border transition-colors overflow-hidden ${
-        expanded
+      className={`rounded-[14px] border transition-colors overflow-hidden ${expanded
           ? isLightMode
             ? "border-[#0a84ff]/35 bg-black/[0.02]"
             : "border-[#0a84ff]/35 bg-white/[0.03]"
           : isLightMode
-          ? "border-black/[0.06] bg-transparent hover:bg-black/[0.02]"
-          : "border-white/[0.06] bg-transparent hover:bg-white/[0.025]"
-      }`}
+            ? "border-black/[0.06] bg-transparent hover:bg-black/[0.02]"
+            : "border-white/[0.06] bg-transparent hover:bg-white/[0.025]"
+        }`}
     >
       <button
         type="button"
@@ -106,9 +112,8 @@ const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span
-                className={`text-[13px] font-semibold truncate ${
-                  isLightMode ? "text-neutral-900" : "text-zinc-100"
-                }`}
+                className={`text-[13px] font-semibold truncate ${isLightMode ? "text-neutral-900" : "text-zinc-100"
+                  }`}
               >
                 {title}
               </span>
@@ -119,9 +124,8 @@ const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
               )}
             </div>
             <div
-              className={`text-[11px] truncate mt-0.5 ${
-                isLightMode ? "text-neutral-500" : "text-zinc-400"
-              }`}
+              className={`text-[11px] truncate mt-0.5 ${isLightMode ? "text-neutral-500" : "text-zinc-400"
+                }`}
             >
               {subtitle}
             </div>
@@ -129,9 +133,8 @@ const ProviderAccordionRow: React.FC<ProviderRowProps> = ({
         </div>
         <ChevronDown
           size={15}
-          className={`shrink-0 transition-transform duration-200 ${
-            expanded ? "rotate-180 text-[#0a84ff]" : "text-zinc-400"
-          }`}
+          className={`shrink-0 transition-transform duration-200 ${expanded ? "rotate-180 text-[#0a84ff]" : "text-zinc-400"
+            }`}
         />
       </button>
 
@@ -177,7 +180,6 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
   const [wcCode, setWcCode] = useState("SGT");
   const [wcOffset, setWcOffset] = useState("8");
   const [projectName, setProjectName] = useState("");
-  const [budgetIdr, setBudgetIdr] = useState("3000000");
   const [shortcutName, setShortcutName] = useState("");
   const [shortcutPath, setShortcutPath] = useState("");
   const [siteName, setSiteName] = useState("");
@@ -188,18 +190,84 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
   const [icalStatus, setIcalStatus] = useState<WidgetIcalStatus | null>(null);
   const [icalSaving, setIcalSaving] = useState(false);
   const [photoFolder, setPhotoFolder] = useState("");
+  const [photoStatus, setPhotoStatus] = useState<WidgetPhotoFolderStatus | null>(null);
+  const [storageFolder, setStorageFolder] = useState("");
+  const [storageStatus, setStorageStatus] = useState<WidgetStorageFolderStatus | null>(null);
   const [recentFolder, setRecentFolder] = useState("");
 
+  const refreshPhotoStatus = () => {
+    getWidgetPhotoFolderStatus()
+      .then((status) => {
+        setPhotoStatus(status);
+        setPhotoFolder(status.folder_path ?? "");
+      })
+      .catch(() => { });
+  };
+
+  const refreshStorageStatus = () => {
+    getWidgetStorageStatus()
+      .then((status) => {
+        setStorageStatus(status);
+        setStorageFolder(status.root_path);
+      })
+      .catch(() => { });
+  };
+
+  const formatScannedBytes = (bytes: number): string => {
+    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+    if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return "";
+  };
+
+  const [dataRefreshNonce, setDataRefreshNonce] = useState(0);
+
   useEffect(() => {
+    let disposed = false;
     getWidgetIcalStatus()
-      .then(setIcalStatus)
-      .catch(() => {});
+      .then((s) => {
+        if (!disposed) setIcalStatus(s);
+      })
+      .catch(() => { });
+    refreshPhotoStatus();
+    refreshStorageStatus();
+
+    let unsubData: (() => void) | null = null;
+    listen<string>("desktop-widgets-data-updated", (ev) => {
+      if (disposed) return;
+      const kind = ev.payload;
+      if (kind === "photo_folder") {
+        refreshPhotoStatus();
+      } else if (kind === "storage") {
+        refreshStorageStatus();
+      } else if (kind === "kanban" || kind === "expense") {
+        setDataRefreshNonce((n) => n + 1);
+      } else {
+        refreshPhotoStatus();
+        refreshStorageStatus();
+        setDataRefreshNonce((n) => n + 1);
+      }
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unsubData = fn;
+      })
+      .catch(() => { });
+
+    return () => {
+      disposed = true;
+      if (unsubData) unsubData();
+    };
   }, []);
 
   useEffect(() => {
     if (!focusProviderId) return;
     setGroup("all");
     setOpenId(focusProviderId);
+    if (focusProviderId === "folders") {
+      refreshPhotoStatus();
+      refreshStorageStatus();
+    }
     let rafInner = 0;
     const rafOuter = window.requestAnimationFrame(() => {
       rafInner = window.requestAnimationFrame(() => {
@@ -227,29 +295,24 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
     { city: "Sydney", code: "AEDT", offset: 11 },
   ];
 
-  const cardClass = `w-full rounded-[18px] p-3.5 flex flex-col gap-3 transition-colors ${
-    isLightMode
+  const cardClass = `w-full rounded-[18px] p-3.5 flex flex-col gap-3 transition-colors ${isLightMode
       ? "bg-white border border-black/[0.08] shadow-[0_2px_10px_rgba(0,0,0,0.03)]"
       : "bg-[#121318] border border-white/[0.07] shadow-[0_4px_20px_rgba(0,0,0,0.28)]"
-  }`;
-  const labelCls = `text-[11px] font-medium ${
-    isLightMode ? "text-neutral-600" : "text-zinc-400"
-  }`;
-  const inputCls = `w-full h-9 px-3 rounded-[10px] border text-[12px] outline-none focus:border-[#0a84ff] transition-colors ${
-    isLightMode
+    }`;
+  const labelCls = `text-[11px] font-medium ${isLightMode ? "text-neutral-600" : "text-zinc-400"
+    }`;
+  const inputCls = `w-full h-9 px-3 rounded-[10px] border text-[12px] outline-none focus:border-[#0a84ff] transition-colors ${isLightMode
       ? "bg-white border-black/12 text-neutral-900 placeholder:text-neutral-400"
       : "bg-[#1a1b22] border-white/10 text-white placeholder:text-zinc-500"
-  }`;
+    }`;
   const primaryBtn =
     "h-9 px-4 rounded-[10px] bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12px] font-semibold transition-colors cursor-pointer shrink-0";
-  const secondaryBtn = `h-9 px-3.5 rounded-[10px] text-[12px] font-medium border transition-colors cursor-pointer shrink-0 ${
-    isLightMode
+  const secondaryBtn = `h-9 px-3.5 rounded-[10px] text-[12px] font-medium border transition-colors cursor-pointer shrink-0 ${isLightMode
       ? "border-black/12 hover:bg-black/[0.05] text-neutral-800"
       : "border-white/12 hover:bg-white/[0.08] text-zinc-200"
-  }`;
-  const hintCls = `text-[11px] flex items-center gap-1.5 ${
-    isLightMode ? "text-neutral-500" : "text-zinc-400"
-  }`;
+    }`;
+  const hintCls = `text-[11px] flex items-center gap-1.5 ${isLightMode ? "text-neutral-500" : "text-zinc-400"
+    }`;
 
   const showGroup = (g: Exclude<ProviderGroup, "all">) => group === "all" || group === g;
 
@@ -281,6 +344,36 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
       <div className="flex flex-col gap-2">
         {showGroup("productive") && (
           <>
+            <ProviderAccordionRow
+              id="mini_kanban"
+              rowRef={bindRowRef("mini_kanban")}
+              expanded={openId === "mini_kanban"}
+              onToggle={() => toggleRow("mini_kanban")}
+              icon={<KanbanSquare size={15} />}
+              iconBg="bg-[#34c759]/15"
+              iconColor="text-[#34c759]"
+              title={isId ? "Kanban Mini (3 Kolom)" : "Mini Kanban (3 Columns)"}
+              subtitle={
+                isId
+                  ? "Tambah, pindah kolom (Akan, Proses, Selesai), dan hapus kartu tugas"
+                  : "Add, move across columns (To Do, Doing, Done), and delete task cards"
+              }
+              installed={activeSet.has("mini_kanban")}
+              installedLabel={installedLabel}
+              isLightMode={isLightMode}
+            >
+              <KanbanProviderPanel
+                isLightMode={isLightMode}
+                isId={isId}
+                inputCls={inputCls}
+                labelCls={labelCls}
+                primaryBtn={primaryBtn}
+                hintCls={hintCls}
+                refreshNonce={openId === "mini_kanban" ? focusNonce + dataRefreshNonce + 1 : 0}
+                onFlash={onFlash}
+              />
+            </ProviderAccordionRow>
+
             <ProviderAccordionRow
               id="countdown"
               rowRef={bindRowRef("countdown")}
@@ -401,10 +494,14 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                   type="button"
                   onClick={async () => {
                     if (!snLabel.trim() || !snContent.trim()) return;
-                    await addWidgetSnippet(snLabel.trim(), snContent);
-                    setSnLabel("");
-                    setSnContent("");
-                    onFlash(isId ? "Snippet cepat disimpan." : "Quick snippet saved.");
+                    try {
+                      await addWidgetSnippet(snLabel.trim(), snContent);
+                      setSnLabel("");
+                      setSnContent("");
+                      onFlash(isId ? "Snippet cepat disimpan." : "Quick snippet saved.");
+                    } catch (e) {
+                      onFlash(String(e));
+                    }
                   }}
                   className={primaryBtn}
                 >
@@ -445,9 +542,13 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     type="button"
                     onClick={async () => {
                       if (!projectName.trim()) return;
-                      await addWidgetTimeProject(projectName.trim());
-                      setProjectName("");
-                      onFlash(isId ? "Proyek pelacak waktu ditambahkan." : "Time tracker project added.");
+                      try {
+                        await addWidgetTimeProject(projectName.trim());
+                        setProjectName("");
+                        onFlash(isId ? "Proyek pelacak waktu ditambahkan." : "Time tracker project added.");
+                      } catch (e) {
+                        onFlash(String(e));
+                      }
                     }}
                     className={primaryBtn}
                   >
@@ -459,8 +560,12 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    const path = await exportWidgetTimeTrackerCsv();
-                    onFlash(isId ? `CSV tersimpan di: ${path}` : `CSV saved to: ${path}`);
+                    try {
+                      const path = await exportWidgetTimeTrackerCsv();
+                      onFlash(isId ? `CSV tersimpan di: ${path}` : `CSV saved to: ${path}`);
+                    } catch (e) {
+                      onFlash(String(e));
+                    }
                   }}
                   className={`${secondaryBtn} flex items-center gap-1.5`}
                 >
@@ -516,10 +621,14 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                   type="button"
                   onClick={async () => {
                     if (!shortcutName.trim() || !shortcutPath.trim()) return;
-                    await addWidgetShortcut(shortcutName.trim(), shortcutPath.trim());
-                    setShortcutName("");
-                    setShortcutPath("");
-                    onFlash(isId ? "Pintasan cepat ditambahkan." : "Quick shortcut added.");
+                    try {
+                      await addWidgetShortcut(shortcutName.trim(), shortcutPath.trim());
+                      setShortcutName("");
+                      setShortcutPath("");
+                      onFlash(isId ? "Pintasan cepat ditambahkan." : "Quick shortcut added.");
+                    } catch (e) {
+                      onFlash(String(e));
+                    }
                   }}
                   className={primaryBtn}
                 >
@@ -556,18 +665,21 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     key={c.city}
                     type="button"
                     onClick={async () => {
-                      await addWidgetWorldClock(c.city, c.code, c.offset);
-                      onFlash(
-                        isId
-                          ? `Kota ${c.city} (${c.code}) ditambahkan.`
-                          : `Added ${c.city} (${c.code}).`
-                      );
+                      try {
+                        await addWidgetWorldClock(c.city, c.code, c.offset);
+                        onFlash(
+                          isId
+                            ? `Kota ${c.city} (${c.code}) ditambahkan.`
+                            : `Added ${c.city} (${c.code}).`
+                        );
+                      } catch (e) {
+                        onFlash(String(e));
+                      }
                     }}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium border cursor-pointer ${
-                      isLightMode
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium border cursor-pointer ${isLightMode
                         ? "border-black/10 hover:border-[#0a84ff]"
                         : "border-white/10 hover:border-[#0a84ff] bg-white/[0.04]"
-                    }`}
+                      }`}
                   >
                     + {c.city} ({c.code})
                   </button>
@@ -611,13 +723,17 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                   onClick={async () => {
                     const off = Number(wcOffset);
                     if (!wcCity.trim() || !Number.isFinite(off)) return;
-                    await addWidgetWorldClock(wcCity.trim(), wcCode.trim() || "UTC", off);
-                    setWcCity("");
-                    onFlash(
-                      isId
-                        ? "Kota kustom ditambahkan ke Jam Dunia."
-                        : "Custom city added to World Clock."
-                    );
+                    try {
+                      await addWidgetWorldClock(wcCity.trim(), wcCode.trim() || "UTC", off);
+                      setWcCity("");
+                      onFlash(
+                        isId
+                          ? "Kota kustom ditambahkan ke Jam Dunia."
+                          : "Custom city added to World Clock."
+                      );
+                    } catch (e) {
+                      onFlash(String(e));
+                    }
                   }}
                   className={primaryBtn}
                 >
@@ -637,49 +753,24 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               title={isId ? "Pengeluaran Cepat & Anggaran" : "Quick Expense & Budget"}
               subtitle={
                 isId
-                  ? "Atur batas anggaran bulanan untuk bar progres pengeluaran"
-                  : "Set a monthly budget limit for the spending progress bar"
+                  ? "Catat pengeluaran harian dan atur batas anggaran bulanan (DPAPI)"
+                  : "Log daily expenses and set a monthly budget limit (DPAPI encrypted)"
               }
               installed={activeSet.has("quick_expense")}
               installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
-              <label className="flex flex-col gap-1">
-                <span className={labelCls}>
-                  {isId ? "Anggaran Bulanan (Rupiah)" : "Monthly Budget (IDR)"}
-                </span>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    value={budgetIdr}
-                    onChange={(e) => setBudgetIdr(e.target.value)}
-                    placeholder="3000000"
-                    className={inputCls}
-                  />
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const num = Number(budgetIdr);
-                      if (!Number.isFinite(num) || num <= 0) return;
-                      await setWidgetExpenseBudget(Math.round(num));
-                      onFlash(
-                        isId
-                          ? "Anggaran bulanan tersimpan (terenkripsi DPAPI)."
-                          : "Monthly budget saved (DPAPI encrypted)."
-                      );
-                    }}
-                    className={primaryBtn}
-                  >
-                    {isId ? "Simpan" : "Save"}
-                  </button>
-                </div>
-              </label>
-              <span className={hintCls}>
-                <ShieldCheck size={13} className="text-[#34c759]" />{" "}
-                {isId
-                  ? "Data finansial dienkripsi lokal dengan Windows DPAPI, nol telemetri"
-                  : "Financial data is encrypted locally with Windows DPAPI, zero telemetry"}
-              </span>
+              <ExpenseProviderPanel
+                isLightMode={isLightMode}
+                isId={isId}
+                inputCls={inputCls}
+                labelCls={labelCls}
+                primaryBtn={primaryBtn}
+                secondaryBtn={secondaryBtn}
+                hintCls={hintCls}
+                refreshNonce={openId === "expense" ? focusNonce + 1 : 0}
+                onFlash={onFlash}
+              />
             </ProviderAccordionRow>
 
             <ProviderAccordionRow
@@ -708,47 +799,64 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
               installedLabel={installedLabel}
               isLightMode={isLightMode}
             >
-              <label className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1.5">
                 <span className={labelCls}>
                   {isId
-                    ? "Foto & Folder Bingkai Polaroid (Baca-Saja)"
-                    : "Polaroid Frame Photos & Folder (Read-Only)"}
+                    ? "Folder Bingkai Polaroid (Baca-Saja)"
+                    : "Polaroid Frame Folder (Read-Only)"}
                 </span>
+                {photoStatus?.folder_path && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-[10px] bg-[#34c759]/12 border border-[#34c759]/25">
+                    <span className="text-[11.5px] font-medium text-[#34c759] truncate max-w-[320px]" title={photoStatus.folder_path}>
+                      {isId
+                        ? `Aktif . ${photoStatus.photo_count} foto (${photoStatus.folder_path})`
+                        : `Active . ${photoStatus.photo_count} photos (${photoStatus.folder_path})`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await configureWidgetPhotoFolder("");
+                          refreshPhotoStatus();
+                          onFlash(
+                            isId
+                              ? "Folder foto Polaroid dibersihkan."
+                              : "Polaroid photo folder cleared."
+                          );
+                        } catch (e) {
+                          onFlash(String(e));
+                        }
+                      }}
+                      className={secondaryBtn}
+                    >
+                      {isId ? "Hapus Folder" : "Clear Folder"}
+                    </button>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={async () => {
-                      const total = await pickWidgetPhotosDialog();
-                      if (total > 0) {
-                        onFlash(
-                          isId
-                            ? `Foto bingkai diperbarui (${total} foto tersedia).`
-                            : `Frame photos updated (${total} photos available).`
-                        );
+                      try {
+                        const total = await pickWidgetPhotoFolderDialog();
+                        refreshPhotoStatus();
+                        if (total > 0) {
+                          onFlash(
+                            isId
+                              ? `Folder foto dimuat (${total} gambar).`
+                              : `Photo folder loaded (${total} images).`
+                          );
+                        }
+                      } catch (e) {
+                        onFlash(String(e));
                       }
                     }}
-                    className={secondaryBtn}
-                  >
-                    {isId ? "Pilih Foto..." : "Pick Photos..."}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const total = await pickWidgetPhotoFolderDialog();
-                      if (total > 0) {
-                        onFlash(
-                          isId
-                            ? `Folder foto dimuat (${total} gambar).`
-                            : `Photo folder loaded (${total} images).`
-                        );
-                      }
-                    }}
-                    className={secondaryBtn}
+                    className={primaryBtn}
                   >
                     {isId ? "Pilih Folder..." : "Pick Folder..."}
                   </button>
                 </div>
-                <div className="flex gap-2 mt-1">
+                <div className="flex gap-2 mt-0.5">
                   <input
                     type="text"
                     value={photoFolder}
@@ -760,16 +868,21 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     type="button"
                     onClick={async () => {
                       if (!photoFolder.trim()) return;
-                      const count = await configureWidgetPhotoFolder(photoFolder.trim());
-                      onFlash(
-                        isId
-                          ? `Folder foto dimuat (${count} gambar).`
-                          : `Photo folder loaded (${count} images).`
-                      );
+                      try {
+                        const count = await configureWidgetPhotoFolder(photoFolder.trim());
+                        refreshPhotoStatus();
+                        onFlash(
+                          isId
+                            ? `Folder foto dimuat (${count} gambar).`
+                            : `Photo folder loaded (${count} images).`
+                        );
+                      } catch (e) {
+                        onFlash(String(e));
+                      }
                     }}
                     className={secondaryBtn}
                   >
-                    {isId ? "Muat Foto" : "Load Photos"}
+                    {isId ? "Muat Folder" : "Load Folder"}
                   </button>
                 </div>
               </label>
@@ -794,12 +907,16 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                     type="button"
                     onClick={async () => {
                       if (!recentFolder.trim()) return;
-                      await configureWidgetRecentFolders(true, [recentFolder.trim()], []);
-                      onFlash(
-                        isId
-                          ? "Pantauan Berkas Terbaru diaktifkan."
-                          : "Recent Files tracking enabled."
-                      );
+                      try {
+                        await configureWidgetRecentFolders(true, [recentFolder.trim()], []);
+                        onFlash(
+                          isId
+                            ? "Pantauan Berkas Terbaru diaktifkan."
+                            : "Recent Files tracking enabled."
+                        );
+                      } catch (e) {
+                        onFlash(String(e));
+                      }
                     }}
                     className={secondaryBtn}
                   >
@@ -808,26 +925,126 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                 </div>
               </label>
 
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/[0.06]">
+              <div className="flex flex-col gap-2 pt-2 border-t border-white/[0.06]">
+                <span className={labelCls}>
+                  {isId
+                    ? "Folder Peta Penyimpanan (Storage Treemap)"
+                    : "Storage Map Folder (Storage Treemap)"}
+                </span>
+                {storageStatus?.root_path && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-[10px] bg-[#0a84ff]/10 border border-[#0a84ff]/25">
+                    <span
+                      className="text-[11.5px] font-medium text-[#0a84ff] truncate max-w-[320px]"
+                      title={storageStatus.root_path}
+                    >
+                      {storageStatus.root_path}
+                      {storageStatus.total_scanned_bytes > 0
+                        ? ` . ${formatScannedBytes(storageStatus.total_scanned_bytes)}`
+                        : ""}
+                    </span>
+                    {storageStatus.is_custom && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await triggerWidgetStorageScan("");
+                            refreshStorageStatus();
+                            window.setTimeout(refreshStorageStatus, 1400);
+                            onFlash(
+                              isId
+                                ? "Folder Peta Penyimpanan direset ke folder User."
+                                : "Storage Map folder reset to User folder."
+                            );
+                          } catch (e) {
+                            onFlash(String(e));
+                          }
+                        }}
+                        className={secondaryBtn}
+                      >
+                        {isId ? "Reset Default" : "Reset Default"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const picked = await pickWidgetStorageFolderDialog();
+                        if (picked) {
+                          refreshStorageStatus();
+                          window.setTimeout(refreshStorageStatus, 1400);
+                          onFlash(
+                            isId
+                              ? `Memindai folder Peta Penyimpanan: ${picked}`
+                              : `Scanning Storage Map folder: ${picked}`
+                          );
+                        }
+                      } catch (e) {
+                        onFlash(String(e));
+                      }
+                    }}
+                    className={primaryBtn}
+                  >
+                    {isId ? "Pilih Folder..." : "Pick Folder..."}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await triggerWidgetStorageScan();
+                        refreshStorageStatus();
+                        window.setTimeout(refreshStorageStatus, 1400);
+                        onFlash(
+                          isId
+                            ? "Pemindaian Peta Penyimpanan dimulai di latar belakang."
+                            : "Storage Treemap scan started in the background."
+                        );
+                      } catch (e) {
+                        onFlash(String(e));
+                      }
+                    }}
+                    className={`${secondaryBtn} flex items-center gap-1.5`}
+                  >
+                    <HardDrive size={13} /> {isId ? "Pindai Sekarang" : "Scan Now"}
+                  </button>
+                </div>
+                <div className="flex gap-2 mt-0.5">
+                  <input
+                    type="text"
+                    value={storageFolder}
+                    onChange={(e) => setStorageFolder(e.target.value)}
+                    placeholder={isId ? "Contoh: D:\\Kerjaan atau D:\\" : "Example: D:\\Projects or D:\\"}
+                    className={inputCls}
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!storageFolder.trim()) return;
+                      try {
+                        const target = await triggerWidgetStorageScan(storageFolder.trim());
+                        refreshStorageStatus();
+                        window.setTimeout(refreshStorageStatus, 1400);
+                        onFlash(
+                          isId
+                            ? `Memindai folder: ${target}`
+                            : `Scanning folder: ${target}`
+                        );
+                      } catch (e) {
+                        onFlash(String(e));
+                      }
+                    }}
+                    className={secondaryBtn}
+                  >
+                    {isId ? "Pindai Folder" : "Scan Folder"}
+                  </button>
+                </div>
                 <span className={hintCls}>
                   {isId
-                    ? "Peta Penyimpanan (Treemap) dipindai sesuai permintaan"
-                    : "Storage Treemap scans only on demand"}
+                    ? "Pemindaian hanya berjalan saat diminta agar disk dan CPU tetap ringan"
+                    : "Scanning runs on demand only to keep disk and CPU usage minimal"}
                 </span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await triggerWidgetStorageScan();
-                    onFlash(
-                      isId
-                        ? "Pemindaian Peta Penyimpanan dimulai di latar belakang."
-                        : "Storage Treemap scan started in the background."
-                    );
-                  }}
-                  className={`${secondaryBtn} flex items-center gap-1.5`}
-                >
-                  <HardDrive size={13} /> {isId ? "Pindai Sekarang" : "Scan Now"}
-                </button>
               </div>
             </ProviderAccordionRow>
           </>
@@ -863,18 +1080,22 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                   <button
                     type="button"
                     onClick={async () => {
-                      await clearWidgetIcalUrl();
-                      setIcalStatus({
-                        configured: false,
-                        synced_count: 0,
-                        updated_label: "",
-                        error: null,
-                      });
-                      onFlash(
-                        isId
-                          ? "Koneksi kalender iCal diputuskan."
-                          : "iCal calendar connection removed."
-                      );
+                      try {
+                        await clearWidgetIcalUrl();
+                        setIcalStatus({
+                          configured: false,
+                          synced_count: 0,
+                          updated_label: "",
+                          error: null,
+                        });
+                        onFlash(
+                          isId
+                            ? "Koneksi kalender iCal diputuskan."
+                            : "iCal calendar connection removed."
+                        );
+                      } catch (e) {
+                        onFlash(String(e));
+                      }
                     }}
                     className={secondaryBtn}
                   >
@@ -938,8 +1159,8 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                       ? "Menyinkron..."
                       : "Syncing..."
                     : isId
-                    ? "Simpan & Sinkron"
-                    : "Save & Sync"}
+                      ? "Simpan & Sinkron"
+                      : "Save & Sync"}
                 </button>
               </div>
             </ProviderAccordionRow>
@@ -1061,13 +1282,17 @@ export const WidgetProvidersCard: React.FC<WidgetProvidersCardProps> = ({
                   type="button"
                   onClick={async () => {
                     if (!ghRepo.trim() || !ghToken.trim()) return;
-                    await saveGithubWidgetToken(ghToken.trim(), ghRepo.trim());
-                    setGhToken("");
-                    onFlash(
-                      isId
-                        ? "Kredensial GitHub tersimpan aman."
-                        : "GitHub credentials saved securely."
-                    );
+                    try {
+                      await saveGithubWidgetToken(ghToken.trim(), ghRepo.trim());
+                      setGhToken("");
+                      onFlash(
+                        isId
+                          ? "Kredensial GitHub tersimpan aman."
+                          : "GitHub credentials saved securely."
+                      );
+                    } catch (e) {
+                      onFlash(String(e));
+                    }
                   }}
                   className={primaryBtn}
                 >

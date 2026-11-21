@@ -84,20 +84,34 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             )}
             <div className="grid grid-cols-7 gap-y-0.5 text-center text-[9.5px] font-bold opacity-90">
               {headers.map((h, i) => (
-                <div key={i}>{h}</div>
+                <div
+                  key={i}
+                  className={i === 0 ? (lightWallpaper ? "text-red-600" : "text-red-400") : ""}
+                >
+                  {h}
+                </div>
               ))}
             </div>
             <div className="grid grid-cols-7 gap-y-0.5 text-center text-[10px] tabular-nums">
-              {days.map((d) => (
-                <div
-                  key={d}
-                  className={`mx-auto w-4 h-4 flex items-center justify-center leading-none ${
-                    d === 20 ? "font-extrabold scale-110 opacity-100" : "font-normal opacity-75"
-                  }`}
-                >
-                  {d}
-                </div>
-              ))}
+              {days.map((d) => {
+                const isSunday = (d - 1) % 7 === 0;
+                return (
+                  <div
+                    key={d}
+                    className={`mx-auto w-4 h-4 flex items-center justify-center leading-none ${
+                      d === 20
+                        ? "font-extrabold scale-110 opacity-100"
+                        : isSunday
+                          ? lightWallpaper
+                            ? "font-semibold text-red-600 opacity-95"
+                            : "font-semibold text-red-400 opacity-95"
+                          : "font-normal opacity-75"
+                    }`}
+                  >
+                    {d}
+                  </div>
+                );
+              })}
             </div>
           </div>
         );

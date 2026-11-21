@@ -1,7 +1,8 @@
 use super::window_ops::{
     current_last_input_time, destroy_standby_window, enumerate_physical_monitors,
-    is_fullscreen_blocking, is_standby_foreground, now_monotonic_ms, open_standby_internal,
-    request_smooth_close_standby, select_target_monitor, system_idle_ms, STANDBY_LABEL,
+    is_fullscreen_blocking, is_standby_foreground, is_video_or_movie_playing, now_monotonic_ms,
+    open_standby_internal, request_smooth_close_standby, select_target_monitor, system_idle_ms,
+    STANDBY_LABEL,
 };
 use super::{
     context_store, get_config_snapshot, in_recent_manual_dismiss_cooldown,
@@ -55,6 +56,8 @@ pub fn start(app: AppHandle) {
         .spawn(move || {
             let mut boot_sec_synced = false;
             let mut was_esc_down = false;
+            let mut last_loop_mono = now_monotonic_ms();
+            let mut last_wake_mono: u64 = 0;
 
             loop {
                 let cfg = get_config_snapshot();
@@ -79,11 +82,19 @@ pub fn start(app: AppHandle) {
 
                 std::thread::sleep(Duration::from_millis(sleep_ms));
 
+                let now_mono = now_monotonic_ms();
+                // Large gap between ticks indicates system sleep/hibernation wake; grant a fresh idle window
+                if now_mono.saturating_sub(last_loop_mono) > (sleep_ms + 15_000) {
+                    last_wake_mono = now_mono;
+                }
+                last_loop_mono = now_mono;
+
                 let cfg = get_config_snapshot();
                 let is_open = STANDBY_OPEN.load(Ordering::SeqCst)
                     || app.get_webview_window(STANDBY_LABEL).is_some();
 
                 if !crate::store_license::can_use_pro_bundle() {
+                    super::deep_eco::exit_deep_eco(&app);
                     if is_open {
                         destroy_standby_window(&app);
                     }
@@ -93,6 +104,7 @@ pub fn start(app: AppHandle) {
 
                 if is_open {
                     if STANDBY_CLOSING.load(Ordering::SeqCst) {
+                        super::deep_eco::exit_deep_eco(&app);
                         continue;
                     }
 
@@ -136,10 +148,29 @@ pub fn start(app: AppHandle) {
                             .is_none()
                         {
                             destroy_standby_window(&app);
+                            continue;
                         }
                     }
+
+                    let eco_threshold_ms = (cfg.screensaver_eco_minutes.max(1) as u64) * 60_000;
+                    let idle_ms_for_eco = if ctx.is_secondary_monitor {
+                        system_idle_ms()
+                    } else {
+                        0
+                    };
+                    let should_eco = super::deep_eco::should_enter_deep_eco(
+                        cfg.screensaver_eco_enabled,
+                        true,
+                        false,
+                        elapsed_open,
+                        eco_threshold_ms,
+                        ctx.is_secondary_monitor,
+                        idle_ms_for_eco,
+                    );
+                    super::deep_eco::reconcile_deep_eco(&app, should_eco, &cfg);
                     continue;
                 }
+                super::deep_eco::exit_deep_eco(&app);
                 was_esc_down = false;
 
                 if cfg.activation_mode == "secondary_permanent"
@@ -163,7 +194,13 @@ pub fn start(app: AppHandle) {
                     if cfg.pause_during_fullscreen && is_fullscreen_blocking() {
                         continue;
                     }
+                    if cfg.pause_during_media_video && is_video_or_movie_playing() {
+                        continue;
+                    }
                     let threshold_ms = (cfg.idle_minutes.max(1) as u64) * 60_000;
+                    if last_wake_mono > 0 && now_mono.saturating_sub(last_wake_mono) < threshold_ms {
+                        continue;
+                    }
                     let idle_ms = system_idle_ms();
                     let last_dw = current_last_input_time();
                     let dismiss_dw = LAST_DISMISS_INPUT_TIME.load(Ordering::SeqCst);

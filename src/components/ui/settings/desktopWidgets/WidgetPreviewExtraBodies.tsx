@@ -394,10 +394,25 @@ export function renderExtraWidgetPreviewBody(ctx: WidgetPreviewBodyContext): Rea
               {tr("MASKOT GILI", "GILI MASCOT")}
             </div>
           )}
-          <div className="my-auto w-14 h-11 rounded-[20px] bg-blue-500/85 border border-white/25 flex items-center justify-center gap-2.5">
-            <span className="w-2 h-2.5 rounded-full bg-white" />
-            <span className="w-2 h-2.5 rounded-full bg-white" />
-          </div>
+          <svg
+            viewBox="0 0 120 120"
+            className="my-auto w-14 h-14 shrink-0"
+            aria-hidden="true"
+          >
+            <g transform="translate(0 .5)">
+              <path d="M8 76A52 50 0 0 1 112 76Z" fill="#2F7BFF" />
+              <path d="M38 30.7A52 50 0 0 1 82 30.7V44A14 14 0 0 1 68 58H52A14 14 0 0 1 38 44Z" fill="#0B0F14" />
+              <rect x="48" y="36" width="6" height="12" rx="3" fill="#7FE3FF" />
+              <rect x="66" y="36" width="6" height="12" rx="3" fill="#7FE3FF" />
+              <path
+                d="M10 90Q20 82 30 90T50 90T70 90T90 90T110 90"
+                stroke="#2F7BFF"
+                strokeWidth="6"
+                strokeLinecap="round"
+                fill="none"
+              />
+            </g>
+          </svg>
           <div className="text-[10.5px] font-medium truncate max-w-full">
             {tr("Tetap fokus, jangan lupa minum.", "Stay focused, remember to hydrate.")}
           </div>
@@ -425,20 +440,20 @@ export function renderExtraWidgetPreviewBody(ctx: WidgetPreviewBodyContext): Rea
       return (
         <div className="h-full flex flex-col justify-between">
           <span className={`text-[9.5px] font-bold uppercase tracking-wider ${accentLabel}`}>
-            {tr("KURS USD / IDR", "USD / EUR RATE")}
+            {tr("KURS USD / IDR", "USD / IDR RATE")}
           </span>
           <div>
             <div className="text-[26px] font-bold leading-none tabular-nums">
-              {tr("Rp16.250", "0.92 EUR")}
+              Rp16.250
             </div>
             {size === "medium" && (
               <div className={`text-[10px] mt-1 tabular-nums ${sub}`}>
-                {tr("EUR Rp17.640  SGD Rp12.110", "GBP 0.79  JPY 154.2")}
+                EUR Rp17.640  SGD Rp12.110
               </div>
             )}
           </div>
           <div className="text-[10px] font-semibold text-amber-400 truncate">
-            {tr("Emas/gr: Rp1.540.000", "Gold/oz: $2,640")}
+            {tr("Emas/gr: Rp1.540.000", "Gold: $2,640/oz")}
           </div>
         </div>
       );
@@ -466,14 +481,14 @@ export function renderExtraWidgetPreviewBody(ctx: WidgetPreviewBodyContext): Rea
           </span>
           <div>
             <div className="text-[22px] font-bold leading-none tabular-nums">
-              {tr("Rp1.250.000", "$840")}
+              Rp1.250.000
             </div>
             <div className={`h-1.5 w-full rounded-full mt-2 overflow-hidden ${trackBg}`}>
               <div className="h-full w-[42%] rounded-full bg-blue-400" />
             </div>
           </div>
           <div className={`text-[10px] tabular-nums truncate ${sub}`}>
-            {tr("Anggaran Rp3.000.000 (42%)", "Budget $2,000 (42%)")}
+            {tr("Anggaran Rp3.000.000 (42%)", "Budget Rp3.000.000 (42%)")}
           </div>
         </div>
       );

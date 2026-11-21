@@ -72,7 +72,7 @@ impl Drop for TrayOverflowLeaseGuard {
 }
 
 /// Returns the path to the crash fail-safe flag file on disk.
-fn get_flag_path() -> Option<PathBuf> {
+pub fn get_flag_path() -> Option<PathBuf> {
     let base = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA"))?;
     let dir = PathBuf::from(base).join("gili");
     Some(dir.join("taskbar_hidden.flag"))
@@ -117,22 +117,49 @@ fn parse_disk_flag_content(raw: &str) -> Option<DiskFlagInfo> {
     None
 }
 
+pub fn read_disk_flag_info_at(flag_path: &std::path::Path) -> Option<DiskFlagInfo> {
+    let raw = std::fs::read_to_string(flag_path).ok()?;
+    parse_disk_flag_content(&raw)
+}
+
 pub fn read_disk_flag_info() -> Option<DiskFlagInfo> {
     let flag_path = get_flag_path()?;
-    let raw = std::fs::read_to_string(&flag_path).ok()?;
-    parse_disk_flag_content(&raw)
+    read_disk_flag_info_at(&flag_path)
+}
+
+pub fn remove_disk_flag_for_pid_at(flag_path: &std::path::Path, target_pid: u32) {
+    let matches = match read_disk_flag_info_at(flag_path) {
+        Some(info) => info.pid == 0 || info.pid == target_pid,
+        None => false,
+    };
+    if matches {
+        let _ = std::fs::remove_file(flag_path);
+    }
 }
 
 pub fn remove_disk_flag_for_pid(target_pid: u32) {
     if let Some(flag_path) = get_flag_path() {
-        let matches = match read_disk_flag_info() {
-            Some(info) => info.pid == 0 || info.pid == target_pid,
-            None => false,
-        };
-        if matches {
-            let _ = std::fs::remove_file(&flag_path);
-        }
+        remove_disk_flag_for_pid_at(&flag_path, target_pid);
     }
+}
+
+/// Sanitizes saved state/exstyle from disk so a previously Gili-corrupted tray state
+/// (identified by WS_EX_TRANSPARENT) never keeps Auto-Hide or WS_EX_LAYERED stuck after recovery.
+pub fn sanitize_restored_flag_info(info: DiskFlagInfo) -> (Option<u32>, Option<u32>) {
+    let corrupted_exstyle = info
+        .original_exstyle
+        .is_some_and(|ex| (ex & WS_EX_TRANSPARENT.0) != 0);
+    if corrupted_exstyle {
+        let clean_state = info
+            .original_state
+            .map(|st| st & !ABS_AUTOHIDE)
+            .or(Some(0));
+        let clean_exstyle = info.original_exstyle.map(|ex| {
+            ex & !(WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0)
+        });
+        return (clean_state, clean_exstyle);
+    }
+    (info.original_state, info.original_exstyle)
 }
 
 /// Persists the taskbar hidden state flag to disk so a crash or kill can be detected and restored.
@@ -173,10 +200,14 @@ fn write_disk_flag(hidden: bool) {
 pub fn check_and_recover_on_startup() {
     if let Some(info) = read_disk_flag_info() {
         eprintln!("[Gili Taskbar] Detected unexpected exit with hidden taskbar. Restoring...");
-        restore_taskbars_from_watchdog(info.original_state, info.original_exstyle);
+        let (clean_state, clean_exstyle) = sanitize_restored_flag_info(info);
+        restore_taskbars_from_watchdog(clean_state, clean_exstyle);
         if let Some(flag_path) = get_flag_path() {
             let _ = std::fs::remove_file(&flag_path);
         }
+    } else if is_any_tray_hwnd_hidden() {
+        eprintln!("[Gili Taskbar] Detected hidden/cloaked taskbar without flag on startup. Restoring...");
+        restore_taskbars_from_watchdog(Some(0), None);
     }
 }
 
@@ -187,13 +218,24 @@ fn save_original_state(primary_hwnd: HWND) {
     }
 
     unsafe {
+        let already_hidden = is_tray_hwnd_hidden(primary_hwnd);
         let mut abd = APPBARDATA {
             cbSize: std::mem::size_of::<APPBARDATA>() as u32,
             hWnd: primary_hwnd,
             ..Default::default()
         };
-        let state = SHAppBarMessage(ABM_GETSTATE, &mut abd) as u32;
-        let ex = GetWindowLongW(primary_hwnd, GWL_EXSTYLE) as u32;
+        let raw_state = SHAppBarMessage(ABM_GETSTATE, &mut abd) as u32;
+        let state = if already_hidden {
+            raw_state & !ABS_AUTOHIDE
+        } else {
+            raw_state
+        };
+        let raw_ex = GetWindowLongW(primary_hwnd, GWL_EXSTYLE) as u32;
+        let ex = if already_hidden {
+            raw_ex & !(WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0)
+        } else {
+            raw_ex & !(WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0)
+        };
         ORIGINAL_PRIMARY_EXSTYLE.store(ex, Ordering::SeqCst);
         ORIGINAL_PRIMARY_EXSTYLE_CAPTURED.store(true, Ordering::SeqCst);
         ORIGINAL_TASKBAR_STATE.store(state, Ordering::SeqCst);
@@ -403,6 +445,18 @@ unsafe fn is_tray_hwnd_hidden(hwnd: HWND) -> bool {
     if !IsWindowVisible(hwnd).as_bool() || has_empty_window_region(hwnd) {
         return true;
     }
+    let mut cloaked: u32 = 0;
+    if DwmGetWindowAttribute(
+        hwnd,
+        DWMWA_CLOAK,
+        &mut cloaked as *mut u32 as *mut std::ffi::c_void,
+        std::mem::size_of::<u32>() as u32,
+    )
+    .is_ok()
+        && cloaked != 0
+    {
+        return true;
+    }
     let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
     if (ex & WS_EX_TRANSPARENT.0) != 0 {
         return true;
@@ -503,6 +557,41 @@ unsafe fn uncloak_and_show_tray_hwnd(hwnd: HWND, is_primary: bool) {
     }
 }
 
+unsafe fn notify_explorer_tray_restored(hwnd: HWND) {
+    use windows::Win32::Foundation::WPARAM;
+    use windows::Win32::Graphics::Gdi::{
+        RedrawWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE, RDW_UPDATENOW,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SendNotifyMessageW, HWND_BROADCAST, WM_SETTINGCHANGE,
+    };
+    let setting = w!("TraySettings");
+    let _ = SendNotifyMessageW(
+        HWND_BROADCAST,
+        WM_SETTINGCHANGE,
+        WPARAM(0),
+        LPARAM(setting.0 as isize),
+    );
+    let _ = RedrawWindow(
+        hwnd,
+        None,
+        None,
+        RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+    );
+    if !IsWindowVisible(hwnd).as_bool() {
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW,
+        );
+    }
+}
+
 pub fn restore_taskbars_from_watchdog(
     saved_state: Option<u32>,
     saved_exstyle: Option<u32>,
@@ -522,8 +611,10 @@ pub fn restore_taskbars_from_watchdog(
     unsafe {
         if let Ok(hwnd) = FindWindowW(w!("Shell_TrayWnd"), None) {
             if !hwnd.0.is_null() {
-                set_shell_autohide_state(hwnd, false);
+                // Uncloak & show BEFORE clearing ABS_AUTOHIDE so Explorer recalculates work area cleanly on Win11
                 uncloak_and_show_tray_hwnd(hwnd, true);
+                set_shell_autohide_state(hwnd, false);
+                notify_explorer_tray_restored(hwnd);
             }
         }
 
@@ -605,8 +696,9 @@ pub fn set_taskbar_visible(visible: bool) {
                         cloak_and_hide_tray_hwnd(hwnd);
                     }
                 } else {
-                    set_shell_autohide_state(hwnd, false);
                     uncloak_and_show_tray_hwnd(hwnd, true);
+                    set_shell_autohide_state(hwnd, false);
+                    notify_explorer_tray_restored(hwnd);
                 }
             }
         }
@@ -895,5 +987,16 @@ mod tests {
         );
         assert_eq!(parse_disk_flag_content(""), None);
         assert_eq!(parse_disk_flag_content("invalid"), None);
+
+        // Poisoned flag captured while tray already had WS_EX_TRANSPARENT + ABS_AUTOHIDE must be sanitized
+        let poisoned = parse_disk_flag_content(
+            r#"{"original_exstyle":524456,"original_state":1,"pid":3328}"#,
+        )
+        .unwrap();
+        let (clean_state, clean_exstyle) = sanitize_restored_flag_info(poisoned);
+        assert_eq!(clean_state, Some(0));
+        let ex = clean_exstyle.unwrap();
+        assert_eq!(ex & WS_EX_TRANSPARENT.0, 0);
+        assert_eq!(ex & WS_EX_LAYERED.0, 0);
     }
 }

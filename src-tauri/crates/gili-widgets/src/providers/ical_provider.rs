@@ -46,7 +46,7 @@ pub fn validate_ical_url(raw: &str) -> Result<String, String> {
     };
 
     let after = &normalized["https://".len()..];
-    let authority = after.split('/').next().unwrap_or("");
+    let authority = after.split(&['/', '?', '#'][..]).next().unwrap_or("");
     let host_port = authority.rsplit('@').next().unwrap_or(authority);
     let host = if host_port.starts_with('[') {
         host_port
@@ -65,21 +65,47 @@ pub fn validate_ical_url(raw: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
-fn is_disallowed_ical_host(host: &str) -> bool {
-    if host.is_empty()
-        || host == "localhost"
-        || host == "0.0.0.0"
-        || host == "::1"
-        || host.ends_with(".local")
-        || host.ends_with(".internal")
-        || host.starts_with("127.")
-        || host.starts_with("10.")
-        || host.starts_with("192.168.")
-        || host.starts_with("169.254.")
+pub(crate) fn is_disallowed_ical_host(host: &str) -> bool {
+    let h = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if h.is_empty()
+        || h == "localhost"
+        || h == "0.0.0.0"
+        || h == "::"
+        || h == "::1"
+        || h.ends_with(".local")
+        || h.ends_with(".internal")
+        || h.starts_with("127.")
+        || h.starts_with("10.")
+        || h.starts_with("192.168.")
+        || h.starts_with("169.254.")
+        || h.starts_with("fc")
+        || h.starts_with("fd")
+        || h.starts_with("fe80:")
+        || h.starts_with("::ffff:")
     {
         return true;
     }
-    if let Some(rest) = host.strip_prefix("172.") {
+    if let Ok(ip) = h.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified()
+                    || v4.is_multicast()
+            }
+            std::net::IpAddr::V6(v6) => {
+                let seg0 = v6.segments()[0];
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || v6.is_multicast()
+                    || (seg0 & 0xfe00) == 0xfc00
+                    || (seg0 & 0xffc0) == 0xfe80
+                    || v6.to_ipv4_mapped().is_some()
+            }
+        };
+    }
+    if let Some(rest) = h.strip_prefix("172.") {
         if let Some(second_octet) = rest.split('.').next().and_then(|s| s.parse::<u8>().ok()) {
             if (16..=31).contains(&second_octet) {
                 return true;
@@ -90,7 +116,7 @@ fn is_disallowed_ical_host(host: &str) -> bool {
 }
 
 /// Converts Gregorian `(year, month 1..=12, day 1..=31)` to days since `1970-01-01`.
-fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+pub fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
     let mut yr = y as i64;
     let mn = m as i64;
     if mn <= 2 {
@@ -105,7 +131,7 @@ fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
 }
 
 /// Inverse of `days_from_civil`: returns `(year, month 1..=12, day 1..=31)`.
-fn civil_from_days(z: i64) -> (i32, u32, u32) {
+pub fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let shifted = z + 719_468;
     let era = if shifted >= 0 {
         shifted
@@ -189,6 +215,47 @@ struct ParsedIcsDt {
     hhmm: Option<(u32, u32)>,
 }
 
+fn parse_tzid_utc_offset_mins(params_upper: &str) -> Option<i32> {
+    let idx = params_upper.find("TZID=")?;
+    let rest = &params_upper[idx + 5..];
+    let raw = rest.split(';').next().unwrap_or("").trim().trim_matches('"');
+    if raw == "UTC" || raw == "GMT" || raw == "ETC/UTC" || raw == "ETC/GMT" {
+        return Some(0);
+    }
+    // Outlook/Exchange form: "(UTC+07:00) BANGKOK, HANOI, JAKARTA" or "UTC-05:00"
+    if let Some(u_idx) = raw.find("UTC").or_else(|| raw.find("GMT")) {
+        let after = &raw[u_idx + 3..];
+        let sign = match after.as_bytes().first().copied() {
+            Some(b'+') => 1,
+            Some(b'-') => -1,
+            _ => return None,
+        };
+        let digits = &after[1..];
+        let hh: i32 = digits.get(0..2)?.parse().ok()?;
+        let mm: i32 = if digits.as_bytes().get(2) == Some(&b':') {
+            digits.get(3..5)?.parse().ok()?
+        } else {
+            digits.get(2..4).and_then(|s| s.parse().ok()).unwrap_or(0)
+        };
+        if hh <= 14 && mm < 60 {
+            return Some(sign * (hh * 60 + mm));
+        }
+    }
+    None
+}
+
+fn split_ics_line_quote_aware(line: &str) -> Option<(&str, &str)> {
+    let mut in_quotes = false;
+    for (idx, b) in line.bytes().enumerate() {
+        match b {
+            b'"' => in_quotes = !in_quotes,
+            b':' if !in_quotes => return Some((&line[..idx], &line[idx + 1..])),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn parse_ics_datetime(params_upper: &str, val: &str, tz_offset_mins: i32) -> Option<ParsedIcsDt> {
     let s = val.trim();
     let force_date = params_upper.contains("VALUE=DATE") && !params_upper.contains("DATE-TIME");
@@ -226,9 +293,15 @@ fn parse_ics_datetime(params_upper: &str, val: &str, tz_offset_mins: i32) -> Opt
         return None;
     }
 
-    if s.ends_with('Z') || s.ends_with('z') {
-        let utc_days = days_from_civil(y, m, d);
-        let total_mins = utc_days * 1440 + (hh as i64) * 60 + (mm as i64) + tz_offset_mins as i64;
+    let src_offset_mins = if s.ends_with('Z') || s.ends_with('z') {
+        Some(0)
+    } else {
+        parse_tzid_utc_offset_mins(params_upper)
+    };
+    if let Some(src_off) = src_offset_mins {
+        let src_days = days_from_civil(y, m, d);
+        let delta_mins = (tz_offset_mins - src_off) as i64;
+        let total_mins = src_days * 1440 + (hh as i64) * 60 + (mm as i64) + delta_mins;
         let local_days = total_mins.div_euclid(1440);
         let rem_mins = total_mins.rem_euclid(1440);
         let local_ymd = civil_from_days(local_days);
@@ -247,23 +320,32 @@ fn parse_ics_datetime(params_upper: &str, val: &str, tz_offset_mins: i32) -> Opt
     })
 }
 
-fn parse_byday_code(code: &str) -> Option<u8> {
+fn parse_byday_token(code: &str) -> Option<(Option<i32>, u8)> {
     let trimmed = code.trim();
-    let suffix = if trimmed.len() >= 2 {
-        &trimmed[trimmed.len() - 2..]
-    } else {
-        trimmed
-    };
-    match suffix {
-        "SU" => Some(0),
-        "MO" => Some(1),
-        "TU" => Some(2),
-        "WE" => Some(3),
-        "TH" => Some(4),
-        "FR" => Some(5),
-        "SA" => Some(6),
-        _ => None,
+    if !trimmed.is_ascii() || trimmed.len() < 2 {
+        return None;
     }
+    let (prefix, suffix) = trimmed.split_at(trimmed.len() - 2);
+    let wd = match suffix.to_ascii_uppercase().as_str() {
+        "SU" => 0,
+        "MO" => 1,
+        "TU" => 2,
+        "WE" => 3,
+        "TH" => 4,
+        "FR" => 5,
+        "SA" => 6,
+        _ => return None,
+    };
+    let ord = if prefix.is_empty() {
+        None
+    } else {
+        prefix.parse::<i32>().ok().filter(|&n| n != 0 && (-5..=5).contains(&n))
+    };
+    Some((ord, wd))
+}
+
+fn parse_byday_code(code: &str) -> Option<u8> {
+    parse_byday_token(code).map(|(_, wd)| wd)
 }
 
 #[derive(Default)]
@@ -287,7 +369,9 @@ fn expand_rrule_days(
     let mut interval: i64 = 1;
     let mut count: Option<usize> = None;
     let mut until_day: Option<i64> = None;
+    let mut byday_specs: Vec<(Option<i32>, u8)> = Vec::new();
     let mut bydays: Vec<u8> = Vec::new();
+    let mut wkst: u8 = 1; // RFC 5545 default WKST=MO
 
     for part in rrule.split(';') {
         let Some((k, v)) = part.split_once('=') else {
@@ -310,9 +394,15 @@ fn expand_rrule_days(
                     until_day = Some(u.day_serial);
                 }
             }
+            "WKST" => {
+                if let Some(wd) = parse_byday_code(v) {
+                    wkst = wd;
+                }
+            }
             "BYDAY" => {
                 for tok in v.split(',') {
-                    if let Some(wd) = parse_byday_code(tok) {
+                    if let Some((ord, wd)) = parse_byday_token(tok) {
+                        byday_specs.push((ord, wd));
                         bydays.push(wd);
                     }
                 }
@@ -346,11 +436,12 @@ fn expand_rrule_days(
                 bydays.push(weekday_from_days(start.day_serial));
             }
             let start_dow = weekday_from_days(start.day_serial) as i64;
-            let start_week_sunday = start.day_serial - start_dow;
+            let days_since_wkst = (start_dow - wkst as i64).rem_euclid(7);
+            let start_week_anchor = start.day_serial - days_since_wkst;
             let mut week_idx: i64 = 0;
             let mut seen = 0usize;
             loop {
-                let week_start = start_week_sunday + week_idx * 7 * interval;
+                let week_start = start_week_anchor + week_idx * 7 * interval;
                 if week_start > max_day || seen >= max_occ {
                     break;
                 }
@@ -362,7 +453,8 @@ fn expand_rrule_days(
                     if candidate > max_day || seen >= max_occ {
                         break;
                     }
-                    if bydays.contains(&(offset as u8)) {
+                    let cand_wd = weekday_from_days(candidate);
+                    if bydays.contains(&cand_wd) {
                         if candidate >= win_start {
                             days.push(candidate);
                         }
@@ -377,9 +469,40 @@ fn expand_rrule_days(
             let mut seen = 0usize;
             for _ in 0..600 {
                 let dim = days_in_month_gregorian(y, m);
-                if target_d <= dim {
-                    let cand = days_from_civil(y, m, target_d);
+                let mut month_candidates: Vec<i64> = Vec::new();
+                if byday_specs.is_empty() {
+                    if target_d <= dim {
+                        month_candidates.push(days_from_civil(y, m, target_d));
+                    }
+                } else {
+                    for &(ord_opt, wd) in &byday_specs {
+                        let matching: Vec<i64> = (1..=dim)
+                            .map(|d| days_from_civil(y, m, d))
+                            .filter(|&ds| weekday_from_days(ds) == wd)
+                            .collect();
+                        match ord_opt {
+                            Some(n) if n > 0 => {
+                                if let Some(&ds) = matching.get((n - 1) as usize) {
+                                    month_candidates.push(ds);
+                                }
+                            }
+                            Some(n) if n < 0 => {
+                                let rev = (-n) as usize;
+                                if matching.len() >= rev {
+                                    month_candidates.push(matching[matching.len() - rev]);
+                                }
+                            }
+                            _ => month_candidates.extend(matching),
+                        }
+                    }
+                    month_candidates.sort_unstable();
+                    month_candidates.dedup();
+                }
+
+                let mut hit_limit = false;
+                for cand in month_candidates {
                     if cand > max_day || seen >= max_occ {
+                        hit_limit = true;
                         break;
                     }
                     if cand >= start.day_serial {
@@ -388,6 +511,9 @@ fn expand_rrule_days(
                         }
                         seen += 1;
                     }
+                }
+                if hit_limit {
+                    break;
                 }
                 let total_m = (y * 12 + (m as i32 - 1)) + interval as i32;
                 y = total_m.div_euclid(12);
@@ -435,13 +561,16 @@ pub fn parse_ics_events(
 
     let mut raw_events: Vec<RawVEvent> = Vec::new();
     let mut current: Option<RawVEvent> = None;
+    let mut in_valarm = false;
 
     for line in unfold_ics_lines(ics_text) {
         if line.eq_ignore_ascii_case("BEGIN:VEVENT") {
             current = Some(RawVEvent::default());
+            in_valarm = false;
             continue;
         }
         if line.eq_ignore_ascii_case("END:VEVENT") {
+            in_valarm = false;
             if let Some(ev) = current.take() {
                 if !ev.cancelled && !ev.summary.is_empty() && !ev.dtstart_val.is_empty() {
                     raw_events.push(ev);
@@ -449,10 +578,21 @@ pub fn parse_ics_events(
             }
             continue;
         }
+        if line.eq_ignore_ascii_case("BEGIN:VALARM") {
+            in_valarm = true;
+            continue;
+        }
+        if line.eq_ignore_ascii_case("END:VALARM") {
+            in_valarm = false;
+            continue;
+        }
+        if in_valarm {
+            continue;
+        }
         let Some(ref mut ev) = current else {
             continue;
         };
-        let Some((head, val)) = line.split_once(':') else {
+        let Some((head, val)) = split_ics_line_quote_aware(&line) else {
             continue;
         };
         let (name_raw, params_raw) = head.split_once(';').unwrap_or((head, ""));
@@ -494,7 +634,40 @@ pub fn parse_ics_events(
         }
 
         let occ_days = if let Some(ref rrule) = ev.rrule {
-            expand_rrule_days(dtstart, rrule, tz_offset_mins, win_start, win_end)
+            // If UTC/TZID conversion shifted DTSTART across midnight into a different local weekday,
+            // shift WEEKLY BYDAY offsets by the same day delta so recurring occurrences stay aligned.
+            let raw_src_day = parse_ics_datetime(&ev.dtstart_params, &ev.dtstart_val, 0)
+                .map(|d| d.day_serial);
+            let shifted_by_tz = ev.dtstart_val.ends_with('Z')
+                || ev.dtstart_val.ends_with('z')
+                || parse_tzid_utc_offset_mins(&ev.dtstart_params).is_some();
+            let day_delta = if shifted_by_tz {
+                raw_src_day
+                    .map(|raw_d| dtstart.day_serial - raw_d)
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            if day_delta != 0 {
+                // Expand in original calendar day space, then shift each occurrence by day_delta
+                let src_start = ParsedIcsDt {
+                    day_serial: dtstart.day_serial - day_delta,
+                    ymd: civil_from_days(dtstart.day_serial - day_delta),
+                    hhmm: dtstart.hhmm,
+                };
+                expand_rrule_days(
+                    src_start,
+                    rrule,
+                    tz_offset_mins,
+                    win_start - day_delta,
+                    win_end - day_delta,
+                )
+                .into_iter()
+                .map(|d| d + day_delta)
+                .collect()
+            } else {
+                expand_rrule_days(dtstart, rrule, tz_offset_mins, win_start, win_end)
+            }
         } else if dtstart.day_serial >= win_start && dtstart.day_serial <= win_end {
             vec![dtstart.day_serial]
         } else {

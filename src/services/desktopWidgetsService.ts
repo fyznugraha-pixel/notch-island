@@ -3,6 +3,7 @@ import { loadActiveProvider } from "./aiChatService";
 import { getSecureApiKey } from "./aiCredentialService";
 import { HABIT_STREAK_STORAGE_KEY, parseHabitStreakRecord } from "./habitHistoryService";
 import { getLanguage } from "./languageStore";
+import { loadMiniNotes } from "./noteUtils";
 
 export type WidgetSize = "small" | "medium" | "large";
 export type BackgroundMode = "none" | "subtle_tint" | "glass" | "solid";
@@ -208,16 +209,65 @@ export async function saveGithubWidgetToken(token: string, repo: string): Promis
   await invoke("save_github_widget_token", { token, repo });
 }
 
-export async function triggerWidgetStorageScan(rootPath?: string): Promise<void> {
-  await invoke("trigger_widget_storage_scan", { rootPath: rootPath ?? null });
+export interface WidgetStorageFolderStatus {
+  root_path: string;
+  is_custom: boolean;
+  total_scanned_bytes: number;
+  item_count: number;
+  scanning: boolean;
+}
+
+export async function getWidgetStorageStatus(): Promise<WidgetStorageFolderStatus> {
+  return invoke<WidgetStorageFolderStatus>("get_widget_storage_status");
+}
+
+export async function triggerWidgetStorageScan(rootPath?: string): Promise<string> {
+  return invoke<string>("trigger_widget_storage_scan", { rootPath: rootPath ?? null });
+}
+
+export async function pickWidgetStorageFolderDialog(): Promise<string | null> {
+  return invoke<string | null>("pick_widget_storage_folder_dialog");
 }
 
 export async function exportWidgetTimeTrackerCsv(): Promise<string> {
   return invoke<string>("export_widget_time_tracker_csv");
 }
 
+export interface ExpenseItem {
+  id: string;
+  label: string;
+  amount_idr: number;
+  category: string;
+  timestamp_secs: number;
+}
+
+export interface ExpenseLedger {
+  monthly_budget_idr: number;
+  entries: ExpenseItem[];
+}
+
 export async function setWidgetExpenseBudget(budgetIdr: number): Promise<void> {
   await invoke("set_widget_expense_budget", { budgetIdr });
+}
+
+export async function getWidgetExpenses(): Promise<ExpenseLedger> {
+  return invoke<ExpenseLedger>("get_widget_expenses");
+}
+
+export async function addWidgetExpense(
+  label: string,
+  amountIdr: number,
+  category?: string
+): Promise<ExpenseLedger> {
+  return invoke<ExpenseLedger>("add_widget_expense", {
+    label,
+    amountIdr,
+    category: category ?? null,
+  });
+}
+
+export async function deleteWidgetExpense(entryId: string): Promise<ExpenseLedger> {
+  return invoke<ExpenseLedger>("delete_widget_expense", { entryId });
 }
 
 export async function addWidgetUptimeSite(name: string, url: string): Promise<void> {
@@ -232,12 +282,17 @@ export async function addWidgetShortcut(name: string, targetPath: string): Promi
   await invoke("add_widget_shortcut", { name, targetPath });
 }
 
-export async function configureWidgetPhotoFolder(folderPath: string): Promise<number> {
-  return invoke<number>("configure_widget_photo_folder", { folderPath });
+export interface WidgetPhotoFolderStatus {
+  folder_path: string | null;
+  photo_count: number;
 }
 
-export async function pickWidgetPhotosDialog(): Promise<number> {
-  return invoke<number>("pick_widget_photos_dialog");
+export async function getWidgetPhotoFolderStatus(): Promise<WidgetPhotoFolderStatus> {
+  return invoke<WidgetPhotoFolderStatus>("get_widget_photo_folder_status");
+}
+
+export async function configureWidgetPhotoFolder(folderPath: string): Promise<number> {
+  return invoke<number>("configure_widget_photo_folder", { folderPath });
 }
 
 export async function pickWidgetPhotoFolderDialog(): Promise<number> {
@@ -258,6 +313,42 @@ export async function addWidgetCountdown(title: string, targetDate: string): Pro
 
 export async function addWidgetSnippet(label: string, content: string): Promise<void> {
   await invoke("add_widget_snippet", { label, content });
+}
+
+export interface KanbanCard {
+  id: string;
+  title: string;
+  tag: string | null;
+}
+
+export interface KanbanBoard {
+  todo: KanbanCard[];
+  doing: KanbanCard[];
+  done: KanbanCard[];
+}
+
+export type KanbanColumn = "todo" | "doing" | "done";
+
+export async function getWidgetKanbanBoard(): Promise<KanbanBoard> {
+  return invoke<KanbanBoard>("get_widget_kanban_board");
+}
+
+export async function addWidgetKanbanCard(
+  title: string,
+  column: KanbanColumn = "todo"
+): Promise<KanbanBoard> {
+  return invoke<KanbanBoard>("add_widget_kanban_card", { title, column });
+}
+
+export async function moveWidgetKanbanCard(
+  cardId: string,
+  toColumn: KanbanColumn
+): Promise<KanbanBoard> {
+  return invoke<KanbanBoard>("move_widget_kanban_card", { cardId, toColumn });
+}
+
+export async function deleteWidgetKanbanCard(cardId: string): Promise<KanbanBoard> {
+  return invoke<KanbanBoard>("delete_widget_kanban_card", { cardId });
 }
 
 export async function addWidgetWorldClock(
@@ -324,15 +415,52 @@ export async function syncFrontendWidgetMirror(): Promise<void> {
       }))
       : [];
 
+    const mini_notes = loadMiniNotes()
+      .slice()
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned))
+      .map((n) => ({
+        id: n.id,
+        title: n.title,
+        content: n.content,
+        color: n.color,
+        is_checklist: Boolean(n.isChecklist),
+        checklist: (n.checklist ?? []).map((c) => ({
+          id: c.id,
+          text: c.text,
+          checked: c.checked,
+        })),
+        updated_at: Math.floor((n.updatedAt || Date.now()) / 1000),
+      }));
+
     const streak = parseHabitStreakRecord(
       parseJson(HABIT_STREAK_STORAGE_KEY),
       "Fokus Harian"
     );
 
+    const lang = getLanguage();
     const rawQuote = parseJson("gili_quote_daily_v1");
+    const BUILTIN_QUOTES = [
+      { en: "Start first, refine along the way.", id: "Mulai dulu, sempurnakan sambil jalan." },
+      { en: "Small progress each day adds up to big results.", id: "Sedikit kemajuan setiap hari menghasilkan hasil besar." },
+      { en: "Focus on progress, not perfection.", id: "Fokus pada progres, bukan kesempurnaan." },
+      { en: "Discipline is the bridge between goals and accomplishment.", id: "Disiplin adalah jembatan antara tujuan dan pencapaian." },
+      { en: "A short break is part of steady productivity.", id: "Istirahat sejenak adalah bagian dari produktivitas." },
+      { en: "Handle what matters most before urgent tasks take over.", id: "Kerjakan hal terpenting sebelum hal mendesak mengambil alih." },
+      { en: "Small consistency beats a brief burst of motivation.", id: "Konsistensi kecil mengalahkan lonjakan semangat sesaat." },
+    ];
+    let resolvedQuoteText = typeof rawQuote?.text === "string" ? rawQuote.text : "";
+    if (!resolvedQuoteText && typeof rawQuote?.idx === "number" && Number.isFinite(rawQuote.idx)) {
+      const entry = BUILTIN_QUOTES[Math.abs(Math.floor(rawQuote.idx)) % BUILTIN_QUOTES.length];
+      resolvedQuoteText = lang === "en" ? entry.en : entry.id;
+    } else if (!resolvedQuoteText) {
+      const now = new Date();
+      const seed = now.getFullYear() * 366 + now.getMonth() * 31 + now.getDate();
+      const entry = BUILTIN_QUOTES[seed % BUILTIN_QUOTES.length];
+      resolvedQuoteText = lang === "en" ? entry.en : entry.id;
+    }
     const quote = {
-      text: typeof rawQuote?.text === "string" ? rawQuote.text : "",
-      author: typeof rawQuote?.author === "string" ? rawQuote.author : "",
+      text: resolvedQuoteText,
+      author: typeof rawQuote?.author === "string" && rawQuote.author.trim() ? rawQuote.author : "Gili",
       custom_text: typeof rawQuote?.customText === "string" ? rawQuote.customText : null,
     };
 
@@ -340,12 +468,12 @@ export async function syncFrontendWidgetMirror(): Promise<void> {
     const apiKey = await getSecureApiKey(activeProvider).catch(() => "");
 
     const rawCity = parseJson("island_weather_custom_city");
-    const lang = getLanguage();
     const mirror = {
       events,
       classes,
       todos,
       shelf_files,
+      mini_notes,
       quote,
       ai_quick: {
         configured: Boolean(apiKey.trim()),

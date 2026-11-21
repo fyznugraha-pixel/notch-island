@@ -1,5 +1,8 @@
+pub mod deep_eco;
 pub mod idle_watcher;
 pub mod window_ops;
+
+pub use deep_eco::is_deep_eco_active;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -16,6 +19,7 @@ pub struct StandbyConfig {
     pub idle_minutes: u32,
     pub exit_on_mouse_move: bool,
     pub pause_during_fullscreen: bool,
+    pub pause_during_media_video: bool,
     pub always_on_top: bool,
     pub active_screen: String,
     pub left_widget: String,
@@ -26,6 +30,9 @@ pub struct StandbyConfig {
     pub show_seconds: bool,
     pub night_mode: String,
     pub burn_in_protection: bool,
+    pub screensaver_eco_enabled: bool,
+    pub screensaver_eco_minutes: u32,
+    pub screensaver_dim_enabled: bool,
 }
 
 impl Default for StandbyConfig {
@@ -36,6 +43,7 @@ impl Default for StandbyConfig {
             idle_minutes: 5,
             exit_on_mouse_move: true,
             pause_during_fullscreen: true,
+            pause_during_media_video: true,
             always_on_top: true,
             active_screen: "widgets".to_string(),
             left_widget: "clock_analog".to_string(),
@@ -46,6 +54,9 @@ impl Default for StandbyConfig {
             show_seconds: true,
             night_mode: "auto".to_string(),
             burn_in_protection: true,
+            screensaver_eco_enabled: true,
+            screensaver_eco_minutes: 5,
+            screensaver_dim_enabled: true,
         }
     }
 }
@@ -99,6 +110,7 @@ pub fn normalize_config(mut cfg: StandbyConfig) -> StandbyConfig {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"));
     cfg.idle_minutes = cfg.idle_minutes.clamp(1, 120);
+    cfg.screensaver_eco_minutes = cfg.screensaver_eco_minutes.clamp(1, 60);
     cfg.active_screen = match cfg.active_screen.as_str() {
         "widgets" | "clock" | "media" | "weather" => cfg.active_screen,
         _ => "widgets".to_string(),
@@ -212,8 +224,14 @@ pub fn save_standby_config(app: AppHandle, config: StandbyConfig) -> StandbyConf
     persist_config_to_disk(&clean);
     let _ = app.emit("standby:config-updated", &clean);
     if locked {
+        deep_eco::exit_deep_eco(&app);
         window_ops::destroy_standby_window(&app);
     } else {
+        if !clean.screensaver_eco_enabled {
+            deep_eco::exit_deep_eco(&app);
+        } else if STANDBY_OPEN.load(Ordering::SeqCst) && deep_eco::is_deep_eco_active() {
+            deep_eco::reconcile_deep_eco(&app, true, &clean);
+        }
         window_ops::reconcile_after_config_change(&app, &clean);
     }
     clean
@@ -276,6 +294,11 @@ pub fn is_standby_open() -> bool {
 }
 
 #[tauri::command]
+pub fn is_standby_deep_eco_active() -> bool {
+    deep_eco::is_deep_eco_active()
+}
+
+#[tauri::command]
 pub fn get_standby_launch_context() -> StandbyLaunchContext {
     context_store()
         .lock()
@@ -293,6 +316,7 @@ mod tests {
             activation_mode: "bogus".into(),
             target_monitor_id: Some(" auto ".into()),
             idle_minutes: 0,
+            screensaver_eco_minutes: 0,
             active_screen: "bad".into(),
             left_widget: "unknown".into(),
             right_widget: "unknown".into(),
@@ -305,6 +329,7 @@ mod tests {
         assert_eq!(norm.activation_mode, "off");
         assert_eq!(norm.target_monitor_id, None);
         assert_eq!(norm.idle_minutes, 1);
+        assert_eq!(norm.screensaver_eco_minutes, 1);
         assert_eq!(norm.active_screen, "widgets");
         assert_eq!(norm.left_widget, "clock_analog");
         assert_eq!(norm.right_widget, "weather_prayer");
@@ -321,6 +346,7 @@ mod tests {
             idle_minutes: 15,
             exit_on_mouse_move: false,
             pause_during_fullscreen: true,
+            pause_during_media_video: true,
             always_on_top: false,
             active_screen: "media".into(),
             left_widget: "pomodoro".into(),
@@ -331,6 +357,9 @@ mod tests {
             show_seconds: false,
             night_mode: "always".into(),
             burn_in_protection: true,
+            screensaver_eco_enabled: true,
+            screensaver_eco_minutes: 10,
+            screensaver_dim_enabled: false,
         };
         let norm = normalize_config(cfg.clone());
         assert_eq!(norm, cfg);

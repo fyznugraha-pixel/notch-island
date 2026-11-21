@@ -39,6 +39,7 @@ import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
 import { IosSelect } from "../../../ios/IosSelect";
 import { WidgetColorCustomizer } from "./WidgetColorCustomizer";
 import { WidgetGalleryModal } from "./WidgetGalleryModal";
+import { ActiveWidgetThumb } from "./ActiveWidgetThumb";
 import { WidgetProvidersCard } from "./WidgetProvidersCard";
 import { useGiliProLicense } from "../../../../hooks/useGiliProLicense";
 import { TaskbarProBanner } from "../../../settingsWindow/navbar/TaskbarProBanner";
@@ -82,6 +83,10 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   const [focusProvider, setFocusProvider] = useState<{ id: string; nonce: number } | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const configRef = useRef<DesktopWidgetsConfig | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  const saveInFlightRef = useRef(false);
+  const queuedSaveRef = useRef<DesktopWidgetsConfig | null>(null);
+  const saveDebounceRef = useRef<number | null>(null);
   configRef.current = config;
 
   useEffect(() => {
@@ -132,6 +137,8 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     return () => {
       alive = false;
       window.clearInterval(timer);
+      if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);
+      if (saveDebounceRef.current !== null) window.clearTimeout(saveDebounceRef.current);
       unlistenPromise.then((fn) => fn()).catch(() => { });
       unlistenFocusPromise.then((fn) => fn()).catch(() => { });
     };
@@ -142,8 +149,42 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   }, [optLanguage]);
 
   const flash = (msg: string) => {
+    if (flashTimerRef.current !== null) {
+      window.clearTimeout(flashTimerRef.current);
+    }
     setStatusMsg(msg);
-    window.setTimeout(() => setStatusMsg(null), 3500);
+    flashTimerRef.current = window.setTimeout(() => {
+      flashTimerRef.current = null;
+      setStatusMsg(null);
+    }, 3500);
+  };
+
+  const flushSerializedSave = async () => {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    try {
+      while (queuedSaveRef.current) {
+        const target = queuedSaveRef.current;
+        queuedSaveRef.current = null;
+        try {
+          const saved = await saveDesktopWidgetsConfig(target);
+          // Only adopt server-normalized snapshot if no newer local edit is waiting
+          if (!queuedSaveRef.current) {
+            configRef.current = saved;
+            setConfig(saved);
+          }
+        } catch (err) {
+          flash(
+            tr(
+              `Gagal menyimpan pengaturan widget: ${String(err)}`,
+              `Failed to save widget settings: ${String(err)}`
+            )
+          );
+        }
+      }
+    } finally {
+      saveInFlightRef.current = false;
+    }
   };
 
   const persistConfig = async (
@@ -162,18 +203,14 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     const next = isProLocked ? { ...rawNext, enabled: false } : rawNext;
     configRef.current = next;
     setConfig(next);
-    try {
-      const saved = await saveDesktopWidgetsConfig(next);
-      configRef.current = saved;
-      setConfig(saved);
-    } catch (err) {
-      flash(
-        tr(
-          `Gagal menyimpan pengaturan widget: ${String(err)}`,
-          `Failed to save widget settings: ${String(err)}`
-        )
-      );
+    queuedSaveRef.current = next;
+    if (saveDebounceRef.current !== null) {
+      window.clearTimeout(saveDebounceRef.current);
     }
+    saveDebounceRef.current = window.setTimeout(() => {
+      saveDebounceRef.current = null;
+      void flushSerializedSave();
+    }, 40);
   };
 
   if (!config) {
@@ -432,11 +469,19 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           <button
             type="button"
             onClick={() => {
+              const toggleEdit = async () => {
+                const nextEdit = !(metrics?.edit_mode ?? false);
+                setMetrics((prev) => (prev ? { ...prev, edit_mode: nextEdit } : prev));
+                await setDesktopWidgetEditMode(nextEdit);
+                getDesktopWidgetsRuntimeMetrics()
+                  .then(setMetrics)
+                  .catch(() => { });
+              };
               if (isProLocked) {
-                promptProUpgrade();
+                promptProUpgrade(toggleEdit);
                 return;
               }
-              setDesktopWidgetEditMode(!(metrics?.edit_mode ?? false));
+              void toggleEdit();
             }}
             className={`h-9 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 cursor-pointer border ${!isProLocked && metrics?.edit_mode
               ? "border-[#ff9f0a] bg-[#ff9f0a]/20 text-[#ff9f0a]"
@@ -624,9 +669,13 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                     }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-8 h-8 rounded-[9px] bg-[#34c3a0]/15 text-[#34c3a0] flex items-center justify-center shrink-0">
-                      <Layers size={15} />
-                    </div>
+                    {rawMeta ? (
+                      <ActiveWidgetThumb entry={rawMeta} size={slot.size} isId={isId} />
+                    ) : (
+                      <div className="w-8 h-8 rounded-[9px] bg-[#34c3a0]/15 text-[#34c3a0] flex items-center justify-center shrink-0">
+                        <Layers size={15} />
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <div className="text-[13px] font-semibold truncate">
                         {meta?.name ?? active?.widget_type}

@@ -54,8 +54,11 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     };
     for (i, p) in procs.iter().take(max_rows).enumerate() {
         let y = inner.y + 28.0 + i as f32 * row_h;
-        nodes.push(text_node(
-            RectF::new(inner.x, y, inner.w - 118.0, 18.0),
+        if y + 18.0 > inner.y + inner.h {
+            break;
+        }
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x, y, (inner.w - 118.0).max(40.0), 18.0),
             &p.name,
             12.5,
             600,
@@ -63,7 +66,7 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ));
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x + inner.w - 116.0, y, 52.0, 18.0),
             format!("{:.1}%", p.cpu_pct),
             12.0,
@@ -72,7 +75,7 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Right,
             true,
         ));
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x + inner.w - 60.0, y, 60.0, 18.0),
             format!("{:.0} MB", p.ram_mb),
             11.5,
@@ -81,7 +84,7 @@ pub fn build_top_processes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Right,
             true,
         ));
-        if ctx.size == WidgetSize::Large {
+        if ctx.size == WidgetSize::Large && y + 27.0 <= inner.y + inner.h {
             nodes.push(SceneNode::ProgressBar {
                 rect: RectF::new(inner.x, y + 22.0, inner.w, 5.0),
                 progress: (p.cpu_pct / 100.0).clamp(0.02, 1.0),
@@ -170,10 +173,18 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             stroke: Some((border, 0.85)),
             interactive_action: Some((*act).to_string()),
         });
+        let show_status = ch >= 54.0;
+        let icon_y = if show_status {
+            y + ch * 0.13
+        } else {
+            y + (ch * 0.12).max(3.0)
+        };
+        let icon_h = if show_status { 24.0 } else { (ch * 0.44).clamp(16.0, 20.0) };
+        let icon_sz = if show_status { 18.0 } else { 14.5 };
         nodes.push(SceneNode::IconGlyph {
-            rect: RectF::new(x, y + ch * 0.13, cw, 24.0),
+            rect: RectF::new(x, icon_y, cw, icon_h),
             glyph: (*glyph).to_string(),
-            size: 18.0,
+            size: icon_sz,
             color: if *on {
                 ctx.pal.primary
             } else {
@@ -181,61 +192,143 @@ pub fn build_quick_controls(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             },
             interactive_action: Some((*act).to_string()),
         });
+        let lbl_y = if show_status {
+            y + ch * 0.50
+        } else {
+            (y + ch - 16.0).max(icon_y + icon_h - 1.0)
+        };
         nodes.push(crate::widgets::text_node_line(
-            RectF::new(x + 6.0, y + ch * 0.50, cw - 12.0, 16.0),
+            RectF::new(x + 4.0, lbl_y, (cw - 8.0).max(16.0), 15.0),
             *label,
-            11.5,
+            if show_status { 11.5 } else { 10.0 },
             600,
             ctx.pal.primary,
             TextAlign::Center,
             false,
         ));
-        nodes.push(crate::widgets::text_node_line(
-            RectF::new(x + 6.0, y + ch * 0.50 + 15.0, cw - 12.0, 14.0),
-            if *on {
-                if en { "On" } else { "Aktif" }
-            } else {
-                if en { "Off" } else { "Mati" }
-            },
-            10.0,
-            500,
-            if *on {
-                ctx.pal.accent
-            } else {
-                ctx.pal.secondary
-            },
-            TextAlign::Center,
-            false,
-        ));
+        if show_status {
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(x + 6.0, y + ch * 0.50 + 15.0, (cw - 12.0).max(16.0), 14.0),
+                if *on {
+                    if en { "On" } else { "Aktif" }
+                } else if en {
+                    "Off"
+                } else {
+                    "Mati"
+                },
+                10.0,
+                500,
+                if *on {
+                    ctx.pal.accent
+                } else {
+                    ctx.pal.secondary
+                },
+                TextAlign::Center,
+                false,
+            ));
+        }
     }
     nodes
+}
+
+fn srgb_relative_luminance(c: RgbaColor) -> f32 {
+    let lin = |ch: u8| {
+        let v = ch as f32 / 255.0;
+        if v <= 0.03928 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+}
+
+pub fn contrasting_tile_text(tile_bg: RgbaColor) -> RgbaColor {
+    if tile_bg.a >= 0.45 && srgb_relative_luminance(tile_bg) > 0.36 {
+        RgbaColor::new(17, 19, 24, 0.94)
+    } else {
+        RgbaColor::new(255, 255, 255, 0.96)
+    }
+}
+
+pub fn format_storage_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else if b >= 100.0 * MB {
+        format!("{:.0} MB", b / MB)
+    } else if b >= MB {
+        format!("{:.1} MB", b / MB)
+    } else if b >= KB {
+        format!("{:.0} KB", b / KB)
+    } else {
+        "< 1 KB".to_string()
+    }
 }
 
 /// 18. Peta penyimpanan (treemap) on-demand ber-cache (M, L)
 pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let en = is_english(ctx);
     let Some(tm) = &ctx.hub.storage_treemap else {
-        return empty_state_nodes(
-            ctx,
-            if en { "Storage Map" } else { "Peta Penyimpanan" },
-            if en {
-                "Folder scanning runs on demand to keep disk usage minimal."
-            } else {
-                "Pemindaian folder dijalankan sesuai permintaan agar disk tetap hemat."
-            },
-            if en { "Scan Folder" } else { "Pindai Folder" },
+        let inner = ctx.frame.inset(14.0);
+        let mut nodes = vec![
+            text_node(
+                RectF::new(inner.x, inner.y, inner.w, 22.0),
+                if en { "Storage Map" } else { "Peta Penyimpanan" },
+                14.5,
+                600,
+                ctx.pal.primary,
+                TextAlign::Left,
+                false,
+            ),
+            text_node(
+                RectF::new(inner.x, inner.y + 24.0, inner.w, 42.0),
+                if en {
+                    "Pick any folder or drive to map its largest subfolders on demand."
+                } else {
+                    "Pilih folder atau drive mana saja untuk memetakan subfolder terbesarnya."
+                },
+                12.0,
+                400,
+                ctx.pal.secondary,
+                TextAlign::Left,
+                false,
+            ),
+        ];
+        let btn_w = ((inner.w - 8.0) * 0.5).clamp(84.0, 124.0);
+        let btn_y = inner.y + inner.h - 30.0;
+        nodes.extend(action_pill(
+            RectF::new(inner.x, btn_y, btn_w, 28.0),
+            if en { "Pick Folder" } else { "Pilih Folder" },
+            ctx.pal.accent.with_alpha(0.26),
+            ctx.pal.primary,
+            "storage_pick_folder",
+        ));
+        nodes.extend(action_pill(
+            RectF::new(inner.x + btn_w + 8.0, btn_y, btn_w, 28.0),
+            if en { "Scan User" } else { "Pindai User" },
+            ctx.pal.surface_chip,
+            ctx.pal.primary,
             "trigger_storage_scan",
-        );
+        ));
+        return nodes;
     };
     let inner = ctx.frame.inset(14.0);
-    let total_gb = tm.total_scanned_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    let total_label = format_storage_bytes(tm.total_scanned_bytes);
 
-    let mut nodes = vec![text_node(
-        RectF::new(inner.x, inner.y, inner.w - 76.0, 18.0),
+    let scan_w = if tm.scanning { 76.0 } else { 58.0 };
+    let folder_w = 60.0;
+    let controls_w = folder_w + scan_w + 6.0;
+
+    let mut nodes = vec![crate::widgets::text_node_line(
+        RectF::new(inner.x, inner.y, (inner.w - controls_w - 6.0).max(60.0), 20.0),
         if en {
-            format!("Storage Map ({:.1} GB)", total_gb)
+            format!("Storage Map ({})", total_label)
         } else {
-            format!("Peta Penyimpanan ({:.1} GB)", total_gb)
+            format!("Peta Penyimpanan ({})", total_label)
         },
         13.5,
         600,
@@ -244,11 +337,25 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         true,
     )];
     nodes.extend(action_pill(
-        RectF::new(inner.x + inner.w - 72.0, inner.y - 2.0, 72.0, 22.0),
+        RectF::new(
+            inner.x + inner.w - controls_w,
+            inner.y - 2.0,
+            folder_w,
+            22.0,
+        ),
+        "Folder",
+        ctx.pal.surface_chip,
+        ctx.pal.primary,
+        "storage_pick_folder",
+    ));
+    nodes.extend(action_pill(
+        RectF::new(inner.x + inner.w - scan_w, inner.y - 2.0, scan_w, 22.0),
         if tm.scanning {
             if en { "Scanning" } else { "Memindai" }
+        } else if en {
+            "Scan"
         } else {
-            if en { "Scan" } else { "Pindai" }
+            "Pindai"
         },
         ctx.pal.surface_chip,
         ctx.pal.primary,
@@ -256,22 +363,33 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     ));
 
     let palette = if ctx.pal.is_monochrome {
-        [
-            ctx.pal.primary.with_alpha(0.82),
-            ctx.pal.primary.with_alpha(0.66),
-            ctx.pal.primary.with_alpha(0.52),
-            ctx.pal.primary.with_alpha(0.40),
-            ctx.pal.primary.with_alpha(0.30),
-            ctx.pal.primary.with_alpha(0.22),
-        ]
+        if srgb_relative_luminance(ctx.pal.primary) > 0.45 {
+            [
+                RgbaColor::new(252, 253, 255, 0.92),
+                RgbaColor::new(230, 235, 244, 0.88),
+                RgbaColor::new(206, 213, 226, 0.84),
+                RgbaColor::new(182, 191, 208, 0.80),
+                RgbaColor::new(158, 169, 189, 0.76),
+                RgbaColor::new(136, 148, 170, 0.74),
+            ]
+        } else {
+            [
+                RgbaColor::new(24, 27, 35, 0.90),
+                RgbaColor::new(38, 42, 54, 0.86),
+                RgbaColor::new(52, 57, 72, 0.84),
+                RgbaColor::new(66, 72, 90, 0.80),
+                RgbaColor::new(82, 89, 108, 0.78),
+                RgbaColor::new(98, 106, 126, 0.76),
+            ]
+        }
     } else {
         [
-            ctx.pal.accent.with_alpha(0.75),
-            ctx.pal.positive.with_alpha(0.75),
-            RgbaColor::new(0xEC, 0x48, 0x99, 0.72),
-            ctx.pal.warning.with_alpha(0.75),
-            RgbaColor::new(0x8B, 0x5C, 0xF6, 0.72),
-            ctx.pal.danger.with_alpha(0.72),
+            ctx.pal.accent.with_alpha(0.84),
+            ctx.pal.positive.with_alpha(0.84),
+            RgbaColor::new(0xEC, 0x48, 0x99, 0.82),
+            ctx.pal.warning.with_alpha(0.86),
+            RgbaColor::new(0x8B, 0x5C, 0xF6, 0.82),
+            ctx.pal.danger.with_alpha(0.82),
         ]
     };
     let tiles: Vec<(String, f32, RgbaColor)> = tm
@@ -280,35 +398,106 @@ pub fn build_storage_treemap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         .take(6)
         .enumerate()
         .map(|(i, it)| {
-            let gb = it.bytes as f64 / (1024.0 * 1024.0 * 1024.0);
             (
-                format!("{}\n{:.1} GB", it.name, gb),
+                format!("{}\n{}", it.name, format_storage_bytes(it.bytes)),
                 it.share_pct.max(2.0),
                 palette[i % palette.len()],
             )
         })
         .collect();
 
-    let treemap_h = if ctx.size == WidgetSize::Large {
-        inner.h - 104.0
+    let is_large = ctx.size == WidgetSize::Large;
+    let treemap_h = if is_large {
+        (inner.h - 134.0).max(96.0)
     } else {
-        inner.h - 46.0
+        (inner.h - 48.0).max(58.0)
     };
-    nodes.push(SceneNode::Treemap {
-        rect: RectF::new(inner.x, inner.y + 26.0, inner.w, treemap_h.max(60.0)),
-        items: tiles,
-        text_color: RgbaColor::new(255, 255, 255, 0.95),
-    });
+    if tiles.is_empty() {
+        nodes.push(text_node(
+            RectF::new(inner.x, inner.y + 38.0, inner.w, 34.0),
+            if tm.scanning {
+                if en {
+                    "Scanning folder..."
+                } else {
+                    "Memindai folder..."
+                }
+            } else if en {
+                "No readable files found in this folder."
+            } else {
+                "Tidak ada berkas terbaca di folder ini."
+            },
+            12.0,
+            500,
+            ctx.pal.secondary,
+            TextAlign::Left,
+            false,
+        ));
+    } else {
+        nodes.push(SceneNode::Treemap {
+            rect: RectF::new(inner.x, inner.y + 26.0, inner.w, treemap_h),
+            items: tiles,
+            text_color: contrasting_tile_text(palette[0]),
+        });
+    }
 
-    nodes.push(text_node(
-        RectF::new(inner.x, inner.y + inner.h - 15.0, inner.w, 15.0),
-        format!("Folder: {}", tm.root_path),
-        10.5,
-        400,
-        ctx.pal.secondary,
-        TextAlign::Left,
-        false,
-    ));
+    if is_large && !tm.items.is_empty() {
+        let list_y = inner.y + 34.0 + treemap_h;
+        for (i, it) in tm.items.iter().take(4).enumerate() {
+            let y = list_y + i as f32 * 21.0;
+            if y + 18.0 > inner.y + inner.h - 18.0 {
+                break;
+            }
+            let dot_col = palette[i % palette.len()];
+            nodes.push(SceneNode::RoundedRect {
+                rect: RectF::new(inner.x, y + 4.0, 8.0, 8.0),
+                radius: 3.0,
+                smoothing: 0.4,
+                fill: Some(dot_col),
+                stroke: None,
+                interactive_action: None,
+            });
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x + 14.0, y, (inner.w - 118.0).max(60.0), 16.0),
+                &it.name,
+                11.5,
+                600,
+                ctx.pal.primary,
+                TextAlign::Left,
+                false,
+            ));
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x + inner.w - 102.0, y, 62.0, 16.0),
+                format_storage_bytes(it.bytes),
+                11.0,
+                500,
+                ctx.pal.secondary,
+                TextAlign::Right,
+                true,
+            ));
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x + inner.w - 38.0, y, 38.0, 16.0),
+                format!("{:.0}%", it.share_pct),
+                11.0,
+                600,
+                ctx.pal.primary,
+                TextAlign::Right,
+                true,
+            ));
+        }
+    }
+
+    nodes.push(SceneNode::Text {
+        rect: RectF::new(inner.x, inner.y + inner.h - 16.0, inner.w, 16.0),
+        content: format!("Folder: {}", tm.root_path),
+        font_size: 10.5,
+        font_weight: 500,
+        color: ctx.pal.secondary,
+        align: TextAlign::Left,
+        tabular_nums: false,
+        tight_kerning: false,
+        max_lines: 1,
+        interactive_action: Some("storage_pick_folder".to_string()),
+    });
     nodes
 }
 
@@ -338,7 +527,8 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     } else {
         8 * 3600
     };
-    let ratio = (st.today_secs as f32 / limit as f32).clamp(0.0, 1.0);
+    let raw_ratio = st.today_secs as f32 / limit as f32;
+    let ratio = raw_ratio.clamp(0.0, 1.0);
 
     let mut nodes = vec![
         SceneNode::IconGlyph {
@@ -405,13 +595,13 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 format!(
                     "Daily limit {} ({:.0}%)",
                     format_duration_hm(limit, en),
-                    ratio * 100.0
+                    raw_ratio * 100.0
                 )
             } else {
                 format!(
                     "Batas harian {} ({:.0}%)",
                     format_duration_hm(limit, en),
-                    ratio * 100.0
+                    raw_ratio * 100.0
                 )
             },
             11.0,
@@ -438,7 +628,11 @@ pub fn build_screen_time(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             false,
         ));
         y += 22.0;
+        let max_y = inner.y + inner.h;
         for p in ctx.hub.top_processes.iter().take(4) {
+            if y + 25.0 > max_y {
+                break;
+            }
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(inner.x, y, inner.w - 76.0, 16.0),
                 &p.name,

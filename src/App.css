@@ -91,6 +91,13 @@ html.standby-window #root {
   animation: standbyWidgetSlideDown 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+html.gili-deep-eco-paused *,
+html.gili-deep-eco-paused *::before,
+html.gili-deep-eco-paused *::after {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-standby-view-enter,
   .animate-standby-colon,

@@ -23,6 +23,8 @@ pub struct PrayerDaySnapshot {
     pub next_name: String,
     pub next_time: String,
     pub countdown_label: String,
+    #[serde(default)]
+    pub countdown_mins: i32,
     pub ramadan_mode: bool,
     pub sahur_time: String,
     pub buka_time: String,
@@ -195,15 +197,22 @@ pub fn build_prayer_snapshot(
         ("Isya", &times.isya),
     ];
 
+    let subuh_m = hhmm_to_minutes(&times.subuh);
     let mut next_name = "Subuh".to_string();
     let mut next_time = times.subuh.clone();
-    let mut diff_mins = (hhmm_to_minutes(&times.subuh) + 24 * 60) - now_m;
+    let mut diff_mins = (subuh_m + 24 * 60) - now_m;
 
-    for (name, t) in schedule {
-        let m = hhmm_to_minutes(t);
+    // Handle Maghrib/Isya wrapping past 24:00 (e.g. high-latitude summer or western city with local TZ)
+    for (idx, (name, t)) in schedule.iter().enumerate() {
+        let raw_m = hhmm_to_minutes(t);
+        let m = if idx >= 3 && raw_m < subuh_m {
+            raw_m + 24 * 60
+        } else {
+            raw_m
+        };
         if m > now_m {
-            next_name = name.to_string();
-            next_time = t.clone();
+            next_name = (*name).to_string();
+            next_time = (*t).clone();
             diff_mins = m - now_m;
             break;
         }
@@ -228,6 +237,7 @@ pub fn build_prayer_snapshot(
         next_name,
         next_time,
         countdown_label,
+        countdown_mins: diff_mins,
         ramadan_mode,
         method_label: "Kemenag RI (20 / 18 deg)".to_string(),
     }
@@ -251,7 +261,8 @@ const HIJRI_MONTHS_ID: [&str; 12] = [
 /// Converts Gregorian date to tabular Hijri date with user +/-1 day adjustment.
 pub fn gregorian_to_hijri(year: i32, month: i32, day: i32, offset_days: i32) -> (i32, i32, i32) {
     let clamped_offset = offset_days.clamp(-1, 1);
-    let jd = julian_day(year, month, day).floor() as i64 + clamped_offset as i64;
+    // julian_day() returns JD at 00:00 UTC (.5), so add 0.5 to get the exact integer JDN required by the Kuwaiti algorithm
+    let jd = (julian_day(year, month, day) + 0.5).floor() as i64 + clamped_offset as i64;
     let l = jd - 1948440 + 10632;
     let n = (l - 1) / 10631;
     let l = l - 10631 * n + 354;
@@ -290,11 +301,7 @@ pub fn build_hijri_holiday_snapshot(
             list.truncate(4);
             (true, cal.source_reference, list)
         }
-        _ => (
-            false,
-            "Data libur SKB 3 Menteri belum tersedia. Impor berkas resmi di Pengaturan.".to_string(),
-            Vec::new(),
-        ),
+        _ => (false, String::new(), Vec::new()),
     };
 
     HijriHolidaySnapshot {

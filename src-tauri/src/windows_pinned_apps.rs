@@ -1392,6 +1392,9 @@ pub fn start_pinned_apps_watcher(app_handle: AppHandle) {
 
         loop {
             std::thread::sleep(Duration::from_millis(1500));
+            if crate::standby_window::is_deep_eco_active() {
+                continue;
+            }
 
             if !has_pinned_apps_source_changed(&mut last_source_state) {
                 continue;

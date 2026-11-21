@@ -15,6 +15,7 @@ export interface StandbyConfig {
   idle_minutes: number;
   exit_on_mouse_move: boolean;
   pause_during_fullscreen: boolean;
+  pause_during_media_video: boolean;
   always_on_top: boolean;
   active_screen: StandbyScreen;
   left_widget: StandbyLeftWidget;
@@ -25,6 +26,9 @@ export interface StandbyConfig {
   show_seconds: boolean;
   night_mode: StandbyNightMode;
   burn_in_protection: boolean;
+  screensaver_eco_enabled: boolean;
+  screensaver_eco_minutes: number;
+  screensaver_dim_enabled: boolean;
 }
 
 export interface StandbyLaunchContext {
@@ -40,6 +44,7 @@ export const DEFAULT_STANDBY_CONFIG: StandbyConfig = {
   idle_minutes: 5,
   exit_on_mouse_move: true,
   pause_during_fullscreen: true,
+  pause_during_media_video: true,
   always_on_top: true,
   active_screen: "widgets",
   left_widget: "clock_analog",
@@ -50,6 +55,9 @@ export const DEFAULT_STANDBY_CONFIG: StandbyConfig = {
   show_seconds: true,
   night_mode: "auto",
   burn_in_protection: true,
+  screensaver_eco_enabled: true,
+  screensaver_eco_minutes: 5,
+  screensaver_dim_enabled: true,
 };
 
 export const STANDBY_ACCENTS = [
@@ -62,6 +70,7 @@ export const STANDBY_ACCENTS = [
 ] as const;
 
 export const STANDBY_CONFIG_EVENT = "standby:config-updated";
+export const STANDBY_DEEP_ECO_EVENT = "standby:deep-eco-changed";
 
 export async function getStandbyConfig(): Promise<StandbyConfig> {
   try {
@@ -119,6 +128,35 @@ export async function isStandbyOpen(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function isStandbyDeepEcoActive(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("is_standby_deep_eco_active");
+  } catch {
+    return false;
+  }
+}
+
+export function subscribeStandbyDeepEco(handler: (active: boolean) => void): () => void {
+  let disposed = false;
+  let unlistenTauri: (() => void) | null = null;
+
+  listen<boolean>(STANDBY_DEEP_ECO_EVENT, (event) => {
+    if (!disposed) {
+      handler(Boolean(event.payload));
+    }
+  })
+    .then((fn) => {
+      if (disposed) fn();
+      else unlistenTauri = fn;
+    })
+    .catch(() => {});
+
+  return () => {
+    disposed = true;
+    if (unlistenTauri) unlistenTauri();
+  };
 }
 
 export function subscribeStandbyConfig(handler: (config: StandbyConfig) => void): () => void {

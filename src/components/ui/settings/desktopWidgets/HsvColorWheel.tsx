@@ -6,6 +6,7 @@ interface HsvColorWheelProps {
   isLightMode: boolean;
   isId?: boolean;
   onChange: (next: RgbaColor) => void;
+  onCommit?: (finalColor: RgbaColor) => void;
 }
 
 function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
@@ -52,9 +53,12 @@ export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
   isLightMode,
   isId = true,
   onChange,
+  onCommit,
 }) => {
   const [h, s, v] = rgbToHsv(color.r, color.g, color.b);
   const svRef = useRef<HTMLDivElement>(null);
+  const latestRef = useRef<RgbaColor>(color);
+  latestRef.current = color;
 
   const pickSv = useCallback(
     (clientX: number, clientY: number) => {
@@ -64,7 +68,9 @@ export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
       const ns = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
       const nv = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
       const [r, g, b] = hsvToRgb(h, ns, nv);
-      onChange({ r, g, b, a: color.a });
+      const next = { r, g, b, a: color.a };
+      latestRef.current = next;
+      onChange(next);
     },
     [h, color.a, onChange]
   );
@@ -79,6 +85,10 @@ export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
     pickSv(e.clientX, e.clientY);
   };
 
+  const handleSvPointerUp = () => {
+    onCommit?.(latestRef.current);
+  };
+
   const [hr, hg, hb] = hsvToRgb(h, 1, 1);
   const hex = rgbaToHex(color);
 
@@ -89,6 +99,7 @@ export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
         ref={svRef}
         onPointerDown={handleSvPointerDown}
         onPointerMove={handleSvPointerMove}
+        onPointerUp={handleSvPointerUp}
         className="relative h-32 w-full rounded-[14px] overflow-hidden cursor-crosshair select-none border border-white/15"
         style={{
           backgroundColor: `rgb(${hr}, ${hg}, ${hb})`,
@@ -119,8 +130,12 @@ export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
           value={Math.round(h)}
           onChange={(e) => {
             const [r, g, b] = hsvToRgb(Number(e.target.value), s, v);
-            onChange({ r, g, b, a: color.a });
+            const next = { r, g, b, a: color.a };
+            latestRef.current = next;
+            onChange(next);
           }}
+          onPointerUp={() => onCommit?.(latestRef.current)}
+          onKeyUp={() => onCommit?.(latestRef.current)}
           className="w-full h-3 rounded-full appearance-none cursor-pointer"
           style={{
             background:
@@ -158,12 +173,18 @@ export const HsvColorWheel: React.FC<HsvColorWheelProps> = ({
             key={hex}
             onBlur={(e) => {
               const parsed = hexToRgba(e.target.value, color.a);
-              if (parsed) onChange(parsed);
+              if (parsed) {
+                onChange(parsed);
+                onCommit?.(parsed);
+              }
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 const parsed = hexToRgba((e.target as HTMLInputElement).value, color.a);
-                if (parsed) onChange(parsed);
+                if (parsed) {
+                  onChange(parsed);
+                  onCommit?.(parsed);
+                }
               }
             }}
             className={`w-[86px] h-8 px-2.5 rounded-[10px] border text-[12px] font-mono outline-none focus:border-[#0a84ff] ${

@@ -575,6 +575,31 @@ fn trigger_background_scan() {
     });
 }
 
+/// Passive Wi-Fi radio state check for background pollers (never triggers an active WlanScan).
+pub fn is_wifi_radio_enabled_passive() -> Option<bool> {
+    #[cfg(windows)]
+    {
+        use windows::Devices::Radios::RadioKind;
+        if let Some(native) = query_native_wifi_snapshot() {
+            if !native.connected_ssid.is_empty() {
+                return Some(true);
+            }
+            if let Some(phy_on) = native.any_radio_on {
+                return Some(phy_on);
+            }
+            if let Some(state) = get_radio_state(RadioKind::WiFi) {
+                return Some(state);
+            }
+            return Some(native.has_adapter);
+        }
+        return get_radio_state(RadioKind::WiFi);
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 #[tauri::command]
 pub async fn get_wifi_status() -> Result<WifiStatus, String> {
     tauri::async_runtime::spawn_blocking(|| {

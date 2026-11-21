@@ -53,6 +53,9 @@ fn push_month_grid_nodes(
     let header_fs = (cell_scale * 0.56).clamp(9.5, 14.5);
     let day_fs = (cell_scale * 0.58).clamp(9.5, 15.0);
 
+    let sunday_red = crate::config::RgbaColor::new(0xF8, 0x71, 0x71, 0.94);
+    let sunday_today_red = crate::config::RgbaColor::new(0xFF, 0x5A, 0x5F, 1.0);
+
     let labels = if is_english(ctx) {
         ["S", "M", "T", "W", "T", "F", "S"]
     } else {
@@ -66,7 +69,11 @@ fn push_month_grid_nodes(
             *lbl,
             header_fs,
             700,
-            ctx.pal.secondary,
+            if i == 0 {
+                sunday_red
+            } else {
+                ctx.pal.secondary
+            },
             TextAlign::Center,
             false,
         ));
@@ -84,14 +91,24 @@ fn push_month_grid_nodes(
         let cy = grid_rect.y + row as f32 * row_h;
 
         let is_today = d == today;
+        let is_sunday = col == 0;
         let cur_fs = if is_today { day_fs + 1.4 } else { day_fs };
         let text_y = cy + (row_h - cur_fs * 1.25) * 0.46;
+        let day_color = if is_today && is_sunday {
+            sunday_today_red
+        } else if is_today {
+            ctx.pal.accent
+        } else if is_sunday {
+            sunday_red
+        } else {
+            dim_day
+        };
         nodes.push(text_node(
             RectF::new(cx, text_y, col_w, row_h),
             format!("{}", d),
             cur_fs,
-            if is_today { 900 } else { 400 },
-            if is_today { ctx.pal.accent } else { dim_day },
+            if is_today { 900 } else if is_sunday { 600 } else { 400 },
+            day_color,
             TextAlign::Center,
             true,
         ));
@@ -213,6 +230,8 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         .and_then(|v| v.as_str())
         .unwrap_or("bulan_minimal");
     let events = merged_calendar_agenda(ctx, year, month, day, en_lang);
+    let is_sunday_today = dow == 0;
+    let sunday_red = crate::config::RgbaColor::new(0xF8, 0x71, 0x71, 1.0);
     let mut nodes = Vec::new();
 
     match style {
@@ -225,7 +244,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     localized_day_name(dow, en).to_uppercase(),
                     10.5,
                     600,
-                    ctx.pal.secondary,
+                    if is_sunday_today {
+                        sunday_red
+                    } else {
+                        ctx.pal.secondary
+                    },
                     TextAlign::Left,
                     false,
                 ));
@@ -234,7 +257,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     format!("{}", day),
                     38.0,
                     700,
-                    ctx.pal.primary,
+                    if is_sunday_today {
+                        sunday_red
+                    } else {
+                        ctx.pal.primary
+                    },
                     TextAlign::Left,
                     true,
                 ));
@@ -305,7 +332,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 localized_day_name(dow, en).to_uppercase(),
                 12.0,
                 600,
-                ctx.pal.secondary,
+                if is_sunday_today {
+                    sunday_red
+                } else {
+                    ctx.pal.secondary
+                },
                 TextAlign::Center,
                 false,
             ));
@@ -314,7 +345,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 format!("{}", day),
                 big_num_fs,
                 700,
-                ctx.pal.primary,
+                if is_sunday_today {
+                    sunday_red
+                } else {
+                    ctx.pal.primary
+                },
                 TextAlign::Center,
                 true,
             ));
@@ -330,9 +365,14 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         }
         _ => {
             let en = is_english(ctx);
+            let header_w = if ctx.size == WidgetSize::Small {
+                inner.w
+            } else {
+                inner.w * 0.40
+            };
             // "tanggal_agenda": Tanggal & daftar agenda dari modul Kalender Gili
-            nodes.push(text_node(
-                RectF::new(inner.x, inner.y, inner.w, 16.0),
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(inner.x, inner.y, header_w, 16.0),
                 format!(
                     "{}, {}",
                     localized_day_name(dow, en).to_uppercase(),
@@ -340,7 +380,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 ),
                 11.0,
                 600,
-                ctx.pal.secondary,
+                if is_sunday_today {
+                    sunday_red
+                } else {
+                    ctx.pal.secondary
+                },
                 TextAlign::Left,
                 false,
             ));
@@ -349,7 +393,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 format!("{}", day),
                 if inner.h < 120.0 { 32.0 } else { 38.0 },
                 700,
-                ctx.pal.primary,
+                if is_sunday_today {
+                    sunday_red
+                } else {
+                    ctx.pal.primary
+                },
                 TextAlign::Left,
                 true,
             ));
@@ -467,10 +515,11 @@ pub fn build_calendar_agenda(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     }
 
                     if ctx.size == WidgetSize::Large {
+                        let max_left_w = (right_x - inner.x - 10.0).max(96.0);
                         let grid_rect = RectF::new(
                             inner.x,
                             inner.y + 88.0,
-                            (inner.w * 0.44).max(120.0),
+                            (inner.w * 0.39).min(max_left_w),
                             (inner.h - 90.0).max(96.0),
                         );
                         push_month_grid_nodes(ctx, &mut nodes, grid_rect, year, month, day, false);
@@ -551,8 +600,8 @@ pub fn build_class_schedule(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Center,
             true,
         ));
-        nodes.push(text_node(
-            RectF::new(inner.x + 64.0, y, inner.w - 64.0, 16.0),
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x + 64.0, y, (inner.w - 64.0).max(40.0), 16.0),
             &item.subject,
             13.0,
             600,
@@ -564,8 +613,8 @@ pub fn build_class_schedule(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             .day
             .map(|d| format!("{} . ", localized_day_name(d as u32, en)))
             .unwrap_or_default();
-        nodes.push(text_node(
-            RectF::new(inner.x + 64.0, y + 16.0, inner.w - 64.0, 14.0),
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x + 64.0, y + 16.0, (inner.w - 64.0).max(40.0), 14.0),
             format!("{}{}", day_tag, item.room),
             11.0,
             400,
@@ -600,16 +649,21 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let rows = 7;
     let total_cells = cols * rows;
 
-    // Build levels from real recorded daily history (never fabricated counts)
+    // Map real recorded calendar dates onto the last `total_cells` days ending today so missed days stay blank
+    let (ty, tm, td, _, _, _, _) = crate::widgets::local_datetime_parts();
+    let today_serial = crate::providers::ical_provider::days_from_civil(ty, tm, td);
     let mut levels = vec![0u8; total_cells];
-    let mut sorted_vals: Vec<u32> = f.habit_history.values().copied().collect();
-    if sorted_vals.len() > total_cells {
-        sorted_vals = sorted_vals[sorted_vals.len() - total_cells..].to_vec();
+    for idx in 0..total_cells {
+        let days_ago = (total_cells - 1 - idx) as i64;
+        let (cy, cm, cd) = crate::providers::ical_provider::civil_from_days(today_serial - days_ago);
+        let key = format!("{:04}-{:02}-{:02}", cy, cm, cd);
+        if let Some(&val) = f.habit_history.get(&key) {
+            levels[idx] = val.min(4) as u8;
+        }
     }
-    let start_offset = total_cells.saturating_sub(sorted_vals.len());
-    for (idx, val) in sorted_vals.iter().enumerate() {
-        levels[start_offset + idx] = (*val).min(4) as u8;
-    }
+
+    let show_start_cta = f.habit_history.is_empty() && f.habit_count == 0;
+    let bottom_reserve = if show_start_cta { 56.0 } else { 46.0 };
 
     let mut nodes = vec![
         text_node(
@@ -635,7 +689,12 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             true,
         ),
         SceneNode::HeatmapGrid {
-            rect: RectF::new(inner.x, inner.y + 28.0, inner.w, (inner.h - 46.0).max(60.0)),
+            rect: RectF::new(
+                inner.x,
+                inner.y + 28.0,
+                inner.w,
+                (inner.h - bottom_reserve).max(48.0),
+            ),
             cols,
             rows,
             levels,
@@ -643,7 +702,16 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             accent_color: ctx.pal.positive,
         },
         text_node(
-            RectF::new(inner.x, inner.y + inner.h - 15.0, inner.w, 15.0),
+            RectF::new(
+                inner.x,
+                inner.y + inner.h - 16.0,
+                if show_start_cta {
+                    (inner.w - 98.0).max(60.0)
+                } else {
+                    inner.w
+                },
+                16.0,
+            ),
             if en {
                 format!("{} days recorded in history", f.habit_history.len())
             } else {
@@ -657,7 +725,7 @@ pub fn build_habit_heatmap(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         ),
     ];
 
-    if f.habit_history.is_empty() && f.habit_count == 0 {
+    if show_start_cta {
         nodes.extend(action_pill(
             RectF::new(
                 inner.x + inner.w - 92.0,
@@ -955,7 +1023,7 @@ pub fn build_now_playing(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let art_radius = 14.0;
     let ctrl_reserved = if ctx.size == WidgetSize::Small { 28.0 } else { 86.0 };
     let text_x = inner.x + art_sz + 11.0;
-    let text_w = (inner.x + inner.w - text_x - ctrl_reserved).max(40.0);
+    let text_w = (inner.x + inner.w - text_x - ctrl_reserved).max(24.0);
 
     let mut nodes = vec![SceneNode::RoundedRect {
         rect: art_rect,
@@ -1236,6 +1304,11 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         );
     }
     let inner = ctx.frame.inset(16.0);
+    let left_col_w = if ctx.size == WidgetSize::Small {
+        inner.w
+    } else {
+        100.0
+    };
     let mut nodes = vec![
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 30.0, 16.0),
@@ -1253,7 +1326,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             accent_color: weather_icon_accent(ctx, w.current_code),
         },
         crate::widgets::text_node_line(
-            RectF::new(inner.x, inner.y + 15.0, 108.0, 48.0),
+            RectF::new(inner.x, inner.y + 15.0, left_col_w, 48.0),
             format!("{:.0}°", w.current_temp_c),
             42.0,
             300,
@@ -1262,7 +1335,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             true,
         ),
         crate::widgets::text_node_line(
-            RectF::new(inner.x, inner.y + 62.0, 112.0, 16.0),
+            RectF::new(inner.x, inner.y + 62.0, left_col_w, 16.0),
             weather_code_label(w.current_code, en),
             12.0,
             500,
@@ -1275,7 +1348,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     if let Some(today) = w.daily.first() {
         if inner.y + 78.0 + 14.0 <= inner.y + inner.h {
             nodes.push(crate::widgets::text_node_line(
-                RectF::new(inner.x, inner.y + 78.0, 112.0, 14.0),
+                RectF::new(inner.x, inner.y + 78.0, left_col_w, 14.0),
                 if en {
                     format!("H:{:.0}° L:{:.0}°", today.max_c, today.min_c)
                 } else {
@@ -1292,8 +1365,8 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     if ctx.size != WidgetSize::Small && !w.hourly.is_empty() {
         let cols = w.hourly.len().min(5);
-        let start_x = inner.x + 108.0;
-        let col_w = (inner.w - 108.0) / cols as f32;
+        let start_x = inner.x + 106.0;
+        let col_w = (inner.w - 106.0).max(40.0) / cols as f32;
         for (i, pt) in w.hourly.iter().take(cols).enumerate() {
             let x = start_x + i as f32 * col_w;
             nodes.push(crate::widgets::text_node_line(
@@ -1548,14 +1621,19 @@ pub fn build_drop_zone(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ),
-        text_node(
-            RectF::new(inner.x + inner.w * 0.7, inner.y, inner.w * 0.3, 20.0),
+        crate::widgets::text_node_line(
+            RectF::new(
+                inner.x + inner.w * 0.54,
+                inner.y,
+                inner.w * 0.46,
+                20.0,
+            ),
             if en {
                 format!("{} files", files.len())
             } else {
                 format!("{} berkas", files.len())
             },
-            12.0,
+            11.5,
             500,
             ctx.pal.secondary,
             TextAlign::Right,
@@ -1565,6 +1643,9 @@ pub fn build_drop_zone(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     for (i, f) in files.iter().take(3).enumerate() {
         let y = inner.y + 30.0 + i as f32 * 30.0;
+        if y + 24.0 > inner.y + inner.h {
+            break;
+        }
         nodes.push(SceneNode::RoundedRect {
             rect: RectF::new(inner.x, y, inner.w, 24.0),
             radius: 8.0,
@@ -1573,8 +1654,8 @@ pub fn build_drop_zone(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             stroke: None,
             interactive_action: Some(format!("open_shelf_file:{}", f.id)),
         });
-        nodes.push(text_node(
-            RectF::new(inner.x + 8.0, y + 4.0, inner.w - 64.0, 16.0),
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x + 8.0, y + 4.0, (inner.w - 64.0).max(36.0), 16.0),
             &f.name,
             12.0,
             500,
@@ -1582,7 +1663,7 @@ pub fn build_drop_zone(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ));
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x + inner.w - 56.0, y + 4.0, 48.0, 16.0),
             &f.size_formatted,
             10.5,

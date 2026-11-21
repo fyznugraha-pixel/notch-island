@@ -634,7 +634,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
   const collapseTimerRef = useRef<number | null>(null);
   const isCursorInsideNotchRef = useRef(false);
   const isShortcutPinnedRef = useRef(false);
+  const isSettingsPreviewPinnedRef = useRef(false);
   const shortcutPinnedTimerRef = useRef<number | null>(null);
+  const widgetOpenGraceUntilRef = useRef<number>(0);
+  const openQuickNoteFromWidgetRef = useRef<() => void>(() => { });
   const isClosingRef = useRef(false);
   const closeGraceUntilRef = useRef<number>(0);
   const finishClosingTimerRef = useRef<number | null>(null);
@@ -2853,6 +2856,22 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     }
   }, [closeNonQuickPanels]);
 
+  openQuickNoteFromWidgetRef.current = () => {
+    finishClosing();
+    cancelCollapseTimer();
+    setIsHidden(false);
+    isClosingRef.current = false;
+    closeNonQuickPanels();
+    setIsQuickTodoOpen(false);
+    setIsQuickTodoSaved(false);
+    setIsQuickAiChatOpen(false);
+    setIsQuickAiChatExpanded(false);
+    setIsQuickNoteSaved(false);
+    setIsQuickNoteOpen(true);
+    widgetOpenGraceUntilRef.current = Date.now() + 260;
+    invoke("focus_notch_window").catch(() => { });
+  };
+
   const handleShortcutOpenMedia = useCallback(() => {
     setIsHidden(false);
     goToTabRef.current("media_expanded", 0);
@@ -3051,21 +3070,25 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const initialTimer = window.setTimeout(triggerSync, 2200);
     const pollInterval = window.setInterval(triggerSync, 15000);
     window.addEventListener("storage", triggerSync);
-    window.addEventListener("island_todo_updated", triggerSync);
-    window.addEventListener("island_shelf_updated", triggerSync);
+    window.addEventListener("gili_todos_updated", triggerSync);
+    window.addEventListener("gili_shelf_updated", triggerSync);
+    window.addEventListener("gili_quote_updated", triggerSync);
     window.addEventListener("gili_widget_mirror_sync", triggerSync);
     window.addEventListener("island_language_changed", triggerSync);
+    window.addEventListener("gili_notes_updated", triggerSync);
     return () => {
       if (timer !== null) window.clearTimeout(timer);
       window.clearTimeout(initialTimer);
       window.clearInterval(pollInterval);
       window.removeEventListener("storage", triggerSync);
-      window.removeEventListener("island_todo_updated", triggerSync);
-      window.removeEventListener("island_shelf_updated", triggerSync);
+      window.removeEventListener("gili_todos_updated", triggerSync);
+      window.removeEventListener("gili_shelf_updated", triggerSync);
+      window.removeEventListener("gili_quote_updated", triggerSync);
       window.removeEventListener("gili_widget_mirror_sync", triggerSync);
       window.removeEventListener("island_language_changed", triggerSync);
+      window.removeEventListener("gili_notes_updated", triggerSync);
     };
-  }, [isSecondaryWindow, todoItems]);
+  }, [isSecondaryWindow]);
 
   useEffect(() => {
     if (isSecondaryWindow) return;
@@ -3447,7 +3470,20 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       : undefined;
 
     const unlistenClickOutside = listenWindow("click-outside", () => {
-      if (isSwitchingTabRef.current || isShelfDraggingRef.current || isShortcutPinnedRef.current || currentNotifRef.current) return;
+      if (
+        isSwitchingTabRef.current ||
+        isShelfDraggingRef.current ||
+        isSettingsPreviewPinnedRef.current ||
+        currentNotifRef.current
+      ) {
+        return;
+      }
+      if (Date.now() < widgetOpenGraceUntilRef.current) return;
+      isShortcutPinnedRef.current = false;
+      if (shortcutPinnedTimerRef.current) {
+        clearTimeout(shortcutPinnedTimerRef.current);
+        shortcutPinnedTimerRef.current = null;
+      }
       isCursorInsideNotchRef.current = false;
       handleCloseImmediate();
     });
@@ -4499,6 +4535,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         window.dispatchEvent(new CustomEvent("island_trigger_onboarding"));
       } else if (act === "close_preview_tab" || act === "close_tab") {
         isShortcutPinnedRef.current = false;
+        isSettingsPreviewPinnedRef.current = false;
         if (shortcutPinnedTimerRef.current) {
           clearTimeout(shortcutPinnedTimerRef.current);
           shortcutPinnedTimerRef.current = null;
@@ -4510,10 +4547,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           setIsHidden(false);
           openLastOrPreferredTabRef.current(undefined, { bypassCloseGrace: true });
           isShortcutPinnedRef.current = true;
+          isSettingsPreviewPinnedRef.current = true;
           if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
           shortcutPinnedTimerRef.current = window.setTimeout(() => {
             if (!isCursorInsideNotchRef.current && isShortcutPinnedRef.current) {
               isShortcutPinnedRef.current = false;
+              isSettingsPreviewPinnedRef.current = false;
               handleCloseImmediate();
             }
           }, 45000);
@@ -4526,6 +4565,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
 
         if (currentTabRef.current === targetTab && isExpandedPanelRef.current) {
           isShortcutPinnedRef.current = false;
+          isSettingsPreviewPinnedRef.current = false;
           if (shortcutPinnedTimerRef.current) {
             clearTimeout(shortcutPinnedTimerRef.current);
             shortcutPinnedTimerRef.current = null;
@@ -4539,10 +4579,12 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         currentTabRef.current = null;
         goToTabRef.current(targetTab, 0);
         isShortcutPinnedRef.current = true;
+        isSettingsPreviewPinnedRef.current = true;
         if (shortcutPinnedTimerRef.current) clearTimeout(shortcutPinnedTimerRef.current);
         shortcutPinnedTimerRef.current = window.setTimeout(() => {
           if (!isCursorInsideNotchRef.current && isShortcutPinnedRef.current) {
             isShortcutPinnedRef.current = false;
+            isSettingsPreviewPinnedRef.current = false;
             handleCloseImmediate();
           }
         }, 45000);
@@ -4563,9 +4605,11 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     const openTabFromDesktopWidget = (tab: ExpandedTab) => {
       finishClosing();
       cancelCollapseTimer();
+      isSettingsPreviewPinnedRef.current = false;
       setIsHidden(false);
       isClosingRef.current = false;
       currentTabRef.current = null;
+      widgetOpenGraceUntilRef.current = Date.now() + 260;
       goToTabRef.current(tab, 0);
       invoke("focus_notch_window").catch(() => { });
       isShortcutPinnedRef.current = true;
@@ -4585,6 +4629,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         const wtype = event.payload?.widget_type || "";
         const act = event.payload?.action_id || "";
 
+        if (act === "open_quick_note") {
+          openQuickNoteFromWidgetRef.current();
+          return;
+        }
         if (act === "open_ai_settings" || wtype === "ai_quick_ask") {
           openTabFromDesktopWidget("ai_chat");
           return;
@@ -4603,6 +4651,10 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
         }
         if (wtype === "prayer_times") {
           openTabFromDesktopWidget("prayer_reminder");
+          return;
+        }
+        if (wtype === "sticky_notes") {
+          openTabFromDesktopWidget("mini_note");
           return;
         }
         if (wtype === "system_performance" || wtype === "top_processes") {
@@ -4628,6 +4680,17 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
           nonce: aiChatHandoffNonceRef.current,
         });
         openTabFromDesktopWidget("ai_chat");
+      }
+    );
+
+    const unlistenWidgetMiniNote = listenWindow<{ text?: string }>(
+      "desktop-widget-mini-note-add",
+      (event) => {
+        if (isSecondaryWindow) return;
+        const text = (event.payload?.text || "").trim();
+        if (!text) return;
+        createQuickNoteItem(text, "blue", false);
+        window.dispatchEvent(new Event("gili_widget_mirror_sync"));
       }
     );
 
@@ -4681,6 +4744,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       unlistenReturnToNotch.then((f) => f());
       unlistenWidgetDeepLink.then((f) => f());
       unlistenWidgetAiAsk.then((f) => f());
+      unlistenWidgetMiniNote.then((f) => f());
       unlistenMiniPlayerVis.then((f) => f());
       unlistenDragProx.then((f) => f());
     };

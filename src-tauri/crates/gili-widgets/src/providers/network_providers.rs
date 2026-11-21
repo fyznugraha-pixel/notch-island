@@ -370,9 +370,19 @@ pub fn validate_https_url_with_allowlist(url: &str, allowed_hosts: &[&str]) -> R
         return Err("Hanya URL HTTPS yang diizinkan.".to_string());
     }
     let after = &trimmed["https://".len()..];
-    let host_port = after.split('/').next().unwrap_or("");
-    let host = host_port.split(':').next().unwrap_or("").to_ascii_lowercase();
-    if host.is_empty() || host == "localhost" || host.starts_with("127.") || host.starts_with("169.254.") {
+    let authority = after.split(&['/', '?', '#'][..]).next().unwrap_or("");
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let host = if host_port.starts_with('[') {
+        host_port
+            .split(']')
+            .next()
+            .unwrap_or("")
+            .trim_start_matches('[')
+            .to_ascii_lowercase()
+    } else {
+        host_port.split(':').next().unwrap_or("").to_ascii_lowercase()
+    };
+    if crate::providers::ical_provider::is_disallowed_ical_host(&host) {
         return Err("Host tidak diizinkan.".to_string());
     }
     if !allowed_hosts.is_empty() && !allowed_hosts.iter().any(|h| h.eq_ignore_ascii_case(&host)) {
@@ -614,47 +624,86 @@ pub fn fetch_github_repo_status(
         };
     }
 
+    let same_repo = prev.repo.eq_ignore_ascii_case(clean_repo);
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(8)).build();
+    let auth_header = format!("Bearer {}", token.trim());
     let mut req = agent
         .get(&url)
         .set("Accept", "application/vnd.github+json")
         .set("User-Agent", "Gili-Desktop-Widgets/1.0")
-        .set("Authorization", &format!("Bearer {}", token.trim()));
+        .set("Authorization", &auth_header);
 
-    if let Some(ref etag) = prev.etag {
-        req = req.set("If-None-Match", etag);
+    if same_repo {
+        if let Some(ref etag) = prev.etag {
+            req = req.set("If-None-Match", etag);
+        }
     }
 
     match req.call() {
         Ok(resp) => {
-            if resp.status() == 304 {
-                return GitHubStatusSnapshot {
-                    configured: true,
-                    updated_label: "Tidak berubah (304)".into(),
-                    error: None,
-                    ..prev.clone()
-                };
-            }
-            let next_etag = resp.header("ETag").map(|s| s.to_string());
-            let mut next = prev.clone();
+            let mut next = if same_repo {
+                prev.clone()
+            } else {
+                GitHubStatusSnapshot::default()
+            };
             next.configured = true;
             next.repo = clean_repo.to_string();
-            next.etag = next_etag;
-            if let Some(v) = resp
-                .into_string()
-                .ok()
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            {
-                if let Some(run) = v["workflow_runs"].as_array().and_then(|a| a.first()) {
-                    next.latest_action_name = run["name"].as_str().unwrap_or("Workflow").to_string();
-                    next.latest_action_conclusion = run["conclusion"]
-                        .as_str()
-                        .or_else(|| run["status"].as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
+
+            if resp.status() != 304 {
+                next.etag = resp.header("ETag").map(|s| s.to_string());
+                if let Some(v) = resp
+                    .into_string()
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                {
+                    if let Some(run) = v["workflow_runs"].as_array().and_then(|a| a.first()) {
+                        next.latest_action_name =
+                            run["name"].as_str().unwrap_or("Workflow").to_string();
+                        next.latest_action_conclusion = run["conclusion"]
+                            .as_str()
+                            .or_else(|| run["status"].as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                    }
                 }
             }
-            next.updated_label = "Baru diperbarui".into();
+
+            // Fetch real open PR & issue counts (GitHub's /repos open_issues_count includes PRs)
+            let repo_url = format!("https://api.github.com/repos/{clean_repo}");
+            let pr_url = format!(
+                "https://api.github.com/search/issues?q=repo:{clean_repo}+is:pr+is:open&per_page=1"
+            );
+            let total_open_opt = agent
+                .get(&repo_url)
+                .set("Accept", "application/vnd.github+json")
+                .set("User-Agent", "Gili-Desktop-Widgets/1.0")
+                .set("Authorization", &auth_header)
+                .call()
+                .ok()
+                .and_then(|r| r.into_string().ok())
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|v| v["open_issues_count"].as_u64())
+                .map(|n| n as u32);
+            let open_prs_opt = agent
+                .get(&pr_url)
+                .set("Accept", "application/vnd.github+json")
+                .set("User-Agent", "Gili-Desktop-Widgets/1.0")
+                .set("Authorization", &auth_header)
+                .call()
+                .ok()
+                .and_then(|r| r.into_string().ok())
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|v| v["total_count"].as_u64())
+                .map(|n| n as u32);
+
+            if let Some(prs) = open_prs_opt {
+                next.open_prs = prs;
+            }
+            if let Some(total_open) = total_open_opt {
+                next.open_issues = total_open.saturating_sub(next.open_prs);
+            }
+
+            next.updated_label = "Updated".into();
             next.error = None;
             next
         }

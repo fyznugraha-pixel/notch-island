@@ -191,16 +191,18 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 false,
             ),
             text_node(
-                RectF::new(inner.x, inner.y + 20.0, inner.w, inner.h - 42.0),
+                RectF::new(inner.x, inner.y + 18.0, inner.w, (inner.h - 38.0).max(40.0)),
                 if en {
                     format_english_word_clock(hour, min)
                 } else {
                     format_indonesian_word_clock(hour, min)
                 },
                 if ctx.size == WidgetSize::Small {
+                    if inner.h < 120.0 { 16.0 } else { 19.0 }
+                } else if inner.h < 120.0 {
                     20.0
                 } else {
-                    26.0
+                    25.0
                 },
                 700,
                 ctx.pal.primary,
@@ -242,16 +244,17 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             if ctx.size == WidgetSize::Medium {
                 let rx = cx + radius + 18.0;
                 let rw = (inner.x + inner.w - rx).max(80.0);
-                nodes.push(text_node(
+                let analog_time_fs = fit_clock_font(rw, show_sec, 32.0);
+                nodes.push(crate::widgets::text_node_line(
                     RectF::new(rx, inner.y + 28.0, rw, 38.0),
                     time_str,
-                    32.0,
+                    analog_time_fs,
                     700,
                     ctx.pal.primary,
                     TextAlign::Left,
                     true,
                 ));
-                nodes.push(text_node(
+                nodes.push(crate::widgets::text_node_line(
                     RectF::new(rx, inner.y + 72.0, rw, 22.0),
                     date_str,
                     12.5,
@@ -402,10 +405,21 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             let (utc_hour, utc_m) = crate::widgets::utc_hour_minute();
             let main_fs = fit_clock_font(inner.w, show_sec, 38.0);
             let main_h = (main_fs * 1.24).max(30.0);
+            let local_label = if en {
+                "LOCAL TIME"
+            } else {
+                let off = (crate::widgets::local_utc_offset_hours() * 60.0).round() as i32;
+                match off {
+                    420 => "WIB (LOKAL)",
+                    480 => "WITA (LOKAL)",
+                    540 => "WIT (LOKAL)",
+                    _ => "WAKTU LOKAL",
+                }
+            };
             vec![
                 crate::widgets::text_node_line(
                     RectF::new(inner.x, inner.y, inner.w, 16.0),
-                    if en { "LOCAL TIME" } else { "WIB (LOKAL)" },
+                    local_label,
                     10.5,
                     600,
                     ctx.pal.secondary,
@@ -481,7 +495,7 @@ pub fn build_styled_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
 }
 
-/// 20. Bingkai foto / polaroid: bingkai kotak bersih tanpa label nama/tombol, klik langsung pilih foto, auto slideshow 5 detik (S, M, L)
+/// 20. Bingkai foto / polaroid: bingkai kotak bersih berbasis folder, klik membuka pengaturan folder, auto slideshow 5 detik (S, M, L)
 pub fn build_photo_frame(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let pf = &ctx.hub.photo_frame;
     if pf.photos.is_empty() {
@@ -503,21 +517,21 @@ pub fn build_photo_frame(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                         .unwrap_or_else(|| ctx.pal.secondary.with_alpha(0.38)),
                     1.2,
                 )),
-                interactive_action: Some("photo_pick".into()),
+                interactive_action: Some("open_widget_settings".into()),
             },
             text_node(
                 RectF::new(
                     ctx.frame.x + 14.0,
-                    ctx.frame.y + (ctx.frame.h * 0.5 - 10.0).max(8.0),
+                    ctx.frame.y + (ctx.frame.h * 0.5 - 19.0).max(8.0),
                     (ctx.frame.w - 28.0).max(20.0),
-                    24.0,
+                    38.0,
                 ),
                 if is_english(ctx) {
-                    "Click to Pick Photos"
+                    "Click to Pick Photo Folder"
                 } else {
-                    "Klik untuk Pilih Foto"
+                    "Klik untuk Pilih Folder Foto"
                 },
-                13.5,
+                13.0,
                 600,
                 ctx.pal.primary,
                 TextAlign::Center,
@@ -533,22 +547,22 @@ pub fn build_photo_frame(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         rect: ctx.frame,
         radius: 24.0,
         source_path: path.clone(),
-        interactive_action: Some("photo_pick".into()),
+        interactive_action: Some("open_widget_settings".into()),
     }]
 }
 
-/// 21. Maskot hidup orisinal Gili (vektor Direct2D 8-10 fps ringan; catatan aset desainer di LAPORAN) (S, M)
+/// 21. Maskot hidup orisinal Gili menggunakan logo resmi Gili dengan animasi vektor Direct2D ringan (S, M)
 pub fn build_live_mascot(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let inner = ctx.frame.inset(14.0);
     let (_, _, _, hour, _, _, _) = local_datetime_parts();
-    let bob = (ctx.elapsed_secs * 2.6).sin() * 4.5;
-    let blink = ((ctx.elapsed_secs * 0.55) % 4.0) > 3.85;
+    let bob = (ctx.elapsed_secs * 2.4).sin() * 3.5;
+    let blink = ((ctx.elapsed_secs * 0.55) % 4.2) > 4.02;
+    let eye_dx = (ctx.elapsed_secs * 0.85).sin() * 1.6;
+    let wave_phase = ctx.elapsed_secs * 2.2;
 
-    let cx = inner.x + inner.w * 0.5;
-    let cy = inner.y + inner.h * 0.44 + bob;
-    let body = RectF::new(cx - 34.0, cy - 26.0, 68.0, 52.0);
     let en = is_english(ctx);
     let pokes = ctx.hub.mascot_poke_count;
+    let happy = pokes % 2 == 1;
     let mood = if pokes > 0 {
         if en {
             match pokes % 4 {
@@ -581,61 +595,48 @@ pub fn build_live_mascot(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         }
     };
 
+    let (dome_color, visor_color, eye_color, wave_color) = if ctx.pal.is_monochrome {
+        let dome = ctx.pal.primary.with_alpha(0.95);
+        let dark_visor = crate::widgets::group_c::contrasting_tile_text(dome);
+        (dome, dark_visor, dome, dome.with_alpha(0.88))
+    } else {
+        (
+            RgbaColor::new(0x2F, 0x7B, 0xFF, 1.0),
+            RgbaColor::new(0x0B, 0x0F, 0x14, 1.0),
+            RgbaColor::new(0x7F, 0xE3, 0xFF, 1.0),
+            RgbaColor::new(0x2F, 0x7B, 0xFF, 0.96),
+        )
+    };
+
+    let header_pad = if ctx.size == WidgetSize::Medium { 14.0 } else { 0.0 };
+    let avail_h = (inner.h - header_pad - 34.0).max(52.0);
+    let logo_sz = avail_h.min(inner.w * 0.78).clamp(58.0, 96.0);
+    let logo_x = inner.x + (inner.w - logo_sz) * 0.5;
+    let logo_y = inner.y + header_pad + (avail_h - logo_sz) * 0.5 + bob;
+
     let mut nodes = vec![
-        // Orisinal Gili Spirit (kapsul pulau ramah, placeholder vektor sebelum aset sprite desainer)
-        SceneNode::RoundedRect {
-            rect: body,
-            radius: 26.0,
-            smoothing: 0.65,
-            fill: Some(ctx.pal.accent.with_alpha(0.88)),
-            stroke: Some((RgbaColor::new(255, 255, 255, 0.25), 1.5)),
+        SceneNode::GiliMascot {
+            rect: RectF::new(logo_x, logo_y, logo_sz, logo_sz),
+            dome_color,
+            visor_color,
+            eye_color,
+            wave_color,
+            blink,
+            happy,
+            eye_dx,
+            wave_phase,
             interactive_action: Some("mascot_poke".to_string()),
         },
-        // Mata kiri & kanan
-        SceneNode::RoundedRect {
-            rect: RectF::new(cx - 14.0, cy - 6.0, 8.0, if blink { 2.0 } else { 10.0 }),
-            radius: 4.0,
-            smoothing: 0.0,
-            fill: Some(RgbaColor::new(255, 255, 255, 0.96)),
-            stroke: None,
-            interactive_action: None,
-        },
-        SceneNode::RoundedRect {
-            rect: RectF::new(cx + 6.0, cy - 6.0, 8.0, if blink { 2.0 } else { 10.0 }),
-            radius: 4.0,
-            smoothing: 0.0,
-            fill: Some(RgbaColor::new(255, 255, 255, 0.96)),
-            stroke: None,
-            interactive_action: None,
-        },
+        text_node(
+            RectF::new(inner.x, inner.y + inner.h - 32.0, inner.w, 30.0),
+            mood,
+            11.5,
+            500,
+            ctx.pal.primary,
+            TextAlign::Center,
+            false,
+        ),
     ];
-    if pokes % 2 == 1 {
-        nodes.push(SceneNode::RoundedRect {
-            rect: RectF::new(cx - 24.0, cy + 5.0, 8.0, 5.0),
-            radius: 2.5,
-            smoothing: 0.0,
-            fill: Some(RgbaColor::new(251, 113, 133, 0.72)),
-            stroke: None,
-            interactive_action: None,
-        });
-        nodes.push(SceneNode::RoundedRect {
-            rect: RectF::new(cx + 16.0, cy + 5.0, 8.0, 5.0),
-            radius: 2.5,
-            smoothing: 0.0,
-            fill: Some(RgbaColor::new(251, 113, 133, 0.72)),
-            stroke: None,
-            interactive_action: None,
-        });
-    }
-    nodes.push(text_node(
-        RectF::new(inner.x, inner.y + inner.h - 32.0, inner.w, 30.0),
-        mood,
-        11.5,
-        500,
-        ctx.pal.primary,
-        TextAlign::Center,
-        false,
-    ));
 
     if ctx.size == WidgetSize::Medium {
         nodes.push(text_node(
@@ -897,11 +898,14 @@ pub fn build_world_clock(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             let hh = local_m / 60;
             let mm = local_m % 60;
             let is_day = (6..18).contains(&hh);
-            let off_h = z.utc_offset_minutes as f32 / 60.0;
-            let off_str = if off_h >= 0.0 {
-                format!("UTC+{:.0}", off_h)
+            let sign = if z.utc_offset_minutes >= 0 { "+" } else { "-" };
+            let abs_m = z.utc_offset_minutes.abs();
+            let oh = abs_m / 60;
+            let om = abs_m % 60;
+            let off_str = if om == 0 {
+                format!("UTC{}{}", sign, oh)
             } else {
-                format!("UTC{:.0}", off_h)
+                format!("UTC{}{}:{:02}", sign, oh, om)
             };
             let y = inner.y + 22.0 + i as f32 * (row_h + 8.0);
             nodes.push(SceneNode::RoundedRect {

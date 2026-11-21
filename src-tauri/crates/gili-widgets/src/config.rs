@@ -80,6 +80,9 @@ impl RgbaColor {
 
     pub fn from_hex(hex: &str, alpha: f32) -> Option<Self> {
         let clean = hex.trim().trim_start_matches('#');
+        if !clean.is_ascii() {
+            return None;
+        }
         if clean.len() == 6 {
             let r = u8::from_str_radix(&clean[0..2], 16).ok()?;
             let g = u8::from_str_radix(&clean[2..4], 16).ok()?;
@@ -539,21 +542,62 @@ pub fn load_config_from(path: &Path) -> DesktopWidgetsConfig {
     }
 }
 
-/// Atomic persistence via temp file + rename so power loss never corrupts user settings.
-pub fn save_config_atomic(path: &Path, cfg: &DesktopWidgetsConfig) -> Result<(), String> {
+/// Atomically writes bytes to `path` via a unique temp file + `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`
+/// so concurrent writers or power loss never delete the destination file before replacement succeeds.
+pub fn atomic_write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, OnceLock};
+
+    static WRITE_SEQ: AtomicU64 = AtomicU64::new(1);
+    static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = WRITE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Gagal membuat direktori: {e}"))?;
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
     }
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("gili_store");
+    let tmp = path.with_file_name(format!("{file_name}.{}.{seq}.tmp", std::process::id()));
+    fs::write(&tmp, bytes).map_err(|e| format!("Failed to write temp file: {e}"))?;
+
+    #[cfg(windows)]
+    {
+        use windows::core::HSTRING;
+        use windows::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
+        let src = HSTRING::from(tmp.as_os_str());
+        let dst = HSTRING::from(path.as_os_str());
+        if let Err(e) = unsafe {
+            MoveFileExW(&src, &dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+        } {
+            let _ = fs::remove_file(&tmp);
+            return Err(format!("Failed to replace file atomically: {e}"));
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        if let Err(e) = fs::rename(&tmp, path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(format!("Failed to replace file atomically: {e}"));
+        }
+    }
+    Ok(())
+}
+
+/// Atomic persistence via temp file + atomic replace so power loss never corrupts user settings.
+pub fn save_config_atomic(path: &Path, cfg: &DesktopWidgetsConfig) -> Result<(), String> {
     let clean = normalize_config(cfg.clone());
     let json = serde_json::to_string_pretty(&clean)
-        .map_err(|e| format!("Gagal serialisasi konfigurasi: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json.as_bytes()).map_err(|e| format!("Gagal menulis berkas sementara: {e}"))?;
-    if path.exists() {
-        let _ = fs::remove_file(path);
-    }
-    fs::rename(&tmp, path).map_err(|e| format!("Gagal mengganti berkas konfigurasi: {e}"))?;
-    Ok(())
+        .map_err(|e| format!("Failed to serialize configuration: {e}"))?;
+    atomic_write_file(path, json.as_bytes())
 }
 
 #[cfg(test)]

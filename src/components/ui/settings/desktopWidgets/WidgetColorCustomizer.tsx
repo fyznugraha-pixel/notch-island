@@ -64,6 +64,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
   const weightSelectOptions = [
     { value: 300, label: tr("Tipis (300)", "Light (300)") },
     { value: 400, label: tr("Reguler (400)", "Regular (400)") },
+    { value: 500, label: tr("Medium (500)", "Medium (500)") },
     { value: 600, label: tr("Semibold (600)", "Semibold (600)") },
     { value: 700, label: tr("Tebal (700)", "Bold (700)") },
     { value: 800, label: tr("Ekstra Tebal (800)", "Extra Bold (800)") },
@@ -99,7 +100,14 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
         : { r: 245, g: 245, b: 247, a: 1 };
 
   const handleWheelChange = (nextColor: RgbaColor) => {
-    onChange({ ...style, [activeRole]: { mode: "custom", color: nextColor } }, rgbaToHex(nextColor));
+    onChange({ ...style, [activeRole]: { mode: "custom", color: nextColor } });
+  };
+
+  const handleWheelCommit = (finalColor: RgbaColor) => {
+    onChange(
+      { ...style, [activeRole]: { mode: "custom", color: finalColor } },
+      rgbaToHex(finalColor)
+    );
   };
 
   const applyMonochromeToAllRoles = (baseColor: RgbaColor) => {
@@ -141,7 +149,12 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
     const baseCard: RgbaColor =
       style.card_color.mode === "custom"
         ? style.card_color.color
-        : { r: 20, g: 21, b: 26, a: 0.88 };
+        : style.card_color.mode === "wallpaper_dominant" && analysis?.dominant_accent
+          ? analysis.dominant_accent
+          : previewLightBg
+            ? { r: 244, g: 246, b: 250, a: 0.9 }
+            : { r: 20, g: 21, b: 26, a: 0.88 };
+
     if (style.background_mode === "none") return {};
     if (style.background_mode === "subtle_tint") {
       return {
@@ -387,6 +400,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
           isLightMode={isLightMode}
           isId={isId}
           onChange={handleWheelChange}
+          onCommit={handleWheelCommit}
         />
 
         {/* Swatches: recent + wallpaper dominant palette */}
@@ -400,7 +414,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
                 const r = parseInt(hex.slice(1, 3), 16);
                 const g = parseInt(hex.slice(3, 5), 16);
                 const b = parseInt(hex.slice(5, 7), 16);
-                if (!Number.isNaN(r)) handleWheelChange({ r, g, b, a: activeRgba.a });
+                if (!Number.isNaN(r)) handleWheelCommit({ r, g, b, a: activeRgba.a });
               }}
               className="w-6 h-6 rounded-full border border-white/25 cursor-pointer hover:scale-110 transition-transform"
               style={{ backgroundColor: hex }}
@@ -415,7 +429,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
                 const r = parseInt(hex.slice(1, 3), 16);
                 const g = parseInt(hex.slice(3, 5), 16);
                 const b = parseInt(hex.slice(5, 7), 16);
-                if (!Number.isNaN(r)) handleWheelChange({ r, g, b, a: activeRgba.a });
+                if (!Number.isNaN(r)) handleWheelCommit({ r, g, b, a: activeRgba.a });
               }}
               className="w-6 h-6 rounded-[7px] border border-[#0a84ff]/70 cursor-pointer hover:scale-110 transition-transform"
               style={{ backgroundColor: hex }}

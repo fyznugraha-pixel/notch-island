@@ -22,7 +22,7 @@ use crate::providers::local_stores::{
 use crate::providers::prayer_calc::{build_hijri_holiday_snapshot, build_prayer_snapshot};
 use crate::providers::system_data::{
     read_windows_dark_mode, sample_system_perf, sample_top_processes_readonly,
-    QuickControlsSnapshot,
+    QuickControlsSnapshot, StorageTreemapSnapshot,
 };
 use crate::providers::{FrontendMirrorSnapshot, MediaSnapshot};
 use serde::{de::DeserializeOwned, Serialize};
@@ -39,18 +39,9 @@ fn load_json_store<T: DeserializeOwned + Default>(name: &str) -> T {
 
 fn save_json_store<T: Serialize>(name: &str, value: &T) -> Result<(), String> {
     let p = local_widget_store_path(name);
-    if let Some(parent) = p.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Gagal membuat direktori: {e}"))?;
-    }
     let json = serde_json::to_string_pretty(value)
-        .map_err(|e| format!("Gagal serialisasi data lokal: {e}"))?;
-    let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, json.as_bytes()).map_err(|e| format!("Gagal menulis berkas: {e}"))?;
-    if p.exists() {
-        let _ = std::fs::remove_file(&p);
-    }
-    std::fs::rename(&tmp, &p).map_err(|e| format!("Gagal mengganti berkas: {e}"))?;
-    Ok(())
+        .map_err(|e| format!("Failed to serialize local data: {e}"))?;
+    config::atomic_write_file(&p, json.as_bytes())
 }
 
 pub struct DesktopWidgetEngine {
@@ -71,8 +62,23 @@ impl DesktopWidgetEngine {
         state.hub.shortcuts = load_json_store::<Vec<ShortcutEntry>>("desktop_shortcuts.json");
         state.hub.recent_files = load_json_store::<RecentFilesState>("desktop_recent_files.json");
         state.hub.photo_frame = load_json_store::<PhotoSlideshowState>("desktop_photo_frame.json");
+        if !state.hub.photo_frame.manual_photos.is_empty()
+            || state.hub.photo_frame.folder_path.is_some()
+        {
+            let had_manual = !state.hub.photo_frame.manual_photos.is_empty();
+            providers::local_stores::scan_photo_folder_readonly(&mut state.hub.photo_frame);
+            if had_manual {
+                let _ = save_json_store("desktop_photo_frame.json", &state.hub.photo_frame);
+            }
+        }
         state.hub.countdowns = load_json_store::<Vec<CountdownMoment>>("desktop_countdowns.json");
         state.hub.snippets = load_json_store::<Vec<QuickSnippetItem>>("desktop_snippets.json");
+        let mut saved_treemap =
+            load_json_store::<StorageTreemapSnapshot>("desktop_storage_treemap.json");
+        if !saved_treemap.root_path.trim().is_empty() {
+            saved_treemap.scanning = false;
+            state.hub.storage_treemap = Some(saved_treemap);
+        }
         let saved_wc = load_json_store::<Vec<WorldClockZone>>("desktop_world_clocks.json");
         state.hub.world_clocks = if saved_wc.is_empty() {
             default_world_clocks()
@@ -126,16 +132,76 @@ impl DesktopWidgetEngine {
         let Ok(mut slot) = self.host_thread.lock() else {
             return;
         };
-        if slot.is_some() {
-            return;
+        if let Some(ref handle) = *slot {
+            if !handle.is_finished() {
+                return;
+            }
+            if let Some(dead) = slot.take() {
+                let _ = dead.join();
+            }
         }
         *slot = Some(spawn_native_host_thread(self.shared.clone()));
+    }
+
+    /// Lightweight lock-only check for the 30 Hz audio loop (avoids deep-cloning DesktopWidgetsConfig).
+    pub fn should_poll_audio_visualizer(&self) -> bool {
+        self.shared
+            .lock()
+            .map(|st| {
+                let visible = st.config.enabled || st.metrics.board_visible;
+                if !visible
+                    || st.metrics.paused_reason.is_some()
+                    || (st.standby_paused && !st.board_visible)
+                {
+                    return false;
+                }
+                st.config.slots.iter().any(|s| {
+                    s.active_widget()
+                        .map(|w| w.widget_type == "audio_visualizer")
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    pub fn set_standby_paused(&self, paused: bool) {
+        let changed = if let Ok(mut st) = self.shared.lock() {
+            if st.standby_paused == paused {
+                false
+            } else {
+                st.standby_paused = paused;
+                if paused && !st.board_visible {
+                    st.metrics.target_fps = 0;
+                    st.metrics.paused_reason = Some("StandBy Screensaver".into());
+                } else if !paused
+                    && st.metrics.paused_reason.as_deref() == Some("StandBy Screensaver")
+                {
+                    st.metrics.paused_reason = None;
+                }
+                st.pending_commands
+                    .push(HostCommand::SetStandbyPaused(paused));
+                true
+            }
+        } else {
+            false
+        };
+        if changed {
+            d2d_host::wake_host_thread();
+        }
+    }
+
+    pub fn is_english(&self) -> bool {
+        self.shared
+            .lock()
+            .map(|st| st.hub.frontend.language.eq_ignore_ascii_case("en"))
+            .unwrap_or(false)
     }
 
     pub fn shutdown(&self) {
         if let Ok(mut st) = self.shared.lock() {
             st.pending_commands.push(HostCommand::Shutdown);
         }
+        d2d_host::wake_host_thread();
         if let Ok(mut slot) = self.host_thread.lock() {
             if let Some(handle) = slot.take() {
                 let _ = handle.join();
@@ -158,8 +224,11 @@ impl DesktopWidgetEngine {
         }
         if let Ok(mut st) = self.shared.lock() {
             st.config = clean.clone();
-            st.pending_commands.push(HostCommand::UpdateConfig(clean.clone()));
+            st.mark_data_changed();
+            st.pending_commands
+                .push(HostCommand::UpdateConfig(clean.clone()));
         }
+        d2d_host::wake_host_thread();
         Ok(clean)
     }
 
@@ -168,35 +237,68 @@ impl DesktopWidgetEngine {
             st.edit_mode = enabled;
             st.pending_commands.push(HostCommand::SetEditMode(enabled));
         }
+        d2d_host::wake_host_thread();
     }
 
     pub fn toggle_board(&self, explicit: Option<bool>) -> bool {
         self.start_host_if_needed();
-        if let Ok(mut st) = self.shared.lock() {
+        let next = if let Ok(mut st) = self.shared.lock() {
             let next = explicit.unwrap_or(!st.board_visible);
             st.board_visible = next;
-            st.pending_commands.push(HostCommand::ToggleBoard(Some(next)));
-            return next;
+            st.pending_commands
+                .push(HostCommand::ToggleBoard(Some(next)));
+            Some(next)
+        } else {
+            None
+        };
+        if let Some(val) = next {
+            d2d_host::wake_host_thread();
+            return val;
         }
         false
     }
 
     pub fn update_media(&self, media: MediaSnapshot) {
+        let mut changed = false;
         if let Ok(mut st) = self.shared.lock() {
-            st.hub.media = media;
-            st.pending_commands.push(HostCommand::MarkDirty);
+            if !st.hub.media.visibly_eq(&media) {
+                st.hub.media = media;
+                st.mark_data_changed();
+                st.pending_commands.push(HostCommand::MarkDirty);
+                changed = true;
+            }
+        }
+        if changed {
+            d2d_host::wake_host_thread();
         }
     }
 
-    pub fn update_frontend_mirror(&self, mirror: FrontendMirrorSnapshot) {
+    pub fn update_frontend_mirror(&self, mirror: FrontendMirrorSnapshot) -> bool {
+        let mut changed = false;
+        let mut location_changed = false;
         if let Ok(mut st) = self.shared.lock() {
-            if let (Some(lat), Some(lon)) = (mirror.custom_lat, mirror.custom_lon) {
+            if st.hub.frontend == mirror {
+                return false;
+            }
+            let loc_changed = st.hub.frontend.custom_lat != mirror.custom_lat
+                || st.hub.frontend.custom_lon != mirror.custom_lon
+                || st.hub.frontend.custom_city_name != mirror.custom_city_name;
+            if loc_changed {
+                location_changed = true;
                 let (year, month, day, hour, min, _, _) = widgets::local_datetime_parts();
-                let city = mirror
-                    .custom_city_name
-                    .clone()
-                    .unwrap_or_else(|| "Lokasi Pilihan".into());
                 let tz_offset_hours = widgets::local_utc_offset_hours();
+                let (city, lat, lon) = match (mirror.custom_lat, mirror.custom_lon) {
+                    (Some(lat), Some(lon)) => (
+                        mirror
+                            .custom_city_name
+                            .clone()
+                            .filter(|s| !s.trim().is_empty())
+                            .unwrap_or_else(|| "Custom City".into()),
+                        lat,
+                        lon,
+                    ),
+                    _ => ("Jakarta".into(), -6.2088, 106.8456),
+                };
                 st.hub.prayer = build_prayer_snapshot(
                     &city,
                     lat,
@@ -211,8 +313,14 @@ impl DesktopWidgetEngine {
                 );
             }
             st.hub.frontend = mirror;
+            st.mark_data_changed();
             st.pending_commands.push(HostCommand::MarkDirty);
+            changed = true;
         }
+        if changed {
+            d2d_host::wake_host_thread();
+        }
+        location_changed
     }
 
     pub fn update_system_telemetry(
@@ -243,21 +351,40 @@ impl DesktopWidgetEngine {
             if let Some(v) = audio_muted {
                 st.hub.quick_controls.audio_muted = Some(v);
             }
+            st.mark_data_changed();
             st.pending_commands.push(HostCommand::MarkDirty);
         }
+        d2d_host::wake_host_thread();
     }
 
     pub fn update_audio_bands(&self, bands: [f32; 16]) {
+        let mut changed = false;
         if let Ok(mut st) = self.shared.lock() {
-            st.hub.audio_bands = bands;
-            st.pending_commands.push(HostCommand::MarkDirty);
+            if st.hub.audio_bands != bands {
+                st.hub.audio_bands = bands;
+                st.mark_audio_changed();
+                changed = true;
+            }
+        }
+        if changed {
+            d2d_host::wake_host_thread();
         }
     }
 
+    pub fn with_hub_read<R>(&self, f: impl FnOnce(&providers::WidgetDataHub) -> R) -> Option<R> {
+        let st = self.shared.lock().ok()?;
+        Some(f(&st.hub))
+    }
+
     pub fn with_hub_mut<R>(&self, f: impl FnOnce(&mut providers::WidgetDataHub) -> R) -> Option<R> {
-        let mut st = self.shared.lock().ok()?;
-        let out = f(&mut st.hub);
-        st.pending_commands.push(HostCommand::MarkDirty);
+        let out = {
+            let mut st = self.shared.lock().ok()?;
+            let out = f(&mut st.hub);
+            st.mark_data_changed();
+            st.pending_commands.push(HostCommand::MarkDirty);
+            out
+        };
+        d2d_host::wake_host_thread();
         Some(out)
     }
 
@@ -351,6 +478,15 @@ impl DesktopWidgetEngine {
         save_json_store("desktop_world_clocks.json", &items)
     }
 
+    pub fn persist_storage_treemap(&self) -> Result<(), String> {
+        let snap = self
+            .shared
+            .lock()
+            .map(|s| s.hub.storage_treemap.clone().unwrap_or_default())
+            .map_err(|_| "Lock gagal".to_string())?;
+        save_json_store("desktop_storage_treemap.json", &snap)
+    }
+
     pub fn analyze_style_contrast(
         &self,
         style: &config::WidgetStyleConfig,
@@ -360,7 +496,7 @@ impl DesktopWidgetEngine {
         nh: f32,
     ) -> WallpaperRegionAnalysis {
         if let Ok(st) = self.shared.lock() {
-            analyze_region_for_style(st.wallpaper.as_ref(), style, nx, ny, nw, nh)
+            analyze_region_for_style(st.wallpaper.as_deref(), style, nx, ny, nw, nh)
         } else {
             analyze_region_for_style(None, style, nx, ny, nw, nh)
         }
@@ -388,6 +524,51 @@ mod tests {
     use crate::layout::RectF;
     use crate::providers::WidgetDataHub;
     use crate::widgets::{build_widget_render_item, widget_catalog};
+
+    #[test]
+    fn with_hub_read_and_identical_updates_do_not_trigger_dirty_redraws() {
+        let eng = DesktopWidgetEngine::new();
+        let _ = eng.shared.lock().map(|mut st| st.pending_commands.clear());
+
+        let _ = eng.with_hub_read(|h| h.frontend.language.clone());
+        assert!(
+            eng.shared.lock().unwrap().pending_commands.is_empty(),
+            "with_hub_read must never schedule a redraw"
+        );
+
+        let same_media = eng.with_hub_read(|h| h.media.clone()).unwrap();
+        eng.update_media(same_media.clone());
+        assert!(
+            eng.shared.lock().unwrap().pending_commands.is_empty(),
+            "identical MediaSnapshot must not mark dirty"
+        );
+
+        let mut next_media = same_media;
+        next_media.title = "New Track".into();
+        eng.update_media(next_media);
+        assert_eq!(
+            eng.shared.lock().unwrap().pending_commands.len(),
+            1,
+            "changed MediaSnapshot must mark dirty"
+        );
+        eng.shared.lock().unwrap().pending_commands.clear();
+
+        let same_mirror = eng.with_hub_read(|h| h.frontend.clone()).unwrap();
+        eng.update_frontend_mirror(same_mirror.clone());
+        assert!(
+            eng.shared.lock().unwrap().pending_commands.is_empty(),
+            "identical FrontendMirrorSnapshot must not mark dirty"
+        );
+
+        let mut next_mirror = same_mirror;
+        next_mirror.language = "en".into();
+        eng.update_frontend_mirror(next_mirror);
+        assert_eq!(
+            eng.shared.lock().unwrap().pending_commands.len(),
+            1,
+            "changed FrontendMirrorSnapshot must mark dirty"
+        );
+    }
 
     #[test]
     fn catalog_contains_all_34_widgets_and_all_build_cleanly_in_every_supported_size() {
@@ -554,7 +735,12 @@ mod tests {
         let m1 = eng.metrics();
         println!(
             "LIVE_D2D_SMOKE running={} monitors={} adapter='{}' dirty={} ws_mb={:.1} paused={:?}",
-            m1.running, m1.monitor_count, m1.gpu_adapter, m1.last_dirty_rects, m1.working_set_mb, m1.paused_reason
+            m1.running,
+            m1.monitor_count,
+            m1.gpu_adapter,
+            m1.last_dirty_rects,
+            m1.working_set_mb,
+            m1.paused_reason
         );
         assert!(m1.running, "Host Direct2D harus berjalan tanpa panic/crash");
         assert!(m1.monitor_count >= 1, "Harus mendeteksi minimal 1 monitor");
@@ -657,11 +843,12 @@ mod tests {
                     assert_eq!(color.r, 255);
                     assert_eq!(color.g, 255);
                     assert_eq!(color.b, 255);
-                    assert!(*font_weight <= 500, "font_weight 300 harus meringankan teks");
+                    assert!(
+                        *font_weight <= 500,
+                        "font_weight 300 harus meringankan teks"
+                    );
                 }
-                layout::SceneNode::RoundedRect {
-                    fill: Some(c), ..
-                } => {
+                layout::SceneNode::RoundedRect { fill: Some(c), .. } => {
                     assert_eq!(c.r, c.g, "Monokrom putih tidak boleh bocor warna biru");
                 }
                 _ => {}
@@ -773,14 +960,18 @@ mod tests {
                     &hub,
                     0.0,
                 );
-                assert!(!item.nodes.is_empty(), "Tipe kalender {cal_st} tidak boleh kosong");
+                assert!(
+                    !item.nodes.is_empty(),
+                    "Tipe kalender {cal_st} tidak boleh kosong"
+                );
             }
         }
     }
 
     #[test]
     fn photo_frame_supports_direct_desktop_picker_and_hit_testing() {
-        let analysis = analyze_region_for_style(None, &WidgetStyleConfig::default(), 0.0, 0.0, 0.25, 0.25);
+        let analysis =
+            analyze_region_for_style(None, &WidgetStyleConfig::default(), 0.0, 0.0, 0.25, 0.25);
         let theme = WidgetStyleConfig::default();
 
         // 1. Empty state must expose direct desktop picker ("photo_pick") on clean square card
@@ -806,40 +997,32 @@ mod tests {
         };
         let small_sq = layout::slot_rect_dp(&small_slot, 1.0, 0.0, 0.0);
         assert_eq!(small_sq.w, small_sq.h);
-        assert!(small_sq.w >= 220.0, "Ukuran Small polaroid harus diperbesar (>= 220dp)");
-
-        let mut empty_item = build_widget_render_item(
-            &slot,
-            frame_sq,
-            &theme,
-            &analysis,
-            &hub,
-            0.0,
+        assert!(
+            small_sq.w >= 220.0,
+            "Ukuran Small polaroid harus diperbesar (>= 220dp)"
         );
+
+        let mut empty_item =
+            build_widget_render_item(&slot, frame_sq, &theme, &analysis, &hub, 0.0);
         empty_item.compute_hit_regions(false);
         assert!(
             empty_item
                 .content_hit_rects
                 .iter()
-                .any(|r| r.action_id.as_deref() == Some("photo_pick")),
-            "Bingkai Foto kosong harus punya aksi langsung photo_pick di widget"
+                .any(|r| r.action_id.as_deref() == Some("open_widget_settings")),
+            "Bingkai Foto kosong harus membuka pengaturan folder di Settings"
         );
 
-        // 2. Loaded manual photos without folder_path MUST render clean ImageRef ONLY (no filename, no + Foto pill)
-        hub.photo_frame.folder_path = None;
+        // 2. Loaded folder photos render clean ImageRef ONLY and route clicks to Settings
+        hub.photo_frame.folder_path = Some("C:\\tmp".into());
+        hub.photo_frame.manual_photos = vec!["C:\\legacy\\old.jpg".into()];
         hub.photo_frame.photos = vec!["C:\\tmp\\a.jpg".into(), "C:\\tmp\\b.jpg".into()];
         assert_eq!(
             hub.photo_frame.effective_interval_secs(),
             providers::local_stores::DEFAULT_PHOTO_INTERVAL_SECS
         );
-        let mut loaded_item = build_widget_render_item(
-            &slot,
-            frame_sq,
-            &theme,
-            &analysis,
-            &hub,
-            0.0,
-        );
+        let mut loaded_item =
+            build_widget_render_item(&slot, frame_sq, &theme, &analysis, &hub, 0.0);
         loaded_item.compute_hit_regions(false);
         assert_eq!(
             loaded_item.nodes.len(),
@@ -850,9 +1033,9 @@ mod tests {
             matches!(
                 &loaded_item.nodes[0],
                 layout::SceneNode::ImageRef { rect, interactive_action, .. }
-                    if *rect == frame_sq && interactive_action.as_deref() == Some("photo_pick")
+                    if *rect == frame_sq && interactive_action.as_deref() == Some("open_widget_settings")
             ),
-            "Klik pada polaroid aktif harus langsung memicu photo_pick dan mengisi kotak penuh"
+            "Klik pada polaroid aktif harus mengarah ke Settings folder dan mengisi kotak penuh"
         );
         let hit = layout::hit_test_scene(
             &[loaded_item],
@@ -865,17 +1048,20 @@ mod tests {
             hit,
             layout::HitTestResult::WidgetContent {
                 slot_id: "pf_slot".into(),
-                action_id: Some("photo_pick".into())
+                action_id: Some("open_widget_settings".into())
             }
         );
 
-        // 3. step_photo_index wraps safely forward & backward
+        // 3. step_photo_index wraps safely forward & backward, and scan clears legacy manual_photos
         providers::local_stores::step_photo_index(&mut hub.photo_frame, 1);
         assert_eq!(hub.photo_frame.current_index, 1);
         providers::local_stores::step_photo_index(&mut hub.photo_frame, 1);
         assert_eq!(hub.photo_frame.current_index, 0);
         providers::local_stores::step_photo_index(&mut hub.photo_frame, -1);
         assert_eq!(hub.photo_frame.current_index, 1);
+
+        providers::local_stores::scan_photo_folder_readonly(&mut hub.photo_frame);
+        assert!(hub.photo_frame.manual_photos.is_empty());
     }
 
     #[test]
@@ -956,7 +1142,10 @@ mod tests {
             }
             _ => false,
         });
-        assert!(!has_orange, "Mode monokrom tidak boleh menampilkan warna oranye keras pada AQI");
+        assert!(
+            !has_orange,
+            "Mode monokrom tidak boleh menampilkan warna oranye keras pada AQI"
+        );
     }
 
     #[test]
@@ -964,7 +1153,10 @@ mod tests {
         // 1. Schema v3 defaults to frosted squircle Glass with 26dp corners
         let cfg = DesktopWidgetsConfig::default();
         assert_eq!(cfg.schema_version, config::CONFIG_SCHEMA_VERSION);
-        assert_eq!(cfg.global_theme.background_mode, config::BackgroundMode::Glass);
+        assert_eq!(
+            cfg.global_theme.background_mode,
+            config::BackgroundMode::Glass
+        );
         assert!((config::CARD_RADIUS_DP - 26.0).abs() < 0.01);
         assert!(config::CARD_CORNER_SMOOTHING >= 0.65);
 
@@ -977,7 +1169,10 @@ mod tests {
         });
         let mig_none = config::migrate_config_value(v2_none);
         assert_eq!(mig_none.schema_version, config::CONFIG_SCHEMA_VERSION);
-        assert_eq!(mig_none.global_theme.background_mode, config::BackgroundMode::Glass);
+        assert_eq!(
+            mig_none.global_theme.background_mode,
+            config::BackgroundMode::Glass
+        );
 
         let v2_solid = serde_json::json!({
             "schema_version": 2,
@@ -986,7 +1181,10 @@ mod tests {
             "slots": []
         });
         let mig_solid = config::migrate_config_value(v2_solid);
-        assert_eq!(mig_solid.global_theme.background_mode, config::BackgroundMode::Solid);
+        assert_eq!(
+            mig_solid.global_theme.background_mode,
+            config::BackgroundMode::Solid
+        );
 
         // 2. Surface-aware contrast blends dark frosted glass over bright wallpaper -> keeps light text
         let light_wp = contrast::CachedWallpaperSample {
@@ -1104,7 +1302,10 @@ mod tests {
             .iter()
             .filter(|n| matches!(n, layout::SceneNode::AnalogClock { .. }))
             .count();
-        assert_eq!(dial_count, 4, "Jam Dunia Medium harus merender 4 dial jam analog");
+        assert_eq!(
+            dial_count, 4,
+            "Jam Dunia Medium harus merender 4 dial jam analog"
+        );
 
         // 5. Photo Frame renders full-bleed square image with 24dp corners
         hub.photo_frame.photos = vec!["C:\\tmp\\sample.jpg".into()];
@@ -1120,7 +1321,8 @@ mod tests {
             ..Default::default()
         };
         let pf_rect = layout::slot_rect_dp(&pf_slot, 1.0, 0.0, 0.0);
-        let pf_item = build_widget_render_item(&pf_slot, pf_rect, &dark_glass, &res_dark, &hub, 0.0);
+        let pf_item =
+            build_widget_render_item(&pf_slot, pf_rect, &dark_glass, &res_dark, &hub, 0.0);
         assert!(matches!(
             pf_item.nodes.first(),
             Some(layout::SceneNode::ImageRef { radius, .. }) if (*radius - 24.0).abs() < 0.01
@@ -1215,7 +1417,10 @@ mod tests {
                     if cloud_color.r == cloud_color.g && accent_color.r == accent_color.g
             )
         });
-        assert!(has_weather_vec, "Cuaca wajib memakai vektor WeatherIcon netral saat monokrom");
+        assert!(
+            has_weather_vec,
+            "Cuaca wajib memakai vektor WeatherIcon netral saat monokrom"
+        );
         assert!(
             !wf_item
                 .nodes
@@ -1284,9 +1489,10 @@ mod tests {
                 let item = build_widget_render_item(&slot, r, &style, &region, hub, 0.0);
                 extract_texts(&item.nodes)
             };
-        let render_texts = |wtype: &str, size: config::WidgetSize, r: RectF, hub: &WidgetDataHub| {
-            render_texts_with_settings(wtype, size, r, hub, serde_json::json!({}))
-        };
+        let render_texts =
+            |wtype: &str, size: config::WidgetSize, r: RectF, hub: &WidgetDataHub| {
+                render_texts_with_settings(wtype, size, r, hub, serde_json::json!({}))
+            };
 
         // 1. Default / "id" keeps Indonesian output intact
         let cal_min_id = render_texts("calendar_agenda", config::WidgetSize::Medium, rect, &hub_id);
@@ -1298,7 +1504,9 @@ mod tests {
             &hub_id,
             serde_json::json!({ "calendar_style": "tanggal_agenda" }),
         );
-        assert!(cal_agenda_id.iter().any(|t| t == "Agenda kosong. Ketuk untuk menambah di Gili."));
+        assert!(cal_agenda_id
+            .iter()
+            .any(|t| t == "Agenda kosong. Ketuk untuk menambah di Gili."));
         let aq_id = render_texts("air_quality", config::WidgetSize::Medium, rect, &hub_id);
         assert!(aq_id.iter().any(|t| t == "Sensitif"));
         assert!(aq_id.iter().any(|t| t == "Indeks UV"));
@@ -1315,12 +1523,22 @@ mod tests {
         );
         assert!(cal_en.iter().any(|t| t == "No events. Tap to add in Gili."));
 
-        let wf_en = render_texts("weather_forecast", config::WidgetSize::Large, large_rect, &hub_en);
+        let wf_en = render_texts(
+            "weather_forecast",
+            config::WidgetSize::Large,
+            large_rect,
+            &hub_en,
+        );
         assert!(wf_en.iter().any(|t| t == "Rain"));
         assert!(wf_en.iter().any(|t| t == "5-DAY FORECAST"));
         assert!(wf_en.iter().any(|t| t.starts_with("H:")));
 
-        let sys_en = render_texts("system_performance", config::WidgetSize::Large, large_rect, &hub_en);
+        let sys_en = render_texts(
+            "system_performance",
+            config::WidgetSize::Large,
+            large_rect,
+            &hub_en,
+        );
         assert!(sys_en.iter().any(|t| t == "SYSTEM PERFORMANCE"));
         assert!(sys_en.iter().any(|t| t == "DISK STORAGE"));
 
@@ -1328,7 +1546,7 @@ mod tests {
         assert!(wc_en.iter().any(|t| t == "WORLD CLOCK"));
 
         let pf_en = render_texts("photo_frame", config::WidgetSize::Small, rect, &hub_en);
-        assert!(pf_en.iter().any(|t| t == "Click to Pick Photos"));
+        assert!(pf_en.iter().any(|t| t == "Click to Pick Photo Folder"));
 
         let qc_en = render_texts("quick_controls", config::WidgetSize::Medium, rect, &hub_en);
         assert!(qc_en.iter().any(|t| t == "Quick Controls"));
@@ -1359,8 +1577,15 @@ mod tests {
             ..Default::default()
         };
         let clk_texts = extract_texts(
-            &build_widget_render_item(&clk_slot, RectF::new(0.0, 0.0, 150.0, 150.0), &style, &region, &hub_en, 0.0)
-                .nodes,
+            &build_widget_render_item(
+                &clk_slot,
+                RectF::new(0.0, 0.0, 150.0, 150.0),
+                &style,
+                &region,
+                &hub_en,
+                0.0,
+            )
+            .nodes,
         );
         assert!(clk_texts.iter().any(|t| t == "LOCAL TIME"));
     }
@@ -1562,5 +1787,439 @@ mod tests {
             layout::SceneNode::RoundedRect { rect, .. }
                 if (rect.w - 3.0).abs() < 0.01 && (rect.h - 3.0).abs() < 0.01
         )));
+    }
+
+    #[test]
+    fn audio_visualizer_caps_fps_and_isolates_audio_revision() {
+        let mut cfg = DesktopWidgetsConfig::default();
+        cfg.enabled = true;
+        cfg.slots = vec![WidgetStackSlot {
+            slot_id: "vis_1".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "w_vis".into(),
+                widget_type: "audio_visualizer".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        }];
+
+        let mut policy = d2d_host::device::SystemVisualPolicy::default();
+        let (active_fps, _) = d2d_host::compute_adaptive_target_fps(
+            &cfg, false, false, false, true, false, false, &policy,
+        );
+        assert_eq!(active_fps, 30);
+
+        policy.power_saver = true;
+        let (saver_fps, _) = d2d_host::compute_adaptive_target_fps(
+            &cfg, false, false, false, true, false, false, &policy,
+        );
+        assert_eq!(saver_fps, 20);
+
+        let (silent_fps, _) = d2d_host::compute_adaptive_target_fps(
+            &cfg, false, false, false, false, false, false, &policy,
+        );
+        assert_eq!(silent_fps, 0);
+
+        let mut st = HostSharedState::new(cfg.clone());
+        let base_data_rev = st.data_revision;
+        let base_audio_rev = st.audio_revision;
+        st.mark_audio_changed();
+        assert_eq!(st.data_revision, base_data_rev);
+        assert_eq!(st.audio_revision, base_audio_rev + 1);
+
+        let (standby_fps, standby_reason) = d2d_host::compute_adaptive_target_fps_with_standby(
+            &cfg, false, false, false, true, false, false, &policy, true,
+        );
+        assert_eq!(standby_fps, 0);
+        assert_eq!(standby_reason.as_deref(), Some("StandBy Screensaver"));
+
+        let eng = DesktopWidgetEngine::new();
+        {
+            let mut sh = eng.shared.lock().unwrap();
+            sh.config = cfg;
+        }
+        assert!(eng.should_poll_audio_visualizer());
+        eng.set_standby_paused(true);
+        assert!(!eng.should_poll_audio_visualizer());
+        assert_eq!(
+            eng.metrics().paused_reason.as_deref(),
+            Some("StandBy Screensaver")
+        );
+        eng.set_standby_paused(false);
+        assert!(eng.should_poll_audio_visualizer());
+    }
+
+    #[test]
+    fn storage_treemap_monochrome_white_uses_readable_dark_text_and_folder_picker() {
+        use crate::providers::system_data::{StorageEntryNode, StorageTreemapSnapshot};
+        use crate::widgets::group_c::{contrasting_tile_text, format_storage_bytes};
+
+        assert_eq!(format_storage_bytes(512), "< 1 KB");
+        assert_eq!(format_storage_bytes(42 * 1024 * 1024), "42.0 MB");
+        assert_eq!(format_storage_bytes(2 * 1024 * 1024 * 1024), "2.0 GB");
+
+        // White tile must choose dark ink; dark slate tile must choose white ink
+        let on_white = contrasting_tile_text(config::RgbaColor::new(252, 253, 255, 0.92));
+        assert!(on_white.r < 40 && on_white.g < 40 && on_white.b < 40);
+        let on_dark = contrasting_tile_text(config::RgbaColor::new(24, 27, 35, 0.90));
+        assert!(on_dark.r > 230 && on_dark.g > 230 && on_dark.b > 230);
+
+        let mut hub = WidgetDataHub::default();
+        hub.storage_treemap = Some(StorageTreemapSnapshot {
+            root_path: r"D:\Projects".into(),
+            total_scanned_bytes: 3_758_096_384,
+            items: vec![
+                StorageEntryNode {
+                    name: "Videos".into(),
+                    bytes: 966_367_641,
+                    share_pct: 52.0,
+                },
+                StorageEntryNode {
+                    name: "Docs".into(),
+                    bytes: 536_870_912,
+                    share_pct: 28.0,
+                },
+            ],
+            scanning: false,
+            updated_epoch_secs: 1_700_000_000,
+        });
+
+        let mono_white = WidgetStyleConfig {
+            text_primary: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 1.0),
+            },
+            text_secondary: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 0.80),
+            },
+            accent: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 1.0),
+            },
+            ..WidgetStyleConfig::default()
+        };
+        let analysis = analyze_region_for_style(None, &mono_white, 0.0, 0.0, 0.25, 0.25);
+        let slot = WidgetStackSlot {
+            slot_id: "tm_slot".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "tm1".into(),
+                widget_type: "storage_treemap".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+
+        let item = build_widget_render_item(
+            &slot,
+            RectF::new(0.0, 0.0, 336.0, 160.0),
+            &mono_white,
+            &analysis,
+            &hub,
+            0.0,
+        );
+
+        let treemap_text = item.nodes.iter().find_map(|n| match n {
+            layout::SceneNode::Treemap { text_color, .. } => Some(*text_color),
+            _ => None,
+        });
+        let text_col = treemap_text.expect("Treemap node must be present");
+        assert!(
+            text_col.r < 40 && text_col.g < 40 && text_col.b < 40,
+            "Monochrome white treemap tiles must use dark text, got {:?}",
+            text_col
+        );
+
+        let has_folder_action = item.nodes.iter().any(|n| match n {
+            layout::SceneNode::RoundedRect {
+                interactive_action, ..
+            }
+            | layout::SceneNode::Text {
+                interactive_action, ..
+            } => interactive_action.as_deref() == Some("storage_pick_folder"),
+            _ => false,
+        });
+        assert!(
+            has_folder_action,
+            "Storage Map must expose storage_pick_folder action"
+        );
+    }
+
+    #[test]
+    fn mini_kanban_supports_add_move_delete_and_routes_add_button_to_settings() {
+        let mut hub = WidgetDataHub::default();
+        hub.kanban
+            .add_card("k1".into(), "Rapikan UI".into(), "todo");
+        assert_eq!(hub.kanban.todo.len(), 1);
+        assert!(hub.kanban.move_card("k1", "doing"));
+        assert_eq!(hub.kanban.todo.len(), 0);
+        assert_eq!(hub.kanban.doing.len(), 1);
+
+        let theme = WidgetStyleConfig::default();
+        let analysis = analyze_region_for_style(None, &theme, 0.0, 0.0, 0.25, 0.25);
+        let slot = WidgetStackSlot {
+            slot_id: "kb_slot".into(),
+            size: config::WidgetSize::Large,
+            widgets: vec![WidgetInstance {
+                instance_id: "kb1".into(),
+                widget_type: "mini_kanban".into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+        let item = build_widget_render_item(
+            &slot,
+            RectF::new(0.0, 0.0, 336.0, 336.0),
+            &theme,
+            &analysis,
+            &hub,
+            0.0,
+        );
+
+        let has_settings_add = item.nodes.iter().any(|n| match n {
+            layout::SceneNode::RoundedRect {
+                interactive_action, ..
+            } => interactive_action.as_deref() == Some("open_widget_settings"),
+            _ => false,
+        });
+        let has_move = item.nodes.iter().any(|n| match n {
+            layout::SceneNode::RoundedRect {
+                interactive_action, ..
+            } => interactive_action.as_deref() == Some("kanban_move:k1:done"),
+            _ => false,
+        });
+        let has_delete = item.nodes.iter().any(|n| match n {
+            layout::SceneNode::Text {
+                interactive_action, ..
+            } => interactive_action.as_deref() == Some("kanban_delete:k1"),
+            _ => false,
+        });
+        assert!(
+            has_settings_add,
+            "+ Card button must open Settings Kanban panel"
+        );
+        assert!(has_move, "Kanban card must advance to next column on click");
+        assert!(has_delete, "Kanban card must expose x delete action");
+
+        assert!(hub.kanban.remove_card("k1"));
+        assert!(hub.kanban.doing.is_empty());
+    }
+
+    #[test]
+    fn calendar_sunday_column_and_dates_render_red_even_in_monochrome() {
+        let hub = WidgetDataHub::default();
+        let mono_white = WidgetStyleConfig {
+            text_primary: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 1.0),
+            },
+            text_secondary: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 0.8),
+            },
+            accent: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 1.0),
+            },
+            ..WidgetStyleConfig::default()
+        };
+        let analysis = analyze_region_for_style(None, &mono_white, 0.0, 0.0, 0.25, 0.25);
+        let slot = WidgetStackSlot {
+            slot_id: "cal_sun".into(),
+            size: config::WidgetSize::Small,
+            widgets: vec![WidgetInstance {
+                instance_id: "cal1".into(),
+                widget_type: "calendar_agenda".into(),
+                style_override: None,
+                settings: serde_json::json!({ "calendar_style": "bulan_minimal" }),
+            }],
+            ..Default::default()
+        };
+        let item = build_widget_render_item(
+            &slot,
+            RectF::new(0.0, 0.0, 160.0, 160.0),
+            &mono_white,
+            &analysis,
+            &hub,
+            0.0,
+        );
+        let red_text_nodes = item
+            .nodes
+            .iter()
+            .filter(|n| match n {
+                layout::SceneNode::Text { color, .. } => {
+                    color.r >= 240 && color.g <= 120 && color.b <= 120
+                }
+                _ => false,
+            })
+            .count();
+        // At least 1 Sunday header ("M"/"S") + >=4 Sundays in any calendar month
+        assert!(
+            red_text_nodes >= 5,
+            "Expected Sunday header + at least 4 Sunday dates in red, got {red_text_nodes}"
+        );
+    }
+
+    #[test]
+    fn audited_widgets_avoid_invisible_inline_edit_overlap_and_monochrome_eye_loss() {
+        let mut hub = WidgetDataHub::default();
+        hub.frontend.ai_quick.configured = true;
+        hub.frontend.ai_quick.active_model_label = "GEMINI".into();
+        hub.time_tracker
+            .projects
+            .push(providers::local_stores::TimeProject {
+                id: "p1".into(),
+                name: "Design System".into(),
+                total_seconds: 120,
+                running_since_epoch: None,
+            });
+        hub.quick_controls.wifi_enabled = Some(true);
+        hub.quick_controls.bluetooth_enabled = Some(true);
+        hub.quick_controls.audio_muted = Some(false);
+        hub.air_quality.available = true;
+        hub.air_quality.location_name = "Jakarta".into();
+        hub.air_quality.us_aqi = 64;
+        hub.air_quality.category_label = "Sedang".into();
+        hub.prayer.ramadan_mode = true;
+        hub.prayer.sahur_time = "04:15".into();
+        hub.prayer.buka_time = "17:55".into();
+
+        let mono_white = WidgetStyleConfig {
+            text_primary: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 1.0),
+            },
+            text_secondary: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 0.8),
+            },
+            accent: config::ColorRoleSource::Custom {
+                color: config::RgbaColor::new(255, 255, 255, 1.0),
+            },
+            ..WidgetStyleConfig::default()
+        };
+        let analysis = analyze_region_for_style(None, &mono_white, 0.0, 0.0, 0.25, 0.25);
+
+        let build = |wt: &str, size: config::WidgetSize, scale: f32| {
+            let (w, h) = size.dimensions_dp(scale);
+            let slot = WidgetStackSlot {
+                slot_id: format!("audit_{wt}"),
+                size,
+                widgets: vec![WidgetInstance {
+                    instance_id: "i1".into(),
+                    widget_type: wt.into(),
+                    style_override: None,
+                    settings: serde_json::json!({}),
+                }],
+                ..Default::default()
+            };
+            build_widget_render_item(
+                &slot,
+                RectF::new(0.0, 0.0, w, h),
+                &mono_white,
+                &analysis,
+                &hub,
+                0.5,
+            )
+        };
+
+        // 1. No widget emits broken Win32 inline_edit:* actions anymore
+        for (wt, sz) in [
+            ("quick_expense", config::WidgetSize::Small),
+            ("ai_quick_ask", config::WidgetSize::Medium),
+            ("mini_kanban", config::WidgetSize::Large),
+        ] {
+            let item = build(wt, sz, 0.85);
+            for n in &item.nodes {
+                let act = match n {
+                    layout::SceneNode::RoundedRect {
+                        interactive_action, ..
+                    }
+                    | layout::SceneNode::Text {
+                        interactive_action, ..
+                    } => interactive_action.as_deref(),
+                    _ => None,
+                };
+                assert!(
+                    !act.map(|a| a.starts_with("inline_edit:")).unwrap_or(false),
+                    "{wt} must not emit invisible inline_edit action"
+                );
+            }
+        }
+
+        // 2. Live Mascot uses Gili logo geometry with contrasting dark visor on Monochrome White
+        let mascot = build("live_mascot", config::WidgetSize::Small, 1.0);
+        let mascot_node = mascot.nodes.iter().find_map(|n| match n {
+            layout::SceneNode::GiliMascot {
+                dome_color,
+                visor_color,
+                eye_color,
+                interactive_action,
+                ..
+            } => Some((
+                *dome_color,
+                *visor_color,
+                *eye_color,
+                interactive_action.as_deref(),
+            )),
+            _ => None,
+        });
+        let (dome, visor, eye, act) = mascot_node.expect("Mascot must render GiliMascot node");
+        assert!(dome.r > 230 && visor.r < 40 && eye.r > 230);
+        assert_eq!(act, Some("mascot_poke"));
+
+        // 3. Time Tracker Small gives readable project name width (>= 48dp)
+        let tt = build("time_tracker", config::WidgetSize::Small, 1.0);
+        let proj_w = tt
+            .nodes
+            .iter()
+            .find_map(|n| match n {
+                layout::SceneNode::Text { content, rect, .. } if content == "Design System" => {
+                    Some(rect.w)
+                }
+                _ => None,
+            })
+            .expect("project name must render");
+        assert!(
+            proj_w >= 48.0,
+            "Time Tracker Small name width too narrow: {proj_w}"
+        );
+
+        // 4. Quick Controls Small tiles never overflow bottom of widget frame (even at 0.85 scale)
+        let qc = build("quick_controls", config::WidgetSize::Small, 0.85);
+        for n in &qc.nodes {
+            if let layout::SceneNode::Text { rect, .. } = n {
+                assert!(
+                    rect.y + rect.h <= qc.frame.y + qc.frame.h + 1.0,
+                    "Quick Controls Small text overflows card: {:?}",
+                    rect
+                );
+            }
+        }
+
+        // 5. Air Quality Medium category label stays left of PM2.5 pills (no overlap)
+        let aq = build("air_quality", config::WidgetSize::Medium, 0.85);
+        let cat_rect = aq
+            .nodes
+            .iter()
+            .find_map(|n| match n {
+                layout::SceneNode::Text { content, rect, .. } if content == "Sedang" => Some(*rect),
+                _ => None,
+            })
+            .expect("AQI category must render");
+        assert!(
+            cat_rect.x + cat_rect.w <= aq.frame.x + 16.0 + 110.0,
+            "AQI category overlaps PM2.5 pills: {:?}",
+            cat_rect
+        );
+
+        // 6. Prayer Times Medium pills fit inside frame even at 0.85 compact scale
+        let pr = build("prayer_times", config::WidgetSize::Medium, 0.85);
+        for n in &pr.nodes {
+            if let layout::SceneNode::RoundedRect { rect, .. } = n {
+                assert!(
+                    rect.y + rect.h <= pr.frame.y + pr.frame.h + 0.5,
+                    "Prayer pill clipped at 0.85 scale: {:?}",
+                    rect
+                );
+            }
+        }
     }
 }

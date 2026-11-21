@@ -44,8 +44,8 @@ const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
     description: "Quick file shelf synced with Gili Drop Zone.",
   },
   sticky_notes: {
-    name: "Sticky Notes",
-    description: "Color sticky notes with checklist mode and native inline text editor.",
+    name: "Mini Note",
+    description: "Shows your Notch Mini Note: same notes, colors and checklists, with quick add from the desktop.",
   },
   mini_kanban: {
     name: "3-Column Mini Kanban",
@@ -105,7 +105,7 @@ const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
   },
   photo_frame: {
     name: "Photo Frame",
-    description: "Clean square photo frame with 5s slideshow; click directly to pick photos.",
+    description: "Clean square photo frame with 5s slideshow; click to choose a photo folder.",
   },
   live_mascot: {
     name: "Gili Live Mascot",
@@ -152,11 +152,25 @@ const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
 const PRESET_NAMES_EN: Record<string, string> = {
   frosted_dark: "Frosted Dark",
   frosted_light: "Frosted Light",
+  frosted_glass: "Soft Glass",
+  emerald_tint: "Emerald Tint",
   monochrome_white: "Monochrome White",
   oled_clear: "Clear Dark",
   graphite_solid: "Solid Graphite",
   clean_white: "Clean White",
   dark_frosted: "Frosted Dark",
+};
+
+const PRESET_LABELS_ID_TO_EN: Record<string, string> = {
+  "Kaca Halus": "Soft Glass",
+  "Tint Zamrud": "Emerald Tint",
+  "Bening Adaptif": "Clear Dark",
+  "Bening Tanpa Kartu": "Clear Dark",
+  "Grafit Solid": "Solid Graphite",
+  "Putih Murni (Semua Putih)": "Monochrome White",
+  "Putih Murni (Kaca)": "Monochrome White",
+  "Kaca Gelap (Default)": "Frosted Dark",
+  "Kaca Terang": "Frosted Light",
 };
 
 const PAUSED_REASON_EN: Record<string, string> = {
@@ -182,7 +196,7 @@ export function localizeCatalogEntry(
 
 export function localizePresetName(preset: ColorPreset, isId: boolean): string {
   if (isId) return preset.name;
-  return PRESET_NAMES_EN[preset.id] ?? preset.name;
+  return PRESET_NAMES_EN[preset.id] ?? PRESET_LABELS_ID_TO_EN[preset.name] ?? preset.name;
 }
 
 export function getClockStyleOptions(isId: boolean) {

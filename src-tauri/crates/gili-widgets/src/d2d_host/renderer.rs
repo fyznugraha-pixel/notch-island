@@ -29,14 +29,16 @@ pub mod render {
         D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
     };
     use windows::Win32::Graphics::DirectWrite::{
-        IDWriteTextFormat, IDWriteTextLayout, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_WEIGHT, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
-        DWRITE_TEXT_ALIGNMENT_CENTER,
+        IDWriteInlineObject, IDWriteTextFormat, IDWriteTextLayout, DWRITE_FONT_STRETCH_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+        DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_TEXT_ALIGNMENT_CENTER,
         DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_RANGE,
         DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
         DWRITE_WORD_WRAPPING_WRAP,
     };
     use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
+
+    const SLOT_CACHE_PAD_DP: f32 = 16.0;
 
     fn d2d_color(c: RgbaColor) -> D2D1_COLOR_F {
         D2D1_COLOR_F {
@@ -56,50 +58,335 @@ pub mod render {
         }
     }
 
-    fn hash_render_item(item: &WidgetRenderItem, edit_mode: bool, text_scale: f32) -> u64 {
+    fn hash_color(c: RgbaColor, h: &mut impl Hasher) {
+        c.r.hash(h);
+        c.g.hash(h);
+        c.b.hash(h);
+        c.a.to_bits().hash(h);
+    }
+
+    fn hash_rect(r: RectF, h: &mut impl Hasher) {
+        r.x.to_bits().hash(h);
+        r.y.to_bits().hash(h);
+        r.w.to_bits().hash(h);
+        r.h.to_bits().hash(h);
+    }
+
+    fn hash_scene_node(node: &SceneNode, h: &mut impl Hasher) {
+        match node {
+            SceneNode::RoundedRect {
+                rect,
+                radius,
+                smoothing,
+                fill,
+                stroke,
+                interactive_action,
+            } => {
+                0u8.hash(h);
+                hash_rect(*rect, h);
+                radius.to_bits().hash(h);
+                smoothing.to_bits().hash(h);
+                fill.is_some().hash(h);
+                if let Some(c) = fill {
+                    hash_color(*c, h);
+                }
+                stroke.is_some().hash(h);
+                if let Some((c, w)) = stroke {
+                    hash_color(*c, h);
+                    w.to_bits().hash(h);
+                }
+                interactive_action.hash(h);
+            }
+            SceneNode::Text {
+                rect,
+                content,
+                font_size,
+                font_weight,
+                color,
+                align,
+                tabular_nums,
+                tight_kerning,
+                max_lines,
+                interactive_action,
+            } => {
+                1u8.hash(h);
+                hash_rect(*rect, h);
+                content.hash(h);
+                font_size.to_bits().hash(h);
+                font_weight.hash(h);
+                hash_color(*color, h);
+                (*align as u8).hash(h);
+                tabular_nums.hash(h);
+                tight_kerning.hash(h);
+                max_lines.hash(h);
+                interactive_action.hash(h);
+            }
+            SceneNode::ProgressRing {
+                cx,
+                cy,
+                radius,
+                stroke_width,
+                progress,
+                track_color,
+                fill_color,
+            } => {
+                2u8.hash(h);
+                cx.to_bits().hash(h);
+                cy.to_bits().hash(h);
+                radius.to_bits().hash(h);
+                stroke_width.to_bits().hash(h);
+                progress.to_bits().hash(h);
+                hash_color(*track_color, h);
+                hash_color(*fill_color, h);
+            }
+            SceneNode::ProgressBar {
+                rect,
+                progress,
+                track_color,
+                fill_color,
+                interactive_action,
+            } => {
+                3u8.hash(h);
+                hash_rect(*rect, h);
+                progress.to_bits().hash(h);
+                hash_color(*track_color, h);
+                hash_color(*fill_color, h);
+                interactive_action.hash(h);
+            }
+            SceneNode::Sparkline {
+                rect,
+                values,
+                stroke_color,
+                fill_color,
+            } => {
+                4u8.hash(h);
+                hash_rect(*rect, h);
+                values.len().hash(h);
+                for v in values {
+                    v.to_bits().hash(h);
+                }
+                hash_color(*stroke_color, h);
+                hash_color(*fill_color, h);
+            }
+            SceneNode::BarChart {
+                rect,
+                values,
+                colors,
+                gap,
+            } => {
+                5u8.hash(h);
+                hash_rect(*rect, h);
+                values.len().hash(h);
+                for v in values {
+                    v.to_bits().hash(h);
+                }
+                colors.len().hash(h);
+                for c in colors {
+                    hash_color(*c, h);
+                }
+                gap.to_bits().hash(h);
+            }
+            SceneNode::HeatmapGrid {
+                rect,
+                cols,
+                rows,
+                levels,
+                base_color,
+                accent_color,
+            } => {
+                6u8.hash(h);
+                hash_rect(*rect, h);
+                cols.hash(h);
+                rows.hash(h);
+                levels.hash(h);
+                hash_color(*base_color, h);
+                hash_color(*accent_color, h);
+            }
+            SceneNode::Treemap {
+                rect,
+                items,
+                text_color,
+            } => {
+                7u8.hash(h);
+                hash_rect(*rect, h);
+                items.len().hash(h);
+                for (lbl, val, col) in items {
+                    lbl.hash(h);
+                    val.to_bits().hash(h);
+                    hash_color(*col, h);
+                }
+                hash_color(*text_color, h);
+            }
+            SceneNode::AnalogClock {
+                cx,
+                cy,
+                radius,
+                hour_deg,
+                minute_deg,
+                second_deg,
+                skeleton,
+                dial_color,
+                hand_color,
+                accent_color,
+            } => {
+                8u8.hash(h);
+                cx.to_bits().hash(h);
+                cy.to_bits().hash(h);
+                radius.to_bits().hash(h);
+                hour_deg.to_bits().hash(h);
+                minute_deg.to_bits().hash(h);
+                second_deg.map(f32::to_bits).hash(h);
+                skeleton.hash(h);
+                hash_color(*dial_color, h);
+                hash_color(*hand_color, h);
+                hash_color(*accent_color, h);
+            }
+            SceneNode::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                color,
+                width,
+            } => {
+                9u8.hash(h);
+                x1.to_bits().hash(h);
+                y1.to_bits().hash(h);
+                x2.to_bits().hash(h);
+                y2.to_bits().hash(h);
+                hash_color(*color, h);
+                width.to_bits().hash(h);
+            }
+            SceneNode::ImageRef {
+                rect,
+                radius,
+                source_path,
+                interactive_action,
+            } => {
+                10u8.hash(h);
+                hash_rect(*rect, h);
+                radius.to_bits().hash(h);
+                source_path.hash(h);
+                interactive_action.hash(h);
+            }
+            SceneNode::IconGlyph {
+                rect,
+                glyph,
+                size,
+                color,
+                interactive_action,
+            } => {
+                11u8.hash(h);
+                hash_rect(*rect, h);
+                glyph.hash(h);
+                size.to_bits().hash(h);
+                hash_color(*color, h);
+                interactive_action.hash(h);
+            }
+            SceneNode::WeatherIcon {
+                rect,
+                code,
+                cloud_color,
+                accent_color,
+            } => {
+                12u8.hash(h);
+                hash_rect(*rect, h);
+                code.hash(h);
+                hash_color(*cloud_color, h);
+                hash_color(*accent_color, h);
+            }
+            SceneNode::GiliMascot {
+                rect,
+                dome_color,
+                visor_color,
+                eye_color,
+                wave_color,
+                blink,
+                happy,
+                eye_dx,
+                wave_phase,
+                interactive_action,
+            } => {
+                13u8.hash(h);
+                hash_rect(*rect, h);
+                hash_color(*dome_color, h);
+                hash_color(*visor_color, h);
+                hash_color(*eye_color, h);
+                hash_color(*wave_color, h);
+                blink.hash(h);
+                happy.hash(h);
+                eye_dx.to_bits().hash(h);
+                wave_phase.to_bits().hash(h);
+                interactive_action.hash(h);
+            }
+        }
+    }
+
+    fn hash_slot_content(
+        item: &WidgetRenderItem,
+        edit_mode: bool,
+        policy: &SystemVisualPolicy,
+    ) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         item.slot_id.hash(&mut h);
         item.widget_type.hash(&mut h);
-        item.frame.x.to_bits().hash(&mut h);
-        item.frame.y.to_bits().hash(&mut h);
-        item.frame.w.to_bits().hash(&mut h);
-        item.frame.h.to_bits().hash(&mut h);
+        hash_rect(item.frame, &mut h);
         (item.background_mode as u8).hash(&mut h);
         item.shadow_enabled.hash(&mut h);
         item.halo_enabled.hash(&mut h);
+        hash_color(item.shadow_color, &mut h);
         if let Some(cf) = item.card_fill {
-            cf.r.hash(&mut h);
-            cf.g.hash(&mut h);
-            cf.b.hash(&mut h);
-            cf.a.to_bits().hash(&mut h);
+            hash_color(cf, &mut h);
         }
         if let Some((gt, gb)) = item.card_gradient {
-            gt.r.hash(&mut h);
-            gt.g.hash(&mut h);
-            gt.b.hash(&mut h);
-            gt.a.to_bits().hash(&mut h);
-            gb.r.hash(&mut h);
-            gb.g.hash(&mut h);
-            gb.b.hash(&mut h);
-            gb.a.to_bits().hash(&mut h);
+            hash_color(gt, &mut h);
+            hash_color(gb, &mut h);
+        }
+        if let Some(ib) = item.inner_border {
+            hash_color(ib, &mut h);
         }
         item.font_family.hash(&mut h);
         item.text_scale.to_bits().hash(&mut h);
         item.stack_count.hash(&mut h);
         item.stack_index.hash(&mut h);
+        edit_mode.hash(&mut h);
+        policy.high_contrast.hash(&mut h);
+        policy.transparency_enabled.hash(&mut h);
+        policy.power_saver.hash(&mut h);
+        policy.reduced_motion.hash(&mut h);
+        policy.text_scale_factor.to_bits().hash(&mut h);
+        item.nodes.len().hash(&mut h);
+        for node in &item.nodes {
+            hash_scene_node(node, &mut h);
+        }
+        h.finish()
+    }
+
+    fn hash_render_item(
+        item: &WidgetRenderItem,
+        edit_mode: bool,
+        policy: &SystemVisualPolicy,
+        content_hash: u64,
+    ) -> u64 {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        content_hash.hash(&mut h);
         item.edit_jiggle_deg.to_bits().hash(&mut h);
         item.scale.to_bits().hash(&mut h);
         item.opacity.to_bits().hash(&mut h);
-        edit_mode.hash(&mut h);
-        text_scale.to_bits().hash(&mut h);
-        if let Ok(json) = serde_json::to_string(&item.nodes) {
-            json.hash(&mut h);
-        }
+        let _ = (edit_mode, policy);
         h.finish()
     }
 
     struct CachedBitmapEntry {
         key_hash: u64,
+        bitmap: ID2D1Bitmap1,
+    }
+
+    struct CachedSlotBitmap {
+        content_hash: u64,
+        dpi_q: u32,
+        width_px: u32,
+        height_px: u32,
         bitmap: ID2D1Bitmap1,
     }
 
@@ -141,13 +428,15 @@ pub mod render {
         brush: ID2D1SolidColorBrush,
         dashed_stroke: ID2D1StrokeStyle,
         round_stroke: ID2D1StrokeStyle,
-        text_formats: HashMap<(String, u16, u32, u8), IDWriteTextFormat>,
+        text_formats: HashMap<(String, u16, u32, u8), (IDWriteTextFormat, Option<IDWriteInlineObject>)>,
         /// Cached offscreen bitmaps for text shadow/halo passes so shadows are never recomputed every frame.
         shadow_cache: HashMap<String, CachedBitmapEntry>,
+        /// Per-slot rendered GPU bitmaps so static widgets blit in one DrawBitmap call during visualizer/animations.
+        slot_cache: HashMap<String, CachedSlotBitmap>,
         image_cache: HashMap<String, ID2D1Bitmap1>,
         digit_rolls: HashMap<String, DigitRollState>,
         photo_transitions: HashMap<String, ImageTransitionState>,
-        prev_hashes: HashMap<String, (u64, RectF)>,
+        prev_hashes_by_monitor: HashMap<String, HashMap<String, (u64, RectF)>>,
     }
 
     impl D2DWidgetRenderer {
@@ -194,10 +483,11 @@ pub mod render {
                     round_stroke: round_stroke.into(),
                     text_formats: HashMap::new(),
                     shadow_cache: HashMap::new(),
+                    slot_cache: HashMap::new(),
                     image_cache: HashMap::new(),
                     digit_rolls: HashMap::new(),
                     photo_transitions: HashMap::new(),
-                    prev_hashes: HashMap::new(),
+                    prev_hashes_by_monitor: HashMap::new(),
                 })
             }
         }
@@ -205,10 +495,16 @@ pub mod render {
         pub fn clear_caches(&mut self) {
             self.text_formats.clear();
             self.shadow_cache.clear();
+            self.slot_cache.clear();
             self.image_cache.clear();
             self.digit_rolls.clear();
             self.photo_transitions.clear();
-            self.prev_hashes.clear();
+            self.prev_hashes_by_monitor.clear();
+        }
+
+        pub fn prune_monitors(&mut self, active_monitor_ids: &[String]) {
+            self.prev_hashes_by_monitor
+                .retain(|mon_id, _| active_monitor_ids.iter().any(|id| id == mon_id));
         }
 
         pub fn has_active_animations(&self) -> bool {
@@ -221,14 +517,29 @@ pub mod render {
                     .any(|t| !t.progress.is_settled() && t.prev_path != t.current_path)
         }
 
-        fn get_text_format(
+        fn slot_has_active_animation(&self, slot_id: &str) -> bool {
+            let prefix_len = slot_id.len();
+            let matches_slot = |k: &String| {
+                k.len() > prefix_len
+                    && k.starts_with(slot_id)
+                    && k.as_bytes().get(prefix_len) == Some(&b':')
+            };
+            self.digit_rolls
+                .iter()
+                .any(|(k, r)| matches_slot(k) && !r.progress.is_settled() && r.prev_text != r.current_text)
+                || self.photo_transitions.iter().any(|(k, t)| {
+                    matches_slot(k) && !t.progress.is_settled() && t.prev_path != t.current_path
+                })
+        }
+
+        fn get_text_format_with_trim(
             &mut self,
             res: &D2DDeviceResources,
             family: &str,
             weight: u16,
             size_dp: f32,
             align: TextAlign,
-        ) -> Option<IDWriteTextFormat> {
+        ) -> Option<(IDWriteTextFormat, Option<IDWriteInlineObject>)> {
             let size_q = (size_dp.clamp(8.0, 96.0) * 10.0).round() as u32;
             let align_key = match align {
                 TextAlign::Left => 0,
@@ -236,8 +547,8 @@ pub mod render {
                 TextAlign::Right => 2,
             };
             let key = (family.to_string(), weight, size_q, align_key);
-            if let Some(fmt) = self.text_formats.get(&key) {
-                return Some(fmt.clone());
+            if let Some(cached) = self.text_formats.get(&key) {
+                return Some(cached.clone());
             }
             let fam_w = HSTRING::from(family);
             let locale = HSTRING::from("id-ID");
@@ -254,7 +565,7 @@ pub mod render {
                     )
                     .ok()?
             };
-            unsafe {
+            let trim_sign = unsafe {
                 let _ = fmt.SetTextAlignment(match align {
                     TextAlign::Left => DWRITE_TEXT_ALIGNMENT_LEADING,
                     TextAlign::Center => DWRITE_TEXT_ALIGNMENT_CENTER,
@@ -262,12 +573,26 @@ pub mod render {
                 });
                 let _ = fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
                 let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-            }
+                res.dwrite_factory.CreateEllipsisTrimmingSign(&fmt).ok()
+            };
             if self.text_formats.len() > 160 {
                 self.text_formats.clear();
             }
-            self.text_formats.insert(key, fmt.clone());
-            Some(fmt)
+            self.text_formats
+                .insert(key, (fmt.clone(), trim_sign.clone()));
+            Some((fmt, trim_sign))
+        }
+
+        fn get_text_format(
+            &mut self,
+            res: &D2DDeviceResources,
+            family: &str,
+            weight: u16,
+            size_dp: f32,
+            align: TextAlign,
+        ) -> Option<IDWriteTextFormat> {
+            self.get_text_format_with_trim(res, family, weight, size_dp, align)
+                .map(|(fmt, _)| fmt)
         }
 
         fn create_vertical_gradient_brush(
@@ -309,19 +634,18 @@ pub mod render {
         }
 
         fn apply_single_line_trimming(
-            res: &D2DDeviceResources,
-            fmt: &IDWriteTextFormat,
+            trim_sign: Option<&IDWriteInlineObject>,
             layout: &IDWriteTextLayout,
         ) {
             unsafe {
                 let _ = layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-                if let Ok(sign) = res.dwrite_factory.CreateEllipsisTrimmingSign(fmt) {
+                if let Some(sign) = trim_sign {
                     let trim = DWRITE_TRIMMING {
                         granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
                         delimiter: 0,
                         delimiterCount: 0,
                     };
-                    let _ = layout.SetTrimming(&trim, Some(&sign));
+                    let _ = layout.SetTrimming(&trim, Some(sign));
                 }
             }
         }
@@ -673,6 +997,7 @@ pub mod render {
         /// Returns `(dirty_rect_count, present_result)`.
         pub fn render_frame(
             &mut self,
+            monitor_id: &str,
             res: &D2DDeviceResources,
             swap: &mut MonitorSwapChain,
             items: &[WidgetRenderItem],
@@ -683,77 +1008,252 @@ pub mod render {
             force_full: bool,
             dt_sec: f32,
         ) -> (usize, windows::core::Result<()>) {
-            let dpi_scale = swap.dpi / 96.0;
-            let rolls_active = self.has_active_animations();
-            let force_full = force_full || rolls_active;
-            let mut dirty_rects_px: Vec<RECT> = Vec::new();
-            let mut next_hashes: HashMap<String, (u64, RectF)> = HashMap::new();
+            let Some(target_bitmap) = swap.target_bitmap.clone() else {
+                return (0, Ok(()));
+            };
+            if policy.reduced_motion {
+                self.digit_rolls.clear();
+                self.photo_transitions.clear();
+            }
 
-            for item in items {
-                let h = hash_render_item(item, edit_mode, policy.text_scale_factor);
-                let changed = force_full
-                    || !swap.has_presented_once
-                    || self
-                        .prev_hashes
-                        .get(&item.slot_id)
-                        .map(|(ph, pr)| *ph != h || *pr != item.frame)
-                        .unwrap_or(true);
-                if changed {
-                    let pad = 20.0;
-                    if let Some((_, old_r)) = self.prev_hashes.get(&item.slot_id) {
+            let dpi_scale = swap.dpi / 96.0;
+            let this_mon_anims_active = items
+                .iter()
+                .any(|it| self.slot_has_active_animation(&it.slot_id));
+            let force_full = force_full || this_mon_anims_active;
+            let mut dirty_rects_px: Vec<RECT> = Vec::new();
+            let mut next_hashes: HashMap<String, (u64, RectF)> = HashMap::with_capacity(items.len());
+            let mut content_hashes: Vec<u64> = Vec::with_capacity(items.len());
+            let mut active_roll_keys: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            let mut active_photo_keys: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            let mut this_mon_slots: std::collections::HashSet<String> =
+                std::collections::HashSet::with_capacity(items.len());
+
+            {
+                let prev_mon_hashes = self.prev_hashes_by_monitor.get(monitor_id);
+                for item in items {
+                    this_mon_slots.insert(item.slot_id.clone());
+                    for (idx, node) in item.nodes.iter().enumerate() {
+                        match node {
+                            SceneNode::Text {
+                                tabular_nums: true,
+                                font_size,
+                                ..
+                            } if *font_size >= 24.0 => {
+                                active_roll_keys.insert(format!(
+                                    "{}:{}:{}",
+                                    item.slot_id, item.widget_type, idx
+                                ));
+                            }
+                            SceneNode::ImageRef { .. } => {
+                                active_photo_keys.insert(format!(
+                                    "{}:{}:{}",
+                                    item.slot_id, item.widget_type, idx
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let ch = hash_slot_content(item, edit_mode, policy);
+                    content_hashes.push(ch);
+                    let h = hash_render_item(item, edit_mode, policy, ch);
+                    let changed = force_full
+                        || !swap.has_presented_once
+                        || prev_mon_hashes
+                            .and_then(|m| m.get(&item.slot_id))
+                            .map(|(ph, pr)| *ph != h || *pr != item.frame)
+                            .unwrap_or(true);
+                    if changed {
+                        let pad = 20.0;
+                        if let Some((_, old_r)) = prev_mon_hashes.and_then(|m| m.get(&item.slot_id)) {
+                            dirty_rects_px.push(RECT {
+                                left: ((old_r.x - pad) * dpi_scale).floor() as i32,
+                                top: ((old_r.y - pad) * dpi_scale).floor() as i32,
+                                right: ((old_r.x + old_r.w + pad) * dpi_scale).ceil() as i32,
+                                bottom: ((old_r.y + old_r.h + pad) * dpi_scale).ceil() as i32,
+                            });
+                        }
                         dirty_rects_px.push(RECT {
-                            left: ((old_r.x - pad) * dpi_scale).floor() as i32,
-                            top: ((old_r.y - pad) * dpi_scale).floor() as i32,
-                            right: ((old_r.x + old_r.w + pad) * dpi_scale).ceil() as i32,
-                            bottom: ((old_r.y + old_r.h + pad) * dpi_scale).ceil() as i32,
+                            left: ((item.frame.x - pad) * dpi_scale).floor() as i32,
+                            top: ((item.frame.y - pad) * dpi_scale).floor() as i32,
+                            right: ((item.frame.x + item.frame.w + pad) * dpi_scale).ceil() as i32,
+                            bottom: ((item.frame.y + item.frame.h + pad) * dpi_scale).ceil() as i32,
                         });
                     }
-                    dirty_rects_px.push(RECT {
-                        left: ((item.frame.x - pad) * dpi_scale).floor() as i32,
-                        top: ((item.frame.y - pad) * dpi_scale).floor() as i32,
-                        right: ((item.frame.x + item.frame.w + pad) * dpi_scale).ceil() as i32,
-                        bottom: ((item.frame.y + item.frame.h + pad) * dpi_scale).ceil() as i32,
-                    });
+                    next_hashes.insert(item.slot_id.clone(), (h, item.frame));
                 }
-                next_hashes.insert(item.slot_id.clone(), (h, item.frame));
-            }
 
-            // Detect removed slots
-            for (old_id, (_, old_r)) in &self.prev_hashes {
-                if !next_hashes.contains_key(old_id) {
-                    let pad = 20.0;
-                    dirty_rects_px.push(RECT {
-                        left: ((old_r.x - pad) * dpi_scale).floor() as i32,
-                        top: ((old_r.y - pad) * dpi_scale).floor() as i32,
-                        right: ((old_r.x + old_r.w + pad) * dpi_scale).ceil() as i32,
-                        bottom: ((old_r.y + old_r.h + pad) * dpi_scale).ceil() as i32,
-                    });
+                // Detect slots removed from THIS monitor only
+                if let Some(prev_mon) = prev_mon_hashes {
+                    for (old_id, (_, old_r)) in prev_mon {
+                        if !next_hashes.contains_key(old_id) {
+                            let pad = 20.0;
+                            dirty_rects_px.push(RECT {
+                                left: ((old_r.x - pad) * dpi_scale).floor() as i32,
+                                top: ((old_r.y - pad) * dpi_scale).floor() as i32,
+                                right: ((old_r.x + old_r.w + pad) * dpi_scale).ceil() as i32,
+                                bottom: ((old_r.y + old_r.h + pad) * dpi_scale).ceil() as i32,
+                            });
+                        }
+                    }
                 }
             }
 
-            self.prev_hashes = next_hashes;
+            self.prev_hashes_by_monitor
+                .insert(monitor_id.to_string(), next_hashes);
+
+            // Preserve caches for slots living on ANY monitor while pruning deleted slots and orphaned node animations
+            let all_active_slots: std::collections::HashSet<&str> = self
+                .prev_hashes_by_monitor
+                .values()
+                .flat_map(|m| m.keys().map(|s| s.as_str()))
+                .collect();
             self.shadow_cache
-                .retain(|k, _| self.prev_hashes.contains_key(k));
+                .retain(|k, _| all_active_slots.contains(k.as_str()));
+            self.slot_cache
+                .retain(|k, _| all_active_slots.contains(k.as_str()));
             self.digit_rolls.retain(|k, _| {
-                k.split(':')
-                    .next()
-                    .map(|sid| self.prev_hashes.contains_key(sid))
-                    .unwrap_or(false)
+                let Some(sid) = k.split(':').next() else {
+                    return false;
+                };
+                if !all_active_slots.contains(sid) {
+                    return false;
+                }
+                !this_mon_slots.contains(sid) || active_roll_keys.contains(k)
             });
             self.photo_transitions.retain(|k, _| {
-                k.split(':')
-                    .next()
-                    .map(|sid| self.prev_hashes.contains_key(sid))
-                    .unwrap_or(false)
+                let Some(sid) = k.split(':').next() else {
+                    return false;
+                };
+                if !all_active_slots.contains(sid) {
+                    return false;
+                }
+                !this_mon_slots.contains(sid) || active_photo_keys.contains(k)
             });
 
             if dirty_rects_px.is_empty() && !force_full && swap.has_presented_once {
                 return (0, Ok(()));
             }
 
+            let dpi_q = (swap.dpi * 10.0).round() as u32;
+            let mut transient_bitmaps: Vec<Option<ID2D1Bitmap1>> = vec![None; items.len()];
+
+            // Populate/update offscreen GPU bitmaps for static slots before main swap-chain pass
+            for (idx, item) in items.iter().enumerate() {
+                let live_animated = item.widget_type == "audio_visualizer"
+                    || item.widget_type == "live_mascot"
+                    || self.slot_has_active_animation(&item.slot_id);
+                if live_animated {
+                    self.slot_cache.remove(&item.slot_id);
+                    continue;
+                }
+                let ch = content_hashes[idx];
+                let bmp_w = ((item.frame.w + SLOT_CACHE_PAD_DP * 2.0) * dpi_scale)
+                    .ceil()
+                    .max(1.0) as u32;
+                let bmp_h = ((item.frame.h + SLOT_CACHE_PAD_DP * 2.0) * dpi_scale)
+                    .ceil()
+                    .max(1.0) as u32;
+
+                let cache_hit = self.slot_cache.get(&item.slot_id).map(|e| {
+                    e.content_hash == ch
+                        && e.dpi_q == dpi_q
+                        && e.width_px == bmp_w
+                        && e.height_px == bmp_h
+                }) == Some(true);
+                if cache_hit {
+                    continue;
+                }
+
+                let existing_bmp = self.slot_cache.get(&item.slot_id).and_then(|e| {
+                    if e.dpi_q == dpi_q && e.width_px == bmp_w && e.height_px == bmp_h {
+                        Some(e.bitmap.clone())
+                    } else {
+                        None
+                    }
+                });
+                let offscreen_opt = existing_bmp.or_else(|| {
+                    let props = D2D1_BITMAP_PROPERTIES1 {
+                        pixelFormat: D2D1_PIXEL_FORMAT {
+                            format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                            alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+                        },
+                        dpiX: swap.dpi,
+                        dpiY: swap.dpi,
+                        bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET,
+                        ..Default::default()
+                    };
+                    unsafe {
+                        res.d2d_context
+                            .CreateBitmap(
+                                D2D_SIZE_U {
+                                    width: bmp_w,
+                                    height: bmp_h,
+                                },
+                                None,
+                                0,
+                                &props,
+                            )
+                            .ok()
+                    }
+                });
+                if let Some(offscreen) = offscreen_opt {
+                    let ox = -(item.frame.x - SLOT_CACHE_PAD_DP);
+                    let oy = -(item.frame.y - SLOT_CACHE_PAD_DP);
+                    unsafe {
+                        res.d2d_context.SetTarget(&offscreen);
+                        res.d2d_context.SetDpi(swap.dpi, swap.dpi);
+                        res.d2d_context
+                            .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+                        res.d2d_context.BeginDraw();
+                        res.d2d_context.SetTransform(&Matrix3x2::identity());
+                        res.d2d_context.Clear(Some(&D2D1_COLOR_F {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 0.0,
+                        }));
+                    }
+                    self.draw_widget_item_with_offset(
+                        res,
+                        item,
+                        edit_mode,
+                        policy,
+                        dpi_scale,
+                        dt_sec,
+                        Some((ox, oy)),
+                    );
+                    let end_res = unsafe {
+                        res.d2d_context.SetTransform(&Matrix3x2::identity());
+                        res.d2d_context.EndDraw(None, None)
+                    };
+                    if let Err(e) = end_res {
+                        return (dirty_rects_px.len(), Err(e));
+                    }
+                    if self.slot_has_active_animation(&item.slot_id) {
+                        self.slot_cache.remove(&item.slot_id);
+                        transient_bitmaps[idx] = Some(offscreen);
+                    } else {
+                        self.slot_cache.insert(
+                            item.slot_id.clone(),
+                            CachedSlotBitmap {
+                                content_hash: ch,
+                                dpi_q,
+                                width_px: bmp_w,
+                                height_px: bmp_h,
+                                bitmap: offscreen,
+                            },
+                        );
+                    }
+                }
+            }
+
             let ctx = &res.d2d_context;
             unsafe {
-                ctx.SetTarget(&swap.target_bitmap);
+                ctx.SetTarget(&target_bitmap);
                 ctx.SetDpi(swap.dpi, swap.dpi);
                 ctx.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
                 ctx.BeginDraw();
@@ -777,8 +1277,47 @@ pub mod render {
                 }
             }
 
-            for item in items {
-                self.draw_widget_item(res, item, edit_mode, policy, dpi_scale, dt_sec);
+            for (idx, item) in items.iter().enumerate() {
+                if let Some(bmp) = transient_bitmaps[idx]
+                    .as_ref()
+                    .or_else(|| self.slot_cache.get(&item.slot_id).map(|e| &e.bitmap))
+                {
+                    let cx = item.frame.x + item.frame.w * 0.5;
+                    let cy = item.frame.y + item.frame.h * 0.5;
+                    let scale_mat = Matrix3x2 {
+                        M11: item.scale,
+                        M12: 0.0,
+                        M21: 0.0,
+                        M22: item.scale,
+                        M31: 0.0,
+                        M32: 0.0,
+                    };
+                    let transform = Matrix3x2::translation(-cx, -cy)
+                        * scale_mat
+                        * Matrix3x2::translation(cx, cy)
+                        * Matrix3x2::rotation(item.edit_jiggle_deg, cx, cy);
+                    let dest = D2D_RECT_F {
+                        left: item.frame.x - SLOT_CACHE_PAD_DP,
+                        top: item.frame.y - SLOT_CACHE_PAD_DP,
+                        right: item.frame.x + item.frame.w + SLOT_CACHE_PAD_DP,
+                        bottom: item.frame.y + item.frame.h + SLOT_CACHE_PAD_DP,
+                    };
+                    unsafe {
+                        ctx.SetTransform(&transform);
+                        ctx.DrawBitmap(
+                            bmp,
+                            Some(&dest),
+                            item.opacity,
+                            D2D1_INTERPOLATION_MODE_LINEAR,
+                            None,
+                            None,
+                        );
+                    }
+                } else {
+                    self.draw_widget_item_with_offset(
+                        res, item, edit_mode, policy, dpi_scale, dt_sec, None,
+                    );
+                }
             }
 
             if edit_mode {
@@ -809,7 +1348,7 @@ pub mod render {
             (count, pres)
         }
 
-        fn draw_widget_item(
+        fn draw_widget_item_with_offset(
             &mut self,
             res: &D2DDeviceResources,
             item: &WidgetRenderItem,
@@ -817,23 +1356,28 @@ pub mod render {
             policy: &SystemVisualPolicy,
             dpi_scale: f32,
             dt_sec: f32,
+            cache_offset: Option<(f32, f32)>,
         ) {
             let ctx = &res.d2d_context;
             let cx = item.frame.x + item.frame.w * 0.5;
             let cy = item.frame.y + item.frame.h * 0.5;
 
-            let scale_mat = Matrix3x2 {
-                M11: item.scale,
-                M12: 0.0,
-                M21: 0.0,
-                M22: item.scale,
-                M31: 0.0,
-                M32: 0.0,
+            let transform = if let Some((ox, oy)) = cache_offset {
+                Matrix3x2::translation(ox, oy)
+            } else {
+                let scale_mat = Matrix3x2 {
+                    M11: item.scale,
+                    M12: 0.0,
+                    M21: 0.0,
+                    M22: item.scale,
+                    M31: 0.0,
+                    M32: 0.0,
+                };
+                Matrix3x2::translation(-cx, -cy)
+                    * scale_mat
+                    * Matrix3x2::translation(cx, cy)
+                    * Matrix3x2::rotation(item.edit_jiggle_deg, cx, cy)
             };
-            let transform = Matrix3x2::translation(-cx, -cy)
-                * scale_mat
-                * Matrix3x2::translation(cx, cy)
-                * Matrix3x2::rotation(item.edit_jiggle_deg, cx, cy);
 
             unsafe {
                 ctx.SetTransform(&transform);
@@ -855,18 +1399,51 @@ pub mod render {
                     .iter()
                     .any(|n| matches!(n, crate::layout::SceneNode::ImageRef { .. }));
 
+            let is_light_surface = item
+                .card_fill
+                .map(|c| {
+                    effective_bg != BackgroundMode::None
+                        && item.card_gradient.is_none()
+                        && !policy.high_contrast
+                        && crate::contrast::relative_luminance(c) > 0.45
+                })
+                .unwrap_or_else(|| {
+                    item.nodes
+                        .iter()
+                        .find_map(|n| match n {
+                            SceneNode::Text { color, .. } => {
+                                Some(crate::contrast::relative_luminance(*color) <= 0.45)
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or(false)
+                });
+            let chrome_rgb = if is_light_surface { 0.08 } else { 1.0 };
+
             if effective_bg != BackgroundMode::None {
                 if !is_loaded_photo {
+                    let downgraded_to_solid = effective_bg == BackgroundMode::Solid
+                        && item.background_mode == BackgroundMode::Glass;
                     let fill = if policy.high_contrast {
                         RgbaColor::new(0, 0, 0, 0.96)
                     } else {
-                        item.card_fill
-                            .unwrap_or_else(|| RgbaColor::new(22, 24, 32, 0.52))
+                        let base = item
+                            .card_fill
+                            .unwrap_or_else(|| RgbaColor::new(22, 24, 32, 0.52));
+                        if downgraded_to_solid {
+                            base.with_alpha(0.95)
+                        } else {
+                            base
+                        }
                     };
                     let (top_col, bot_col) = if policy.high_contrast {
                         (fill, fill)
                     } else if let Some((gt, gb)) = item.card_gradient {
-                        (gt, gb)
+                        if downgraded_to_solid {
+                            (gt.with_alpha(0.95), gb.with_alpha(0.95))
+                        } else {
+                            (gt, gb)
+                        }
                     } else {
                         let is_light_card = fill.r > 180 && fill.g > 180 && fill.b > 180;
                         let lift = if is_light_card { 10 } else { 20 };
@@ -977,9 +1554,9 @@ pub mod render {
                 ) {
                     unsafe {
                         self.brush.SetColor(&D2D1_COLOR_F {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
+                            r: chrome_rgb,
+                            g: chrome_rgb,
+                            b: chrome_rgb,
                             a: 0.45,
                         });
                         ctx.DrawGeometry(&geom, &self.brush, 1.5, &self.dashed_stroke);
@@ -1035,9 +1612,9 @@ pub mod render {
                     let r = if active { 2.8 } else { 2.0 };
                     unsafe {
                         self.brush.SetColor(&D2D1_COLOR_F {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
+                            r: chrome_rgb,
+                            g: chrome_rgb,
+                            b: chrome_rgb,
                             a: if active { 0.92 } else { 0.35 },
                         });
                         ctx.FillEllipse(
@@ -1111,12 +1688,16 @@ pub mod render {
             item.shadow_color.b.hash(&mut h);
             item.shadow_color.a.to_bits().hash(&mut h);
             text_scale.to_bits().hash(&mut h);
+            dpi_scale.to_bits().hash(&mut h);
             for node in &item.nodes {
                 if let SceneNode::Text {
                     content,
                     font_size,
                     font_weight,
                     rect,
+                    align,
+                    tabular_nums,
+                    max_lines,
                     ..
                 } = node
                 {
@@ -1125,6 +1706,11 @@ pub mod render {
                     font_weight.hash(&mut h);
                     rect.x.to_bits().hash(&mut h);
                     rect.y.to_bits().hash(&mut h);
+                    rect.w.to_bits().hash(&mut h);
+                    rect.h.to_bits().hash(&mut h);
+                    std::mem::discriminant(align).hash(&mut h);
+                    tabular_nums.hash(&mut h);
+                    max_lines.hash(&mut h);
                 }
             }
             let key_hash = h.finish();
@@ -1185,11 +1771,12 @@ pub mod render {
                             font_weight,
                             align,
                             tabular_nums,
+                            max_lines,
                             ..
                         } = node
                         {
                             let scaled_size = font_size * text_scale;
-                            let Some(fmt) = self.get_text_format(
+                            let Some((fmt, trim_sign)) = self.get_text_format_with_trim(
                                 res,
                                 &item.font_family,
                                 *font_weight,
@@ -1209,6 +1796,9 @@ pub mod render {
                             }) else {
                                 continue;
                             };
+                            if *max_lines == 1 {
+                                Self::apply_single_line_trimming(trim_sign.as_ref(), &layout);
+                            }
                             if *tabular_nums {
                                 let _ = unsafe {
                                     layout.SetTypography(
@@ -1378,9 +1968,13 @@ pub mod render {
                     ..
                 } => {
                     let scaled_size = font_size * text_scale;
-                    let Some(fmt) =
-                        self.get_text_format(res, font_family, *font_weight, scaled_size, *align)
-                    else {
+                    let Some((fmt, trim_sign)) = self.get_text_format_with_trim(
+                        res,
+                        font_family,
+                        *font_weight,
+                        scaled_size,
+                        *align,
+                    ) else {
                         return;
                     };
 
@@ -1414,7 +2008,10 @@ pub mod render {
                                     )
                                 } {
                                     if *max_lines == 1 {
-                                        Self::apply_single_line_trimming(res, &fmt, &prev_layout);
+                                        Self::apply_single_line_trimming(
+                                            trim_sign.as_ref(),
+                                            &prev_layout,
+                                        );
                                     }
                                     let _ = unsafe {
                                         prev_layout.SetTypography(
@@ -1451,7 +2048,10 @@ pub mod render {
                                     )
                                 } {
                                     if *max_lines == 1 {
-                                        Self::apply_single_line_trimming(res, &fmt, &cur_layout);
+                                        Self::apply_single_line_trimming(
+                                            trim_sign.as_ref(),
+                                            &cur_layout,
+                                        );
                                     }
                                     let _ = unsafe {
                                         cur_layout.SetTypography(
@@ -1496,7 +2096,7 @@ pub mod render {
                         return;
                     };
                     if *max_lines == 1 {
-                        Self::apply_single_line_trimming(res, &fmt, &layout);
+                        Self::apply_single_line_trimming(trim_sign.as_ref(), &layout);
                     }
                     if *tabular_nums {
                         let _ = unsafe {
@@ -1741,23 +2341,62 @@ pub mod render {
                     if items.is_empty() {
                         return;
                     }
-                    let total: f32 = items.iter().map(|(_, v, _)| v.max(0.01)).sum();
+                    let gap = 3.0f32;
+                    let total_gap = gap * (items.len().saturating_sub(1) as f32);
+                    let usable_w = (rect.w - total_gap).max(8.0);
+                    let raw_total: f32 = items.iter().map(|(_, v, _)| v.max(0.01)).sum();
+                    let weights: Vec<f32> = items
+                        .iter()
+                        .map(|(_, v, _)| (v.max(0.01) / raw_total).max(0.08))
+                        .collect();
+                    let weight_sum: f32 = weights.iter().sum::<f32>().max(0.01);
+
+                    let lin = |ch: u8| {
+                        let v = ch as f32 / 255.0;
+                        if v <= 0.03928 {
+                            v / 12.92
+                        } else {
+                            ((v + 0.055) / 1.055).powf(2.4)
+                        }
+                    };
+
                     let mut x_cursor = rect.x;
-                    for (label, val, col) in items {
-                        let frac = (val.max(0.01) / total).clamp(0.05, 1.0);
-                        let w = (rect.w * frac - 3.0).max(8.0);
-                        let tile =
-                            RectF::new(x_cursor, rect.y, w.min(rect.x + rect.w - x_cursor), rect.h);
+                    for (idx, (label, _, col)) in items.iter().enumerate() {
+                        let remaining = (rect.x + rect.w - x_cursor).max(0.0);
+                        if remaining < 4.0 {
+                            break;
+                        }
+                        let w = if idx + 1 == items.len() {
+                            remaining
+                        } else {
+                            (usable_w * (weights[idx] / weight_sum)).min(remaining).max(8.0)
+                        };
+                        let tile = RectF::new(x_cursor, rect.y, w, rect.h);
+                        let tile_luma =
+                            0.2126 * lin(col.r) + 0.7152 * lin(col.g) + 0.0722 * lin(col.b);
+                        let is_light_tile = col.a >= 0.45 && tile_luma > 0.36;
+                        let tile_text_color = if is_light_tile {
+                            RgbaColor::new(17, 19, 24, 0.94)
+                        } else if col.a >= 0.45 {
+                            RgbaColor::new(255, 255, 255, 0.96)
+                        } else {
+                            *text_color
+                        };
+                        let tile_border = if is_light_tile {
+                            RgbaColor::new(17, 19, 24, 0.12)
+                        } else {
+                            RgbaColor::new(255, 255, 255, 0.16)
+                        };
+                        let rounded = D2D1_ROUNDED_RECT {
+                            rect: d2d_rect(tile),
+                            radiusX: 8.0,
+                            radiusY: 8.0,
+                        };
                         unsafe {
                             self.brush.SetColor(&d2d_color(*col));
-                            ctx.FillRoundedRectangle(
-                                &D2D1_ROUNDED_RECT {
-                                    rect: d2d_rect(tile),
-                                    radiusX: 8.0,
-                                    radiusY: 8.0,
-                                },
-                                &self.brush,
-                            );
+                            ctx.FillRoundedRectangle(&rounded, &self.brush);
+                            self.brush.SetColor(&d2d_color(tile_border));
+                            ctx.DrawRoundedRectangle(&rounded, &self.brush, 0.75, None);
                         }
                         if tile.w > 34.0 {
                             self.draw_scene_node(
@@ -1767,11 +2406,11 @@ pub mod render {
                                     content: label.clone(),
                                     font_size: 10.5,
                                     font_weight: 600,
-                                    color: *text_color,
+                                    color: tile_text_color,
                                     align: TextAlign::Left,
                                     tabular_nums: false,
                                     tight_kerning: false,
-                                    max_lines: 2,
+                                    max_lines: 3,
                                     interactive_action: None,
                                 },
                                 font_family,
@@ -1781,10 +2420,7 @@ pub mod render {
                                 dt_sec,
                             );
                         }
-                        x_cursor += w + 3.0;
-                        if x_cursor >= rect.x + rect.w - 4.0 {
-                            break;
-                        }
+                        x_cursor += w + gap;
                     }
                 }
                 SceneNode::AnalogClock {
@@ -2097,6 +2733,31 @@ pub mod render {
                 } => {
                     self.draw_weather_icon(res, *rect, *code, *cloud_color, *accent_color);
                 }
+                SceneNode::GiliMascot {
+                    rect,
+                    dome_color,
+                    visor_color,
+                    eye_color,
+                    wave_color,
+                    blink,
+                    happy,
+                    eye_dx,
+                    wave_phase,
+                    ..
+                } => {
+                    self.draw_gili_mascot(
+                        res,
+                        *rect,
+                        *dome_color,
+                        *visor_color,
+                        *eye_color,
+                        *wave_color,
+                        *blink,
+                        *happy,
+                        *eye_dx,
+                        *wave_phase,
+                    );
+                }
                 SceneNode::IconGlyph {
                     rect,
                     glyph,
@@ -2104,17 +2765,13 @@ pub mod render {
                     color,
                     ..
                 } => {
-                    let fmt = self
-                        .get_text_format(res, "Segoe Fluent Icons", 400, *size, TextAlign::Center)
-                        .or_else(|| {
-                            self.get_text_format(
-                                res,
-                                "Segoe MDL2 Assets",
-                                400,
-                                *size,
-                                TextAlign::Center,
-                            )
-                        });
+                    let fmt = self.get_text_format(
+                        res,
+                        res.icon_font_family,
+                        400,
+                        *size,
+                        TextAlign::Center,
+                    );
                     let Some(fmt) = fmt else { return };
                     let text_w: Vec<u16> = glyph.encode_utf16().collect();
                     if let Ok(layout) = unsafe {
@@ -2152,6 +2809,192 @@ pub mod render {
                                 D2D1_DRAW_TEXT_OPTIONS_NONE,
                             );
                         }
+                    }
+                }
+            }
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn draw_gili_mascot(
+            &mut self,
+            res: &D2DDeviceResources,
+            rect: RectF,
+            dome_color: RgbaColor,
+            visor_color: RgbaColor,
+            eye_color: RgbaColor,
+            wave_color: RgbaColor,
+            blink: bool,
+            happy: bool,
+            eye_dx: f32,
+            wave_phase: f32,
+        ) {
+            use windows::Win32::Graphics::Direct2D::Common::{
+                D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_OPEN, D2D_SIZE_F,
+            };
+
+            let s = rect.w.min(rect.h) / 120.0;
+            if s <= 0.05 {
+                return;
+            }
+            let ox = rect.x + (rect.w - 120.0 * s) * 0.5;
+            let oy = rect.y + (rect.h - 120.0 * s) * 0.5 + 0.5 * s;
+            let pt = |x: f32, y: f32| D2D_POINT_2F {
+                x: ox + x * s,
+                y: oy + y * s,
+            };
+            let ctx = &res.d2d_context;
+
+            unsafe {
+                // 1. Official Gili island dome: M8 76 A52 50 0 0 1 112 76 Z
+                if let Ok(dome_geom) = res.d2d_factory.CreatePathGeometry() {
+                    if let Ok(sink) = dome_geom.Open() {
+                        sink.BeginFigure(pt(8.0, 76.0), D2D1_FIGURE_BEGIN_FILLED);
+                        sink.AddArc(&D2D1_ARC_SEGMENT {
+                            point: pt(112.0, 76.0),
+                            size: D2D_SIZE_F {
+                                width: 52.0 * s,
+                                height: 50.0 * s,
+                            },
+                            rotationAngle: 0.0,
+                            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                            arcSize: D2D1_ARC_SIZE_SMALL,
+                        });
+                        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                        let _ = sink.Close();
+                        self.brush.SetColor(&d2d_color(dome_color));
+                        ctx.FillGeometry(&dome_geom, &self.brush, None);
+                    }
+                }
+
+                // 2. Dark notch visor: M38 30.7 A52 50 0 0 1 82 30.7 V44 A14 14 0 0 1 68 58 H52 A14 14 0 0 1 38 44 Z
+                if let Ok(visor_geom) = res.d2d_factory.CreatePathGeometry() {
+                    if let Ok(sink) = visor_geom.Open() {
+                        sink.BeginFigure(pt(38.0, 30.695), D2D1_FIGURE_BEGIN_FILLED);
+                        sink.AddArc(&D2D1_ARC_SEGMENT {
+                            point: pt(82.0, 30.695),
+                            size: D2D_SIZE_F {
+                                width: 52.0 * s,
+                                height: 50.0 * s,
+                            },
+                            rotationAngle: 0.0,
+                            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                            arcSize: D2D1_ARC_SIZE_SMALL,
+                        });
+                        sink.AddLine(pt(82.0, 44.0));
+                        sink.AddArc(&D2D1_ARC_SEGMENT {
+                            point: pt(68.0, 58.0),
+                            size: D2D_SIZE_F {
+                                width: 14.0 * s,
+                                height: 14.0 * s,
+                            },
+                            rotationAngle: 0.0,
+                            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                            arcSize: D2D1_ARC_SIZE_SMALL,
+                        });
+                        sink.AddLine(pt(52.0, 58.0));
+                        sink.AddArc(&D2D1_ARC_SEGMENT {
+                            point: pt(38.0, 44.0),
+                            size: D2D_SIZE_F {
+                                width: 14.0 * s,
+                                height: 14.0 * s,
+                            },
+                            rotationAngle: 0.0,
+                            sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                            arcSize: D2D1_ARC_SIZE_SMALL,
+                        });
+                        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                        let _ = sink.Close();
+                        self.brush.SetColor(&d2d_color(visor_color));
+                        ctx.FillGeometry(&visor_geom, &self.brush, None);
+                    }
+                }
+
+                // 3. Glowing cyan eyes inside visor (blinking / smiling happy arcs when poked)
+                self.brush.SetColor(&d2d_color(eye_color));
+                let dx = eye_dx.clamp(-2.0, 2.0);
+                if happy && !blink {
+                    for ex in [51.0 + dx, 69.0 + dx] {
+                        if let Ok(arc_geom) = res.d2d_factory.CreatePathGeometry() {
+                            if let Ok(sink) = arc_geom.Open() {
+                                sink.BeginFigure(pt(ex - 4.0, 43.5), D2D1_FIGURE_BEGIN_HOLLOW);
+                                sink.AddArc(&D2D1_ARC_SEGMENT {
+                                    point: pt(ex + 4.0, 43.5),
+                                    size: D2D_SIZE_F {
+                                        width: 4.5 * s,
+                                        height: 5.5 * s,
+                                    },
+                                    rotationAngle: 0.0,
+                                    sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                                    arcSize: D2D1_ARC_SIZE_SMALL,
+                                });
+                                sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                                let _ = sink.Close();
+                                ctx.DrawGeometry(
+                                    &arc_geom,
+                                    &self.brush,
+                                    (3.2 * s).max(1.5),
+                                    &self.round_stroke,
+                                );
+                            }
+                        }
+                    }
+                    // Subtle coral cheek highlights when poked
+                    self.brush
+                        .SetColor(&d2d_color(RgbaColor::new(251, 113, 133, 0.72)));
+                    for cx_cheek in [27.0, 93.0] {
+                        ctx.FillEllipse(
+                            &D2D1_ELLIPSE {
+                                point: pt(cx_cheek, 62.0),
+                                radiusX: 5.5 * s,
+                                radiusY: 3.0 * s,
+                            },
+                            &self.brush,
+                        );
+                    }
+                } else {
+                    let eye_h: f32 = if blink { 2.6 } else { 12.0 };
+                    let eye_y = 42.0 - eye_h * 0.5;
+                    let eye_r = (eye_h * 0.5).min(3.0) * s;
+                    for ex in [48.0 + dx, 66.0 + dx] {
+                        let er = D2D_RECT_F {
+                            left: ox + ex * s,
+                            top: oy + eye_y * s,
+                            right: ox + (ex + 6.0) * s,
+                            bottom: oy + (eye_y + eye_h) * s,
+                        };
+                        ctx.FillRoundedRectangle(
+                            &D2D1_ROUNDED_RECT {
+                                rect: er,
+                                radiusX: eye_r,
+                                radiusY: eye_r,
+                            },
+                            &self.brush,
+                        );
+                    }
+                }
+
+                // 4. Rippling ocean wave under dome: M10 90 Q20 82 30 90 T50 90 T70 90 T90 90 T110 90
+                if let Ok(wave_geom) = res.d2d_factory.CreatePathGeometry() {
+                    if let Ok(sink) = wave_geom.Open() {
+                        const STEPS: usize = 28;
+                        let wave_y = |x: f32| {
+                            90.0 - 4.0
+                                * (((x - 10.0) * std::f32::consts::TAU / 40.0) - wave_phase).sin()
+                        };
+                        sink.BeginFigure(pt(10.0, wave_y(10.0)), D2D1_FIGURE_BEGIN_HOLLOW);
+                        for i in 1..=STEPS {
+                            let x = 10.0 + (100.0 * i as f32 / STEPS as f32);
+                            sink.AddLine(pt(x, wave_y(x)));
+                        }
+                        sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                        let _ = sink.Close();
+                        self.brush.SetColor(&d2d_color(wave_color));
+                        ctx.DrawGeometry(
+                            &wave_geom,
+                            &self.brush,
+                            (6.0 * s).max(2.0),
+                            &self.round_stroke,
+                        );
                     }
                 }
             }

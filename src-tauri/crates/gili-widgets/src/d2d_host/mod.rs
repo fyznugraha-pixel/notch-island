@@ -1,23 +1,43 @@
 pub mod device;
 pub mod renderer;
 
-use crate::config::{DesktopWidgetsConfig, DisplayMode, WidgetSize};
+use crate::config::{DesktopWidgetsConfig, DisplayMode, WidgetSize, WidgetStyleConfig};
 use crate::contrast::{
     analyze_region_for_style, load_wallpaper_sample, resolve_wallpaper_file_path,
-    CachedWallpaperSample,
+    CachedWallpaperSample, WallpaperRegionAnalysis,
 };
-use crate::d2d_host::device::{query_system_visual_policy, SystemVisualPolicy};
+use crate::d2d_host::device::{
+    query_dynamic_visual_policy, query_system_visual_policy, SystemVisualPolicy,
+};
 use crate::layout::{
-    hit_test_scene, slot_rect_dp, snap_position_to_grid, HitTestResult, RectF, WidgetRenderItem,
+    effective_slot_rect_dp, find_non_overlapping_pos, hit_test_scene, resolve_all_rect_collisions,
+    slot_rect_dp, snap_position_to_grid, HitTestResult, RectF, WidgetRenderItem,
 };
 use crate::providers::WidgetDataHub;
 use crate::spring::{edit_jiggle_degrees, SpringParams, SpringValue};
-use crate::widgets::build_widget_render_item;
+use crate::widgets::{build_widget_render_item_with_policy, widget_catalog};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+static HOST_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+
+/// Wakes the Direct2D host thread immediately out of `MsgWaitForMultipleObjects`.
+pub fn wake_host_thread() {
+    #[cfg(windows)]
+    {
+        let tid = HOST_THREAD_ID.load(Ordering::Acquire);
+        if tid != 0 {
+            use windows::Win32::Foundation::{LPARAM, WPARAM};
+            use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_NULL};
+            unsafe {
+                let _ = PostThreadMessageW(tid, WM_NULL, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WidgetRuntimeMetrics {
@@ -61,12 +81,25 @@ impl Default for WidgetRuntimeMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WidgetHostEvent {
-    OpenFeature { widget_type: String, action_id: Option<String> },
+    OpenFeature {
+        widget_type: String,
+        action_id: Option<String>,
+    },
     OpenGallery,
-    OpenCustomizer { slot_id: String },
-    ConfigMutated { config: DesktopWidgetsConfig },
-    TextInputSubmitted { slot_id: String, widget_type: String, text: String },
-    ToggleQuickControl { control: String },
+    OpenCustomizer {
+        slot_id: String,
+    },
+    ConfigMutated {
+        config: DesktopWidgetsConfig,
+    },
+    TextInputSubmitted {
+        slot_id: String,
+        widget_type: String,
+        text: String,
+    },
+    ToggleQuickControl {
+        control: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +107,7 @@ pub enum HostCommand {
     UpdateConfig(DesktopWidgetsConfig),
     SetEditMode(bool),
     ToggleBoard(Option<bool>),
+    SetStandbyPaused(bool),
     RefreshWallpaper,
     MarkDirty,
     Shutdown,
@@ -96,7 +130,9 @@ pub struct MonitorInfoData {
 pub fn query_process_working_set_mb() -> f32 {
     #[cfg(windows)]
     {
-        use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+        use windows::Win32::System::ProcessStatus::{
+            GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+        };
         use windows::Win32::System::Threading::GetCurrentProcess;
         let mut pmc = PROCESS_MEMORY_COUNTERS::default();
         let ok = unsafe {
@@ -117,11 +153,14 @@ pub fn query_process_working_set_mb() -> f32 {
 pub struct HostSharedState {
     pub config: DesktopWidgetsConfig,
     pub hub: WidgetDataHub,
+    pub data_revision: u64,
+    pub audio_revision: u64,
     pub edit_mode: bool,
     pub board_visible: bool,
     pub screen_powered_off: bool,
+    pub standby_paused: bool,
     pub policy: SystemVisualPolicy,
-    pub wallpaper: Option<CachedWallpaperSample>,
+    pub wallpaper: Option<Arc<CachedWallpaperSample>>,
     pub metrics: WidgetRuntimeMetrics,
     pub pending_commands: Vec<HostCommand>,
     pub on_event: Option<Arc<dyn Fn(WidgetHostEvent) + Send + Sync>>,
@@ -129,20 +168,33 @@ pub struct HostSharedState {
 
 impl HostSharedState {
     pub fn new(config: DesktopWidgetsConfig) -> Self {
-        let wp = resolve_wallpaper_file_path().and_then(|p| load_wallpaper_sample(&p));
+        let wp = resolve_wallpaper_file_path()
+            .and_then(|p| load_wallpaper_sample(&p))
+            .map(Arc::new);
         let policy = query_system_visual_policy();
         Self {
             config,
             hub: WidgetDataHub::default(),
+            data_revision: 1,
+            audio_revision: 0,
             edit_mode: false,
             board_visible: false,
             screen_powered_off: false,
+            standby_paused: false,
             policy,
             wallpaper: wp,
             metrics: WidgetRuntimeMetrics::default(),
             pending_commands: Vec::new(),
             on_event: None,
         }
+    }
+
+    pub fn mark_data_changed(&mut self) {
+        self.data_revision = self.data_revision.wrapping_add(1);
+    }
+
+    pub fn mark_audio_changed(&mut self) {
+        self.audio_revision = self.audio_revision.wrapping_add(1);
     }
 
     pub fn emit(&self, ev: WidgetHostEvent) {
@@ -163,11 +215,38 @@ pub fn compute_adaptive_target_fps(
     board_visible: bool,
     policy: &SystemVisualPolicy,
 ) -> (u32, Option<String>) {
+    compute_adaptive_target_fps_with_standby(
+        cfg,
+        edit_mode,
+        any_motion_active,
+        has_running_timer,
+        has_active_audio,
+        screen_off,
+        board_visible,
+        policy,
+        false,
+    )
+}
+
+pub fn compute_adaptive_target_fps_with_standby(
+    cfg: &DesktopWidgetsConfig,
+    edit_mode: bool,
+    any_motion_active: bool,
+    has_running_timer: bool,
+    has_active_audio: bool,
+    screen_off: bool,
+    board_visible: bool,
+    policy: &SystemVisualPolicy,
+    standby_paused: bool,
+) -> (u32, Option<String>) {
     if !cfg.enabled && !board_visible {
         return (0, Some("Widget desktop nonaktif".into()));
     }
     if screen_off {
         return (0, Some("Layar mati".into()));
+    }
+    if standby_paused && !board_visible {
+        return (0, Some("StandBy Screensaver".into()));
     }
     if cfg.display_mode == DisplayMode::WidgetBoard && !board_visible {
         return (0, Some("Papan Widget tertutup".into()));
@@ -192,7 +271,7 @@ pub fn compute_adaptive_target_fps(
             .unwrap_or(false)
     });
     if has_visualizer && has_active_audio {
-        return (cap, None);
+        return (if policy.power_saver { 20 } else { 30 }, None);
     }
 
     let has_mascot = cfg.slots.iter().any(|s| {
@@ -224,7 +303,9 @@ pub fn compute_adaptive_target_fps(
 }
 
 #[cfg(windows)]
-pub fn spawn_native_host_thread(shared: Arc<Mutex<HostSharedState>>) -> std::thread::JoinHandle<()> {
+pub fn spawn_native_host_thread(
+    shared: Arc<Mutex<HostSharedState>>,
+) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
         .name("gili-widgets-d2d".into())
         .spawn(move || {
@@ -239,7 +320,9 @@ pub fn spawn_native_host_thread(shared: Arc<Mutex<HostSharedState>>) -> std::thr
 }
 
 #[cfg(not(windows))]
-pub fn spawn_native_host_thread(_shared: Arc<Mutex<HostSharedState>>) -> std::thread::JoinHandle<()> {
+pub fn spawn_native_host_thread(
+    _shared: Arc<Mutex<HostSharedState>>,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(|| {})
 }
 
@@ -256,6 +339,7 @@ mod win_host {
         EnumDisplayMonitors, GetMonitorInfoW, ScreenToClient, HDC, HMONITOR, MONITORINFOEXW,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::System::Threading::GetCurrentThreadId;
     use windows::Win32::UI::HiDpi::{
         GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
@@ -266,14 +350,15 @@ mod win_host {
         AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
         DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GetCursorPos, GetWindow,
         GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindowVisible,
-        MsgWaitForMultipleObjects, PeekMessageW, RegisterClassExW, SetForegroundWindow,
-        SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu, TranslateMessage, CS_DBLCLKS,
-        ES_AUTOHSCROLL, GWLP_HWNDPARENT, GWL_EXSTYLE, GW_HWNDPREV, HTCLIENT, HTTRANSPARENT,
-        HWND_BOTTOM, HWND_TOP, HWND_TOPMOST, MF_SEPARATOR, MF_STRING, MSG, PM_REMOVE, QS_ALLINPUT,
-        SET_WINDOW_POS_FLAGS, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-        WINDOWPOS, WM_CAPTURECHANGED, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETOBJECT,
-        WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
+        MsgWaitForMultipleObjects, PeekMessageW, PostMessageW, RegisterClassExW,
+        SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu,
+        TranslateMessage, CS_DBLCLKS, ES_AUTOHSCROLL, GWLP_HWNDPARENT, GWL_EXSTYLE, GW_HWNDPREV,
+        HTCLIENT, HTTRANSPARENT, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, MF_SEPARATOR,
+        MF_STRING, MSG, PM_REMOVE, QS_ALLINPUT, SET_WINDOW_POS_FLAGS, SWP_HIDEWINDOW,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE,
+        SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOWPOS,
+        WM_CAPTURECHANGED, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETOBJECT, WM_KEYDOWN,
+        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_NULL,
         WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SHOWWINDOW, WM_WINDOWPOSCHANGING,
         WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE,
         WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
@@ -287,9 +372,10 @@ mod win_host {
     const CMD_STACK_NEXT: i32 = 1006;
     const CMD_DELETE: i32 = 1007;
     const CMD_CYCLE_STYLE: i32 = 1008;
-    const CMD_PHOTO_ADD: i32 = 1009;
     const CMD_PHOTO_FOLDER: i32 = 1010;
     const CMD_PHOTO_NEXT: i32 = 1011;
+    const CMD_STORAGE_FOLDER: i32 = 1012;
+    const CMD_STORAGE_SCAN: i32 = 1013;
     const DRAG_THRESHOLD_DP: f32 = 5.0;
 
     /// Lock-free atomic flags read by synchronous Win32 callbacks so `wnd_proc` never panics on re-entry.
@@ -339,7 +425,7 @@ mod win_host {
     struct MonitorSurface {
         info: MonitorInfoData,
         hwnd: HWND,
-        swap: MonitorSwapChain,
+        swap: Option<MonitorSwapChain>,
         items: Vec<WidgetRenderItem>,
         add_btn_rect: Option<RectF>,
         last_visible: bool,
@@ -438,6 +524,69 @@ mod win_host {
         }
     }
 
+    fn resolve_collisions_for_surfaces(
+        cfg: &mut DesktopWidgetsConfig,
+        surfaces: &[MonitorSurface],
+        priority_slot_id: Option<&str>,
+    ) -> bool {
+        let mut any_changed = false;
+        let primary_bounds = surfaces
+            .iter()
+            .find(|s| s.info.is_primary)
+            .or_else(|| surfaces.first())
+            .map(|s| {
+                let dpi = unsafe { (GetDpiForWindow(s.hwnd) as f32).max(96.0) };
+                (
+                    s.info.work_w as f32 * 96.0 / dpi,
+                    s.info.work_h as f32 * 96.0 / dpi,
+                )
+            })
+            .unwrap_or((1920.0, 1040.0));
+
+        // Partition slots by monitor so each monitor resolves collisions within its own work area
+        let mut monitor_ids: Vec<String> = Vec::new();
+        for slot in &cfg.slots {
+            if !monitor_ids.iter().any(|m| m == &slot.monitor_id) {
+                monitor_ids.push(slot.monitor_id.clone());
+            }
+        }
+        for mon_id in monitor_ids {
+            let (work_w_dip, work_h_dip) = surfaces
+                .iter()
+                .find(|s| s.info.id == mon_id || (s.info.is_primary && mon_id == "primary"))
+                .map(|s| {
+                    let dpi = unsafe { (GetDpiForWindow(s.hwnd) as f32).max(96.0) };
+                    (
+                        s.info.work_w as f32 * 96.0 / dpi,
+                        s.info.work_h as f32 * 96.0 / dpi,
+                    )
+                })
+                .unwrap_or(primary_bounds);
+
+            let indices: Vec<usize> = cfg
+                .slots
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.monitor_id == mon_id)
+                .map(|(i, _)| i)
+                .collect();
+            let mut subset: Vec<_> = indices.iter().map(|&i| cfg.slots[i].clone()).collect();
+            if resolve_all_rect_collisions(
+                &mut subset,
+                priority_slot_id,
+                cfg.grid_scale,
+                work_w_dip,
+                work_h_dip,
+            ) {
+                for (dst_idx, updated) in indices.into_iter().zip(subset.into_iter()) {
+                    cfg.slots[dst_idx] = updated;
+                }
+                any_changed = true;
+            }
+        }
+        any_changed
+    }
+
     fn finalize_drag_or_press(
         st: &mut HostThreadState,
         fallback_hwnd: HWND,
@@ -450,18 +599,40 @@ mod win_host {
 
             let mutated_cfg = if let Ok(mut sh) = st.shared.lock() {
                 let scale = sh.config.grid_scale;
-                let (col, row) = snap_position_to_grid(final_x, final_y, scale, 32.0, 48.0);
+                let moved_mon = sh
+                    .config
+                    .slots
+                    .iter()
+                    .find(|s| s.slot_id == drag.slot_id)
+                    .map(|s| s.monitor_id.clone())
+                    .unwrap_or_else(|| "primary".to_string());
+                let others: Vec<RectF> = sh
+                    .config
+                    .slots
+                    .iter()
+                    .filter(|s| s.slot_id != drag.slot_id && s.monitor_id == moved_mon)
+                    .map(|s| effective_slot_rect_dp(s, scale, drag.work_w_dip, drag.work_h_dip))
+                    .collect();
+                let (safe_x, safe_y) = find_non_overlapping_pos(
+                    RectF::new(final_x, final_y, drag.item_w, drag.item_h),
+                    &others,
+                    drag.work_w_dip,
+                    drag.work_h_dip,
+                    scale,
+                );
+                let (col, row) = snap_position_to_grid(safe_x, safe_y, scale, 32.0, 48.0);
                 if let Some(slot) = sh
                     .config
                     .slots
                     .iter_mut()
                     .find(|s| s.slot_id == drag.slot_id)
                 {
-                    slot.pos_x = Some(final_x);
-                    slot.pos_y = Some(final_y);
+                    slot.pos_x = Some(safe_x);
+                    slot.pos_y = Some(safe_y);
                     slot.grid_col = col.max(0);
                     slot.grid_row = row.max(0);
                 }
+                sh.mark_data_changed();
                 Some(sh.config.clone())
             } else {
                 None
@@ -528,7 +699,12 @@ mod win_host {
     /// ABOVE the wallpaper and desktop icons, BELOW normal apps, and visible across Win+D without Explorer injection.
     fn find_desktop_shell_owner_hwnd() -> Option<HWND> {
         unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
-            if let Ok(def_view) = FindWindowExW(hwnd, HWND::default(), w!("SHELLDLL_DefView"), PCWSTR::null()) {
+            if let Ok(def_view) = FindWindowExW(
+                hwnd,
+                HWND::default(),
+                w!("SHELLDLL_DefView"),
+                PCWSTR::null(),
+            ) {
                 if !def_view.0.is_null() {
                     let out = &mut *(lparam.0 as *mut Option<HWND>);
                     *out = Some(hwnd);
@@ -541,9 +717,12 @@ mod win_host {
         unsafe {
             if let Ok(progman) = FindWindowW(w!("Progman"), PCWSTR::null()) {
                 if !progman.0.is_null() {
-                    if let Ok(def_view) =
-                        FindWindowExW(progman, HWND::default(), w!("SHELLDLL_DefView"), PCWSTR::null())
-                    {
+                    if let Ok(def_view) = FindWindowExW(
+                        progman,
+                        HWND::default(),
+                        w!("SHELLDLL_DefView"),
+                        PCWSTR::null(),
+                    ) {
                         if !def_view.0.is_null() {
                             return Some(progman);
                         }
@@ -688,8 +867,7 @@ mod win_host {
                         None
                     };
                     if (wp.flags.0 & SWP_NOZORDER.0) == 0 {
-                        wp.hwndInsertAfter =
-                            find_z_insert_after_above_desktop(desktop_host, hwnd);
+                        wp.hwndInsertAfter = find_z_insert_after_above_desktop(desktop_host, hwnd);
                     }
                     if WANT_VISIBLE_MODE.load(Ordering::Relaxed) {
                         wp.flags = SET_WINDOW_POS_FLAGS(wp.flags.0 & !SWP_HIDEWINDOW.0);
@@ -822,12 +1000,12 @@ mod win_host {
                             }
                         }
                         HitTestResult::GalleryAddButton => {
-                            deferred_ev =
-                                Some((st.shared.clone(), WidgetHostEvent::OpenGallery));
+                            deferred_ev = Some((st.shared.clone(), WidgetHostEvent::OpenGallery));
                         }
                         HitTestResult::RemoveBadge { slot_id } => {
                             let cfg_opt = st.shared.lock().ok().map(|mut sh| {
                                 sh.config.slots.retain(|s| s.slot_id != slot_id);
+                                sh.mark_data_changed();
                                 sh.config.clone()
                             });
                             if let Some(config) = cfg_opt {
@@ -841,11 +1019,14 @@ mod win_host {
                         HitTestResult::WidgetContent { slot_id, action_id } => {
                             if let Some(act) = &action_id {
                                 if act.starts_with("inline_edit:") {
-                                    if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
+                                    if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd)
+                                    {
                                         if let Some(item) =
                                             surf.items.iter().find(|i| i.slot_id == slot_id)
                                         {
-                                            close_prev_editor = st.inline_editor.take();
+                                            if close_prev_editor.is_none() {
+                                                close_prev_editor = st.inline_editor.take();
+                                            }
                                             spawn_editor_req = Some((
                                                 RectF::new(
                                                     item.frame.x + 12.0,
@@ -917,8 +1098,7 @@ mod win_host {
                     }
                 }
                 if let Some((rect, slot_id, wtype)) = spawn_editor_req {
-                    let created =
-                        spawn_inline_native_editor(hwnd, rect, dpi, slot_id, wtype, "");
+                    let created = spawn_inline_native_editor(hwnd, rect, dpi, slot_id, wtype, "");
                     HOST_STATE.with(|cell| {
                         if let Ok(mut b) = cell.try_borrow_mut() {
                             if let Some(st) = b.as_mut() {
@@ -947,6 +1127,9 @@ mod win_host {
 
                     if st.dragging.is_none() {
                         let should_promote = st.pending_press.as_ref().map(|p| {
+                            if p.hwnd != hwnd {
+                                return false;
+                            }
                             let dx = px - p.start_x;
                             let dy = py - p.start_y;
                             p.can_drag && (dx * dx + dy * dy).sqrt() >= DRAG_THRESHOLD_DP
@@ -975,11 +1158,13 @@ mod win_host {
                     }
 
                     if let Some(drag) = st.dragging.as_mut() {
-                        let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
-                        let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
-                        drag.cur_x = (px - drag.offset_x).clamp(8.0, max_x);
-                        drag.cur_y = (py - drag.offset_y).clamp(8.0, max_y);
-                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                        if drag.hwnd == hwnd {
+                            let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
+                            let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
+                            drag.cur_x = (px - drag.offset_x).clamp(8.0, max_x);
+                            drag.cur_y = (py - drag.offset_y).clamp(8.0, max_y);
+                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                        }
                     }
                 });
                 return LRESULT(0);
@@ -1013,23 +1198,31 @@ mod win_host {
                     };
                     let st = b.as_mut()?;
                     let edit_mode = st.shared.lock().map(|s| s.edit_mode).unwrap_or(false);
-                    let slot_id = st.surfaces.iter().find(|s| s.hwnd == hwnd).and_then(|surf| {
-                        match hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py) {
-                            HitTestResult::WidgetContent { slot_id, .. } => Some(slot_id),
-                            _ => None,
-                        }
-                    })?;
+                    let slot_id = st
+                        .surfaces
+                        .iter()
+                        .find(|s| s.hwnd == hwnd)
+                        .and_then(|surf| {
+                            match hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py)
+                            {
+                                HitTestResult::WidgetContent { slot_id, .. } => Some(slot_id),
+                                _ => None,
+                            }
+                        })?;
                     let cfg_opt = st.shared.lock().ok().and_then(|mut sh| {
                         let slot = sh.config.slots.iter_mut().find(|s| s.slot_id == slot_id)?;
                         if slot.widgets.len() > 1 {
                             slot.step_stack(if delta < 0 { 1 } else { -1 });
+                            sh.mark_data_changed();
                             FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                             Some(sh.config.clone())
                         } else {
                             None
                         }
                     });
-                    cfg_opt.map(|config| (st.shared.clone(), WidgetHostEvent::ConfigMutated { config }))
+                    cfg_opt.map(|config| {
+                        (st.shared.clone(), WidgetHostEvent::ConfigMutated { config })
+                    })
                 });
                 if let Some((sh, ev)) = deferred {
                     emit_detached(&sh, ev);
@@ -1050,7 +1243,16 @@ mod win_host {
                         return None;
                     };
                     let st = b.as_ref()?;
-                    let edit_mode = st.shared.lock().map(|s| s.edit_mode).unwrap_or(false);
+                    let (edit_mode, en) = st
+                        .shared
+                        .lock()
+                        .map(|s| {
+                            (
+                                s.edit_mode,
+                                s.hub.frontend.language.eq_ignore_ascii_case("en"),
+                            )
+                        })
+                        .unwrap_or((false, false));
                     let surf = st.surfaces.iter().find(|s| s.hwnd == hwnd)?;
                     match hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py) {
                         HitTestResult::WidgetContent { slot_id, .. } => {
@@ -1060,34 +1262,155 @@ mod win_host {
                                 .find(|i| i.slot_id == slot_id)
                                 .map(|i| i.widget_type.clone())
                                 .unwrap_or_default();
-                            Some((slot_id, wtype))
+                            Some((slot_id, wtype, en))
                         }
                         _ => None,
                     }
                 });
 
-                if let Some((slot_id, wtype)) = hit_info {
+                if let Some((slot_id, wtype, en)) = hit_info {
+                    let supported_sizes = widget_catalog()
+                        .into_iter()
+                        .find(|e| e.widget_type == wtype)
+                        .map(|e| e.supported_sizes)
+                        .unwrap_or_else(|| {
+                            vec![WidgetSize::Small, WidgetSize::Medium, WidgetSize::Large]
+                        });
                     if let Ok(menu) = CreatePopupMenu() {
-                        let _ = AppendMenuW(menu, MF_STRING, CMD_EDIT_TOGGLE as usize, w!("Mode Edit (Goyang & Hapus)"));
-                        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-                        let _ = AppendMenuW(menu, MF_STRING, CMD_SIZE_S as usize, w!("Ukuran Kecil (S)"));
-                        let _ = AppendMenuW(menu, MF_STRING, CMD_SIZE_M as usize, w!("Ukuran Sedang (M)"));
-                        let _ = AppendMenuW(menu, MF_STRING, CMD_SIZE_L as usize, w!("Ukuran Besar (L)"));
+                        let _ = AppendMenuW(
+                            menu,
+                            MF_STRING,
+                            CMD_EDIT_TOGGLE as usize,
+                            if en {
+                                w!("Edit Mode (Jiggle & Remove)")
+                            } else {
+                                w!("Mode Edit (Goyang & Hapus)")
+                            },
+                        );
+                        if !supported_sizes.is_empty() {
+                            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                        }
+                        if supported_sizes.contains(&WidgetSize::Small) {
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_SIZE_S as usize,
+                                if en {
+                                    w!("Small Size (S)")
+                                } else {
+                                    w!("Ukuran Kecil (S)")
+                                },
+                            );
+                        }
+                        if supported_sizes.contains(&WidgetSize::Medium) {
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_SIZE_M as usize,
+                                if en {
+                                    w!("Medium Size (M)")
+                                } else {
+                                    w!("Ukuran Sedang (M)")
+                                },
+                            );
+                        }
+                        if supported_sizes.contains(&WidgetSize::Large) {
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_SIZE_L as usize,
+                                if en {
+                                    w!("Large Size (L)")
+                                } else {
+                                    w!("Ukuran Besar (L)")
+                                },
+                            );
+                        }
                         if wtype == "calendar_agenda" || wtype == "styled_clock" {
-                            let _ = AppendMenuW(menu, MF_STRING, CMD_CYCLE_STYLE as usize, w!("Ganti tipe / gaya tampilan"));
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_CYCLE_STYLE as usize,
+                                if en {
+                                    w!("Switch display style")
+                                } else {
+                                    w!("Ganti tipe / gaya tampilan")
+                                },
+                            );
                         }
                         if wtype == "photo_frame" {
                             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-                            let _ = AppendMenuW(menu, MF_STRING, CMD_PHOTO_ADD as usize, w!("Tambah Foto..."));
-                            let _ = AppendMenuW(menu, MF_STRING, CMD_PHOTO_FOLDER as usize, w!("Pilih Folder Foto..."));
-                            let _ = AppendMenuW(menu, MF_STRING, CMD_PHOTO_NEXT as usize, w!("Foto Berikutnya"));
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_PHOTO_FOLDER as usize,
+                                if en {
+                                    w!("Pick Photo Folder...")
+                                } else {
+                                    w!("Pilih Folder Foto...")
+                                },
+                            );
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_PHOTO_NEXT as usize,
+                                if en {
+                                    w!("Next Photo")
+                                } else {
+                                    w!("Foto Berikutnya")
+                                },
+                            );
+                        }
+                        if wtype == "storage_treemap" {
+                            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_STORAGE_FOLDER as usize,
+                                if en {
+                                    w!("Pick Storage Folder...")
+                                } else {
+                                    w!("Pilih Folder Penyimpanan...")
+                                },
+                            );
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_STORAGE_SCAN as usize,
+                                if en { w!("Rescan") } else { w!("Pindai Ulang") },
+                            );
                         }
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-                        let _ = AppendMenuW(menu, MF_STRING, CMD_CUSTOMIZE as usize, w!("Latar dan warna"));
-                        let _ = AppendMenuW(menu, MF_STRING, CMD_STACK_NEXT as usize, w!("Ganti widget di tumpukan"));
+                        let _ = AppendMenuW(
+                            menu,
+                            MF_STRING,
+                            CMD_CUSTOMIZE as usize,
+                            if en {
+                                w!("Background & Colors")
+                            } else {
+                                w!("Latar dan warna")
+                            },
+                        );
+                        let _ = AppendMenuW(
+                            menu,
+                            MF_STRING,
+                            CMD_STACK_NEXT as usize,
+                            if en {
+                                w!("Cycle stacked widget")
+                            } else {
+                                w!("Ganti widget di tumpukan")
+                            },
+                        );
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-                        let _ = AppendMenuW(menu, MF_STRING, CMD_DELETE as usize, w!("Hapus"));
+                        let _ = AppendMenuW(
+                            menu,
+                            MF_STRING,
+                            CMD_DELETE as usize,
+                            if en { w!("Remove") } else { w!("Hapus") },
+                        );
 
+                        // Foreground owner window before TrackPopupMenu so clicking outside dismisses cleanly
+                        let _ = SetForegroundWindow(hwnd);
                         // TrackPopupMenu runs a nested modal loop; HOST_STATE is NOT borrowed here!
                         let cmd = TrackPopupMenu(
                             menu,
@@ -1099,6 +1422,7 @@ mod win_host {
                             None,
                         )
                         .0;
+                        let _ = PostMessageW(hwnd, WM_NULL, WPARAM(0), LPARAM(0));
                         let _ = DestroyMenu(menu);
 
                         let deferred = HOST_STATE.with(|cell| {
@@ -1169,6 +1493,7 @@ mod win_host {
                                                 }
                                             }
                                         }
+                                        sh.mark_data_changed();
                                         Some(WidgetHostEvent::ConfigMutated {
                                             config: sh.config.clone(),
                                         })
@@ -1179,24 +1504,30 @@ mod win_host {
                                             CMD_SIZE_M => WidgetSize::Medium,
                                             _ => WidgetSize::Large,
                                         };
-                                        if let Some(s) = sh
-                                            .config
-                                            .slots
-                                            .iter_mut()
-                                            .find(|s| s.slot_id == slot_id)
-                                        {
-                                            s.size = sz;
+                                        if !supported_sizes.contains(&sz) {
+                                            None
+                                        } else {
+                                            if let Some(s) = sh
+                                                .config
+                                                .slots
+                                                .iter_mut()
+                                                .find(|s| s.slot_id == slot_id)
+                                            {
+                                                s.size = sz;
+                                            }
+                                            resolve_collisions_for_surfaces(
+                                                &mut sh.config,
+                                                &st.surfaces,
+                                                Some(&slot_id),
+                                            );
+                                            sh.mark_data_changed();
+                                            Some(WidgetHostEvent::ConfigMutated {
+                                                config: sh.config.clone(),
+                                            })
                                         }
-                                        Some(WidgetHostEvent::ConfigMutated {
-                                            config: sh.config.clone(),
-                                        })
                                     }
                                     CMD_CUSTOMIZE => Some(WidgetHostEvent::OpenCustomizer {
                                         slot_id: slot_id.clone(),
-                                    }),
-                                    CMD_PHOTO_ADD => Some(WidgetHostEvent::OpenFeature {
-                                        widget_type: wtype.clone(),
-                                        action_id: Some("photo_pick".to_string()),
                                     }),
                                     CMD_PHOTO_FOLDER => Some(WidgetHostEvent::OpenFeature {
                                         widget_type: wtype.clone(),
@@ -1205,6 +1536,14 @@ mod win_host {
                                     CMD_PHOTO_NEXT => Some(WidgetHostEvent::OpenFeature {
                                         widget_type: wtype.clone(),
                                         action_id: Some("photo_next".to_string()),
+                                    }),
+                                    CMD_STORAGE_FOLDER => Some(WidgetHostEvent::OpenFeature {
+                                        widget_type: wtype.clone(),
+                                        action_id: Some("storage_pick_folder".to_string()),
+                                    }),
+                                    CMD_STORAGE_SCAN => Some(WidgetHostEvent::OpenFeature {
+                                        widget_type: wtype.clone(),
+                                        action_id: Some("trigger_storage_scan".to_string()),
                                     }),
                                     CMD_STACK_NEXT => {
                                         if let Some(s) = sh
@@ -1215,12 +1554,14 @@ mod win_host {
                                         {
                                             s.step_stack(1);
                                         }
+                                        sh.mark_data_changed();
                                         Some(WidgetHostEvent::ConfigMutated {
                                             config: sh.config.clone(),
                                         })
                                     }
                                     CMD_DELETE => {
                                         sh.config.slots.retain(|s| s.slot_id != slot_id);
+                                        sh.mark_data_changed();
                                         Some(WidgetHostEvent::ConfigMutated {
                                             config: sh.config.clone(),
                                         })
@@ -1331,7 +1672,7 @@ mod win_host {
         Ok(MonitorSurface {
             info,
             hwnd,
-            swap,
+            swap: Some(swap),
             items: Vec::new(),
             add_btn_rect: None,
             last_visible: false,
@@ -1341,6 +1682,15 @@ mod win_host {
     }
 
     pub fn run_host_loop(shared: Arc<Mutex<HostSharedState>>) -> Result<(), String> {
+        struct HostThreadIdGuard;
+        impl Drop for HostThreadIdGuard {
+            fn drop(&mut self) {
+                HOST_THREAD_ID.store(0, Ordering::Release);
+            }
+        }
+        HOST_THREAD_ID.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+        let _tid_guard = HostThreadIdGuard;
+
         SHOULD_EXIT_FLAG.store(false, Ordering::Relaxed);
         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
 
@@ -1396,9 +1746,36 @@ mod win_host {
         });
 
         let mut last_tick = Instant::now();
+        let mut last_render_at = Instant::now() - Duration::from_secs(1);
+        let mut last_mascot_rebuild = Instant::now() - Duration::from_secs(1);
+        let mut last_second_rebuild = Instant::now() - Duration::from_secs(2);
         let mut last_policy_check = Instant::now();
-        let mut last_zorder_check = Instant::now() - Duration::from_secs(1);
+        let mut last_minute_check = Instant::now();
+        let mut last_zorder_check = Instant::now() - Duration::from_secs(2);
         let mut last_minute_bucket: u64 = 0;
+        let mut minute_tick_dirty = false;
+        let mut has_rendered_initial = false;
+        let mut prev_spring_active = false;
+        let mut last_target_fps: u32 = 0;
+        let mut config_needs_collision_check = true;
+        let mut local_data_rev: u64 = 0;
+        let mut local_audio_rev: u64 = 0;
+        let mut cached_cfg = DesktopWidgetsConfig::default();
+        let mut cached_hub = WidgetDataHub::default();
+        let mut cached_policy = SystemVisualPolicy::default();
+        let mut cached_wp: Option<Arc<CachedWallpaperSample>> = None;
+        let mut contrast_cache: HashMap<
+            String,
+            (
+                usize,
+                u32,
+                u32,
+                u32,
+                u32,
+                WidgetStyleConfig,
+                WallpaperRegionAnalysis,
+            ),
+        > = HashMap::new();
 
         loop {
             // Drain Win32 message queue without holding HOST_STATE
@@ -1409,19 +1786,17 @@ mod win_host {
                         let vk = msg.wParam.0 as u16;
                         if vk == VK_ESCAPE.0 || vk == VK_RETURN.0 {
                             let ed_match = HOST_STATE.with(|cell| {
-                                cell.try_borrow_mut()
-                                    .ok()
-                                    .and_then(|mut b| {
-                                        let st = b.as_mut()?;
-                                        let active_hwnd = st.inline_editor.as_ref()?.hwnd;
-                                        let is_editor_msg = msg.hwnd == active_hwnd
-                                            || st.surfaces.iter().any(|s| s.hwnd == msg.hwnd);
-                                        if is_editor_msg {
-                                            Some((st.inline_editor.take()?, st.shared.clone()))
-                                        } else {
-                                            None
-                                        }
-                                    })
+                                cell.try_borrow_mut().ok().and_then(|mut b| {
+                                    let st = b.as_mut()?;
+                                    let active_hwnd = st.inline_editor.as_ref()?.hwnd;
+                                    let is_editor_msg = msg.hwnd == active_hwnd
+                                        || st.surfaces.iter().any(|s| s.hwnd == msg.hwnd);
+                                    if is_editor_msg {
+                                        Some((st.inline_editor.take()?, st.shared.clone()))
+                                    } else {
+                                        None
+                                    }
+                                })
                             });
                             if let Some((ed, sh)) = ed_match {
                                 let (slot_id, widget_type, text) = read_and_close_inline_editor(ed);
@@ -1527,13 +1902,16 @@ mod win_host {
                 .lock()
                 .map(|mut s| std::mem::take(&mut s.pending_commands))
                 .unwrap_or_default();
+            let had_cmds = !cmds.is_empty();
 
             for cmd in cmds {
                 match cmd {
                     HostCommand::UpdateConfig(cfg) => {
                         if let Ok(mut sh) = shared.lock() {
                             sh.config = cfg;
+                            sh.mark_data_changed();
                         }
+                        config_needs_collision_check = true;
                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
                     HostCommand::SetEditMode(on) => {
@@ -1545,6 +1923,12 @@ mod win_host {
                     HostCommand::ToggleBoard(explicit) => {
                         if let Ok(mut sh) = shared.lock() {
                             sh.board_visible = explicit.unwrap_or(!sh.board_visible);
+                        }
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                    }
+                    HostCommand::SetStandbyPaused(paused) => {
+                        if let Ok(mut sh) = shared.lock() {
+                            sh.standby_paused = paused;
                         }
                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
@@ -1560,31 +1944,158 @@ mod win_host {
                 }
             }
 
+            if config_needs_collision_check {
+                config_needs_collision_check = false;
+                let fixed_cfg = HOST_STATE.with(|cell| {
+                    let Ok(b) = cell.try_borrow() else {
+                        return None;
+                    };
+                    let st = b.as_ref()?;
+                    let mut sh = shared.lock().ok()?;
+                    if resolve_collisions_for_surfaces(&mut sh.config, &st.surfaces, None) {
+                        sh.mark_data_changed();
+                        Some(sh.config.clone())
+                    } else {
+                        None
+                    }
+                });
+                if let Some(config) = fixed_cfg {
+                    emit_detached(&shared, WidgetHostEvent::ConfigMutated { config });
+                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                }
+            }
+
             if REFRESH_ENV_FLAG.swap(false, Ordering::Relaxed) {
                 let pol = query_system_visual_policy();
-                let wp = resolve_wallpaper_file_path().and_then(|p| load_wallpaper_sample(&p));
+                let wp = resolve_wallpaper_file_path()
+                    .and_then(|p| load_wallpaper_sample(&p))
+                    .map(Arc::new);
+
+                // Reconcile monitor topology (resolution / DPI / plug / unplug) outside RefCell borrows where needed
+                let fresh_monitors = enumerate_monitors();
+                let desktop_owner_now = find_desktop_shell_owner_hwnd();
+                let mut hwnds_to_reposition: Vec<(HWND, i32, i32, i32, i32)> = Vec::new();
+                let mut hwnds_to_destroy: Vec<HWND> = Vec::new();
+                let mut active_mon_ids: Vec<String> = Vec::new();
+                HOST_STATE.with(|cell| {
+                    if let Ok(mut b) = cell.try_borrow_mut() {
+                        if let Some(st) = b.as_mut() {
+                            let mut kept: Vec<MonitorSurface> = Vec::new();
+                            for mut surf in st.surfaces.drain(..) {
+                                if let Some(m) =
+                                    fresh_monitors.iter().find(|m| m.id == surf.info.id)
+                                {
+                                    let geom_changed = surf.info.x != m.x
+                                        || surf.info.y != m.y
+                                        || surf.info.width_px != m.width_px
+                                        || surf.info.height_px != m.height_px;
+                                    surf.info = m.clone();
+                                    if geom_changed {
+                                        hwnds_to_reposition.push((
+                                            surf.hwnd,
+                                            m.x,
+                                            m.y,
+                                            m.width_px as i32,
+                                            m.height_px as i32,
+                                        ));
+                                    }
+                                    active_mon_ids.push(surf.info.id.clone());
+                                    kept.push(surf);
+                                } else {
+                                    surf.swap = None;
+                                    hwnds_to_destroy.push(surf.hwnd);
+                                }
+                            }
+                            for m in &fresh_monitors {
+                                if !kept.iter().any(|s| s.info.id == m.id) {
+                                    if let Ok(new_surf) = create_monitor_surface(
+                                        &gpu_res,
+                                        class_name,
+                                        m.clone(),
+                                        desktop_owner_now,
+                                    ) {
+                                        active_mon_ids.push(new_surf.info.id.clone());
+                                        kept.push(new_surf);
+                                    }
+                                }
+                            }
+                            st.surfaces = kept;
+                        }
+                    }
+                });
+                for (h, x, y, w, hgt) in hwnds_to_reposition {
+                    unsafe {
+                        let _ = SetWindowPos(
+                            h,
+                            HWND::default(),
+                            x,
+                            y,
+                            w,
+                            hgt,
+                            SWP_NOZORDER | SWP_NOACTIVATE,
+                        );
+                    }
+                }
+                for h in hwnds_to_destroy {
+                    unsafe {
+                        let _ = DestroyWindow(h);
+                    }
+                }
+                renderer.prune_monitors(&active_mon_ids);
+
                 if let Ok(mut sh) = shared.lock() {
                     sh.policy = pol;
                     sh.wallpaper = wp;
+                    sh.metrics.monitor_count = active_mon_ids.len();
+                    sh.mark_data_changed();
                 }
+                contrast_cache.clear();
+                config_needs_collision_check = true;
                 FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
             }
 
-            if last_policy_check.elapsed() >= Duration::from_millis(1500) {
-                last_policy_check = Instant::now();
-                let pol = query_system_visual_policy();
+            if last_minute_check.elapsed() >= Duration::from_millis(900) {
+                last_minute_check = Instant::now();
                 let now_min = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() / 60)
                     .unwrap_or(0);
                 if now_min != last_minute_bucket {
                     last_minute_bucket = now_min;
+                    minute_tick_dirty = true;
                     FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                 }
+            }
+
+            let standby_paused_fast = shared
+                .lock()
+                .map(|sh| sh.standby_paused && !sh.board_visible)
+                .unwrap_or(false);
+
+            if !standby_paused_fast && last_policy_check.elapsed() >= Duration::from_millis(3000) {
+                last_policy_check = Instant::now();
+                let prev_pol = shared
+                    .lock()
+                    .map(|sh| sh.policy.clone())
+                    .unwrap_or_default();
+                let pol = query_dynamic_visual_policy(&prev_pol);
+                let screen_off_now = SCREEN_OFF_FLAG.load(Ordering::Relaxed);
+                let ws_mb = query_process_working_set_mb();
                 if let Ok(mut sh) = shared.lock() {
+                    let policy_changed = sh.policy.fullscreen_or_game_active
+                        != pol.fullscreen_or_game_active
+                        || sh.policy.power_saver != pol.power_saver
+                        || sh.policy.high_contrast != pol.high_contrast
+                        || sh.policy.reduced_motion != pol.reduced_motion
+                        || (sh.policy.text_scale_factor - pol.text_scale_factor).abs() > 0.01
+                        || sh.screen_powered_off != screen_off_now;
                     sh.policy = pol;
-                    sh.screen_powered_off = SCREEN_OFF_FLAG.load(Ordering::Relaxed);
-                    sh.metrics.working_set_mb = query_process_working_set_mb();
+                    sh.screen_powered_off = screen_off_now;
+                    sh.metrics.working_set_mb = ws_mb;
+                    if policy_changed {
+                        sh.mark_data_changed();
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                    }
                 }
             }
 
@@ -1608,29 +2119,43 @@ mod win_host {
                 break;
             }
 
-            // Snapshot shared state before touching surfaces or Win32 visibility APIs
-            let (cfg, hub, edit_mode, board_visible, screen_off, policy, wp) = {
+            // Lightweight visibility and revision snapshot first so audio/idle ticks avoid cloning Hub and Config
+            let (
+                cfg_enabled,
+                display_mode,
+                auto_pause_fullscreen,
+                edit_mode,
+                board_visible,
+                screen_off,
+                standby_paused,
+                fullscreen_or_game_active,
+                shared_data_rev,
+                shared_audio_rev,
+            ) = {
                 let Ok(sh) = shared.lock() else {
                     std::thread::sleep(Duration::from_millis(50));
                     continue;
                 };
                 (
-                    sh.config.clone(),
-                    sh.hub.clone(),
+                    sh.config.enabled,
+                    sh.config.display_mode,
+                    sh.config.auto_pause_fullscreen,
                     sh.edit_mode,
                     sh.board_visible,
                     sh.screen_powered_off,
-                    sh.policy.clone(),
-                    sh.wallpaper.clone(),
+                    sh.standby_paused,
+                    sh.policy.fullscreen_or_game_active,
+                    sh.data_revision,
+                    sh.audio_revision,
                 )
             };
 
             let visible_now = !screen_off
-                && ((cfg.enabled && cfg.display_mode == DisplayMode::DesktopAttached)
-                    || board_visible);
-            let render_paused = cfg.auto_pause_fullscreen
-                && policy.fullscreen_or_game_active
-                && !board_visible;
+                && ((cfg_enabled && display_mode == DisplayMode::DesktopAttached) || board_visible);
+            let render_paused = (auto_pause_fullscreen
+                && fullscreen_or_game_active
+                && !board_visible)
+                || (standby_paused && !board_visible);
 
             STAY_BOTTOM_MODE.store(!board_visible, Ordering::Relaxed);
             WANT_VISIBLE_MODE.store(visible_now, Ordering::Relaxed);
@@ -1640,19 +2165,19 @@ mod win_host {
                 hwnd: HWND,
                 visible: bool,
                 board_mode: bool,
+                leaving_board_mode: bool,
                 owner_change: Option<isize>,
                 desktop_host: Option<HWND>,
                 needs_redraw: bool,
             }
             let mut win_updates: Vec<WindowUpdate> = Vec::new();
-            let do_zorder_check = last_zorder_check.elapsed() >= Duration::from_millis(200);
+            let do_zorder_check =
+                !render_paused && last_zorder_check.elapsed() >= Duration::from_millis(1200);
             let current_desktop_owner = if do_zorder_check {
                 last_zorder_check = Instant::now();
                 let found = find_desktop_shell_owner_hwnd();
-                DESKTOP_OWNER_RAW.store(
-                    found.map(|h| h.0 as isize).unwrap_or(0),
-                    Ordering::Relaxed,
-                );
+                DESKTOP_OWNER_RAW
+                    .store(found.map(|h| h.0 as isize).unwrap_or(0), Ordering::Relaxed);
                 found
             } else {
                 let raw = DESKTOP_OWNER_RAW.load(Ordering::Relaxed);
@@ -1699,6 +2224,7 @@ mod win_host {
                                 } else {
                                     None
                                 };
+                                let leaving_board_mode = surf.last_board_mode && !board_visible;
                                 surf.last_visible = visible_now;
                                 surf.last_board_mode = board_visible;
                                 surf.last_owner_hwnd = desired_owner_raw;
@@ -1706,6 +2232,7 @@ mod win_host {
                                     hwnd: surf.hwnd,
                                     visible: visible_now,
                                     board_mode: board_visible,
+                                    leaving_board_mode,
                                     owner_change,
                                     desktop_host: current_desktop_owner,
                                     needs_redraw: vis_changed || mode_changed,
@@ -1723,6 +2250,18 @@ mod win_host {
                         let _ = SetWindowLongPtrW(upd.hwnd, GWLP_HWNDPARENT, owner_ptr);
                     }
                     if upd.visible {
+                        if upd.leaving_board_mode || !upd.board_mode {
+                            // Explicitly strip WS_EX_TOPMOST before seating above desktop so widgets never stay stuck on top
+                            let _ = SetWindowPos(
+                                upd.hwnd,
+                                HWND_NOTOPMOST,
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                            );
+                        }
                         let z_target = if upd.board_mode {
                             HWND_TOPMOST
                         } else {
@@ -1747,137 +2286,383 @@ mod win_host {
                 }
             }
 
-            // Step 3: Build scene graph, advance springs, and render Direct2D frames
+            // Step 3: Build scene graph, advance springs, and render Direct2D frames with adaptive pacing
             let now = Instant::now();
             let dt = now.duration_since(last_tick).as_secs_f32().min(0.05);
             last_tick = now;
 
-            let mut target_fps = 0u32;
+            let mut target_fps = last_target_fps;
             let mut device_lost = false;
             let force_redraw = FORCE_REDRAW_FLAG.swap(false, Ordering::Relaxed);
+            let data_changed = shared_data_rev != local_data_rev;
+            let audio_changed = shared_audio_rev != local_audio_rev;
+            let interaction_active = HOST_STATE.with(|cell| {
+                cell.try_borrow()
+                    .ok()
+                    .and_then(|b| {
+                        b.as_ref()
+                            .map(|st| st.dragging.is_some() || st.pending_press.is_some())
+                    })
+                    .unwrap_or(false)
+            });
 
-            HOST_STATE.with(|cell| {
-                let Ok(mut b) = cell.try_borrow_mut() else {
-                    return;
-                };
-                let Some(st) = b.as_mut() else { return };
+            let min_frame_interval = match last_target_fps {
+                0 => Duration::ZERO,
+                1 => Duration::from_millis(900),
+                2..=12 => Duration::from_millis(95),
+                13..=30 => Duration::from_millis(30),
+                _ => Duration::from_millis(14),
+            };
+            let urgent_redraw = !has_rendered_initial
+                || force_redraw
+                || had_cmds
+                || data_changed
+                || minute_tick_dirty
+                || interaction_active;
+            let has_continuous_work = audio_changed
+                || prev_spring_active
+                || last_target_fps > 0
+                || (edit_mode && !cached_policy.reduced_motion);
+            let paced_ready = last_render_at.elapsed() >= min_frame_interval;
+            let should_render = visible_now
+                && !render_paused
+                && (urgent_redraw || (has_continuous_work && paced_ready));
 
-                let mut any_spring_active = st.dragging.is_some() || st.pending_press.is_some();
-                let elapsed_secs = st.start_time.elapsed().as_secs_f32();
-                let mut total_dirty = 0usize;
+            if !should_render {
+                if !visible_now || render_paused {
+                    prev_spring_active = false;
+                    if last_target_fps != 0 || force_redraw || had_cmds || !has_rendered_initial {
+                        if let Ok(mut sh) = shared.lock() {
+                            let (fps, paused_reason) = compute_adaptive_target_fps_with_standby(
+                                &sh.config,
+                                edit_mode,
+                                false,
+                                false,
+                                false,
+                                screen_off,
+                                board_visible,
+                                &sh.policy,
+                                standby_paused,
+                            );
+                            sh.metrics.edit_mode = edit_mode;
+                            sh.metrics.board_visible = board_visible;
+                            sh.metrics.active_widget_count = sh.config.slots.len();
+                            sh.metrics.target_fps = fps;
+                            sh.metrics.last_dirty_rects = 0;
+                            sh.metrics.paused_reason = paused_reason;
+                            sh.metrics.power_saver = sh.policy.power_saver;
+                            sh.metrics.high_contrast = sh.policy.high_contrast;
+                            sh.metrics.reduced_motion = sh.policy.reduced_motion;
+                            sh.metrics.text_scale_factor = sh.policy.text_scale_factor;
+                        }
+                        last_target_fps = 0;
+                    }
+                    target_fps = 0;
+                }
+            } else {
+                // Only clone full Config/Hub when non-audio data actually changed; audio ticks copy 64 bytes only.
+                if data_changed || !has_rendered_initial {
+                    if let Ok(sh) = shared.lock() {
+                        cached_cfg = sh.config.clone();
+                        cached_hub = sh.hub.clone();
+                        cached_policy = sh.policy.clone();
+                        cached_wp = sh.wallpaper.clone();
+                        local_data_rev = sh.data_revision;
+                        local_audio_rev = sh.audio_revision;
+                    }
+                } else if audio_changed {
+                    if let Ok(sh) = shared.lock() {
+                        cached_hub.audio_bands = sh.hub.audio_bands;
+                        local_audio_rev = sh.audio_revision;
+                    }
+                }
 
-                if visible_now && !render_paused {
+                let cfg = &cached_cfg;
+                let hub = &cached_hub;
+                let policy = &cached_policy;
+                let wp = &cached_wp;
+                let wp_ptr = wp.as_ref().map(|a| Arc::as_ptr(a) as usize).unwrap_or(0);
+                if data_changed || !has_rendered_initial {
+                    contrast_cache.retain(|id, _| cfg.slots.iter().any(|s| s.slot_id == *id));
+                }
+
+                let full_scene_rebuild = !has_rendered_initial
+                    || data_changed
+                    || minute_tick_dirty
+                    || force_redraw
+                    || had_cmds
+                    || edit_mode
+                    || interaction_active
+                    || prev_spring_active
+                    || last_target_fps == 1
+                    || (8..=12).contains(&last_target_fps);
+
+                let mascot_tick_due = last_mascot_rebuild.elapsed() >= Duration::from_millis(95);
+                let second_tick_due = last_second_rebuild.elapsed() >= Duration::from_millis(950);
+                let mut rebuilt_mascot = false;
+                let mut rebuilt_second = false;
+
+                HOST_STATE.with(|cell| {
+                    let Ok(mut b) = cell.try_borrow_mut() else {
+                        return;
+                    };
+                    let Some(st) = b.as_mut() else { return };
+
+                    let mut any_spring_active = st.dragging.is_some() || st.pending_press.is_some();
+                    let elapsed_secs = st.start_time.elapsed().as_secs_f32();
+                    let mut total_dirty = 0usize;
+
                     for surf in &mut st.surfaces {
                         let dpi = unsafe { (GetDpiForWindow(surf.hwnd) as f32).max(96.0) };
-                        let _ = surf
-                            .swap
-                            .resize(&gpu_res, surf.info.width_px, surf.info.height_px, dpi);
+                        if let Some(ref mut swap) = surf.swap {
+                            let _ =
+                                swap.resize(&gpu_res, surf.info.width_px, surf.info.height_px, dpi);
+                        }
                         let mon_w_dip = surf.info.width_px as f32 * 96.0 / dpi;
                         let mon_h_dip = surf.info.height_px as f32 * 96.0 / dpi;
                         let work_w_dip = surf.info.work_w as f32 * 96.0 / dpi;
                         let work_h_dip = surf.info.work_h as f32 * 96.0 / dpi;
-                        let cell_step = (GRID_SMALL_DP + GRID_GAP_DP) * cfg.grid_scale.clamp(0.8, 1.35);
+                        let cell_step =
+                            (GRID_SMALL_DP + GRID_GAP_DP) * cfg.grid_scale.clamp(0.8, 1.35);
 
-                        let mut built = Vec::new();
-                        for slot in &cfg.slots {
-                            let matches_mon = slot.monitor_id == surf.info.id
-                                || (surf.info.is_primary && slot.monitor_id == "primary");
-                            if !matches_mon {
-                                continue;
-                            }
-                            let mut target_rect =
-                                slot_rect_dp(slot, cfg.grid_scale, 32.0, 48.0);
-                            // Keep legacy auto-grid slots from ever clipping behind the taskbar
-                            if slot.pos_x.is_none()
-                                && slot.pos_y.is_none()
-                                && target_rect.y + target_rect.h > work_h_dip - 12.0
-                            {
-                                let max_rows =
-                                    (((work_h_dip - 60.0) / cell_step).floor() as i32).max(1);
-                                let overflow_col = slot.grid_row / max_rows;
-                                let wrapped_row = slot.grid_row % max_rows;
-                                target_rect.x += (overflow_col as f32) * 2.0 * cell_step;
-                                target_rect.y = 48.0 + (wrapped_row as f32) * cell_step;
-                            }
-                            let max_x = (work_w_dip - target_rect.w - 8.0).max(8.0);
-                            let max_y = (work_h_dip - target_rect.h - 8.0).max(8.0);
-                            target_rect.x = target_rect.x.clamp(8.0, max_x);
-                            target_rect.y = target_rect.y.clamp(8.0, max_y);
+                        let matching_slots: Vec<_> = cfg
+                            .slots
+                            .iter()
+                            .filter(|slot| {
+                                slot.monitor_id == surf.info.id
+                                    || (surf.info.is_primary && slot.monitor_id == "primary")
+                            })
+                            .collect();
 
-                            let is_dragging = st
-                                .dragging
-                                .as_ref()
-                                .map(|d| d.slot_id == slot.slot_id)
-                                .unwrap_or(false);
-                            if let Some(d) = &st.dragging {
-                                if d.slot_id == slot.slot_id {
-                                    target_rect.x = d.cur_x;
-                                    target_rect.y = d.cur_y;
+                        // Audio-only fast path: rebuild audio_visualizer every frame, plus live_mascot (10 FPS) & seconds/timer (1 FPS)
+                        if !full_scene_rebuild && surf.items.len() == matching_slots.len() {
+                            for (idx, slot) in matching_slots.iter().enumerate() {
+                                let w_active = slot.active_widget();
+                                let wtype = w_active.map(|w| w.widget_type.as_str()).unwrap_or("");
+                                let is_vis = wtype == "audio_visualizer";
+                                let is_mascot = wtype == "live_mascot" && mascot_tick_due;
+                                let is_sec_tick = second_tick_due
+                                    && ((wtype == "styled_clock"
+                                        && w_active
+                                            .and_then(|w| w.settings.get("show_seconds"))
+                                            .and_then(|v| v.as_bool())
+                                            .unwrap_or(false))
+                                        || (wtype == "time_tracker"
+                                            && hub
+                                                .time_tracker
+                                                .projects
+                                                .iter()
+                                                .any(|p| p.running_since_epoch.is_some())));
+                                if !is_vis && !is_mascot && !is_sec_tick {
+                                    continue;
                                 }
+                                if is_mascot {
+                                    rebuilt_mascot = true;
+                                }
+                                if is_sec_tick {
+                                    rebuilt_second = true;
+                                }
+                                let anim_rect = surf.items[idx].frame;
+                                let nx = (anim_rect.x / mon_w_dip.max(1.0)).clamp(0.0, 1.0);
+                                let ny = (anim_rect.y / mon_h_dip.max(1.0)).clamp(0.0, 1.0);
+                                let nw = (anim_rect.w / mon_w_dip.max(1.0)).clamp(0.01, 1.0);
+                                let nh = (anim_rect.h / mon_h_dip.max(1.0)).clamp(0.01, 1.0);
+                                let style_ref = slot
+                                    .active_widget()
+                                    .and_then(|w| w.style_override.as_ref())
+                                    .unwrap_or(&cfg.global_theme);
+                                let qx = (nx * 1000.0).round() as u32;
+                                let qy = (ny * 1000.0).round() as u32;
+                                let qw = (nw * 1000.0).round() as u32;
+                                let qh = (nh * 1000.0).round() as u32;
+                                let analysis = match contrast_cache.get(&slot.slot_id) {
+                                    Some((p, x, y, w, h, cached_style, cached))
+                                        if *p == wp_ptr
+                                            && *x == qx
+                                            && *y == qy
+                                            && *w == qw
+                                            && *h == qh
+                                            && cached_style == style_ref =>
+                                    {
+                                        cached.clone()
+                                    }
+                                    _ => analyze_region_for_style(
+                                        wp.as_deref(),
+                                        style_ref,
+                                        nx,
+                                        ny,
+                                        nw,
+                                        nh,
+                                    ),
+                                };
+                                let mut item = build_widget_render_item_with_policy(
+                                    slot,
+                                    anim_rect,
+                                    &cfg.global_theme,
+                                    &analysis,
+                                    hub,
+                                    elapsed_secs,
+                                    policy.high_contrast,
+                                );
+                                item.scale = surf.items[idx].scale;
+                                item.compute_hit_regions(edit_mode);
+                                surf.items[idx] = item;
+                            }
+                        } else {
+                            let mut built = Vec::with_capacity(matching_slots.len());
+                            for slot in matching_slots {
+                                let mut target_rect =
+                                    slot_rect_dp(slot, cfg.grid_scale, 32.0, 48.0);
+                                // Keep legacy auto-grid slots from ever clipping behind the taskbar
+                                if slot.pos_x.is_none()
+                                    && slot.pos_y.is_none()
+                                    && target_rect.y + target_rect.h > work_h_dip - 12.0
+                                {
+                                    let max_rows =
+                                        (((work_h_dip - 60.0) / cell_step).floor() as i32).max(1);
+                                    let overflow_col = slot.grid_row / max_rows;
+                                    let wrapped_row = slot.grid_row % max_rows;
+                                    target_rect.x += (overflow_col as f32) * 2.0 * cell_step;
+                                    target_rect.y = 48.0 + (wrapped_row as f32) * cell_step;
+                                }
+                                let max_x = (work_w_dip - target_rect.w - 8.0).max(8.0);
+                                let max_y = (work_h_dip - target_rect.h - 8.0).max(8.0);
+                                target_rect.x = target_rect.x.clamp(8.0, max_x);
+                                target_rect.y = target_rect.y.clamp(8.0, max_y);
+
+                                let is_dragging = st
+                                    .dragging
+                                    .as_ref()
+                                    .map(|d| d.slot_id == slot.slot_id)
+                                    .unwrap_or(false);
+                                if let Some(d) = &st.dragging {
+                                    if d.slot_id == slot.slot_id {
+                                        target_rect.x = d.cur_x;
+                                        target_rect.y = d.cur_y;
+                                    }
+                                }
+
+                                let entry =
+                                    st.slot_springs.entry(slot.slot_id.clone()).or_insert((
+                                        SpringValue::settled(target_rect.x),
+                                        SpringValue::settled(target_rect.y),
+                                        SpringValue {
+                                            value: 0.96,
+                                            velocity: 0.0,
+                                            target: 1.0,
+                                        },
+                                    ));
+                                entry.0.set_target(
+                                    target_rect.x,
+                                    policy.reduced_motion || is_dragging,
+                                );
+                                entry.1.set_target(
+                                    target_rect.y,
+                                    policy.reduced_motion || is_dragging,
+                                );
+                                entry.2.set_target(
+                                    if is_dragging { 1.04 } else { 1.0 },
+                                    policy.reduced_motion,
+                                );
+
+                                let a0 =
+                                    entry
+                                        .0
+                                        .step(dt, SpringParams::DEFAULT, policy.reduced_motion);
+                                let a1 =
+                                    entry
+                                        .1
+                                        .step(dt, SpringParams::DEFAULT, policy.reduced_motion);
+                                let a2 =
+                                    entry
+                                        .2
+                                        .step(dt, SpringParams::DEFAULT, policy.reduced_motion);
+                                if a0 || a1 || a2 {
+                                    any_spring_active = true;
+                                }
+
+                                let anim_rect = RectF::new(
+                                    entry.0.value,
+                                    entry.1.value,
+                                    target_rect.w,
+                                    target_rect.h,
+                                );
+                                let nx = (anim_rect.x / mon_w_dip.max(1.0)).clamp(0.0, 1.0);
+                                let ny = (anim_rect.y / mon_h_dip.max(1.0)).clamp(0.0, 1.0);
+                                let nw = (anim_rect.w / mon_w_dip.max(1.0)).clamp(0.01, 1.0);
+                                let nh = (anim_rect.h / mon_h_dip.max(1.0)).clamp(0.01, 1.0);
+
+                                let style_ref = slot
+                                    .active_widget()
+                                    .and_then(|w| w.style_override.as_ref())
+                                    .unwrap_or(&cfg.global_theme);
+                                let qx = (nx * 1000.0).round() as u32;
+                                let qy = (ny * 1000.0).round() as u32;
+                                let qw = (nw * 1000.0).round() as u32;
+                                let qh = (nh * 1000.0).round() as u32;
+                                let analysis = match contrast_cache.get(&slot.slot_id) {
+                                    Some((p, x, y, w, h, cached_style, cached))
+                                        if *p == wp_ptr
+                                            && *x == qx
+                                            && *y == qy
+                                            && *w == qw
+                                            && *h == qh
+                                            && cached_style == style_ref =>
+                                    {
+                                        cached.clone()
+                                    }
+                                    _ => {
+                                        let computed = analyze_region_for_style(
+                                            wp.as_deref(),
+                                            style_ref,
+                                            nx,
+                                            ny,
+                                            nw,
+                                            nh,
+                                        );
+                                        contrast_cache.insert(
+                                            slot.slot_id.clone(),
+                                            (
+                                                wp_ptr,
+                                                qx,
+                                                qy,
+                                                qw,
+                                                qh,
+                                                style_ref.clone(),
+                                                computed.clone(),
+                                            ),
+                                        );
+                                        computed
+                                    }
+                                };
+
+                                let mut item = build_widget_render_item_with_policy(
+                                    slot,
+                                    anim_rect,
+                                    &cfg.global_theme,
+                                    &analysis,
+                                    hub,
+                                    elapsed_secs,
+                                    policy.high_contrast,
+                                );
+                                item.scale = entry.2.value;
+                                if edit_mode && !is_dragging {
+                                    let hash = slot.slot_id.bytes().fold(0u64, |acc, b| {
+                                        acc.wrapping_mul(31).wrapping_add(b as u64)
+                                    });
+                                    item.edit_jiggle_deg = edit_jiggle_degrees(
+                                        hash,
+                                        elapsed_secs,
+                                        policy.reduced_motion,
+                                    );
+                                }
+                                item.compute_hit_regions(edit_mode);
+                                built.push(item);
                             }
 
-                            let entry = st.slot_springs.entry(slot.slot_id.clone()).or_insert((
-                                SpringValue::settled(target_rect.x),
-                                SpringValue::settled(target_rect.y),
-                                SpringValue {
-                                    value: 0.96,
-                                    velocity: 0.0,
-                                    target: 1.0,
-                                },
-                            ));
-                            entry.0.set_target(target_rect.x, policy.reduced_motion || is_dragging);
-                            entry.1.set_target(target_rect.y, policy.reduced_motion || is_dragging);
-                            entry.2.set_target(
-                                if is_dragging { 1.04 } else { 1.0 },
-                                policy.reduced_motion,
-                            );
-
-                            let a0 = entry.0.step(dt, SpringParams::DEFAULT, policy.reduced_motion);
-                            let a1 = entry.1.step(dt, SpringParams::DEFAULT, policy.reduced_motion);
-                            let a2 = entry.2.step(dt, SpringParams::DEFAULT, policy.reduced_motion);
-                            if a0 || a1 || a2 {
-                                any_spring_active = true;
-                            }
-
-                            let anim_rect = RectF::new(
-                                entry.0.value,
-                                entry.1.value,
-                                target_rect.w,
-                                target_rect.h,
-                            );
-                            let nx = (anim_rect.x / mon_w_dip.max(1.0)).clamp(0.0, 1.0);
-                            let ny = (anim_rect.y / mon_h_dip.max(1.0)).clamp(0.0, 1.0);
-                            let nw = (anim_rect.w / mon_w_dip.max(1.0)).clamp(0.01, 1.0);
-                            let nh = (anim_rect.h / mon_h_dip.max(1.0)).clamp(0.01, 1.0);
-
-                            let style_ref = slot
-                                .active_widget()
-                                .and_then(|w| w.style_override.as_ref())
-                                .unwrap_or(&cfg.global_theme);
-                            let analysis =
-                                analyze_region_for_style(wp.as_ref(), style_ref, nx, ny, nw, nh);
-
-                            let mut item = build_widget_render_item(
-                                slot,
-                                anim_rect,
-                                &cfg.global_theme,
-                                &analysis,
-                                &hub,
-                                elapsed_secs,
-                            );
-                            item.scale = entry.2.value;
-                            if edit_mode && !is_dragging {
-                                let hash = slot.slot_id.bytes().fold(0u64, |acc, b| {
-                                    acc.wrapping_mul(31).wrapping_add(b as u64)
-                                });
-                                item.edit_jiggle_deg =
-                                    edit_jiggle_degrees(hash, elapsed_secs, policy.reduced_motion);
-                            }
-                            item.compute_hit_regions(edit_mode);
-                            built.push(item);
+                            surf.items = built;
                         }
 
-                        surf.items = built;
                         surf.add_btn_rect = if edit_mode {
                             Some(RectF::new(mon_w_dip - 176.0, 24.0, 148.0, 36.0))
                         } else {
@@ -1888,71 +2673,104 @@ mod win_host {
                         let anim_active = renderer.has_active_animations();
                         let full_frame =
                             force_redraw || any_spring_active || anim_active || edit_mode;
-                        let (dirty_cnt, pres_res) = renderer.render_frame(
-                            &gpu_res,
-                            &mut surf.swap,
-                            &surf.items,
-                            edit_mode,
-                            board_visible,
-                            surf.add_btn_rect,
-                            &policy,
-                            full_frame,
-                            dt,
-                        );
-                        total_dirty += dirty_cnt;
-                        if let Err(err) = pres_res {
-                            if D2DDeviceResources::is_device_lost(err.code()) {
-                                device_lost = true;
+                        if let Some(ref mut swap) = surf.swap {
+                            let (dirty_cnt, pres_res) = renderer.render_frame(
+                                &surf.info.id,
+                                &gpu_res,
+                                swap,
+                                &surf.items,
+                                edit_mode,
+                                board_visible,
+                                surf.add_btn_rect,
+                                policy,
+                                full_frame,
+                                dt,
+                            );
+                            total_dirty += dirty_cnt;
+                            if let Err(err) = pres_res {
+                                if D2DDeviceResources::is_device_lost(err.code()) {
+                                    device_lost = true;
+                                }
                             }
                         }
+                    }
+                    if full_scene_rebuild || rebuilt_mascot {
+                        last_mascot_rebuild = Instant::now();
+                    }
+                    if full_scene_rebuild || rebuilt_second {
+                        last_second_rebuild = Instant::now();
                     }
                     if renderer.has_active_animations() {
                         any_spring_active = true;
                     }
-                    unsafe {
-                        let _ = gpu_res.dcomp_device.Commit();
+                    if total_dirty > 0 {
+                        unsafe {
+                            let _ = gpu_res.dcomp_device.Commit();
+                        }
                     }
-                }
 
-                let has_running_timer = cfg.slots.iter().any(|s| {
-                    s.active_widget()
-                        .map(|w| w.widget_type == "time_tracker")
-                        .unwrap_or(false)
-                }) && hub
-                    .time_tracker
-                    .projects
-                    .iter()
-                    .any(|p| p.running_since_epoch.is_some());
+                    let has_running_timer = cfg.slots.iter().any(|s| {
+                        s.active_widget()
+                            .map(|w| w.widget_type == "time_tracker")
+                            .unwrap_or(false)
+                    }) && hub
+                        .time_tracker
+                        .projects
+                        .iter()
+                        .any(|p| p.running_since_epoch.is_some());
 
-                let has_active_audio = hub.audio_bands.iter().any(|&v| v > 0.005);
-                let (fps, paused_reason) = compute_adaptive_target_fps(
-                    &cfg,
-                    edit_mode,
-                    any_spring_active,
-                    has_running_timer,
-                    has_active_audio,
-                    screen_off,
-                    board_visible,
-                    &policy,
-                );
-                target_fps = fps;
+                    let has_active_audio = hub.audio_bands.iter().any(|&v| v > 0.005);
+                    let (fps, paused_reason) = compute_adaptive_target_fps_with_standby(
+                        cfg,
+                        edit_mode,
+                        any_spring_active,
+                        has_running_timer,
+                        has_active_audio,
+                        screen_off,
+                        board_visible,
+                        policy,
+                        standby_paused,
+                    );
+                    target_fps = fps;
+                    last_target_fps = fps;
+                    prev_spring_active = any_spring_active;
+                    has_rendered_initial = true;
+                    minute_tick_dirty = false;
+                    last_render_at = Instant::now();
 
-                if let Ok(mut sh) = st.shared.lock() {
-                    sh.metrics.edit_mode = edit_mode;
-                    sh.metrics.board_visible = board_visible;
-                    sh.metrics.active_widget_count = cfg.slots.len();
-                    sh.metrics.target_fps = fps;
-                    sh.metrics.last_dirty_rects = total_dirty;
-                    sh.metrics.paused_reason = paused_reason;
-                    sh.metrics.power_saver = policy.power_saver;
-                    sh.metrics.high_contrast = policy.high_contrast;
-                    sh.metrics.reduced_motion = policy.reduced_motion;
-                    sh.metrics.text_scale_factor = policy.text_scale_factor;
-                };
-            });
+                    if let Ok(mut sh) = st.shared.lock() {
+                        sh.metrics.edit_mode = edit_mode;
+                        sh.metrics.board_visible = board_visible;
+                        sh.metrics.active_widget_count = cfg.slots.len();
+                        sh.metrics.target_fps = fps;
+                        sh.metrics.last_dirty_rects = total_dirty;
+                        sh.metrics.paused_reason = paused_reason;
+                        sh.metrics.power_saver = policy.power_saver;
+                        sh.metrics.high_contrast = policy.high_contrast;
+                        sh.metrics.reduced_motion = policy.reduced_motion;
+                        sh.metrics.text_scale_factor = policy.text_scale_factor;
+                    };
+                });
+            }
 
-            // Handle GPU device lost cleanly (sleep, RDP, GPU switch) without crashing
+            // Handle GPU device lost cleanly (sleep, RDP, GPU switch) without hitting WINDOW_ALREADY_COMPOSED
             if device_lost {
+                // First release every old IDCompositionTarget and commit so CreateTargetForHwnd succeeds
+                HOST_STATE.with(|cell| {
+                    if let Ok(mut b) = cell.try_borrow_mut() {
+                        if let Some(st) = b.as_mut() {
+                            for surf in &mut st.surfaces {
+                                surf.swap = None;
+                            }
+                        }
+                    }
+                });
+                unsafe {
+                    gpu_res.d2d_context.SetTarget(None);
+                    let _ = gpu_res.dcomp_device.Commit();
+                }
+                renderer.clear_caches();
+
                 if let Ok(new_res) = D2DDeviceResources::create() {
                     if let Ok(new_rend) = D2DWidgetRenderer::new(&new_res) {
                         gpu_res = new_res;
@@ -1961,8 +2779,9 @@ mod win_host {
                             if let Ok(mut b) = cell.try_borrow_mut() {
                                 if let Some(st) = b.as_mut() {
                                     for surf in &mut st.surfaces {
-                                        let dpi =
-                                            unsafe { (GetDpiForWindow(surf.hwnd) as f32).max(96.0) };
+                                        let dpi = unsafe {
+                                            (GetDpiForWindow(surf.hwnd) as f32).max(96.0)
+                                        };
                                         if let Ok(new_swap) = MonitorSwapChain::create(
                                             &gpu_res,
                                             surf.hwnd,
@@ -1970,7 +2789,7 @@ mod win_host {
                                             surf.info.height_px,
                                             dpi,
                                         ) {
-                                            surf.swap = new_swap;
+                                            surf.swap = Some(new_swap);
                                         }
                                     }
                                     FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
@@ -1981,13 +2800,21 @@ mod win_host {
                 }
             }
 
-            let wait_ms: u32 = match target_fps {
-                0 => 120,
-                1 => 250,
-                8..=12 => 90,
-                13..=30 => 33,
-                _ => 16,
-            };
+            let wait_ms: u32 =
+                if !should_render && visible_now && !render_paused && has_continuous_work {
+                    min_frame_interval
+                        .saturating_sub(last_render_at.elapsed())
+                        .as_millis()
+                        .clamp(1, 1000) as u32
+                } else {
+                    match target_fps {
+                        0 => 1000,
+                        1 => 500,
+                        8..=12 => 100,
+                        13..=30 => 33,
+                        _ => 16,
+                    }
+                };
             // Kernel wait: 0% CPU while idle, wakes up in <0.1ms on any mouse hover/click/drag message
             unsafe {
                 let _ = MsgWaitForMultipleObjects(None, false, wait_ms, QS_ALLINPUT);

@@ -18,6 +18,7 @@ pub enum PowerState {
 struct SamplerState {
     subscriptions: HashMap<String, u32>,
     power_state: PowerState,
+    standby_suspended: bool,
     latest_metrics: Option<SystemMetrics>,
     last_emitted_metrics: Option<SystemMetrics>,
 }
@@ -37,6 +38,7 @@ impl SharedSampler {
                 state: Mutex::new(SamplerState {
                     subscriptions: HashMap::new(),
                     power_state: PowerState::Active,
+                    standby_suspended: false,
                     latest_metrics: None,
                     last_emitted_metrics: None,
                 }),
@@ -65,17 +67,22 @@ impl SharedSampler {
                     let (sleep_duration, should_sample) = {
                         let mut state = sampler.state.lock().unwrap_or_else(|e| e.into_inner());
 
-                        // Count active subscribers
-                        let total_subscribers: u32 = state.subscriptions.values().sum();
-                        if total_subscribers == 0 {
-                            // Sleep completely until someone subscribes (0% CPU)
+                        // Wait while there are no subscribers or while suspended so wakeups are immediate
+                        let should_wait = |s: &SamplerState| {
+                            let no_subs = s.subscriptions.values().sum::<u32>() == 0;
+                            let suspended =
+                                s.power_state == PowerState::Suspended || s.standby_suspended;
+                            (no_subs || suspended) && sampler.running.load(Ordering::Relaxed)
+                        };
+                        if should_wait(&state) {
                             state = sampler
                                 .condvar
-                                .wait_while(state, |s| {
-                                    s.subscriptions.values().sum::<u32>() == 0
-                                        && sampler.running.load(Ordering::Relaxed)
-                                })
+                                .wait_while(state, |s| should_wait(s))
                                 .unwrap_or_else(|e| e.into_inner());
+                        }
+
+                        if !sampler.running.load(Ordering::Relaxed) {
+                            break;
                         }
 
                         let interval = match state.power_state {
@@ -84,7 +91,9 @@ impl SharedSampler {
                             PowerState::Suspended => Duration::from_millis(10000),
                         };
 
-                        (interval, state.power_state != PowerState::Suspended)
+                        let suspended_now = state.power_state == PowerState::Suspended
+                            || state.standby_suspended;
+                        (interval, !suspended_now)
                     };
 
                     if should_sample {
@@ -154,11 +163,25 @@ impl SharedSampler {
 
     pub fn set_power_state(&self, state_str: &str) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.power_state = match state_str.to_uppercase().as_str() {
+        let next = match state_str.to_uppercase().as_str() {
             "IDLE" => PowerState::Idle,
             "SUSPENDED" => PowerState::Suspended,
             _ => PowerState::Active,
         };
+        let waking = state.power_state == PowerState::Suspended && next != PowerState::Suspended;
+        state.power_state = next;
+        if waking {
+            self.condvar.notify_one();
+        }
+    }
+
+    pub fn set_standby_suspended(&self, suspended: bool) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let changed = state.standby_suspended != suspended;
+        state.standby_suspended = suspended;
+        if changed && !suspended {
+            self.condvar.notify_one();
+        }
     }
 
     pub fn get_cached_or_sample(&self) -> SystemMetrics {
@@ -166,6 +189,24 @@ impl SharedSampler {
             let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(metrics) = &state.latest_metrics {
                 return metrics.clone();
+            }
+        }
+        let fresh = get_system_metrics_internal();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.latest_metrics = Some(fresh.clone());
+        fresh
+    }
+
+    /// Returns the worker's live metrics when active subscribers exist (avoiding duplicate sampling
+    /// and METRICS_STATE delta corruption), or samples directly when no subscriber is running.
+    pub fn get_fresh_or_cached(&self) -> SystemMetrics {
+        {
+            let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let total_subscribers: u32 = state.subscriptions.values().sum();
+            if total_subscribers > 0 {
+                if let Some(metrics) = &state.latest_metrics {
+                    return metrics.clone();
+                }
             }
         }
         let fresh = get_system_metrics_internal();

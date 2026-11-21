@@ -8,6 +8,7 @@ import "@fontsource/inter/latin-700.css";
 import "./App.css";
 import "./index.css";
 import { getLanguage } from "./services/languageStore";
+import { initStandbyDeepEcoGuard } from "./utils/standbyDeepEcoGuard";
 
 const App = lazy(() => import("./App"));
 const SettingsWindowApp = lazy(() =>
@@ -271,6 +272,10 @@ const isStandbyWindow = (() => {
   }
   return result;
 })();
+
+if (!isStandbyWindow) {
+  initStandbyDeepEcoGuard();
+}
 
 interface Props {
   children: ReactNode;

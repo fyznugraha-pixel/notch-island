@@ -6,18 +6,18 @@ use crate::widgets::{action_pill, empty_state_nodes, is_english, text_node, Widg
 pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
-    let notes = &ctx.hub.notes;
+    let notes = &ctx.hub.frontend.mini_notes;
     if notes.is_empty() {
         return empty_state_nodes(
             ctx,
-            if en { "Sticky Notes" } else { "Catatan Tempel" },
+            if en { "Mini Note" } else { "Catatan Mini" },
             if en {
-                "No notes yet. Tap Write to open the native editor."
+                "No notes yet. Tap Add to open Quick Note."
             } else {
-                "Belum ada catatan. Ketuk Tulis untuk membuka editor native."
+                "Belum ada catatan. Ketuk Tambah untuk membuka Quick Note."
             },
-            if en { "Write Note" } else { "Tulis Catatan" },
-            "inline_edit:sticky_notes",
+            if en { "+ Add" } else { "+ Tambah" },
+            "open_quick_note",
         );
     }
     let note = &notes[0];
@@ -57,7 +57,11 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         text_node(
             RectF::new(inner.x + inner.w - 52.0, inner.y + 2.0, 52.0, 16.0),
             if en {
-                format!("{} notes", notes.len())
+                if notes.len() == 1 {
+                    "1 note".to_string()
+                } else {
+                    format!("{} notes", notes.len())
+                }
             } else {
                 format!("{} catatan", notes.len())
             },
@@ -71,10 +75,14 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     if note.is_checklist && !note.checklist.is_empty() {
         let max_items = if ctx.size == WidgetSize::Large { 7 } else { 3 };
+        let bottom_limit = inner.y + inner.h - 28.0;
         for (i, item) in note.checklist.iter().take(max_items).enumerate() {
             let y = inner.y + 28.0 + i as f32 * 24.0;
+            if y + 18.0 > bottom_limit {
+                break;
+            }
             let mark = if item.checked { "☑" } else { "☐" };
-            nodes.push(text_node(
+            nodes.push(crate::widgets::text_node_line(
                 RectF::new(inner.x, y, inner.w, 20.0),
                 format!("{} {}", mark, item.text),
                 12.5,
@@ -105,12 +113,12 @@ pub fn build_sticky_notes(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         if en { "+ Add" } else { "+ Tambah" },
         ctx.pal.surface_chip,
         ctx.pal.primary,
-        "inline_edit:sticky_notes",
+        "open_quick_note",
     ));
     nodes
 }
 
-/// 10. Kanban mini 3 kolom, seret antar kolom (L)
+/// 10. Kanban mini 3 kolom (L)
 pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let en = is_english(ctx);
     let inner = ctx.frame.inset(14.0);
@@ -129,7 +137,7 @@ pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         if en { "+ Card" } else { "+ Kartu" },
         ctx.pal.accent.with_alpha(0.24),
         ctx.pal.primary,
-        "inline_edit:mini_kanban",
+        "open_widget_settings",
     ));
 
     let cols = [
@@ -140,6 +148,7 @@ pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let gap = 8.0;
     let col_w = (inner.w - gap * 2.0) / 3.0;
     let top_y = inner.y + 30.0;
+    let cards_bottom = inner.y + inner.h - 20.0;
 
     for (ci, (title, cards, tint)) in cols.iter().enumerate() {
         let x = inner.x + ci as f32 * (col_w + gap);
@@ -165,7 +174,7 @@ pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         } else {
             for (ri, card) in cards.iter().take(4).enumerate() {
                 let cy = top_y + 22.0 + ri as f32 * 52.0;
-                if cy + 44.0 > inner.y + inner.h {
+                if cy + 44.0 > cards_bottom {
                     break;
                 }
                 let next_col = match ci {
@@ -182,7 +191,7 @@ pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     interactive_action: Some(format!("kanban_move:{}:{}", card.id, next_col)),
                 });
                 nodes.push(text_node(
-                    RectF::new(x + 6.0, cy + 6.0, col_w - 12.0, 32.0),
+                    RectF::new(x + 6.0, cy + 6.0, (col_w - 24.0).max(20.0), 32.0),
                     &card.title,
                     11.5,
                     500,
@@ -190,9 +199,42 @@ pub fn build_mini_kanban(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                     TextAlign::Left,
                     false,
                 ));
+                nodes.push(SceneNode::Text {
+                    rect: RectF::new(x + col_w - 18.0, cy + 3.0, 16.0, 16.0),
+                    content: "x".to_string(),
+                    font_size: 10.5,
+                    font_weight: 700,
+                    color: ctx.pal.secondary,
+                    align: TextAlign::Center,
+                    tabular_nums: false,
+                    tight_kerning: false,
+                    max_lines: 1,
+                    interactive_action: Some(format!("kanban_delete:{}", card.id)),
+                });
             }
         }
     }
+
+    let total_cards = kb.todo.len() + kb.doing.len() + kb.done.len();
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(inner.x, inner.y + inner.h - 15.0, inner.w, 15.0),
+        if total_cards == 0 {
+            if en {
+                "Click + Card to add tasks in Settings"
+            } else {
+                "Klik + Kartu untuk menambah tugas di Pengaturan"
+            }
+        } else if en {
+            "Click card to move column . x to remove"
+        } else {
+            "Klik kartu untuk pindah kolom . x untuk hapus"
+        },
+        10.0,
+        500,
+        ctx.pal.secondary,
+        TextAlign::Left,
+        false,
+    ));
     nodes
 }
 
@@ -219,10 +261,15 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let mut nodes = vec![text_node(
-        RectF::new(inner.x, inner.y, inner.w - 76.0, 20.0),
+    let header_w = if ctx.size == WidgetSize::Medium {
+        inner.w - 78.0
+    } else {
+        inner.w
+    };
+    let mut nodes = vec![crate::widgets::text_node_line(
+        RectF::new(inner.x, inner.y, header_w, 20.0),
         if en { "Time Tracker" } else { "Pelacak Waktu" },
-        15.0,
+        14.5,
         600,
         ctx.pal.primary,
         TextAlign::Left,
@@ -240,8 +287,13 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
 
     let max_p = if ctx.size == WidgetSize::Small { 2 } else { 3 };
+    let btn_w = if ctx.size == WidgetSize::Small { 54.0 } else { 66.0 };
+    let name_w = (inner.w - btn_w - 8.0).max(48.0);
     for (i, p) in tt.projects.iter().take(max_p).enumerate() {
-        let y = inner.y + 30.0 + i as f32 * 34.0;
+        let y = inner.y + 28.0 + i as f32 * 34.0;
+        if y + 28.0 > inner.y + inner.h {
+            break;
+        }
         let running = p.running_since_epoch.is_some();
         let secs = p.total_seconds
             + p.running_since_epoch
@@ -254,19 +306,19 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             secs % 60
         );
 
-        nodes.push(text_node(
-            RectF::new(inner.x, y, inner.w - 118.0, 18.0),
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x, y, name_w, 17.0),
             &p.name,
-            13.0,
+            12.5,
             600,
             ctx.pal.primary,
             TextAlign::Left,
             false,
         ));
-        nodes.push(text_node(
-            RectF::new(inner.x, y + 16.0, 100.0, 14.0),
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x, y + 16.0, name_w, 14.0),
             hms,
-            11.5,
+            11.0,
             500,
             if running {
                 ctx.pal.positive
@@ -277,7 +329,7 @@ pub fn build_time_tracker(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             true,
         ));
         nodes.extend(action_pill(
-            RectF::new(inner.x + inner.w - 66.0, y + 2.0, 66.0, 24.0),
+            RectF::new(inner.x + inner.w - btn_w, y + 2.0, btn_w, 24.0),
             if running {
                 if en { "Stop" } else { "Henti" }
             } else {
@@ -324,7 +376,10 @@ pub fn build_site_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     )];
     let max_rows = if ctx.size == WidgetSize::Large { 6 } else { 3 };
     for (i, s) in sites.iter().take(max_rows).enumerate() {
-        let y = inner.y + 30.0 + i as f32 * 34.0;
+        let y = inner.y + 30.0 + i as f32 * 32.0;
+        if y + 18.0 > inner.y + inner.h {
+            break;
+        }
         let dot_col = match s.up {
             Some(true) => ctx.pal.positive,
             Some(false) => ctx.pal.danger,
@@ -338,8 +393,8 @@ pub fn build_site_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             stroke: None,
             interactive_action: None,
         });
-        nodes.push(text_node(
-            RectF::new(inner.x + 14.0, y, inner.w - 104.0, 18.0),
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x + 14.0, y, (inner.w - 108.0).max(48.0), 18.0),
             &s.name,
             13.0,
             600,
@@ -353,7 +408,7 @@ pub fn build_site_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
                 if en { "Pending" } else { "Menunggu" }.into()
             }),
         };
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x + inner.w - 92.0, y, 92.0, 18.0),
             stat,
             11.5,
@@ -426,17 +481,21 @@ pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
 
     let col_w = inner.w * 0.48;
-    nodes.push(text_node(
-        RectF::new(inner.x, inner.y + 46.0, col_w, 38.0),
+    let compact = inner.h < 116.0;
+    let num_y = if compact { inner.y + 36.0 } else { inner.y + 44.0 };
+    let num_fs = if compact { 26.0 } else { 32.0 };
+    let lbl_y = if compact { inner.y + 66.0 } else { inner.y + 82.0 };
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(inner.x, num_y, col_w, 36.0),
         format!("{}", gh.open_prs),
-        32.0,
+        num_fs,
         700,
         ctx.pal.accent,
         TextAlign::Left,
         true,
     ));
-    nodes.push(text_node(
-        RectF::new(inner.x, inner.y + 84.0, col_w, 16.0),
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(inner.x, lbl_y, col_w, 16.0),
         if en { "Open PRs" } else { "PR Terbuka" },
         11.5,
         500,
@@ -445,17 +504,17 @@ pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         false,
     ));
 
-    nodes.push(text_node(
-        RectF::new(inner.x + col_w + 8.0, inner.y + 46.0, col_w, 38.0),
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(inner.x + col_w + 8.0, num_y, col_w, 36.0),
         format!("{}", gh.open_issues),
-        32.0,
+        num_fs,
         700,
         ctx.pal.primary,
         TextAlign::Left,
         true,
     ));
-    nodes.push(text_node(
-        RectF::new(inner.x + col_w + 8.0, inner.y + 84.0, col_w, 16.0),
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(inner.x + col_w + 8.0, lbl_y, col_w, 16.0),
         if en { "Open Issues" } else { "Issue Terbuka" },
         11.5,
         500,
@@ -469,13 +528,24 @@ pub fn build_github_status(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         "failure" => ctx.pal.danger,
         _ => ctx.pal.warning,
     };
-    nodes.push(text_node(
-        RectF::new(inner.x, inner.y + inner.h - 20.0, inner.w, 18.0),
+    let act_label = if gh.latest_action_name.trim().is_empty() {
+        if en {
+            "Actions: No workflow runs yet".to_string()
+        } else {
+            "Actions: Belum ada workflow run".to_string()
+        }
+    } else if gh.latest_action_conclusion.trim().is_empty() {
+        format!("Actions: {}", gh.latest_action_name)
+    } else {
         format!(
             "Actions: {} ({})",
             gh.latest_action_name, gh.latest_action_conclusion
-        ),
-        11.5,
+        )
+    };
+    nodes.push(crate::widgets::text_node_line(
+        RectF::new(inner.x, inner.y + inner.h - 17.0, inner.w, 17.0),
+        act_label,
+        11.0,
         600,
         act_col,
         TextAlign::Left,
@@ -541,24 +611,26 @@ pub fn build_shortcuts_grid(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             stroke: None,
             interactive_action: Some(format!("launch_shortcut:{}", sc.id)),
         });
-        nodes.push(text_node(
-            RectF::new(x + 6.0, y + 8.0, cw - 12.0, 16.0),
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(x + 6.0, y + 6.0, (cw - 12.0).max(20.0), 16.0),
             &sc.label,
-            12.0,
+            11.5,
             600,
             ctx.pal.primary,
             TextAlign::Left,
             false,
         ));
-        nodes.push(text_node(
-            RectF::new(x + 6.0, y + 25.0, cw - 12.0, 14.0),
-            &sc.target_path,
-            9.5,
-            400,
-            ctx.pal.secondary,
-            TextAlign::Left,
-            false,
-        ));
+        if ch >= 38.0 {
+            nodes.push(crate::widgets::text_node_line(
+                RectF::new(x + 6.0, y + 23.0, (cw - 12.0).max(20.0), 14.0),
+                &sc.target_path,
+                9.5,
+                400,
+                ctx.pal.secondary,
+                TextAlign::Left,
+                false,
+            ));
+        }
     }
     nodes
 }
@@ -608,15 +680,18 @@ pub fn build_recent_files(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     }
     let max_rows = if ctx.size == WidgetSize::Large { 8 } else { 3 };
     for (i, f) in rf.files.iter().take(max_rows).enumerate() {
-        let y = inner.y + 28.0 + i as f32 * 30.0;
+        let y = inner.y + 28.0 + i as f32 * 28.0;
+        if y + 16.0 > inner.y + inner.h {
+            break;
+        }
         let kb = (f.size_bytes as f64 / 1024.0).max(1.0);
         let size_lbl = if kb >= 1024.0 {
             format!("{:.1} MB", kb / 1024.0)
         } else {
             format!("{:.0} KB", kb)
         };
-        nodes.push(text_node(
-            RectF::new(inner.x, y, inner.w - 62.0, 16.0),
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(inner.x, y, (inner.w - 64.0).max(40.0), 16.0),
             &f.name,
             12.5,
             500,
@@ -624,7 +699,7 @@ pub fn build_recent_files(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             TextAlign::Left,
             false,
         ));
-        nodes.push(text_node(
+        nodes.push(crate::widgets::text_node_line(
             RectF::new(inner.x + inner.w - 60.0, y, 60.0, 16.0),
             size_lbl,
             11.0,

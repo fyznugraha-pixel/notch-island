@@ -154,7 +154,7 @@ export async function aiFetch(
     Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
 
   const effectiveHeaders: Record<string, string> = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GiliDesktop/5.1.2",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GiliDesktop/5.2.0",
     ...(options.headers || {}),
   };
 
@@ -226,7 +226,7 @@ export async function streamAiRequest({
     Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
 
   const effectiveHeaders: Record<string, string> = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GiliDesktop/5.1.2",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GiliDesktop/5.2.0",
     ...headers,
   };
 
@@ -251,7 +251,7 @@ export async function streamAiRequest({
         };
 
         const cancelBackendStream = () => {
-          invoke("cancel_ai_http_stream", { streamId, stream_id: streamId }).catch(() => {});
+          invoke("cancel_ai_http_stream", { streamId, stream_id: streamId }).catch(() => { });
         };
 
         if (signal?.aborted) {
@@ -359,7 +359,7 @@ export async function streamAiRequest({
     const lineConsumer = createSseLineConsumer(onChunk, () => Boolean(signal?.aborted));
     while (true) {
       if (signal?.aborted) {
-        reader.cancel().catch(() => {});
+        reader.cancel().catch(() => { });
         throw createAbortError();
       }
       const { done, value } = await reader.read();

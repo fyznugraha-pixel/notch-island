@@ -31,11 +31,14 @@ import {
   StandbyRightWidget,
   StandbyScreen,
   getStandbyConfig,
+  isStandbyDeepEcoActive,
   isStandbyOpen,
   saveStandbyConfig,
   subscribeStandbyConfig,
+  subscribeStandbyDeepEco,
   toggleStandbyWindow,
 } from "../../../services/standbyService";
+import { StandbyScreensaverSection } from "./StandbyScreensaverSection";
 import { useGiliProLicense } from "../../../hooks/useGiliProLicense";
 import { TaskbarProBanner } from "../../settingsWindow/navbar/TaskbarProBanner";
 import { MonitorInfo } from "./MonitorSelector";
@@ -51,6 +54,7 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
   const isId = optLanguage === "id";
   const [config, setConfig] = useState<StandbyConfig>(DEFAULT_STANDBY_CONFIG);
   const [activeOpen, setActiveOpen] = useState(false);
+  const [deepEcoActive, setDeepEcoActive] = useState(false);
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const {
     proStatus,
@@ -73,19 +77,33 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
   }, []);
 
   useEffect(() => {
-    getStandbyConfig().then(setConfig);
-    isStandbyOpen().then(setActiveOpen);
+    let disposed = false;
+    getStandbyConfig().then((cfg) => {
+      if (!disposed) setConfig(cfg);
+    });
+    isStandbyOpen().then((open) => {
+      if (!disposed) setActiveOpen(open);
+    });
+    isStandbyDeepEcoActive().then((eco) => {
+      if (!disposed) setDeepEcoActive(eco);
+    });
     loadMonitors();
 
     const unsubCfg = subscribeStandbyConfig(setConfig);
+    const unsubEco = subscribeStandbyDeepEco((eco) => {
+      if (!disposed) setDeepEcoActive(eco);
+    });
     let unsubVis: (() => void) | null = null;
     let unsubMon: (() => void) | null = null;
 
     listen<boolean>("standby:visibility-changed", (ev) => {
-      setActiveOpen(Boolean(ev.payload));
+      const open = Boolean(ev.payload);
+      setActiveOpen(open);
+      if (!open) setDeepEcoActive(false);
     })
       .then((fn) => {
-        unsubVis = fn;
+        if (disposed) fn();
+        else unsubVis = fn;
       })
       .catch(() => {});
 
@@ -93,16 +111,27 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
       loadMonitors();
     })
       .then((fn) => {
-        unsubMon = fn;
+        if (disposed) fn();
+        else unsubMon = fn;
       })
       .catch(() => {});
 
     return () => {
+      disposed = true;
       unsubCfg();
+      unsubEco();
       if (unsubVis) unsubVis();
       if (unsubMon) unsubMon();
     };
   }, [loadMonitors]);
+
+  const applyConfigDirect = useCallback(async (patch: Partial<StandbyConfig>) => {
+    setConfig((prev) => {
+      const next: StandbyConfig = { ...prev, ...patch };
+      saveStandbyConfig(next);
+      return next;
+    });
+  }, []);
 
   const updateConfig = useCallback(
     async (patch: Partial<StandbyConfig>) => {
@@ -214,7 +243,11 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
                 }`}
               >
                 {activeOpen && !isProLocked
-                  ? isId
+                  ? deepEcoActive
+                    ? isId
+                      ? "Screensaver Hemat Daya Aktif"
+                      : "Screensaver Eco Active"
+                    : isId
                     ? "Hancur otomatis saat keluar"
                     : "Destroys on exit"
                   : isProLocked
@@ -307,7 +340,7 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
                 onChange={(val) => {
                   const nextMode = val as StandbyActivationMode;
                   if (isProLocked && nextMode !== "off") {
-                    promptProUpgrade(() => updateConfig({ activation_mode: nextMode }));
+                    promptProUpgrade(() => applyConfigDirect({ activation_mode: nextMode }));
                     return;
                   }
                   updateConfig({ activation_mode: nextMode });
@@ -377,14 +410,36 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
                 title={isId ? "Jeda Saat Aplikasi Fullscreen" : "Pause During Fullscreen"}
                 subtitle={
                   isId
-                    ? "Tidak muncul menimpa game DirectX atau pemutar video fullscreen"
-                    : "Skip auto-idle launch while running exclusive fullscreen apps or games"
+                    ? "Tidak muncul menimpa game, presentasi, atau video fullscreen browser/VLC"
+                    : "Skip auto-idle launch while running fullscreen games, presentations, or videos"
                 }
                 control={
                   <IosSwitch
                     checked={config.pause_during_fullscreen}
                     onChange={() =>
                       updateConfig({ pause_during_fullscreen: !config.pause_during_fullscreen })
+                    }
+                    activeColor="blue"
+                  />
+                }
+              />
+
+              <SettingRow
+                isLightMode={isLightMode}
+                icon={<Play size={18} />}
+                iconBgClass={isLightMode ? "bg-[#ff375f]/14" : "bg-[#2f1520]"}
+                iconColorClass="text-[#ff375f]"
+                title={isId ? "Jeda Saat Menonton Video / Film" : "Pause While Watching Video"}
+                subtitle={
+                  isId
+                    ? "Tidak menyala otomatis saat YouTube, Netflix, VLC, atau pemutar video aktif (termasuk mode jendela)"
+                    : "Skip auto-idle while YouTube, Netflix, VLC, or video playback is active (even windowed)"
+                }
+                control={
+                  <IosSwitch
+                    checked={config.pause_during_media_video}
+                    onChange={() =>
+                      updateConfig({ pause_during_media_video: !config.pause_during_media_video })
                     }
                     activeColor="blue"
                   />
@@ -479,6 +534,16 @@ export const StandbyTab: React.FC<StandbyTabProps> = ({ optLanguage, isLightMode
           />
         </div>
       </div>
+
+      {/* 1b. Screensaver & Deep Eco Mode */}
+      <StandbyScreensaverSection
+        config={config}
+        optLanguage={optLanguage}
+        isLightMode={isLightMode}
+        cardClass={cardClass}
+        sectionLabelClass={sectionLabelClass}
+        onUpdateConfig={updateConfig}
+      />
 
       {/* 2. Screen & Widget Composition */}
       <div className="flex flex-col gap-2">

@@ -127,9 +127,21 @@ pub fn current_last_input_time() -> u32 {
 pub fn system_idle_ms() -> u64 {
     #[cfg(windows)]
     {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut lii = LASTINPUTINFO {
+            cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+            dwTime: 0,
+        };
+        if !unsafe { GetLastInputInfo(&mut lii).as_bool() } {
+            return 0;
+        }
+        // Sample monotonic tick AFTER GetLastInputInfo so concurrent input cannot underflow to ~49.7 days
         let tick_now = now_monotonic_ms() as u32;
-        let last_input = current_last_input_time();
-        return tick_now.wrapping_sub(last_input) as u64;
+        let delta = tick_now.wrapping_sub(lii.dwTime);
+        if delta >= 0x8000_0000 {
+            return 0;
+        }
+        return delta as u64;
     }
     #[cfg(not(windows))]
     {
@@ -137,23 +149,330 @@ pub fn system_idle_ms() -> u64 {
     }
 }
 
+#[cfg(windows)]
+fn is_desktop_or_self_window(hwnd: windows::Win32::Foundation::HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetWindowThreadProcessId};
+    if hwnd.0.is_null() {
+        return true;
+    }
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == std::process::id() {
+            return true;
+        }
+        let mut cls = [0u16; 64];
+        let len = GetClassNameW(hwnd, &mut cls);
+        if len > 0 {
+            let name = String::from_utf16_lossy(&cls[..len as usize]);
+            if matches!(
+                name.as_str(),
+                "Progman"
+                    | "WorkerW"
+                    | "Shell_TrayWnd"
+                    | "Shell_SecondaryTrayWnd"
+                    | "GiliDesktopWidgetsHostV1"
+            ) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+fn is_foreground_window_covering_monitor() -> bool {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowLongW, GetWindowRect, IsIconic, IsZoomed, GWL_STYLE,
+        WS_CAPTION, WS_THICKFRAME,
+    };
+
+    unsafe {
+        let fg = GetForegroundWindow();
+        if is_desktop_or_self_window(fg) || IsIconic(fg).as_bool() {
+            return false;
+        }
+        let style = GetWindowLongW(fg, GWL_STYLE) as u32;
+        let has_chrome = (style & WS_CAPTION.0) == WS_CAPTION.0 && (style & WS_THICKFRAME.0) != 0;
+        // Normal maximized windows with a standard title bar are not true fullscreen (especially when taskbar is hidden)
+        if IsZoomed(fg).as_bool() && has_chrome {
+            return false;
+        }
+        let mut wr = RECT::default();
+        let dwm_ok = DwmGetWindowAttribute(
+            fg,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut wr as *mut RECT as *mut std::ffi::c_void,
+            std::mem::size_of::<RECT>() as u32,
+        )
+        .is_ok();
+        if !dwm_ok && GetWindowRect(fg, &mut wr).is_err() {
+            return false;
+        }
+        let hmon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+        if hmon.0.is_null() {
+            return false;
+        }
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(hmon, &mut mi).as_bool() {
+            return false;
+        }
+        let covers_edges = wr.left <= mi.rcMonitor.left + 2
+            && wr.top <= mi.rcMonitor.top + 2
+            && wr.right >= mi.rcMonitor.right - 2
+            && wr.bottom >= mi.rcMonitor.bottom - 2;
+        covers_edges && !has_chrome
+    }
+}
+
 pub fn is_fullscreen_blocking() -> bool {
     #[cfg(windows)]
     {
         use windows::Win32::UI::Shell::{
-            SHQueryUserNotificationState, QUNS_RUNNING_D3D_FULL_SCREEN,
+            SHQueryUserNotificationState, QUNS_BUSY, QUNS_NOT_PRESENT, QUNS_PRESENTATION_MODE,
+            QUNS_RUNNING_D3D_FULL_SCREEN,
         };
+        use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
         unsafe {
-            matches!(
-                SHQueryUserNotificationState(),
-                Ok(QUNS_RUNNING_D3D_FULL_SCREEN)
-            )
+            if let Ok(state) = SHQueryUserNotificationState() {
+                if state == QUNS_RUNNING_D3D_FULL_SCREEN
+                    || state == QUNS_PRESENTATION_MODE
+                    || state == QUNS_NOT_PRESENT
+                {
+                    return true;
+                }
+                if state == QUNS_BUSY && !is_desktop_or_self_window(GetForegroundWindow()) {
+                    return true;
+                }
+            }
         }
+        is_foreground_window_covering_monitor()
     }
     #[cfg(not(windows))]
     {
         false
     }
+}
+
+pub fn is_video_media_payload(m: &crate::media_lyrics_store::MediaPayload) -> bool {
+    if !m.is_playing {
+        return false;
+    }
+    let web = m
+        .web_source
+        .as_deref()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let app = m.app_id.as_deref().unwrap_or("").to_ascii_lowercase();
+
+    // Pure audio music players should still allow StandBy (e.g. StandBy Media screen)
+    const MUSIC_ONLY: [&str; 9] = [
+        "spotify",
+        "youtube music",
+        "apple music",
+        "soundcloud",
+        "tidal",
+        "deezer",
+        "qobuz",
+        "bandcamp",
+        "bitchord",
+    ];
+    if MUSIC_ONLY.iter().any(|k| web == *k || app.contains(k)) {
+        return false;
+    }
+
+    // WinRT MediaPlaybackType::Video == 2
+    if m.playback_type == 2 {
+        return true;
+    }
+
+    const VIDEO_SOURCES: [&str; 21] = [
+        "youtube",
+        "netflix",
+        "twitch",
+        "bilibili",
+        "disney",
+        "prime",
+        "vimeo",
+        "crunchyroll",
+        "vidio",
+        "viu",
+        "tiktok",
+        "kick",
+        "iqiyi",
+        "wetv",
+        "hotstar",
+        "hbo",
+        "max",
+        "plex",
+        "jellyfin",
+        "apple tv",
+        "dailymotion",
+    ];
+    if !web.is_empty() && VIDEO_SOURCES.iter().any(|k| web.contains(k)) {
+        return true;
+    }
+
+    const VIDEO_APPS: [&str; 20] = [
+        "vlc",
+        "mpv",
+        "mpc-hc",
+        "mpc-be",
+        "potplayer",
+        "kmplayer",
+        "gom",
+        "kodi",
+        "stremio",
+        "plex",
+        "jellyfin",
+        "netflix",
+        "disney",
+        "primevideo",
+        "zunevideo",
+        "video.ui",
+        "films",
+        "zoom",
+        "teams",
+        "obs",
+    ];
+    if !app.is_empty() && VIDEO_APPS.iter().any(|k| app.contains(k)) {
+        return true;
+    }
+
+    // Browser playing non-music video/stream tabs where SMTC did not tag Music
+    if m.is_browser && web.is_empty() && m.playback_type != 1 {
+        return true;
+    }
+
+    false
+}
+
+#[cfg(windows)]
+fn foreground_looks_like_video_window() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowTextW, IsIconic,
+    };
+    unsafe {
+        let fg = GetForegroundWindow();
+        if is_desktop_or_self_window(fg) || IsIconic(fg).as_bool() {
+            return false;
+        }
+        let mut buf = [0u16; 256];
+        let len = GetWindowTextW(fg, &mut buf);
+        if len <= 0 {
+            return false;
+        }
+        let title = String::from_utf16_lossy(&buf[..len as usize]).to_ascii_lowercase();
+        if title.contains("youtube music") || title.contains("spotify") {
+            return false;
+        }
+        const HINTS: [&str; 20] = [
+            "youtube",
+            "netflix",
+            "disney+",
+            "prime video",
+            "twitch",
+            "bilibili",
+            "crunchyroll",
+            "vidio",
+            "viu",
+            "vlc media player",
+            "mpc-hc",
+            "mpc-be",
+            "potplayer",
+            "mpv",
+            "plex",
+            "jellyfin",
+            "stremio",
+            "kodi",
+            "zoom meeting",
+            "microsoft teams",
+        ];
+        HINTS.iter().any(|h| title.contains(h))
+    }
+}
+
+#[cfg(windows)]
+fn has_active_system_audio_output() -> bool {
+    use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
+    use windows::Win32::Media::Audio::{
+        eMultimedia, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+    };
+
+    unsafe {
+        let co_ok = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+        let active = (|| -> Option<bool> {
+            let enumerator =
+                CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                    .ok()?;
+            let device = enumerator
+                .GetDefaultAudioEndpoint(eRender, eMultimedia)
+                .ok()?;
+            let meter = device.Activate::<IAudioMeterInformation>(CLSCTX_ALL, None).ok()?;
+            let peak = meter.GetPeakValue().ok()?;
+            Some(peak > 0.001)
+        })()
+        .unwrap_or(false);
+        if co_ok {
+            CoUninitialize();
+        }
+        active
+    }
+}
+
+fn is_pure_music_media_payload(m: &crate::media_lyrics_store::MediaPayload) -> bool {
+    if !m.is_playing {
+        return false;
+    }
+    let web = m
+        .web_source
+        .as_deref()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let app = m.app_id.as_deref().unwrap_or("").to_ascii_lowercase();
+    const MUSIC_ONLY: [&str; 10] = [
+        "spotify",
+        "youtube music",
+        "apple music",
+        "amazon music",
+        "soundcloud",
+        "tidal",
+        "deezer",
+        "qobuz",
+        "bandcamp",
+        "bitchord",
+    ];
+    MUSIC_ONLY.iter().any(|k| web == *k || app.contains(k))
+}
+
+pub fn is_video_or_movie_playing() -> bool {
+    let media = crate::media_lyrics_store::get_current_media();
+    if is_video_media_payload(&media) {
+        return true;
+    }
+    // If SMTC already confirms pure music playback (e.g. Spotify), do not let system audio peak
+    // combine with a paused YouTube/Teams foreground window into a false video detection.
+    if is_pure_music_media_payload(&media) {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        if foreground_looks_like_video_window() && has_active_system_audio_output() {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn enumerate_physical_monitors() -> Vec<ResolvedMonitorRect> {
@@ -296,10 +615,12 @@ pub fn open_standby_internal(app: &AppHandle, trigger: &str) {
 
         if let Some(existing) = app_handle.get_webview_window(STANDBY_LABEL) {
             let was_closing = STANDBY_CLOSING.swap(false, Ordering::SeqCst);
-            position_standby_hwnd(&existing, &target, top_most, should_focus, false);
-            STANDBY_OPEN.store(true, Ordering::SeqCst);
+            // Always bump ANIM_GEN so any in-flight exit-fade thread aborts immediately
+            ANIM_GEN.fetch_add(1, Ordering::SeqCst);
             OPENED_INPUT_TIME.store(current_last_input_time(), Ordering::SeqCst);
             OPENED_MONOTONIC_MS.store(now_monotonic_ms(), Ordering::SeqCst);
+            position_standby_hwnd(&existing, &target, top_most, should_focus, false);
+            STANDBY_OPEN.store(true, Ordering::SeqCst);
             let _ = existing.emit("standby:context-updated", get_context_copy());
             let _ = app_handle.emit("standby:visibility-changed", true);
             if was_closing || CURRENT_ALPHA.load(Ordering::SeqCst) < 255 {
@@ -311,7 +632,11 @@ pub fn open_standby_internal(app: &AppHandle, trigger: &str) {
 
         STANDBY_CLOSING.store(false, Ordering::SeqCst);
         STANDBY_ENTER_REVEALED.store(false, Ordering::SeqCst);
+        ANIM_GEN.fetch_add(1, Ordering::SeqCst);
         CURRENT_ALPHA.store(0, Ordering::SeqCst);
+        // Seed open timestamps BEFORE builder.build() so idle_watcher cannot mistake a brand-new window as stale
+        OPENED_INPUT_TIME.store(current_last_input_time(), Ordering::SeqCst);
+        OPENED_MONOTONIC_MS.store(now_monotonic_ms(), Ordering::SeqCst);
 
         let init_script = "window.__IS_STANDBY_WINDOW__ = true;";
         let builder = tauri::WebviewWindowBuilder::new(
@@ -361,6 +686,7 @@ pub fn open_standby_internal(app: &AppHandle, trigger: &str) {
                 let app_ev = app_handle.clone();
                 win.on_window_event(move |event| {
                     if matches!(event, tauri::WindowEvent::Destroyed) {
+                        super::deep_eco::exit_deep_eco(&app_ev);
                         ANIM_GEN.fetch_add(1, Ordering::SeqCst);
                         STANDBY_OPEN.store(false, Ordering::SeqCst);
                         STANDBY_CLOSING.store(false, Ordering::SeqCst);
@@ -510,6 +836,7 @@ pub fn reveal_standby_window(app: &AppHandle) {
 }
 
 pub fn request_smooth_close_standby(app: &AppHandle) {
+    super::deep_eco::exit_deep_eco(app);
     if STANDBY_CLOSING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -541,7 +868,7 @@ pub fn request_smooth_close_standby(app: &AppHandle) {
         let start = Instant::now();
         let dur = Duration::from_millis(EXIT_FADE_MS);
         loop {
-            if ANIM_GEN.load(Ordering::SeqCst) != gen {
+            if ANIM_GEN.load(Ordering::SeqCst) != gen || !STANDBY_CLOSING.load(Ordering::SeqCst) {
                 return;
             }
             let Some(w) = app_clone.get_webview_window(STANDBY_LABEL) else {
@@ -555,7 +882,7 @@ pub fn request_smooth_close_standby(app: &AppHandle) {
             }
             std::thread::sleep(Duration::from_millis(8));
         }
-        if ANIM_GEN.load(Ordering::SeqCst) == gen {
+        if ANIM_GEN.load(Ordering::SeqCst) == gen && STANDBY_CLOSING.load(Ordering::SeqCst) {
             destroy_standby_window(&app_clone);
         }
     });
@@ -594,6 +921,7 @@ fn position_standby_hwnd(
 }
 
 pub fn destroy_standby_window(app: &AppHandle) {
+    super::deep_eco::exit_deep_eco(app);
     ANIM_GEN.fetch_add(1, Ordering::SeqCst);
     if let Some(win) = app.get_webview_window(STANDBY_LABEL) {
         let _ = win.hide();
@@ -620,6 +948,8 @@ pub fn reconcile_after_config_change(app: &AppHandle, cfg: &StandbyConfig) {
             select_target_monitor(&monitors, cfg.target_monitor_id.as_deref(), true)
         {
             if let Some(win) = app.get_webview_window(STANDBY_LABEL) {
+                STANDBY_CLOSING.store(false, Ordering::SeqCst);
+                ANIM_GEN.fetch_add(1, Ordering::SeqCst);
                 position_standby_hwnd(&win, &target, cfg.always_on_top, false, false);
                 if let Ok(mut guard) = context_store().lock() {
                     guard.trigger = "secondary_permanent".to_string();
@@ -627,6 +957,7 @@ pub fn reconcile_after_config_change(app: &AppHandle, cfg: &StandbyConfig) {
                     guard.monitor_id = Some(target.id.clone());
                     guard.is_secondary_monitor = true;
                 }
+                let _ = win.emit("standby:context-updated", get_context_copy());
             } else {
                 open_standby_internal(app, "secondary_permanent");
             }
@@ -647,12 +978,12 @@ pub fn reconcile_on_display_change(app: &AppHandle) {
     }
     let cfg = get_config_snapshot();
     if cfg.activation_mode != "secondary_permanent" {
-        if let Some(win) = app.get_webview_window(STANDBY_LABEL) {
+        if app.get_webview_window(STANDBY_LABEL).is_some() {
             let monitors = enumerate_physical_monitors();
             let ctx = get_context_copy();
             if let Some(mon_id) = ctx.monitor_id.as_deref() {
-                if select_target_monitor(&monitors, Some(mon_id), false).is_none() {
-                    let _ = win.destroy();
+                if !monitors.iter().any(|m| m.id == mon_id) {
+                    destroy_standby_window(app);
                 }
             }
         }
@@ -665,6 +996,8 @@ pub fn reconcile_on_display_change(app: &AppHandle) {
             return;
         }
         if let Some(win) = app.get_webview_window(STANDBY_LABEL) {
+            STANDBY_CLOSING.store(false, Ordering::SeqCst);
+            ANIM_GEN.fetch_add(1, Ordering::SeqCst);
             position_standby_hwnd(&win, &target, cfg.always_on_top, false, false);
         } else {
             open_standby_internal(app, "secondary_permanent");
@@ -729,5 +1062,53 @@ mod tests {
             r"\\.\DISPLAY2"
         );
         assert!(select_target_monitor(&mons[..1], None, true).is_none());
+    }
+
+    #[test]
+    fn video_media_detection_blocks_movies_but_allows_music_players() {
+        use crate::media_lyrics_store::MediaPayload;
+
+        let youtube = MediaPayload {
+            is_playing: true,
+            playback_type: 1,
+            web_source: Some("YouTube".into()),
+            is_browser: true,
+            ..Default::default()
+        };
+        assert!(is_video_media_payload(&youtube));
+
+        let vlc = MediaPayload {
+            is_playing: true,
+            playback_type: 2,
+            app_id: Some("vlc.exe".into()),
+            ..Default::default()
+        };
+        assert!(is_video_media_payload(&vlc));
+
+        let paused_vlc = MediaPayload {
+            is_playing: false,
+            playback_type: 2,
+            app_id: Some("vlc.exe".into()),
+            ..Default::default()
+        };
+        assert!(!is_video_media_payload(&paused_vlc));
+
+        let spotify = MediaPayload {
+            is_playing: true,
+            playback_type: 1,
+            app_id: Some("Spotify.exe".into()),
+            web_source: Some("Spotify".into()),
+            ..Default::default()
+        };
+        assert!(!is_video_media_payload(&spotify));
+
+        let yt_music = MediaPayload {
+            is_playing: true,
+            playback_type: 1,
+            web_source: Some("YouTube Music".into()),
+            is_browser: true,
+            ..Default::default()
+        };
+        assert!(!is_video_media_payload(&yt_music));
     }
 }

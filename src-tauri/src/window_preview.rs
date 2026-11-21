@@ -826,7 +826,9 @@ pub fn start_preview_prewarmer() {
                         }
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        run_prewarm_sweep();
+                        if !crate::standby_window::is_deep_eco_active() {
+                            run_prewarm_sweep();
+                        }
                         next_sweep_at = Instant::now() + sweep_interval;
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,

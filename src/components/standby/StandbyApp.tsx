@@ -16,9 +16,11 @@ import {
   getStandbyConfig,
   getStandbyLaunchContext,
   isNightShiftActive,
+  isStandbyDeepEcoActive,
   notifyStandbyReady,
   saveStandbyConfig,
   subscribeStandbyConfig,
+  subscribeStandbyDeepEco,
 } from "../../services/standbyService";
 import { Language, getLanguage, setLanguage } from "../../services/i18n";
 import {
@@ -96,6 +98,7 @@ export const StandbyApp: React.FC = () => {
   const [nightOverride, setNightOverride] = useState<boolean | null>(null);
   const [now, setNow] = useState<Date>(() => new Date());
   const [hudVisible, setHudVisible] = useState(true);
+  const [deepEcoActive, setDeepEcoActive] = useState(false);
   const [shiftIndex, setShiftIndex] = useState(0);
   const [transitionPhase, setTransitionPhase] = useState<"entering" | "visible" | "exiting">(
     () => (reducedMotion ? "visible" : "entering"),
@@ -183,23 +186,33 @@ export const StandbyApp: React.FC = () => {
     let raf1 = 0;
     let raf2 = 0;
 
-    Promise.all([getStandbyConfig(), getStandbyLaunchContext()]).then(([cfg, ctx]) => {
-      if (cancelled) return;
-      setConfig(cfg);
-      setLaunchContext(ctx);
-      raf1 = window.requestAnimationFrame(() => {
-        raf2 = window.requestAnimationFrame(() => {
-          if (cancelled) return;
-          notifyStandbyReady();
-          setTransitionPhase("visible");
+    Promise.all([getStandbyConfig(), getStandbyLaunchContext(), isStandbyDeepEcoActive()]).then(
+      ([cfg, ctx, eco]) => {
+        if (cancelled) return;
+        setConfig(cfg);
+        setLaunchContext(ctx);
+        setDeepEcoActive(eco);
+        raf1 = window.requestAnimationFrame(() => {
+          raf2 = window.requestAnimationFrame(() => {
+            if (cancelled) return;
+            notifyStandbyReady();
+            setTransitionPhase("visible");
+          });
         });
-      });
-    });
+      },
+    );
     bumpHud();
 
     const unsubCfg = subscribeStandbyConfig((cfg) => {
-      setConfig(cfg);
-      setNightOverride(null);
+      setConfig((prev) => {
+        if (prev.night_mode !== cfg.night_mode) {
+          setNightOverride(null);
+        }
+        return cfg;
+      });
+    });
+    const unsubEco = subscribeStandbyDeepEco((active) => {
+      if (!cancelled) setDeepEcoActive(active);
     });
 
     let unsubCtx: (() => void) | null = null;
@@ -217,7 +230,8 @@ export const StandbyApp: React.FC = () => {
       }
     })
       .then((fn) => {
-        unsubCtx = fn;
+        if (cancelled) fn();
+        else unsubCtx = fn;
       })
       .catch(() => {});
 
@@ -227,7 +241,8 @@ export const StandbyApp: React.FC = () => {
       setTransitionPhase("exiting");
     })
       .then((fn) => {
-        unsubClosing = fn;
+        if (cancelled) fn();
+        else unsubClosing = fn;
       })
       .catch(() => {});
 
@@ -241,7 +256,8 @@ export const StandbyApp: React.FC = () => {
       }
     })
       .then((fn) => {
-        unsubSync = fn;
+        if (cancelled) fn();
+        else unsubSync = fn;
       })
       .catch(() => {});
 
@@ -261,6 +277,7 @@ export const StandbyApp: React.FC = () => {
       if (raf1) window.cancelAnimationFrame(raf1);
       if (raf2) window.cancelAnimationFrame(raf2);
       unsubCfg();
+      unsubEco();
       if (unsubCtx) unsubCtx();
       if (unsubClosing) unsubClosing();
       if (unsubSync) unsubSync();
@@ -302,34 +319,65 @@ export const StandbyApp: React.FC = () => {
     });
 
     fetchPrayerSchedule(false).then(setSchedule).catch(() => {});
-    const pollBattery = () => {
-      invoke<StandbyPowerState | null>("get_system_power_info")
-        .then(setBattery)
-        .catch(() => {});
-    };
-    pollBattery();
-    const batteryTimer = window.setInterval(pollBattery, 30_000);
 
     const onStorage = (e: StorageEvent) => {
       if (e.key === TODO_STORAGE_KEY) {
         setTodos(loadCanonicalTodos());
       } else if (e.key === "gili_prayer_completed_v1") {
         setCompletedPrayers(getCompletedPrayersForDate());
+      } else if (
+        e.key === "gili_prayer_settings_v1" ||
+        e.key === "gili_prayer_schedule_cache_v1"
+      ) {
+        fetchPrayerSchedule(true).then(setSchedule).catch(() => {});
+        setCompletedPrayers(getCompletedPrayersForDate());
       } else if (e.key === "island_language" && (e.newValue === "en" || e.newValue === "id")) {
         setOptLanguage(e.newValue);
       }
     };
+    const onPrayerUpdated = () => {
+      fetchPrayerSchedule(true).then(setSchedule).catch(() => {});
+      setCompletedPrayers(getCompletedPrayersForDate());
+    };
+    let lastDateKey = new Date().toDateString();
+    const midnightTimer = window.setInterval(() => {
+      const todayKey = new Date().toDateString();
+      if (todayKey !== lastDateKey) {
+        lastDateKey = todayKey;
+        fetchPrayerSchedule(true).then(setSchedule).catch(() => {});
+        setCompletedPrayers(getCompletedPrayersForDate());
+      }
+    }, 30_000);
     window.addEventListener("storage", onStorage);
+    window.addEventListener("gili_prayer_updated", onPrayerUpdated);
 
     return () => {
       unsubMedia();
       unsubLyrics();
       stopWeather();
       unsubWeather();
-      window.clearInterval(batteryTimer);
+      window.clearInterval(midnightTimer);
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener("gili_prayer_updated", onPrayerUpdated);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pollBattery = () => {
+      invoke<StandbyPowerState | null>("get_system_power_info")
+        .then((info) => {
+          if (!cancelled) setBattery(info);
+        })
+        .catch(() => {});
+    };
+    pollBattery();
+    const batteryTimer = window.setInterval(pollBattery, deepEcoActive ? 120_000 : 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(batteryTimer);
+    };
+  }, [deepEcoActive]);
 
   const persistUpdate = useCallback((patch: Partial<StandbyConfig>) => {
     setConfig((prev) => {
@@ -389,7 +437,7 @@ export const StandbyApp: React.FC = () => {
         setNightOverride((prev) => !(prev ?? isNightShiftActive(config.night_mode, new Date())));
       } else if (e.code === "Space" && (e.target as HTMLElement)?.tagName !== "BUTTON") {
         e.preventDefault();
-        invoke("smtc_action", { action: "playpause" }).catch(() => {});
+        invoke("smtc_action", { action: "toggle" }).catch(() => {});
       }
     };
 
@@ -416,7 +464,10 @@ export const StandbyApp: React.FC = () => {
     [nightActive, config.clock_accent],
   );
 
-  const [shiftX, shiftY] = BURN_IN_OFFSETS[shiftIndex] || [0, 0];
+  const [rawShiftX, rawShiftY] = BURN_IN_OFFSETS[shiftIndex] || [0, 0];
+  const shiftScale = deepEcoActive ? 1.5 : 1;
+  const shiftX = Math.round(rawShiftX * shiftScale);
+  const shiftY = Math.round(rawShiftY * shiftScale);
 
   const handleToggleTodo = useCallback((id: string) => {
     setTodos(toggleCanonicalTodo(id));
@@ -462,8 +513,13 @@ export const StandbyApp: React.FC = () => {
       };
 
   const hudPhaseHidden = transitionPhase !== "visible";
+  const screensaverDimActive =
+    deepEcoActive &&
+    config.screensaver_dim_enabled &&
+    (launchContext.close_on_activity || !hudVisible);
   const showWidgetMediaGlow =
     !palette.night &&
+    !screensaverDimActive &&
     config.active_screen === "widgets" &&
     config.right_widget === "media" &&
     Boolean(mediaGlowHex && media.title && media.title.trim().length > 0);
@@ -510,13 +566,25 @@ export const StandbyApp: React.FC = () => {
           />
           <span>
             {launchContext.close_on_activity
-              ? isId
+              ? deepEcoActive
+                ? isId
+                  ? "Screensaver Hemat Daya · Gerakkan mouse untuk keluar"
+                  : "Screensaver Eco · Move mouse to exit"
+                : isId
                 ? "StandBy Idle · Gerakkan mouse untuk keluar"
                 : "StandBy Idle · Move mouse to exit"
               : launchContext.trigger === "secondary_permanent"
-              ? isId
+              ? deepEcoActive
+                ? isId
+                  ? "Monitor Ke-2 · Mode Screensaver Hemat Daya"
+                  : "2nd Display · Screensaver Eco Mode"
+                : isId
                 ? "Monitor Ke-2 · Always-On"
                 : "2nd Display · Always-On"
+              : deepEcoActive
+              ? isId
+                ? "StandBy · Mode Screensaver Hemat Daya · Tekan Esc"
+                : "StandBy · Screensaver Eco Mode · Press Esc"
               : isId
               ? "StandBy · Tekan Esc untuk keluar"
               : "StandBy · Press Esc to exit"}
@@ -611,10 +679,17 @@ export const StandbyApp: React.FC = () => {
       >
         <div
           key={config.active_screen}
-          className={`w-full h-full flex items-center justify-center transition-transform duration-1000 ${
+          className={`w-full h-full flex items-center justify-center ${
             reducedMotion ? "" : "animate-standby-view-enter"
           }`}
-          style={{ transform: `translate(${shiftX}px, ${shiftY}px)` }}
+          style={{
+            transform: `translate(${shiftX}px, ${shiftY}px)`,
+            opacity: screensaverDimActive ? 0.78 : 1,
+            filter: screensaverDimActive ? "brightness(0.84)" : "none",
+            transition: reducedMotion
+              ? "none"
+              : "transform 1000ms ease, opacity 1400ms ease, filter 1400ms ease",
+          }}
         >
           {config.active_screen === "widgets" && (
             <StandbyWidgetStack

@@ -5,14 +5,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 // ---- 1. Sticky Notes ----
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StickyChecklistItem {
     pub id: String,
     pub text: String,
     pub checked: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StickyNote {
     pub id: String,
     pub title: String,
@@ -39,6 +39,29 @@ pub struct KanbanBoard {
 }
 
 impl KanbanBoard {
+    pub fn add_card(&mut self, id: String, title: String, col: &str) {
+        let card = KanbanCard {
+            id,
+            title,
+            tag: None,
+        };
+        match col {
+            "doing" => self.doing.push(card),
+            "done" => self.done.push(card),
+            _ => self.todo.push(card),
+        }
+    }
+
+    pub fn remove_card(&mut self, card_id: &str) -> bool {
+        for col in [&mut self.todo, &mut self.doing, &mut self.done] {
+            if let Some(pos) = col.iter().position(|c| c.id == card_id) {
+                col.remove(pos);
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn move_card(&mut self, card_id: &str, to_col: &str) -> bool {
         let mut found: Option<KanbanCard> = None;
         for col in [&mut self.todo, &mut self.doing, &mut self.done] {
@@ -209,28 +232,30 @@ pub fn dpapi_unprotect(ciphertext: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 pub fn save_expenses_encrypted(path: &Path, ledger: &ExpenseLedger) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Gagal buat folder: {e}"))?;
-    }
-    let json = serde_json::to_vec(ledger).map_err(|e| format!("Serialisasi gagal: {e}"))?;
+    let json = serde_json::to_vec(ledger).map_err(|e| format!("Serialization failed: {e}"))?;
     let cipher = dpapi_protect(&json)?;
-    let tmp = path.with_extension("dpapi.tmp");
-    fs::write(&tmp, &cipher).map_err(|e| format!("Gagal tulis file: {e}"))?;
-    if path.exists() {
-        let _ = fs::remove_file(path);
-    }
-    fs::rename(&tmp, path).map_err(|e| format!("Gagal rename file: {e}"))?;
-    Ok(())
+    crate::config::atomic_write_file(path, &cipher)
 }
 
 pub fn load_expenses_encrypted(path: &Path) -> ExpenseLedger {
     let Ok(cipher) = fs::read(path) else {
         return ExpenseLedger::default();
     };
-    let Ok(plain) = dpapi_unprotect(&cipher) else {
+    if cipher.is_empty() {
         return ExpenseLedger::default();
-    };
-    serde_json::from_slice(&plain).unwrap_or_default()
+    }
+    let parsed = dpapi_unprotect(&cipher)
+        .ok()
+        .and_then(|plain| serde_json::from_slice::<ExpenseLedger>(&plain).ok());
+    if let Some(ledger) = parsed {
+        return ledger;
+    }
+    // Preserve an unreadable/corrupted DPAPI ledger as a backup so the next edit never silently destroys it
+    let backup = path.with_extension("dpapi.bak");
+    if !backup.exists() {
+        let _ = fs::copy(path, &backup);
+    }
+    ExpenseLedger::default()
 }
 
 // ---- 5. Habit Streak Backward-Compatible Migration ----
@@ -311,18 +336,27 @@ pub fn scan_recent_files_metadata_only(state: &mut RecentFilesState, limit: usiz
     let excluded_lower: Vec<String> = state
         .excluded_folders
         .iter()
-        .map(|s| s.to_lowercase())
+        .map(|s| s.trim().trim_end_matches(&['\\', '/'][..]).to_lowercase())
+        .filter(|s| !s.is_empty())
         .collect();
     let mut found = Vec::new();
     for folder in &state.watched_folders {
         let Ok(rd) = fs::read_dir(folder) else {
             continue;
         };
-        for entry in rd.flatten().take(200) {
+        // Scan up to 2000 entries before sorting by mtime so large folders (Downloads/Documents) don't hide newer files alphabetically
+        for entry in rd.flatten().take(2_000) {
             let p = entry.path();
             let p_str = p.to_string_lossy().to_string();
             let p_low = p_str.to_lowercase();
-            if excluded_lower.iter().any(|ex| !ex.is_empty() && p_low.starts_with(ex)) {
+            let is_excluded = excluded_lower.iter().any(|ex| {
+                p_low == *ex
+                    || p_low
+                        .strip_prefix(ex.as_str())
+                        .map(|rest| rest.starts_with('\\') || rest.starts_with('/'))
+                        .unwrap_or(false)
+            });
+            if is_excluded {
                 continue;
             }
             let Ok(meta) = fs::symlink_metadata(&p) else {
@@ -385,7 +419,17 @@ pub fn is_supported_photo_path(path: &Path) -> bool {
 fn rebuild_photo_playlist(state: &mut PhotoSlideshowState, folder_items: Vec<String>) {
     let mut merged = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for item in state.manual_photos.iter().chain(folder_items.iter()) {
+    if state.folder_path.is_none() {
+        for item in &state.manual_photos {
+            let key = item.trim().to_ascii_lowercase();
+            if !key.is_empty() && seen.insert(key) {
+                merged.push(item.trim().to_string());
+            }
+        }
+    } else {
+        state.manual_photos.clear();
+    }
+    for item in folder_items {
         let key = item.trim().to_ascii_lowercase();
         if !key.is_empty() && seen.insert(key) {
             merged.push(item.trim().to_string());

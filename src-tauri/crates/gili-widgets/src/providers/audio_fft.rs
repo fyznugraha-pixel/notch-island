@@ -239,13 +239,22 @@ mod wasapi_stream {
         Some((device, id))
     }
 
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum SampleFormat {
+        Float32,
+        Int16,
+        Int24,
+        Int32,
+        Unsupported,
+    }
+
     pub struct WasapiLoopbackStream {
         enumerator: Option<IMMDeviceEnumerator>,
         client: Option<IAudioClient>,
         capture: Option<IAudioCaptureClient>,
         device_id: String,
         channels: usize,
-        bits: u16,
+        format: SampleFormat,
         last_device_check: Instant,
         silent_ticks: u32,
         analyzer: RealtimeSpectrumAnalyzer,
@@ -268,6 +277,23 @@ mod wasapi_stream {
                     let channels = (*mix_ptr).nChannels.max(1) as usize;
                     let sample_rate = (*mix_ptr).nSamplesPerSec.max(8000);
                     let bits = (*mix_ptr).wBitsPerSample;
+                    let tag = (*mix_ptr).wFormatTag;
+                    let is_float = if tag == 3 {
+                        true
+                    } else if tag == 0xFFFE && (*mix_ptr).cbSize >= 22 {
+                        // WAVEFORMATEXTENSIBLE::SubFormat begins at byte offset 24 (after 18-byte WAVEFORMATEX + 2-byte Samples + 4-byte dwChannelMask)
+                        let sub_ptr = (mix_ptr as *const u8).add(24) as *const u32;
+                        std::ptr::read_unaligned(sub_ptr) == 3
+                    } else {
+                        false
+                    };
+                    let format = match (is_float, bits) {
+                        (true, 32) => SampleFormat::Float32,
+                        (false, 16) => SampleFormat::Int16,
+                        (false, 24) => SampleFormat::Int24,
+                        (false, 32) => SampleFormat::Int32,
+                        _ => SampleFormat::Unsupported,
+                    };
 
                     let init_res = client.Initialize(
                         AUDCLNT_SHAREMODE_SHARED,
@@ -293,7 +319,7 @@ mod wasapi_stream {
                         capture: Some(capture),
                         device_id,
                         channels,
-                        bits,
+                        format,
                         last_device_check: Instant::now(),
                         silent_ticks: 0,
                         analyzer: RealtimeSpectrumAnalyzer::new(sample_rate),
@@ -344,36 +370,80 @@ mod wasapi_stream {
                         if is_silent {
                             saw_silent_packet = true;
                             silent_frames += frames;
-                        } else if self.bits == 32 {
-                            let fslice = std::slice::from_raw_parts(
-                                data_ptr as *const f32,
-                                frames * self.channels,
-                            );
-                            let inv_ch = 1.0 / self.channels as f32;
-                            for f in 0..frames {
-                                let base = f * self.channels;
-                                let mut sum = 0.0f32;
-                                for c in 0..self.channels {
-                                    sum += fslice[base + c];
+                        } else {
+                            match self.format {
+                                SampleFormat::Float32 => {
+                                    let fslice = std::slice::from_raw_parts(
+                                        data_ptr as *const f32,
+                                        frames * self.channels,
+                                    );
+                                    let inv_ch = 1.0 / self.channels as f32;
+                                    for f in 0..frames {
+                                        let base = f * self.channels;
+                                        let mut sum = 0.0f32;
+                                        for c in 0..self.channels {
+                                            sum += fslice[base + c];
+                                        }
+                                        self.analyzer.push_mono_sample(sum * inv_ch);
+                                    }
+                                    saw_audio = true;
                                 }
-                                self.analyzer.push_mono_sample(sum * inv_ch);
-                            }
-                            saw_audio = true;
-                        } else if self.bits == 16 {
-                            let islice = std::slice::from_raw_parts(
-                                data_ptr as *const i16,
-                                frames * self.channels,
-                            );
-                            let inv_ch = 1.0 / (self.channels as f32 * 32768.0);
-                            for f in 0..frames {
-                                let base = f * self.channels;
-                                let mut sum = 0.0f32;
-                                for c in 0..self.channels {
-                                    sum += islice[base + c] as f32;
+                                SampleFormat::Int16 => {
+                                    let islice = std::slice::from_raw_parts(
+                                        data_ptr as *const i16,
+                                        frames * self.channels,
+                                    );
+                                    let inv_ch = 1.0 / (self.channels as f32 * 32768.0);
+                                    for f in 0..frames {
+                                        let base = f * self.channels;
+                                        let mut sum = 0.0f32;
+                                        for c in 0..self.channels {
+                                            sum += islice[base + c] as f32;
+                                        }
+                                        self.analyzer.push_mono_sample(sum * inv_ch);
+                                    }
+                                    saw_audio = true;
                                 }
-                                self.analyzer.push_mono_sample(sum * inv_ch);
+                                SampleFormat::Int24 => {
+                                    let bslice = std::slice::from_raw_parts(
+                                        data_ptr as *const u8,
+                                        frames * self.channels * 3,
+                                    );
+                                    let inv_ch = 1.0 / (self.channels as f32 * 8_388_608.0);
+                                    for f in 0..frames {
+                                        let base = f * self.channels * 3;
+                                        let mut sum = 0.0f32;
+                                        for c in 0..self.channels {
+                                            let o = base + c * 3;
+                                            let raw = ((bslice[o] as i32)
+                                                | ((bslice[o + 1] as i32) << 8)
+                                                | ((bslice[o + 2] as i32) << 16))
+                                                << 8
+                                                >> 8;
+                                            sum += raw as f32;
+                                        }
+                                        self.analyzer.push_mono_sample(sum * inv_ch);
+                                    }
+                                    saw_audio = true;
+                                }
+                                SampleFormat::Int32 => {
+                                    let islice = std::slice::from_raw_parts(
+                                        data_ptr as *const i32,
+                                        frames * self.channels,
+                                    );
+                                    let inv_ch = 1.0 / (self.channels as f32 * 2_147_483_648.0);
+                                    for f in 0..frames {
+                                        let base = f * self.channels;
+                                        let mut sum = 0.0f32;
+                                        for c in 0..self.channels {
+                                            sum += islice[base + c] as f32;
+                                        }
+                                        self.analyzer.push_mono_sample(sum * inv_ch);
+                                    }
+                                    saw_audio = true;
+                                }
+                                SampleFormat::Unsupported => {}
                             }
-                            saw_audio = true;
                         }
                     }
 
@@ -384,9 +454,9 @@ mod wasapi_stream {
                     self.silent_ticks = 0;
                     Ok(self.analyzer.analyze())
                 } else if saw_silent_packet {
-                    self.silent_ticks += 1;
+                    self.silent_ticks = self.silent_ticks.saturating_add(1);
                     self.analyzer.push_silence(silent_frames);
-                    Ok(self.analyzer.analyze())
+                    Ok(self.analyzer.decay_silent())
                 } else {
                     self.silent_ticks = self.silent_ticks.saturating_add(1);
                     if self.silent_ticks <= 2 {

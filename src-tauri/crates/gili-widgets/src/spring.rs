@@ -47,9 +47,10 @@ impl SpringValue {
         (self.target - self.value).abs() < 0.0015 && self.velocity.abs() < 0.004
     }
 
-    /// Semi-implicit Euler step clamped to safe dt so animations never explode after sleep.
+    /// Sub-stepped semi-implicit Euler integration so stiff springs (`SNAPPY`) stay
+    /// unconditionally stable even at low frame rates (Battery Saver / multi-monitor).
     pub fn step(&mut self, dt_sec: f32, params: SpringParams, reduced_motion: bool) -> bool {
-        if reduced_motion {
+        if reduced_motion || !self.value.is_finite() || !self.velocity.is_finite() {
             self.value = self.target;
             self.velocity = 0.0;
             return false;
@@ -59,17 +60,21 @@ impl SpringValue {
             self.velocity = 0.0;
             return false;
         }
-        let dt = dt_sec.clamp(0.001, 0.05);
+        let total_dt = dt_sec.clamp(0.001, 0.05);
+        let substeps = ((total_dt / 0.008).ceil() as usize).clamp(1, 8);
+        let dt = total_dt / substeps as f32;
         let omega = (2.0 * PI) / params.response.max(0.08);
         let stiffness = omega * omega;
         let damping = 2.0 * params.damping_ratio.clamp(0.2, 1.5) * omega;
 
-        let disp = self.value - self.target;
-        let accel = -stiffness * disp - damping * self.velocity;
-        self.velocity += accel * dt;
-        self.value += self.velocity * dt;
+        for _ in 0..substeps {
+            let disp = self.value - self.target;
+            let accel = -stiffness * disp - damping * self.velocity;
+            self.velocity += accel * dt;
+            self.value += self.velocity * dt;
+        }
 
-        if self.is_settled() {
+        if !self.value.is_finite() || !self.velocity.is_finite() || self.is_settled() {
             self.value = self.target;
             self.velocity = 0.0;
             false

@@ -305,7 +305,7 @@ export const StandbyMediaWidget: React.FC<StandbyMediaWidgetProps> = ({
           <button
             type="button"
             aria-label={media.is_playing ? (isId ? "Jeda" : "Pause") : isId ? "Putar" : "Play"}
-            onClick={() => invoke("smtc_action", { action: "playpause" }).catch(() => {})}
+            onClick={() => invoke("smtc_action", { action: "toggle" }).catch(() => {})}
             className="w-12 h-12 rounded-full flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff]"
             style={{
               backgroundColor: palette.night ? palette.textPrimary : "#f5f5f7",

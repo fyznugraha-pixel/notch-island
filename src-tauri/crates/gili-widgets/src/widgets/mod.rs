@@ -63,7 +63,7 @@ pub fn widget_catalog() -> Vec<WidgetCatalogEntry> {
         entry("drop_zone", "A", "Modul Gili", "Drop Zone", "Rak berkas cepat yang terhubung dengan Drop Zone Gili.", &[Small, Medium], Small, "shelf_server & shelf.json", false, Some("shelf")),
 
         // Group B: Produktif
-        entry("sticky_notes", "B", "Produktif", "Catatan Tempel", "Banyak catatan berwarna dengan mode checklist dan editor teks native.", &[Small, Medium, Large], Medium, "Penyimpanan lokal catatan tempel", false, Some("notes")),
+        entry("sticky_notes", "B", "Produktif", "Catatan Mini", "Menampilkan Mini Note di Notch: catatan, warna, dan checklist yang sama, dengan tambah cepat dari desktop.", &[Small, Medium, Large], Medium, "Mini Note Notch (gili_mini_notes_v2)", false, None),
         entry("mini_kanban", "B", "Produktif", "Kanban Mini 3 Kolom", "Papan tugas 3 kolom (Akan, Dikerjakan, Selesai) dengan pindah kolom.", &[Large], Large, "Penyimpanan lokal kanban_board.json", false, None),
         entry("time_tracker", "B", "Produktif", "Pelacak Waktu Proyek", "Hitung durasi kerja per proyek (mulai/henti) dengan ekspor CSV.", &[Small, Medium], Medium, "Penyimpanan lokal time_tracker.json", false, None),
         entry("site_status", "B", "Produktif", "Status Situs", "Pantau uptime URL milik pengguna (interval min 60 dtk, maks 6 situs).", &[Medium, Large], Medium, "HTTP ping HTTPS ber-timeout via ureq", true, None),
@@ -128,6 +128,29 @@ pub fn resolve_palette(
     style: &WidgetStyleConfig,
     analysis: &WallpaperRegionAnalysis,
 ) -> ResolvedPalette {
+    resolve_palette_with_policy(style, analysis, false)
+}
+
+pub fn resolve_palette_with_policy(
+    style: &WidgetStyleConfig,
+    analysis: &WallpaperRegionAnalysis,
+    high_contrast: bool,
+) -> ResolvedPalette {
+    if high_contrast {
+        return ResolvedPalette {
+            primary: RgbaColor::new(255, 255, 255, 1.0),
+            secondary: RgbaColor::new(235, 235, 240, 0.92),
+            accent: RgbaColor::new(0x5E, 0xCA, 0xFF, 1.0),
+            card_fill: Some(RgbaColor::new(0, 0, 0, 0.96)),
+            inner_border: Some(RgbaColor::new(255, 255, 255, 0.85)),
+            surface_chip: RgbaColor::new(255, 255, 255, 0.18),
+            positive: RgbaColor::new(0x4A, 0xDE, 0x80, 1.0),
+            warning: RgbaColor::new(0xFD, 0xE0, 0x47, 1.0),
+            danger: RgbaColor::new(0xFF, 0x6B, 0x6B, 1.0),
+            is_monochrome: false,
+        };
+    }
+
     let primary = resolve_role(
         &style.text_primary,
         analysis.recommended_text_primary,
@@ -173,7 +196,8 @@ pub fn resolve_palette(
         ),
     };
 
-    let surface_chip = if primary.r > 180 {
+    let primary_is_light = crate::contrast::relative_luminance(primary) > 0.45;
+    let surface_chip = if primary_is_light {
         RgbaColor::new(255, 255, 255, 0.14)
     } else {
         RgbaColor::new(17, 20, 28, 0.08)
@@ -192,18 +216,24 @@ pub fn resolve_palette(
         surface_chip,
         positive: if monochrome {
             primary
-        } else {
+        } else if primary_is_light {
             RgbaColor::new(0x34, 0xC3, 0xA0, 1.0)
+        } else {
+            RgbaColor::new(0x0E, 0x7C, 0x66, 1.0)
         },
         warning: if monochrome {
             secondary
-        } else {
+        } else if primary_is_light {
             RgbaColor::new(0xFB, 0xBF, 0x24, 1.0)
+        } else {
+            RgbaColor::new(0xB4, 0x53, 0x09, 1.0)
         },
         danger: if monochrome {
             primary.with_alpha(0.90)
-        } else {
+        } else if primary_is_light {
             RgbaColor::new(0xF8, 0x71, 0x71, 1.0)
+        } else {
+            RgbaColor::new(0xC8, 0x1E, 0x1E, 1.0)
         },
         is_monochrome: monochrome,
     }
@@ -328,7 +358,7 @@ pub fn empty_state_nodes(
             false,
         ),
     ];
-    let btn_w = (inner.w * 0.52).clamp(84.0, 128.0);
+    let btn_w = (inner.w * 0.78).clamp(96.0, 136.0).min(inner.w);
     let btn_rect = RectF::new(inner.x, inner.y + inner.h - 30.0, btn_w, 28.0);
     nodes.extend(action_pill(
         btn_rect,
@@ -345,8 +375,14 @@ fn resolve_widget_card_gradient(
     style: &WidgetStyleConfig,
     pal: &ResolvedPalette,
     hub: &WidgetDataHub,
+    high_contrast: bool,
 ) -> Option<(RgbaColor, RgbaColor)> {
-    if pal.is_monochrome || widget_type == "photo_frame" {
+    // Skip dark built-in gradients on monochrome, high-contrast, or light-ink cards so dark text never collides with dark cards
+    if pal.is_monochrome
+        || high_contrast
+        || widget_type == "photo_frame"
+        || crate::contrast::relative_luminance(pal.primary) <= 0.45
+    {
         return None;
     }
     let alpha = match style.background_mode {
@@ -400,11 +436,32 @@ pub fn build_widget_render_item(
     hub: &WidgetDataHub,
     elapsed_secs: f32,
 ) -> WidgetRenderItem {
+    build_widget_render_item_with_policy(
+        slot,
+        frame,
+        global_theme,
+        analysis,
+        hub,
+        elapsed_secs,
+        false,
+    )
+}
+
+pub fn build_widget_render_item_with_policy(
+    slot: &WidgetStackSlot,
+    frame: RectF,
+    global_theme: &WidgetStyleConfig,
+    analysis: &WallpaperRegionAnalysis,
+    hub: &WidgetDataHub,
+    elapsed_secs: f32,
+    high_contrast: bool,
+) -> WidgetRenderItem {
     let fallback = WidgetInstance::default();
     let inst = slot.active_widget().unwrap_or(&fallback);
     let style = inst.style_override.as_ref().unwrap_or(global_theme);
-    let pal = resolve_palette(style, analysis);
-    let card_gradient = resolve_widget_card_gradient(&inst.widget_type, style, &pal, hub);
+    let pal = resolve_palette_with_policy(style, analysis, high_contrast);
+    let card_gradient =
+        resolve_widget_card_gradient(&inst.widget_type, style, &pal, hub, high_contrast);
 
     let ctx = WidgetBuildCtx {
         frame,

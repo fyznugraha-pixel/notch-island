@@ -37,6 +37,13 @@ impl RectF {
         let y1 = (self.y + self.h).max(other.y + other.h);
         Self::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
     }
+
+    pub fn intersects_with_gap(self, other: Self, gap: f32) -> bool {
+        self.x < other.x + other.w + gap
+            && self.x + self.w + gap > other.x
+            && self.y < other.y + other.h + gap
+            && self.y + self.h + gap > other.y
+    }
 }
 
 /// Concentric corner radius formula for nested elements inside a continuous-corner card.
@@ -202,6 +209,18 @@ pub enum SceneNode {
         cloud_color: RgbaColor,
         accent_color: RgbaColor,
     },
+    GiliMascot {
+        rect: RectF,
+        dome_color: RgbaColor,
+        visor_color: RgbaColor,
+        eye_color: RgbaColor,
+        wave_color: RgbaColor,
+        blink: bool,
+        happy: bool,
+        eye_dx: f32,
+        wave_phase: f32,
+        interactive_action: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -304,6 +323,11 @@ impl WidgetRenderItem {
                     });
                 }
                 SceneNode::ImageRef {
+                    rect,
+                    interactive_action,
+                    ..
+                }
+                | SceneNode::GiliMascot {
                     rect,
                     interactive_action,
                     ..
@@ -471,6 +495,162 @@ pub fn resolve_grid_collisions(slots: &mut [WidgetStackSlot], moved_slot_id: &st
     }
 }
 
+/// Computes the clamped on-screen DIP rect for a slot on a given monitor work area.
+pub fn effective_slot_rect_dp(
+    slot: &WidgetStackSlot,
+    grid_scale: f32,
+    work_w_dip: f32,
+    work_h_dip: f32,
+) -> RectF {
+    let cell_step = (GRID_SMALL_DP + GRID_GAP_DP) * grid_scale.clamp(0.8, 1.35);
+    let mut rect = slot_rect_dp(slot, grid_scale, 32.0, 48.0);
+    if slot.pos_x.is_none()
+        && slot.pos_y.is_none()
+        && rect.y + rect.h > work_h_dip - 12.0
+    {
+        let max_rows = (((work_h_dip - 60.0) / cell_step).floor() as i32).max(1);
+        let overflow_col = slot.grid_row / max_rows;
+        let wrapped_row = slot.grid_row % max_rows;
+        rect.x += (overflow_col as f32) * 2.0 * cell_step;
+        rect.y = 48.0 + (wrapped_row as f32) * cell_step;
+    }
+    let max_x = (work_w_dip - rect.w - 8.0).max(8.0);
+    let max_y = (work_h_dip - rect.h - 8.0).max(8.0);
+    rect.x = rect.x.clamp(8.0, max_x);
+    rect.y = rect.y.clamp(8.0, max_y);
+    rect
+}
+
+/// Finds the closest valid position within the monitor work area that does not overlap `others`.
+pub fn find_non_overlapping_pos(
+    desired: RectF,
+    others: &[RectF],
+    work_w_dip: f32,
+    work_h_dip: f32,
+    grid_scale: f32,
+) -> (f32, f32) {
+    let max_x = (work_w_dip - desired.w - 8.0).max(8.0);
+    let max_y = (work_h_dip - desired.h - 8.0).max(8.0);
+    let clamped_x = desired.x.clamp(8.0, max_x);
+    let clamped_y = desired.y.clamp(8.0, max_y);
+    let gap = (12.0 * grid_scale.clamp(0.8, 1.35)).max(8.0);
+
+    let fits = |x: f32, y: f32, pad: f32| -> bool {
+        if x < 8.0 - 0.5 || y < 8.0 - 0.5 || x > max_x + 0.5 || y > max_y + 0.5 {
+            return false;
+        }
+        let cand = RectF::new(x, y, desired.w, desired.h);
+        !others.iter().any(|o| cand.intersects_with_gap(*o, pad))
+    };
+
+    if fits(clamped_x, clamped_y, gap) {
+        return (clamped_x, clamped_y);
+    }
+
+    let search = |pad: f32| -> Option<(f32, f32)> {
+        let mut best: Option<((f32, f32), f32)> = None;
+        let mut consider = |cx: f32, cy: f32| {
+            let x = cx.clamp(8.0, max_x);
+            let y = cy.clamp(8.0, max_y);
+            if !fits(x, y, pad) {
+                return;
+            }
+            let dx = x - clamped_x;
+            let dy = y - clamped_y;
+            let dist2 = dx * dx + dy * dy;
+            if best.map(|(_, d)| dist2 < d).unwrap_or(true) {
+                best = Some(((x, y), dist2));
+            }
+        };
+
+        // Try edge-aligned placements directly beside every existing widget first
+        let push = pad + 2.0;
+        for o in others {
+            let right_x = o.x + o.w + push;
+            let left_x = o.x - desired.w - push;
+            let below_y = o.y + o.h + push;
+            let above_y = o.y - desired.h - push;
+            consider(right_x, clamped_y);
+            consider(right_x, o.y);
+            consider(left_x, clamped_y);
+            consider(left_x, o.y);
+            consider(clamped_x, below_y);
+            consider(o.x, below_y);
+            consider(clamped_x, above_y);
+            consider(o.x, above_y);
+        }
+
+        // Sweep the work area on a 24dp grid to guarantee finding a free spot even when crowded
+        let step = 24.0f32;
+        let mut y = 16.0f32;
+        while y <= max_y {
+            let mut x = 16.0f32;
+            while x <= max_x {
+                consider(x, y);
+                x += step;
+            }
+            y += step;
+        }
+
+        best.map(|(pos, _)| pos)
+    };
+
+    if let Some(pos) = search(gap) {
+        return pos;
+    }
+    if let Some(pos) = search(0.0) {
+        return pos;
+    }
+    (clamped_x, clamped_y)
+}
+
+/// Ensures no two widgets sharing the same monitor overlap each other.
+/// If `priority_slot_id` is set (e.g. a resized widget), that widget keeps its anchor while
+/// colliding neighbors move cleanly to the nearest non-overlapping spot.
+pub fn resolve_all_rect_collisions(
+    slots: &mut [WidgetStackSlot],
+    priority_slot_id: Option<&str>,
+    grid_scale: f32,
+    work_w_dip: f32,
+    work_h_dip: f32,
+) -> bool {
+    let mut changed = false;
+    let mut order: Vec<usize> = (0..slots.len()).collect();
+    if let Some(pid) = priority_slot_id {
+        if let Some(pos) = order.iter().position(|&idx| slots[idx].slot_id == pid) {
+            let idx = order.remove(pos);
+            order.insert(0, idx);
+        }
+    }
+
+    let mut placed_by_mon: std::collections::HashMap<String, Vec<RectF>> =
+        std::collections::HashMap::new();
+
+    for idx in order {
+        let mon = slots[idx].monitor_id.clone();
+        let rect = effective_slot_rect_dp(&slots[idx], grid_scale, work_w_dip, work_h_dip);
+        let placed = placed_by_mon.entry(mon).or_default();
+        let gap = (12.0 * grid_scale.clamp(0.8, 1.35)).max(8.0);
+        let overlaps = placed.iter().any(|o| rect.intersects_with_gap(*o, gap));
+
+        let final_rect = if overlaps {
+            let (nx, ny) = find_non_overlapping_pos(rect, placed, work_w_dip, work_h_dip, grid_scale);
+            let (col, row) = snap_position_to_grid(nx, ny, grid_scale, 32.0, 48.0);
+            slots[idx].pos_x = Some(nx);
+            slots[idx].pos_y = Some(ny);
+            slots[idx].grid_col = col.max(0);
+            slots[idx].grid_row = row.max(0);
+            changed = true;
+            RectF::new(nx, ny, rect.w, rect.h)
+        } else {
+            rect
+        };
+        placed.push(final_rect);
+    }
+
+    changed
+}
+
 pub fn default_card_radius_dp(grid_scale: f32) -> (f32, f32) {
     (CARD_RADIUS_DP * grid_scale, CARD_CORNER_SMOOTHING)
 }
@@ -479,6 +659,45 @@ pub fn default_card_radius_dp(grid_scale: f32) -> (f32, f32) {
 mod tests {
     use super::*;
     use crate::config::WidgetInstance;
+
+    #[test]
+    fn rect_collision_resolver_prevents_overlap_on_drag_resize_and_add() {
+        let mut slots = vec![
+            WidgetStackSlot {
+                slot_id: "a".into(),
+                monitor_id: "primary".into(),
+                size: WidgetSize::Medium,
+                pos_x: Some(32.0),
+                pos_y: Some(48.0),
+                widgets: vec![WidgetInstance::default()],
+                ..Default::default()
+            },
+            WidgetStackSlot {
+                slot_id: "b".into(),
+                monitor_id: "primary".into(),
+                size: WidgetSize::Medium,
+                pos_x: Some(64.0),
+                pos_y: Some(64.0),
+                widgets: vec![WidgetInstance::default()],
+                ..Default::default()
+            },
+        ];
+
+        let changed = resolve_all_rect_collisions(&mut slots, Some("a"), 1.0, 1920.0, 1040.0);
+        assert!(changed, "overlapping slots must be separated");
+        let ra = effective_slot_rect_dp(&slots[0], 1.0, 1920.0, 1040.0);
+        let rb = effective_slot_rect_dp(&slots[1], 1.0, 1920.0, 1040.0);
+        assert!(!ra.intersects_with_gap(rb, 10.0), "resolved rects must not overlap: {ra:?} vs {rb:?}");
+        assert_eq!(ra.x, 32.0);
+        assert_eq!(ra.y, 48.0);
+
+        // Dropping a third widget directly onto slot "a" must land in a clean free spot
+        let desired = RectF::new(32.0, 48.0, 336.0, 160.0);
+        let (nx, ny) = find_non_overlapping_pos(desired, &[ra, rb], 1920.0, 1040.0, 1.0);
+        let rc = RectF::new(nx, ny, 336.0, 160.0);
+        assert!(!rc.intersects_with_gap(ra, 10.0));
+        assert!(!rc.intersects_with_gap(rb, 10.0));
+    }
 
     #[test]
     fn empty_area_returns_transparent_for_desktop_click_through() {

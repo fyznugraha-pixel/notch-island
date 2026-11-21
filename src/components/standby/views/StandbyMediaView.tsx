@@ -240,7 +240,7 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
               <button
                 type="button"
                 aria-label={media.is_playing ? (isId ? "Jeda" : "Pause") : isId ? "Putar" : "Play"}
-                onClick={() => invoke("smtc_action", { action: "playpause" }).catch(() => { })}
+                onClick={() => invoke("smtc_action", { action: "toggle" }).catch(() => { })}
                 className="w-14 h-14 rounded-full flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff] shadow-xl"
                 style={{
                   backgroundColor: palette.night ? palette.textPrimary : "#ffffff",

@@ -936,7 +936,7 @@ async fn smtc_action(action: String) -> Result<(), String> {
         let session = resolve_smtc_session(&manager).ok_or_else(|| "No media session found".to_string())?;
 
         match action.as_str() {
-            "toggle" => { let _ = session.TryTogglePlayPauseAsync().map_err(|e| e.to_string())?.get(); },
+            "toggle" | "playpause" => { let _ = session.TryTogglePlayPauseAsync().map_err(|e| e.to_string())?.get(); },
             "play" => { let _ = session.TryPlayAsync().map_err(|e| e.to_string())?.get(); },
             "pause" => { let _ = session.TryPauseAsync().map_err(|e| e.to_string())?.get(); },
             "next" => { let _ = session.TrySkipNextAsync().map_err(|e| e.to_string())?.get(); },
@@ -4452,6 +4452,51 @@ fn detect_browser_web_source(current_title: &str, current_artist: &str) -> Optio
             } else if win_title.contains("netflix") {
                 ctx.found = Some("Netflix".to_string());
                 return BOOL(0);
+            } else if win_title.contains("twitch") {
+                ctx.found = Some("Twitch".to_string());
+                return BOOL(0);
+            } else if win_title.contains("bilibili") {
+                ctx.found = Some("Bilibili".to_string());
+                return BOOL(0);
+            } else if win_title.contains("disney+") || win_title.contains("disneyplus") || win_title.contains("hotstar") {
+                ctx.found = Some("Disney+".to_string());
+                return BOOL(0);
+            } else if win_title.contains("prime video") || win_title.contains("primevideo") {
+                ctx.found = Some("Prime Video".to_string());
+                return BOOL(0);
+            } else if win_title.contains("crunchyroll") {
+                ctx.found = Some("Crunchyroll".to_string());
+                return BOOL(0);
+            } else if win_title.contains("vidio") {
+                ctx.found = Some("Vidio".to_string());
+                return BOOL(0);
+            } else if win_title.contains("viu") {
+                ctx.found = Some("Viu".to_string());
+                return BOOL(0);
+            } else if win_title.contains("vimeo") {
+                ctx.found = Some("Vimeo".to_string());
+                return BOOL(0);
+            } else if win_title.contains("tiktok") {
+                ctx.found = Some("TikTok".to_string());
+                return BOOL(0);
+            } else if win_title.contains("kick") {
+                ctx.found = Some("Kick".to_string());
+                return BOOL(0);
+            } else if win_title.contains("iqiyi") {
+                ctx.found = Some("iQIYI".to_string());
+                return BOOL(0);
+            } else if win_title.contains("wetv") {
+                ctx.found = Some("WeTV".to_string());
+                return BOOL(0);
+            } else if win_title.contains("hbo") || win_title.contains("max |") || win_title.contains("play.max.com") {
+                ctx.found = Some("Max".to_string());
+                return BOOL(0);
+            } else if win_title.contains("apple tv") {
+                ctx.found = Some("Apple TV".to_string());
+                return BOOL(0);
+            } else if win_title.contains("dailymotion") {
+                ctx.found = Some("Dailymotion".to_string());
+                return BOOL(0);
             }
         }
         BOOL(1)
@@ -4677,7 +4722,12 @@ pub fn run() {
         if arg == "--taskbar-watchdog" {
             if let Some(pid_str) = args.get(i + 1) {
                 if let Ok(pid) = pid_str.parse::<u32>() {
-                    taskbar_safety::run_taskbar_watchdog(pid);
+                    let flag_path = args
+                        .iter()
+                        .position(|a| a == "--flag-path")
+                        .and_then(|idx| args.get(idx + 1))
+                        .map(std::path::PathBuf::from);
+                    taskbar_safety::run_taskbar_watchdog_with_flag(pid, flag_path);
                     return;
                 }
             }
@@ -4685,7 +4735,7 @@ pub fn run() {
     }
 
     if std::env::args().any(|arg| arg == "--restore-taskbar") {
-        taskbar_manager::set_taskbar_visible(true);
+        taskbar_manager::restore_taskbars_from_watchdog(Some(0), None);
         println!("Windows Taskbar has been restored.");
         return;
     }
@@ -4951,6 +5001,7 @@ pub fn run() {
             standby_window::close_standby_window,
             standby_window::toggle_standby_window,
             standby_window::is_standby_open,
+            standby_window::is_standby_deep_eco_active,
             standby_window::get_standby_launch_context,
             standby_window::notify_standby_ready,
             desktop_widgets_bridge::get_desktop_widgets_config,
@@ -4966,18 +5017,28 @@ pub fn run() {
             desktop_widgets_bridge::get_widget_ical_status,
             desktop_widgets_bridge::take_pending_widget_provider,
             desktop_widgets_bridge::save_github_widget_token,
+            desktop_widgets_bridge::get_widget_storage_status,
             desktop_widgets_bridge::trigger_widget_storage_scan,
+            desktop_widgets_bridge::pick_widget_storage_folder_dialog,
             desktop_widgets_bridge::export_widget_time_tracker_csv,
             desktop_widgets_bridge::set_widget_expense_budget,
+            desktop_widgets_bridge::get_widget_expenses,
+            desktop_widgets_bridge::add_widget_expense,
+            desktop_widgets_bridge::delete_widget_expense,
             desktop_widgets_bridge::add_widget_uptime_site,
             desktop_widgets_bridge::add_widget_time_project,
             desktop_widgets_bridge::add_widget_shortcut,
             desktop_widgets_bridge::configure_widget_photo_folder,
+            desktop_widgets_bridge::get_widget_photo_folder_status,
             desktop_widgets_bridge::pick_widget_photos_dialog,
             desktop_widgets_bridge::pick_widget_photo_folder_dialog,
             desktop_widgets_bridge::configure_widget_recent_folders,
             desktop_widgets_bridge::add_widget_countdown,
             desktop_widgets_bridge::add_widget_snippet,
+            desktop_widgets_bridge::get_widget_kanban_board,
+            desktop_widgets_bridge::add_widget_kanban_card,
+            desktop_widgets_bridge::move_widget_kanban_card,
+            desktop_widgets_bridge::delete_widget_kanban_card,
             desktop_widgets_bridge::add_widget_world_clock
         ])
         .setup(|app| {
@@ -5058,7 +5119,13 @@ pub fn run() {
             let app_h = app.handle().clone();
             store_license::init_cached_license_from_disk();
             standby_window::start_standby_watcher(app.handle().clone());
-            desktop_widgets_bridge::start_desktop_widgets_bridge(app.handle().clone());
+            let widgets_app = app.handle().clone();
+            std::thread::Builder::new()
+                .name("gili-widgets-init".into())
+                .spawn(move || {
+                    desktop_widgets_bridge::start_desktop_widgets_bridge(widgets_app);
+                })
+                .ok();
             std::thread::spawn(move || {
                 windows_pinned_apps::start_pinned_apps_watcher(app_h.clone());
                 window_preview::start_preview_prewarmer();
@@ -5180,9 +5247,14 @@ pub fn run() {
                 let mut last_pos_state: Option<(NotchPos, i32, bool)> = None;
                 let mut last_desktop_geom_sig = display_topology::quick_desktop_geometry_signature();
                 let mut notch_desktop_burst: u8 = 0;
+                let mut fast_poll = true;
                 let own_pid = std::process::id();
                 loop {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    if standby_window::is_deep_eco_active() {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        continue;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(if fast_poll { 20 } else { 60 }));
                     
                     loop_count = loop_count.wrapping_add(1);
                     if loop_count.is_multiple_of(25) {
@@ -5306,6 +5378,17 @@ pub fn run() {
                                     && pt.x <= wp.x + ws.width as i32 + pad
                                     && pt.y >= wp.y - pad
                                     && pt.y <= wp.y + ws.height as i32 + pad
+                            });
+
+                        fast_poll = cursor_near_edge
+                            || notch_desktop_burst > 0
+                            || !sec_hit_map.is_empty()
+                            || cached_geom.is_some_and(|(wp, ws, sf)| {
+                                let approach_pad = (140.0 * sf).round() as i32;
+                                pt.x >= wp.x - approach_pad
+                                    && pt.x <= wp.x + ws.width as i32 + approach_pad
+                                    && pt.y >= wp.y - approach_pad
+                                    && pt.y <= wp.y + ws.height as i32 + approach_pad
                             });
 
                         // Polling hit test untuk notch di layar sekunder
@@ -5532,6 +5615,10 @@ pub fn run() {
                 let mut last_ping: Option<u32> = None;
                 let mut initialized = false;
                 loop {
+                    if standby_window::is_deep_eco_active() {
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        continue;
+                    }
                     unsafe {
                         if let Ok(handle) = IcmpCreateFile() {
                             let ip_addr = 0x08080808u32; // 8.8.8.8
@@ -5912,7 +5999,7 @@ pub fn run() {
                     let mut title = String::new();
                     let mut artist = String::new();
                     let mut is_playing = false;
-                    let mut playback_type = 1;
+                    let mut playback_type = 0;
                     let mut position_sec = 0.0;
                     let mut duration_sec = 0.0;
                     let mut is_browser_session = false;
@@ -6272,6 +6359,32 @@ pub fn run() {
                                         current_web_source = Some("Plex".to_string());
                                     } else if a_lower == "netflix" || t_lower.contains("netflix") {
                                         current_web_source = Some("Netflix".to_string());
+                                    } else if a_lower == "twitch" || t_lower.contains("twitch") {
+                                        current_web_source = Some("Twitch".to_string());
+                                    } else if a_lower == "bilibili" || t_lower.contains("bilibili") {
+                                        current_web_source = Some("Bilibili".to_string());
+                                    } else if a_lower.contains("disney") || t_lower.contains("disney+") || t_lower.contains("hotstar") {
+                                        current_web_source = Some("Disney+".to_string());
+                                    } else if a_lower.contains("prime video") || t_lower.contains("prime video") {
+                                        current_web_source = Some("Prime Video".to_string());
+                                    } else if a_lower == "crunchyroll" || t_lower.contains("crunchyroll") {
+                                        current_web_source = Some("Crunchyroll".to_string());
+                                    } else if a_lower == "vidio" || t_lower.contains("vidio") {
+                                        current_web_source = Some("Vidio".to_string());
+                                    } else if a_lower == "viu" || t_lower.contains("viu") {
+                                        current_web_source = Some("Viu".to_string());
+                                    } else if a_lower == "vimeo" || t_lower.contains("vimeo") {
+                                        current_web_source = Some("Vimeo".to_string());
+                                    } else if a_lower == "tiktok" || t_lower.contains("tiktok") {
+                                        current_web_source = Some("TikTok".to_string());
+                                    } else if a_lower == "iqiyi" || t_lower.contains("iqiyi") {
+                                        current_web_source = Some("iQIYI".to_string());
+                                    } else if a_lower == "wetv" || t_lower.contains("wetv") {
+                                        current_web_source = Some("WeTV".to_string());
+                                    } else if a_lower.contains("apple tv") || t_lower.contains("apple tv") {
+                                        current_web_source = Some("Apple TV".to_string());
+                                    } else if a_lower == "dailymotion" || t_lower.contains("dailymotion") {
+                                        current_web_source = Some("Dailymotion".to_string());
                                     } else {
                                         current_web_source = detect_browser_web_source(&title, &artist);
                                     }
@@ -6284,10 +6397,15 @@ pub fn run() {
                                         }
                                     }
                                 } else if is_browser_session {
-                                    if let (Some(ref aid), Some((ref cached_aid, ref cached_ws))) = (&current_app_id, &cached_browser_web_source) {
-                                        if aid.to_lowercase() == *cached_aid {
-                                            current_web_source = Some(cached_ws.clone());
+                                    // Only reuse cached browser source while track identity is unchanged so a stale music tab never masks a new video tab
+                                    if title == last_title && artist == last_artist {
+                                        if let (Some(ref aid), Some((ref cached_aid, ref cached_ws))) = (&current_app_id, &cached_browser_web_source) {
+                                            if aid.to_lowercase() == *cached_aid {
+                                                current_web_source = Some(cached_ws.clone());
+                                            }
                                         }
+                                    } else {
+                                        cached_browser_web_source = None;
                                     }
                                 }
                                 
@@ -6492,7 +6610,9 @@ pub fn run() {
             taskbar_flyout::init_flyout_manager(app.handle());
             taskbar_safety::init_taskbar_switches_from_disk();
             taskbar_hotkey::init_taskbar_hotkey_layer(app.handle().clone());
-            taskbar_safety::ensure_taskbar_watchdog_spawned();
+            std::thread::spawn(|| {
+                taskbar_safety::ensure_taskbar_watchdog_spawned();
+            });
 
             if store_license::can_use_taskbar() {
                 let (navbar_enabled, hide_taskbar) = store_license::read_disk_navbar_flags();

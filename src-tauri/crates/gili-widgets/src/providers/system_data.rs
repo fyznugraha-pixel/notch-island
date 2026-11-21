@@ -94,6 +94,8 @@ struct PerfSamplerState {
     prev_sys_total: u64,
     last_proc_sample: Option<Instant>,
     cached_top_procs: Vec<ProcessUsageItem>,
+    last_disk_sample: Option<Instant>,
+    cached_disks: Vec<DiskUsageItem>,
 }
 
 static PERF_STATE: OnceLock<Mutex<PerfSamplerState>> = OnceLock::new();
@@ -235,12 +237,24 @@ fn sample_memory() -> (f32, f32, f32) {
 #[cfg(windows)]
 fn sample_disks() -> Vec<DiskUsageItem> {
     use windows::core::PCWSTR;
-    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    use windows::Win32::Storage::FileSystem::{
+        GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives,
+    };
 
+    const DRIVE_FIXED: u32 = 3;
+    let mask = unsafe { GetLogicalDrives() };
     let mut disks = Vec::new();
     for letter in b'C'..=b'Z' {
+        let bit = 1u32 << (letter - b'A');
+        if (mask & bit) == 0 {
+            continue;
+        }
         let root = format!("{}:\\", letter as char);
         let wide: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
+        // Skip network shares / optical / disconnected mounts so offline drives never hang startup
+        if unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) } != DRIVE_FIXED {
+            continue;
+        }
         let mut free_avail = 0u64;
         let mut total_bytes = 0u64;
         let mut total_free = 0u64;
@@ -296,14 +310,27 @@ pub fn sample_system_perf(
 ) -> SystemPerfSnapshot {
     let (ram_used_gb, ram_total_gb, ram_pct) = sample_memory();
     let (on_battery_saver, battery_percent, is_charging) = is_power_saver_active();
-    let disks = sample_disks();
 
-    let (cpu_total_pct, cpu_cores_pct, net_pair) = if let Ok(mut st) = state().lock() {
+    let (cpu_total_pct, cpu_cores_pct, net_pair, disks) = if let Ok(mut st) = state().lock() {
         let (avg, cores) = sample_per_core_cpu(&mut st.prev_cores);
         let net = net_override.unwrap_or_else(|| sample_network_mbps(&mut st.prev_net));
-        (avg, cores, net)
+        let now = Instant::now();
+        let disks_stale = st
+            .last_disk_sample
+            .map(|t| now.duration_since(t) >= Duration::from_secs(30))
+            .unwrap_or(true);
+        if disks_stale || st.cached_disks.is_empty() {
+            st.cached_disks = sample_disks();
+            st.last_disk_sample = Some(now);
+        }
+        (avg, cores, net, st.cached_disks.clone())
     } else {
-        (0.0, Vec::new(), net_override.unwrap_or((0.0, 0.0)))
+        (
+            0.0,
+            Vec::new(),
+            net_override.unwrap_or((0.0, 0.0)),
+            sample_disks(),
+        )
     };
 
     let (gpu_name, gpu_pct, gpu_temp_c) = match gpu_override {
@@ -489,16 +516,24 @@ pub fn scan_storage_treemap_bounded(
     max_entries: usize,
 ) -> StorageTreemapSnapshot {
     let mut children_totals: Vec<(String, u64)> = Vec::new();
-    let mut visited = 0usize;
 
     if let Ok(read_dir) = std::fs::read_dir(root) {
-        for entry in read_dir.flatten() {
-            if visited >= max_entries {
+        let top_entries: Vec<_> = read_dir.flatten().collect();
+        let top_count = top_entries.len().max(1);
+        // Fair per-child budget prevents AppData (first alphabetically) from starving Desktop/Documents/Downloads/Videos
+        let per_child_cap = (max_entries / top_count).clamp(1_500, max_entries.max(1));
+        let mut total_visited = 0usize;
+        let hard_cap = max_entries.saturating_mul(2).max(max_entries);
+
+        for entry in top_entries {
+            if total_visited >= hard_cap {
                 break;
             }
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
-            let bytes = measure_dir_bounded(&path, max_depth, max_entries, &mut visited);
+            let mut child_visited = 0usize;
+            let bytes = measure_dir_bounded(&path, max_depth, per_child_cap, &mut child_visited);
+            total_visited = total_visited.saturating_add(child_visited);
             if bytes > 0 {
                 children_totals.push((name, bytes));
             }
