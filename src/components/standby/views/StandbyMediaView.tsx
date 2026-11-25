@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Music, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { StandbyPalette } from "../standbyTheme";
@@ -6,8 +6,8 @@ import { Language } from "../../../services/i18n";
 import { LyricsPayload, MediaPayload } from "../../../services/mediaLyricsStore";
 import { useResolvedThumbnail } from "../../ui/MediaThumbnail";
 import { extractDominantColor } from "../../miniplayer/colorExtractor";
-import { WordFillLyricsLine } from "../../ui/WordFillLyricsLine";
 import { BASE_LYRICS_OFFSET } from "../../miniplayer/lyricsSync";
+import { StandbyLyricsRow } from "../StandbyLyricsRow";
 
 interface StandbyMediaViewProps {
   media: MediaPayload;
@@ -109,6 +109,14 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
   const pct = liveDuration > 0 ? Math.min(100, Math.max(0, (livePosition / liveDuration) * 100)) : 0;
   const effectiveTime = livePosition + (lyrics.offset || 0) + BASE_LYRICS_OFFSET;
 
+  const handleSeekLine = useCallback(
+    (target: number) => {
+      onSeekLocal(target);
+      invoke("smtc_seek", { positionSec: target }).catch(() => { });
+    },
+    [onSeekLocal]
+  );
+
   const handleSeekRatio = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (liveDuration <= 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -161,12 +169,6 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
               src={preblurredBackdrop}
               alt=""
               className="absolute inset-0 w-full h-full object-cover scale-110 transition-opacity duration-700"
-            />
-          ) : !deepEcoActive && resolvedArt ? (
-            <img
-              src={resolvedArt}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover scale-125 blur-[24px] saturate-[1.6] brightness-[0.55] transition-opacity duration-700"
             />
           ) : null}
           <div
@@ -255,9 +257,9 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
                   style={{ backgroundColor: palette.night ? palette.mutedChipBg : "rgba(255,255,255,0.18)" }}
                 >
                   <div
-                    className="h-full rounded-full transition-all duration-300"
+                    className="w-full h-full rounded-full origin-left transition-transform duration-150 ease-linear"
                     style={{
-                      width: `${pct}%`,
+                      transform: `scaleX(${pct / 100})`,
                       backgroundColor: palette.night ? palette.textPrimary : "#ffffff",
                     }}
                   />
@@ -269,7 +271,7 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-center md:justify-start gap-7 pt-1">
+            <div className="flex items-center justify-center gap-7 pt-1">
               <button
                 type="button"
                 aria-label={isId ? "Lagu sebelumnya" : "Previous track"}
@@ -337,49 +339,23 @@ export const StandbyMediaView: React.FC<StandbyMediaViewProps> = ({
                       : undefined;
 
                 return (
-                  <button
+                  <StandbyLyricsRow
                     key={`${idx}-${line.time}`}
-                    ref={isActive ? activeLineRef : undefined}
-                    type="button"
-                    onClick={() => {
-                      if (Number.isFinite(line.time)) {
-                        const target = Math.max(0, line.time);
-                        onSeekLocal(target);
-                        invoke("smtc_seek", { positionSec: target }).catch(() => { });
-                      }
-                    }}
-                    className="text-left font-bold leading-snug tracking-[-0.02em] transition-all duration-300 cursor-pointer hover:opacity-100 rounded-xl px-2 py-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff] max-w-full"
-                    style={{
-                      fontSize: "clamp(22px, min(2.4vw, 4vh), 40px)",
-                      color: isActive
-                        ? palette.textPrimary
-                        : palette.night
-                          ? palette.textSecondary
-                          : "rgba(255,255,255,0.72)",
-                      opacity: isActive ? 1 : isPast ? 0.36 : 0.56,
-                      transform: isActive && !reducedMotion ? "scale(1.02)" : "scale(1)",
-                      transformOrigin: "left center",
-                    }}
-                  >
-                    {isActive && line.text ? (
-                      <WordFillLyricsLine
-                        line={line}
-                        nextLineTime={nextLineTime}
-                        effectiveTime={effectiveTime}
-                        isActive={isActive}
-                        isPlaying={media.is_playing && !deepEcoActive}
-                        prefersReducedMotion={reducedMotion || deepEcoActive}
-                        baseColor={
-                          palette.night
-                            ? "rgba(255, 69, 58, 0.38)"
-                            : "rgba(255, 255, 255, 0.36)"
-                        }
-                        fillColor={palette.textPrimary}
-                      />
-                    ) : (
-                      line.text || "..."
-                    )}
-                  </button>
+                    line={line}
+                    nextLineTime={nextLineTime}
+                    isActive={isActive}
+                    isPast={isPast}
+                    effectiveTime={isActive ? effectiveTime : 0}
+                    isPlaying={isActive && media.is_playing && !deepEcoActive}
+                    reducedMotion={reducedMotion}
+                    deepEcoActive={deepEcoActive}
+                    night={palette.night}
+                    textPrimary={palette.textPrimary}
+                    textSecondary={palette.textSecondary}
+                    variant="fullscreen"
+                    activeRef={isActive ? activeLineRef : undefined}
+                    onSeekLine={handleSeekLine}
+                  />
                 );
               })}
             </div>

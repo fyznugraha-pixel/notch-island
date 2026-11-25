@@ -71,11 +71,54 @@ impl Drop for ComGuard {
 #[derive(serde::Serialize, Clone)]
 struct AudioSessionInfo {
     pid: u32,
+    pids: Vec<u32>,
     name: String,
     path: Option<String>,
     volume: f32,
     muted: bool,
     icon: Option<String>,
+}
+
+fn audio_session_group_key(name: &str) -> String {
+    let trimmed = name.trim();
+    let without_ext = if trimmed.len() >= 4 && trimmed[trimmed.len() - 4..].eq_ignore_ascii_case(".exe") {
+        &trimmed[..trimmed.len() - 4]
+    } else {
+        trimmed
+    };
+    without_ext.to_ascii_lowercase()
+}
+
+fn merge_audio_session(
+    sessions: &mut Vec<(AudioSessionInfo, bool)>,
+    incoming: AudioSessionInfo,
+    is_active: bool,
+) {
+    let key = audio_session_group_key(&incoming.name);
+    if let Some((existing, existing_active)) = sessions
+        .iter_mut()
+        .find(|(s, _)| audio_session_group_key(&s.name) == key)
+    {
+        for p in &incoming.pids {
+            if !existing.pids.contains(p) {
+                existing.pids.push(*p);
+            }
+        }
+        if existing.path.is_none() {
+            existing.path = incoming.path;
+        }
+        if existing.icon.is_none() {
+            existing.icon = incoming.icon;
+        }
+        if is_active && !*existing_active {
+            existing.pid = incoming.pid;
+            existing.volume = incoming.volume;
+            existing.muted = incoming.muted;
+            *existing_active = true;
+        }
+        return;
+    }
+    sessions.push((incoming, is_active));
 }
 
 #[tauri::command]
@@ -96,11 +139,14 @@ async fn set_default_audio_endpoint(id: String) -> Result<(), String> {
 async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
     tauri::async_runtime::spawn_blocking(move || {
         use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoCreateInstance, CLSCTX_ALL};
-        use windows::Win32::Media::Audio::{eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume};
+        use windows::Win32::Media::Audio::{
+            eRender, eMultimedia, IMMDeviceEnumerator, MMDeviceEnumerator, IAudioSessionManager2,
+            IAudioSessionControl2, ISimpleAudioVolume, AudioSessionStateActive, AudioSessionStateExpired,
+        };
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
         use windows::core::Interface;
 
-        let mut sessions = Vec::new();
+        let mut merged_sessions: Vec<(AudioSessionInfo, bool)> = Vec::new();
         let _com = ComGuard::init(COINIT_MULTITHREADED);
         unsafe {
             if let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) {
@@ -110,10 +156,16 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                             let count = session_enum.GetCount().unwrap_or(0);
                             for i in 0..count {
                                 if let Ok(session_ctrl) = session_enum.GetSession(i) {
+                                    let session_state = session_ctrl.GetState().ok();
+                                    if session_state == Some(AudioSessionStateExpired) {
+                                        continue;
+                                    }
+                                    let is_active = session_state == Some(AudioSessionStateActive);
+
                                     if let Ok(session_ctrl2) = session_ctrl.cast::<IAudioSessionControl2>() {
                                         if let Ok(pid) = session_ctrl2.GetProcessId() {
                                             if pid == 0 { continue; } // System sound
-                                            
+
                                             let mut process_name = String::new();
                                             let mut process_path: Option<String> = None;
                                             if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
@@ -153,14 +205,19 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                                             if let Ok(volume_ctrl) = session_ctrl2.cast::<ISimpleAudioVolume>() {
                                                 if let Ok(vol) = volume_ctrl.GetMasterVolume() {
                                                     if let Ok(muted) = volume_ctrl.GetMute() {
-                                                        sessions.push(AudioSessionInfo {
-                                                            pid,
-                                                            name: process_name,
-                                                            path: process_path,
-                                                            volume: vol,
-                                                            muted: muted.as_bool(),
-                                                            icon: icon_b64,
-                                                        });
+                                                        merge_audio_session(
+                                                            &mut merged_sessions,
+                                                            AudioSessionInfo {
+                                                                pid,
+                                                                pids: vec![pid],
+                                                                name: process_name,
+                                                                path: process_path,
+                                                                volume: vol,
+                                                                muted: muted.as_bool(),
+                                                                icon: icon_b64,
+                                                            },
+                                                            is_active,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -173,7 +230,7 @@ async fn get_audio_sessions() -> Vec<AudioSessionInfo> {
                 }
             }
         }
-        sessions
+        merged_sessions.into_iter().map(|(s, _)| s).collect()
     }).await.unwrap_or_default()
 }
 
@@ -7142,5 +7199,74 @@ mod hit_test {
             .as_str()
             .expect("main window must specify additionalBrowserArgs");
         assert_eq!(conf_args, WEBVIEW_BROWSER_ARGS);
+    }
+
+    #[test]
+    fn test_merge_audio_session_deduplicates_and_prefers_active() {
+        let mut merged = Vec::new();
+        merge_audio_session(
+            &mut merged,
+            AudioSessionInfo {
+                pid: 101,
+                pids: vec![101],
+                name: "Discord.exe".to_string(),
+                path: None,
+                volume: 1.0,
+                muted: false,
+                icon: None,
+            },
+            false,
+        );
+        merge_audio_session(
+            &mut merged,
+            AudioSessionInfo {
+                pid: 202,
+                pids: vec![202],
+                name: "discord.exe".to_string(),
+                path: Some(r"C:\Discord\Discord.exe".to_string()),
+                volume: 0.65,
+                muted: true,
+                icon: Some("icon_b64".to_string()),
+            },
+            true,
+        );
+        merge_audio_session(
+            &mut merged,
+            AudioSessionInfo {
+                pid: 303,
+                pids: vec![303],
+                name: "msedgewebview2.exe".to_string(),
+                path: None,
+                volume: 1.0,
+                muted: false,
+                icon: None,
+            },
+            false,
+        );
+        merge_audio_session(
+            &mut merged,
+            AudioSessionInfo {
+                pid: 304,
+                pids: vec![304],
+                name: "msedgewebview2.exe".to_string(),
+                path: None,
+                volume: 0.8,
+                muted: false,
+                icon: None,
+            },
+            false,
+        );
+
+        assert_eq!(merged.len(), 2);
+        let (discord, discord_active) = &merged[0];
+        assert_eq!(discord.pid, 202);
+        assert_eq!(discord.pids, vec![101, 202]);
+        assert!((discord.volume - 0.65).abs() < 0.001);
+        assert!(discord.muted);
+        assert_eq!(discord.icon.as_deref(), Some("icon_b64"));
+        assert!(*discord_active);
+
+        let (wv2, _) = &merged[1];
+        assert_eq!(wv2.pids, vec![303, 304]);
     }
 }

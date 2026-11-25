@@ -198,64 +198,102 @@ export const TaskbarProBanner: React.FC<TaskbarProBannerProps> = ({
         </div>
 
         <div
-          className={`pt-3 mt-1 border-t flex flex-col gap-2 ${
+          className={`pt-3 mt-1 border-t grid grid-cols-1 md:grid-cols-2 gap-3 ${
             isLightMode ? "border-black/[0.08]" : "border-white/[0.08]"
           }`}
         >
-          <p className={`text-[11.5px] leading-relaxed ${metaColor}`}>
-            {isId
-              ? "Kesulitan membeli Pro di Microsoft Store? Chat developer untuk pembayaran langsung, nanti kamu akan diberikan kode redeem (setelah redeem, klik Pulihkan Pembelian)."
-              : "Having trouble purchasing Pro on Microsoft Store? Message the developer for direct payment to receive a Microsoft Store redeem code (then click Restore Purchase)."}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleOpenDiscord}
-              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-[9px] border text-[11.5px] font-semibold transition-colors cursor-pointer ${contactBtnClass}`}
-            >
-              <img
-                src="/logo/discord.webp"
-                alt=""
-                aria-hidden="true"
-                className="w-3.5 h-3.5 object-contain shrink-0"
-              />
-              <span>
-                {discordCopied
-                  ? isId
-                    ? `Discord: ${DISCORD_USERNAME} (disalin)`
-                    : `Discord: ${DISCORD_USERNAME} (copied)`
-                  : `Discord: ${DISCORD_USERNAME}`}
+          <div
+            className={`rounded-[12px] border p-3 flex flex-col gap-1.5 ${
+              isLightMode
+                ? "bg-black/[0.025] border-black/[0.07]"
+                : "bg-white/[0.03] border-white/[0.07]"
+            }`}
+          >
+            <span className={`text-[11.5px] font-semibold ${titleColor}`}>
+              {isId ? "1. Bayar Langsung via Microsoft Store" : "1. Direct via Microsoft Store"}
+            </span>
+            <p className={`text-[11px] leading-relaxed ${metaColor}`}>
+              {isId
+                ? "Klik tombol Beli Gili Pro di atas. Microsoft Store menerima Kartu Kredit/Debit Visa atau Mastercard (aktif transaksi online internasional) serta Saldo/Gift Card Microsoft."
+                : "Click Buy Gili Pro above. Microsoft Store accepts international Visa/Mastercard credit or debit cards, PayPal (where available), and Microsoft account balance."}
+            </p>
+            <p className={`text-[10.5px] leading-relaxed ${metaColor}`}>
+              {isId
+                ? "Jika di Store hanya muncul opsi Redeem: pastikan akun Microsoft personal sudah login, region Windows sesuai akun, dan Gili tidak dibuka sebagai Administrator."
+                : "If Store only shows Redeem: verify you are signed into a personal Microsoft account matching your Windows region and not running Gili as Administrator."}
+            </p>
+          </div>
+
+          <div
+            className={`rounded-[12px] border p-3 flex flex-col justify-between gap-2 ${
+              isLightMode
+                ? "bg-black/[0.025] border-black/[0.07]"
+                : "bg-white/[0.03] border-white/[0.07]"
+            }`}
+          >
+            <div className="flex flex-col gap-1">
+              <span className={`text-[11.5px] font-semibold ${titleColor}`}>
+                {isId
+                  ? "2. Bantuan Pembayaran Lokal (Kode Redeem)"
+                  : "2. Direct Developer Help (Redeem Code)"}
               </span>
-              {discordCopied ? (
-                <Check size={11} className="text-[#34c759]" aria-hidden="true" />
-              ) : (
+              <p className={`text-[11px] leading-relaxed ${metaColor}`}>
+                {isId
+                  ? "Tidak punya kartu internasional atau ingin bayar via metode lokal? Chat developer untuk mendapatkan kode redeem 25 karakter, lalu tukar di akun Microsoft yang sama dan klik Pulihkan Pembelian."
+                  : "No international card or having trouble with Store checkout? Message the developer for a 25-character Microsoft Store redeem code, redeem it on the same Microsoft account, then click Restore Purchase."}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleOpenDiscord}
+                className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[8px] border text-[11px] font-semibold transition-colors cursor-pointer ${contactBtnClass}`}
+              >
+                <img
+                  src="/logo/discord.webp"
+                  alt=""
+                  aria-hidden="true"
+                  className="w-3.5 h-3.5 object-contain shrink-0"
+                />
+                <span>
+                  {discordCopied
+                    ? isId
+                      ? `Discord: ${DISCORD_USERNAME} (disalin)`
+                      : `Discord: ${DISCORD_USERNAME} (copied)`
+                    : `Discord: ${DISCORD_USERNAME}`}
+                </span>
+                {discordCopied ? (
+                  <Check size={11} className="text-[#34c759]" aria-hidden="true" />
+                ) : (
+                  <ExternalLink size={11} aria-hidden="true" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openUrl(INSTAGRAM_URL).catch(() => {})}
+                className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[8px] border text-[11px] font-semibold transition-colors cursor-pointer ${contactBtnClass}`}
+              >
+                <img
+                  src="/logo/Instagram_icon.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="w-3.5 h-3.5 object-contain shrink-0"
+                />
+                <span>Instagram: @faizngraha</span>
                 <ExternalLink size={11} aria-hidden="true" />
-              )}
-            </button>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => openUrl(INSTAGRAM_URL).catch(() => {})}
-              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-[9px] border text-[11.5px] font-semibold transition-colors cursor-pointer ${contactBtnClass}`}
-            >
-              <img
-                src="/logo/Instagram_icon.png"
-                alt=""
-                aria-hidden="true"
-                className="w-3.5 h-3.5 object-contain shrink-0"
-              />
-              <span>Instagram: @faizngraha</span>
-              <ExternalLink size={11} aria-hidden="true" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openUrl(MS_REDEEM_URL).catch(() => {})}
-              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-[9px] border text-[11.5px] font-medium transition-colors cursor-pointer ${contactBtnClass}`}
-            >
-              <span>{isId ? "Tukar Kode (Microsoft)" : "Redeem Code (Microsoft)"}</span>
-              <ExternalLink size={11} aria-hidden="true" />
-            </button>
+              <button
+                type="button"
+                onClick={() => openUrl(MS_REDEEM_URL).catch(() => {})}
+                className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[8px] border text-[11px] font-medium transition-colors cursor-pointer ${contactBtnClass}`}
+              >
+                <span>{isId ? "Tukar Kode (Microsoft)" : "Redeem Code (Microsoft)"}</span>
+                <ExternalLink size={11} aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </div>
 

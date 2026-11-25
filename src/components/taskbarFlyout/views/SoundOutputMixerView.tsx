@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { normalizeIconUrl } from "../../navbar/groups/appIcons";
 import { useTaskbarLang, tx } from "../../../services/taskbarI18n";
 import { Tooltip } from "../../ui/Tooltip";
+import { MixerAppIcon } from "../../ui/MixerAppIcon";
+import { dedupeAudioSessions, getAudioSessionKey } from "../../../utils/audioSessionUtils";
 import {
   Volume2,
   VolumeX,
@@ -14,8 +15,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
-  Music,
-  Radio,
 } from "lucide-react";
 
 interface AudioEndpoint {
@@ -28,10 +27,12 @@ interface AudioEndpoint {
 
 interface AudioSession {
   pid: number;
+  pids?: number[];
   name: string;
+  path?: string | null;
   volume: number;
   muted: boolean;
-  icon?: string;
+  icon?: string | null;
 }
 
 interface SpatialAudioInfo {
@@ -62,7 +63,12 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
 
   const masterSliderRef = useRef<HTMLDivElement>(null);
   const isDraggingMasterRef = useRef<boolean>(false);
-  const draggingAppPidRef = useRef<number | null>(null);
+  const draggingAppKeyRef = useRef<string | null>(null);
+
+  const aggregatedSessions = useMemo(
+    () => dedupeAudioSessions(appSessions),
+    [appSessions]
+  );
 
   // 1. Initial Load of Audio Data
   const refreshAudioData = useCallback(async () => {
@@ -92,7 +98,7 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
     const pollInterval = window.setInterval(() => {
       invoke<AudioSession[]>("get_audio_sessions")
         .then((sessions) => {
-          if (!draggingAppPidRef.current) {
+          if (!draggingAppKeyRef.current) {
             setAppSessions(sessions || []);
           }
         })
@@ -182,9 +188,10 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
   // 4. Per-App Volume & Mute Handlers
   const updateAppVolume = (session: AudioSession, nextVol: number) => {
     const clamped = Math.max(0, Math.min(1, nextVol));
+    const groupKey = getAudioSessionKey(session.name);
     setAppSessions((prev) =>
       prev.map((s) =>
-        s.pid === session.pid
+        getAudioSessionKey(s.name) === groupKey
           ? { ...s, volume: clamped, muted: clamped > 0 ? false : s.muted }
           : s
       )
@@ -205,8 +212,11 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
 
   const handleToggleAppMute = (session: AudioSession) => {
     const nextMuted = !session.muted;
+    const groupKey = getAudioSessionKey(session.name);
     setAppSessions((prev) =>
-      prev.map((s) => (s.pid === session.pid ? { ...s, muted: nextMuted } : s))
+      prev.map((s) =>
+        getAudioSessionKey(s.name) === groupKey ? { ...s, muted: nextMuted } : s
+      )
     );
     invoke("set_app_mute", {
       pid: session.pid,
@@ -243,18 +253,19 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
     e: React.PointerEvent<HTMLDivElement>
   ) => {
     e.preventDefault();
-    draggingAppPidRef.current = session.pid;
+    const groupKey = getAudioSessionKey(session.name);
+    draggingAppKeyRef.current = groupKey;
     const trackEl = e.currentTarget;
     updateAppVolumeFromPointer(session, e.clientX, trackEl);
 
     const handlePointerMove = (ev: PointerEvent) => {
-      if (draggingAppPidRef.current === session.pid) {
+      if (draggingAppKeyRef.current === groupKey) {
         updateAppVolumeFromPointer(session, ev.clientX, trackEl);
       }
     };
 
     const handlePointerUp = () => {
-      draggingAppPidRef.current = null;
+      draggingAppKeyRef.current = null;
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
@@ -285,41 +296,6 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
       default:
         return <Volume2 size={17} strokeWidth={1.6} />;
     }
-  };
-
-  const renderAppIcon = (name: string) => {
-    const lower = name.toLowerCase();
-    if (lower.includes("discord")) {
-      return <img src="/logo/discord.webp" alt="Discord" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("spotify")) {
-      return <img src="/logo/spotify.png" alt="Spotify" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("chrome")) {
-      return <img src="/logo/chrome.png" alt="Chrome" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("brave")) {
-      return <img src="/logo/brave.png" alt="Brave" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("edge")) {
-      return <img src="/logo/edge.png" alt="Edge" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("firefox")) {
-      return <img src="/logo/firefox.png" alt="Firefox" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("vlc")) {
-      return <img src="/logo/vlc.png" alt="VLC" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("whatsapp")) {
-      return <img src="/logo/whatsapp.svg" alt="WhatsApp" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("telegram")) {
-      return <img src="/logo/telegram.svg" alt="Telegram" className="w-4 h-4 object-contain" />;
-    }
-    if (lower.includes("music") || lower.includes("audio")) {
-      return <Music size={15} strokeWidth={1.6} />;
-    }
-    return <Radio size={15} strokeWidth={1.6} />;
   };
 
   const masterVolPercent = isMasterMuted ? 0 : Math.round(masterVolume * 100);
@@ -561,19 +537,19 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
           </div>
 
           {/* Per-App Audio Sessions */}
-          {appSessions.length > 0 && (
+          {aggregatedSessions.length > 0 && (
             <div className="border-t border-[var(--taskbar-separator)] mt-1.5 pt-1.5 flex flex-col gap-1">
-              {appSessions.map((session) => {
+              {aggregatedSessions.map((session) => {
                 const appVolPercent = session.muted
                   ? 0
                   : Math.round((session.volume || 0) * 100);
                 const muteLabel = session.muted
-                  ? tx(lang, `Unmute ${session.name}`, `Bunyikan ${session.name}`)
-                  : tx(lang, `Mute ${session.name}`, `Bisukan ${session.name}`);
+                  ? tx(lang, `Unmute ${session.displayName}`, `Bunyikan ${session.displayName}`)
+                  : tx(lang, `Mute ${session.displayName}`, `Bisukan ${session.displayName}`);
 
                 return (
                   <div
-                    key={session.pid}
+                    key={getAudioSessionKey(session.name)}
                     className="flex items-center gap-2.5 h-[42px]"
                   >
                     <Tooltip content={muteLabel} allowFlip wrapperClassName="shrink-0">
@@ -583,40 +559,23 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
                         aria-label={muteLabel}
                         className="w-[30px] h-[30px] rounded-[9px] gili-flyout-card flex items-center justify-center shrink-0 overflow-hidden text-[var(--taskbar-text-2)] hover:text-[var(--taskbar-text)] cursor-pointer border-0 p-0 relative"
                       >
-                        {normalizeIconUrl(session.icon) ? (
-                          <img
-                            src={normalizeIconUrl(session.icon)}
-                            alt={session.name}
-                            className={`w-5 h-5 object-contain transition-opacity ${
-                              session.muted ? "opacity-40" : "opacity-100"
-                            }`}
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                              const fb = e.currentTarget.parentElement?.querySelector(".session-icon-fallback") as HTMLElement;
-                              if (fb) fb.style.display = "flex";
-                            }}
-                          />
-                        ) : null}
-                        <span
-                          className="session-icon-fallback"
-                          style={{ display: normalizeIconUrl(session.icon) ? "none" : "flex" }}
-                        >
-                          {session.muted ? (
-                            <VolumeX size={14} className="text-[var(--taskbar-status-red)]" />
-                          ) : (
-                            renderAppIcon(session.name)
-                          )}
-                        </span>
+                        <MixerAppIcon
+                          name={session.name}
+                          exePath={session.path}
+                          icon={session.icon}
+                          size={19}
+                          className={`transition-opacity ${session.muted ? "opacity-40" : "opacity-100"}`}
+                        />
                       </button>
                     </Tooltip>
 
                     <Tooltip
-                      content={session.name}
+                      content={session.displayName}
                       allowFlip
-                      wrapperClassName="w-[68px] justify-start shrink-0"
+                      wrapperClassName="w-[74px] justify-start shrink-0"
                     >
                       <span className="w-full text-[12px] text-[var(--taskbar-text-2)] truncate block">
-                        {session.name.replace(/\.exe$/i, "")}
+                        {session.displayName}
                       </span>
                     </Tooltip>
 
@@ -625,7 +584,7 @@ export const SoundOutputMixerView: React.FC<SoundOutputMixerViewProps> = ({
                       onPointerDown={(e) => handleAppPointerDown(session, e)}
                       onKeyDown={(e) => handleAppKeyDown(session, e)}
                       role="slider"
-                      aria-label={tx(lang, `${session.name} volume`, `Volume ${session.name}`)}
+                      aria-label={tx(lang, `${session.displayName} volume`, `Volume ${session.displayName}`)}
                       aria-valuenow={appVolPercent}
                       aria-valuemin={0}
                       aria-valuemax={100}

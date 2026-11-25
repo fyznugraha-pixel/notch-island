@@ -17,6 +17,7 @@ export interface WordFillLyricsLineProps {
   fillColor?: string;
   className?: string;
   singleLine?: boolean;
+  lowPower?: boolean;
 }
 
 type WordGlowPhase = "future" | "active" | "past";
@@ -42,12 +43,13 @@ function getPhaseVisualStyle(
   phase: WordGlowPhase,
   baseColor: string,
   fillColor: string,
-  prefersReducedMotion: boolean
+  prefersReducedMotion: boolean,
+  lowPower: boolean
 ): { color: string; textShadow: string } {
   if (phase === "future") {
     return { color: baseColor, textShadow: "none" };
   }
-  if (prefersReducedMotion) {
+  if (prefersReducedMotion || lowPower) {
     return { color: fillColor, textShadow: "none" };
   }
   if (phase === "active") {
@@ -74,6 +76,7 @@ export const WordFillLyricsLine: React.FC<WordFillLyricsLineProps> = ({
   fillColor = "#ffffff",
   className = "",
   singleLine = false,
+  lowPower = false,
 }) => {
   const resolved = useMemo(
     () => resolveLineWords(line, nextLineTime),
@@ -89,6 +92,7 @@ export const WordFillLyricsLine: React.FC<WordFillLyricsLineProps> = ({
   const effectiveTimeRef = useRef(effectiveTime);
   const getEffectiveTimeRef = useRef(getEffectiveTime);
   const prevLineKeyRef = useRef("");
+  const restartLoopRef = useRef<(() => void) | null>(null);
 
   effectiveTimeRef.current = effectiveTime;
   getEffectiveTimeRef.current = getEffectiveTime;
@@ -104,28 +108,36 @@ export const WordFillLyricsLine: React.FC<WordFillLyricsLineProps> = ({
 
     if (lineChanged || !isPlaying || Math.abs(effectiveTime - predicted) > 0.09) {
       clockRef.current = { time: effectiveTime, perfMs: now };
+      if (!lineChanged && isPlaying) {
+        restartLoopRef.current?.();
+      }
     }
   }, [effectiveTime, isPlaying, lineKey]);
 
   useEffect(() => {
     lastPhaseRef.current = [];
-  }, [lineKey, isActive, prefersReducedMotion, baseColor, fillColor]);
+  }, [lineKey, isActive, prefersReducedMotion, baseColor, fillColor, lowPower]);
 
   const paintWords = useCallback(
-    (curTime: number) => {
+    (curTime: number): boolean => {
       const words = resolved.words;
       for (let i = 0; i < words.length; i++) {
-        const el = wordRefs.current[i];
-        if (!el) continue;
         const phase = getWordGlowPhase(words[i], resolved.lineEndTime, curTime);
         if (lastPhaseRef.current[i] === phase) continue;
         lastPhaseRef.current[i] = phase;
-        const visual = getPhaseVisualStyle(phase, baseColor, fillColor, prefersReducedMotion);
+        const el = wordRefs.current[i];
+        if (!el) continue;
+        const visual = getPhaseVisualStyle(phase, baseColor, fillColor, prefersReducedMotion, lowPower);
         el.style.color = visual.color;
         el.style.textShadow = visual.textShadow;
       }
+      return (
+        words.length > 0 &&
+        lastPhaseRef.current.length >= words.length &&
+        words.every((_, i) => lastPhaseRef.current[i] === "past")
+      );
     },
-    [resolved, baseColor, fillColor, prefersReducedMotion]
+    [resolved, baseColor, fillColor, prefersReducedMotion, lowPower]
   );
 
   useEffect(() => {
@@ -138,32 +150,49 @@ export const WordFillLyricsLine: React.FC<WordFillLyricsLineProps> = ({
 
   useEffect(() => {
     if (!isActive || !resolved.isRealWordTiming || resolved.words.length === 0 || !isPlaying) {
+      restartLoopRef.current = null;
       return;
     }
 
-    let rafId: number | null = null;
+    let intervalId: number | null = null;
     let cancelled = false;
+    const intervalMs = lowPower ? 75 : 50;
 
-    const tick = () => {
-      if (cancelled) return;
+    const readCurrentTime = (): number => {
       if (getEffectiveTimeRef.current) {
-        paintWords(getEffectiveTimeRef.current());
-      } else {
-        const now = performance.now();
-        const freeRun = clockRef.current.time + (now - clockRef.current.perfMs) / 1000;
-        const cappedTime = Math.min(freeRun, effectiveTimeRef.current + 0.22);
-        paintWords(cappedTime);
+        return getEffectiveTimeRef.current();
       }
-      rafId = requestAnimationFrame(tick);
+      const now = performance.now();
+      const freeRun = clockRef.current.time + (now - clockRef.current.perfMs) / 1000;
+      return Math.min(freeRun, effectiveTimeRef.current + 0.22);
     };
 
-    tick();
+    const tick = (): boolean => {
+      if (cancelled) return true;
+      const allPast = paintWords(readCurrentTime());
+      if (allPast && intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+      return allPast;
+    };
+
+    const ensureLoop = () => {
+      if (cancelled) return;
+      if (!tick() && intervalId === null) {
+        intervalId = window.setInterval(tick, intervalMs);
+      }
+    };
+
+    restartLoopRef.current = ensureLoop;
+    ensureLoop();
 
     return () => {
       cancelled = true;
-      if (rafId !== null) cancelAnimationFrame(rafId);
+      restartLoopRef.current = null;
+      if (intervalId !== null) window.clearInterval(intervalId);
     };
-  }, [isActive, isPlaying, resolved, paintWords]);
+  }, [isActive, isPlaying, resolved, paintWords, lowPower]);
 
   const wrapperModeClass = singleLine ? "inline whitespace-nowrap" : "inline";
   const renderTime = getEffectiveTime ? getEffectiveTime() : effectiveTime;
@@ -179,12 +208,15 @@ export const WordFillLyricsLine: React.FC<WordFillLyricsLineProps> = ({
         className={`${wrapperModeClass} ${className}`.trim()}
         style={{
           color: fillColor,
-          textShadow: prefersReducedMotion
-            ? "none"
-            : "0 0 10px rgba(255, 255, 255, 0.34), 0 0 3px rgba(255, 255, 255, 0.16)",
+          textShadow:
+            prefersReducedMotion || lowPower
+              ? "none"
+              : "0 0 10px rgba(255, 255, 255, 0.34), 0 0 3px rgba(255, 255, 255, 0.16)",
           transition: prefersReducedMotion
             ? "none"
-            : "color 180ms ease-out, text-shadow 240ms ease-out",
+            : lowPower
+              ? "color 160ms ease-out"
+              : "color 180ms ease-out, text-shadow 240ms ease-out",
         }}
       >
         {line.text}
@@ -203,7 +235,13 @@ export const WordFillLyricsLine: React.FC<WordFillLyricsLineProps> = ({
           }
 
           const initPhase = getWordGlowPhase(word, resolved.lineEndTime, renderTime);
-          const initVisual = getPhaseVisualStyle(initPhase, baseColor, fillColor, prefersReducedMotion);
+          const initVisual = getPhaseVisualStyle(
+            initPhase,
+            baseColor,
+            fillColor,
+            prefersReducedMotion,
+            lowPower
+          );
 
           return (
             <React.Fragment key={`${idx}-${word.time}`}>
@@ -216,7 +254,9 @@ export const WordFillLyricsLine: React.FC<WordFillLyricsLineProps> = ({
                   textShadow: initVisual.textShadow,
                   transition: prefersReducedMotion
                     ? "none"
-                    : "color 180ms ease-out, text-shadow 240ms ease-out",
+                    : lowPower
+                      ? "color 160ms ease-out"
+                      : "color 180ms ease-out, text-shadow 240ms ease-out",
                 }}
               >
                 {core}

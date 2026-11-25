@@ -520,17 +520,20 @@ export const StandbyApp: React.FC = () => {
   const topHudVisible = !hudPhaseHidden && (launchContext.close_on_activity || hudVisible);
   const bottomHudVisible = !hudPhaseHidden && hudVisible && !launchContext.close_on_activity;
 
-  const makeHudSurfaceStyle = (visible: boolean): React.CSSProperties => ({
+  const makeHudSurfaceStyle = (visible: boolean, allowBlur = true): React.CSSProperties => ({
     backgroundColor: palette.hudBg,
     borderColor: palette.cardBorder,
     backdropFilter:
-      !palette.night && !deepEcoActive && visible ? "blur(26px) saturate(180%)" : "none",
+      !palette.night && !deepEcoActive && visible && allowBlur ? "blur(26px) saturate(180%)" : "none",
     boxShadow:
       !palette.night && visible
         ? "0 14px 34px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.16)"
         : "none",
   });
-  const topHudSurfaceStyle = makeHudSurfaceStyle(topHudVisible);
+  const topHudSurfaceStyle = makeHudSurfaceStyle(
+    topHudVisible,
+    hudVisible && !launchContext.close_on_activity,
+  );
   const bottomHudSurfaceStyle = makeHudSurfaceStyle(bottomHudVisible);
 
   const stageMotionStyle: React.CSSProperties = reducedMotion

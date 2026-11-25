@@ -214,24 +214,26 @@ pub fn check_and_recover_on_startup() {
 /// Saves the original taskbar auto-hide / always-on-top state via SHAppBarMessage.
 fn save_original_state(primary_hwnd: HWND) {
     if ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst) != u32::MAX {
-        return; // Already captured original state
+        return; // Already captured original state for this hide cycle
     }
 
     unsafe {
-        let already_hidden = is_tray_hwnd_hidden(primary_hwnd);
+        // Only treat the tray as poisoned when Gili's own cloak flags are still on it;
+        // normal Windows Auto-Hide hides Shell_TrayWnd without setting any of those flags.
+        let already_cloaked = is_tray_hwnd_gili_cloaked(primary_hwnd);
         let mut abd = APPBARDATA {
             cbSize: std::mem::size_of::<APPBARDATA>() as u32,
             hWnd: primary_hwnd,
             ..Default::default()
         };
         let raw_state = SHAppBarMessage(ABM_GETSTATE, &mut abd) as u32;
-        let state = if already_hidden {
+        let state = if already_cloaked {
             raw_state & !ABS_AUTOHIDE
         } else {
             raw_state
         };
         let raw_ex = GetWindowLongW(primary_hwnd, GWL_EXSTYLE) as u32;
-        let ex = if already_hidden {
+        let ex = if already_cloaked {
             raw_ex & !(WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0)
         } else {
             raw_ex & !(WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0)
@@ -242,33 +244,47 @@ fn save_original_state(primary_hwnd: HWND) {
     }
 }
 
+fn reset_saved_original_state() {
+    ORIGINAL_TASKBAR_STATE.store(u32::MAX, Ordering::SeqCst);
+    ORIGINAL_PRIMARY_EXSTYLE.store(0, Ordering::SeqCst);
+    ORIGINAL_PRIMARY_EXSTYLE_CAPTURED.store(false, Ordering::SeqCst);
+}
+
+fn resolve_restored_shell_state(saved_state: u32, current_state: u32) -> Option<u32> {
+    if saved_state == u32::MAX || saved_state == current_state {
+        return None;
+    }
+    Some(saved_state)
+}
+
 /// Sets the taskbar auto-hide state using Shell API as a secondary protection layer.
 fn set_shell_autohide_state(primary_hwnd: HWND, autohide: bool) {
     unsafe {
-        let state_val = if autohide {
-            ABS_AUTOHIDE
+        let mut query = APPBARDATA {
+            cbSize: std::mem::size_of::<APPBARDATA>() as u32,
+            hWnd: primary_hwnd,
+            ..Default::default()
+        };
+        let current = SHAppBarMessage(ABM_GETSTATE, &mut query) as u32;
+
+        let next_state = if autohide {
+            let desired = current | ABS_AUTOHIDE;
+            if desired == current {
+                return;
+            }
+            desired
         } else {
             let saved = ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst);
-            if saved != u32::MAX {
-                saved
-            } else {
-                let mut query = APPBARDATA {
-                    cbSize: std::mem::size_of::<APPBARDATA>() as u32,
-                    hWnd: primary_hwnd,
-                    ..Default::default()
-                };
-                let current = SHAppBarMessage(ABM_GETSTATE, &mut query) as u32;
-                if (current & ABS_AUTOHIDE) == 0 {
-                    return;
-                }
-                current & !ABS_AUTOHIDE
-            }
+            let Some(restored) = resolve_restored_shell_state(saved, current) else {
+                return;
+            };
+            restored
         };
 
         let mut abd = APPBARDATA {
             cbSize: std::mem::size_of::<APPBARDATA>() as u32,
             hWnd: primary_hwnd,
-            lParam: LPARAM(state_val as isize),
+            lParam: LPARAM(next_state as isize),
             ..Default::default()
         };
         let _ = SHAppBarMessage(ABM_SETSTATE, &mut abd);
@@ -441,8 +457,8 @@ pub fn restore_shell_tray_hidden_now() {
     }
 }
 
-unsafe fn is_tray_hwnd_hidden(hwnd: HWND) -> bool {
-    if !IsWindowVisible(hwnd).as_bool() || has_empty_window_region(hwnd) {
+unsafe fn is_tray_hwnd_gili_cloaked(hwnd: HWND) -> bool {
+    if has_empty_window_region(hwnd) {
         return true;
     }
     let mut cloaked: u32 = 0;
@@ -466,7 +482,7 @@ unsafe fn is_tray_hwnd_hidden(hwnd: HWND) -> bool {
         let mut flags = Default::default();
         if GetLayeredWindowAttributes(hwnd, None, Some(&mut alpha), Some(&mut flags)).is_ok()
             && (flags & LWA_ALPHA).0 != 0
-            && alpha < 255
+            && alpha <= 1
         {
             return true;
         }
@@ -474,10 +490,30 @@ unsafe fn is_tray_hwnd_hidden(hwnd: HWND) -> bool {
     false
 }
 
+unsafe fn is_windows_autohide_enabled(primary_hwnd: HWND) -> bool {
+    let mut abd = APPBARDATA {
+        cbSize: std::mem::size_of::<APPBARDATA>() as u32,
+        hWnd: primary_hwnd,
+        ..Default::default()
+    };
+    let state = SHAppBarMessage(ABM_GETSTATE, &mut abd) as u32;
+    (state & ABS_AUTOHIDE) != 0
+}
+
+unsafe fn is_tray_hwnd_hidden(hwnd: HWND, autohide_enabled: bool) -> bool {
+    if is_tray_hwnd_gili_cloaked(hwnd) {
+        return true;
+    }
+    // Explorer hides the taskbar window on its own when Windows Auto-Hide is active.
+    !autohide_enabled && !IsWindowVisible(hwnd).as_bool()
+}
+
 pub fn is_any_tray_hwnd_hidden() -> bool {
     unsafe {
-        if let Ok(hwnd) = FindWindowW(w!("Shell_TrayWnd"), None) {
-            if !hwnd.0.is_null() && is_tray_hwnd_hidden(hwnd) {
+        let primary = FindWindowW(w!("Shell_TrayWnd"), None).ok().filter(|h| !h.0.is_null());
+        let autohide_enabled = primary.is_some_and(|h| is_windows_autohide_enabled(h));
+        if let Some(hwnd) = primary {
+            if is_tray_hwnd_hidden(hwnd, autohide_enabled) {
                 return true;
             }
         }
@@ -493,7 +529,7 @@ pub fn is_any_tray_hwnd_hidden() -> bool {
                 if hwnd.0.is_null() {
                     break;
                 }
-                if is_tray_hwnd_hidden(hwnd) {
+                if is_tray_hwnd_hidden(hwnd, autohide_enabled) {
                     return true;
                 }
                 prev = hwnd;
@@ -615,6 +651,7 @@ pub fn restore_taskbars_from_watchdog(
                 uncloak_and_show_tray_hwnd(hwnd, true);
                 set_shell_autohide_state(hwnd, false);
                 notify_explorer_tray_restored(hwnd);
+                reset_saved_original_state();
             }
         }
 
@@ -675,6 +712,7 @@ pub fn set_taskbar_visible(visible: bool) {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
 
+    let was_hidden = TASKBAR_HIDDEN.load(Ordering::SeqCst);
     if visible {
         // Clear hidden flags before uncloaking so WinEvent hooks and the enforcement loop
         // never re-hide Shell_TrayWnd when SW_SHOW fires EVENT_OBJECT_SHOW.
@@ -683,22 +721,32 @@ pub fn set_taskbar_visible(visible: bool) {
     }
 
     unsafe {
-        let primary = FindWindowW(w!("Shell_TrayWnd"), None);
-        if let Ok(hwnd) = primary {
-            if !hwnd.0.is_null() {
-                let hide_this = !visible && should_hide_tray_hwnd(hwnd);
-                if hide_this {
-                    save_original_state(hwnd);
-                    set_shell_autohide_state(hwnd, true);
-                    if has_tray_overflow_lease() {
-                        cloak_transparent_tray_hwnd(hwnd);
-                    } else {
-                        cloak_and_hide_tray_hwnd(hwnd);
-                    }
+        let primary = FindWindowW(w!("Shell_TrayWnd"), None)
+            .ok()
+            .filter(|h| !h.0.is_null());
+        let autohide_enabled = primary.is_some_and(|h| is_windows_autohide_enabled(h));
+
+        if let Some(hwnd) = primary {
+            let hide_this = !visible && should_hide_tray_hwnd(hwnd);
+            if hide_this {
+                save_original_state(hwnd);
+                // Persist the captured original auto-hide state before mutating Shell state.
+                write_disk_flag(true);
+                set_shell_autohide_state(hwnd, true);
+                if has_tray_overflow_lease() {
+                    cloak_transparent_tray_hwnd(hwnd);
                 } else {
+                    cloak_and_hide_tray_hwnd(hwnd);
+                }
+            } else {
+                let has_saved_state = ORIGINAL_TASKBAR_STATE.load(Ordering::SeqCst) != u32::MAX;
+                let needs_restore =
+                    was_hidden || has_saved_state || is_tray_hwnd_hidden(hwnd, autohide_enabled);
+                if needs_restore {
                     uncloak_and_show_tray_hwnd(hwnd, true);
                     set_shell_autohide_state(hwnd, false);
                     notify_explorer_tray_restored(hwnd);
+                    reset_saved_original_state();
                 }
             }
         }
@@ -714,7 +762,7 @@ pub fn set_taskbar_visible(visible: bool) {
                 let hide_this = !visible && should_hide_tray_hwnd(hwnd);
                 if hide_this {
                     cloak_and_hide_tray_hwnd(hwnd);
-                } else {
+                } else if was_hidden || is_tray_hwnd_hidden(hwnd, autohide_enabled) {
                     uncloak_and_show_tray_hwnd(hwnd, false);
                 }
                 prev = hwnd;
@@ -998,5 +1046,28 @@ mod tests {
         let ex = clean_exstyle.unwrap();
         assert_eq!(ex & WS_EX_TRANSPARENT.0, 0);
         assert_eq!(ex & WS_EX_LAYERED.0, 0);
+
+        // Legitimate user auto-hide flag (no WS_EX_TRANSPARENT) must preserve ABS_AUTOHIDE
+        let valid_autohide = parse_disk_flag_content(
+            r#"{"original_exstyle":131200,"original_state":1,"pid":3328}"#,
+        )
+        .unwrap();
+        let (preserved_state, _) = sanitize_restored_flag_info(valid_autohide);
+        assert_eq!(preserved_state, Some(ABS_AUTOHIDE));
+    }
+
+    #[test]
+    fn test_resolve_restored_shell_state_preserves_user_autohide() {
+        // Never modified by Gili (u32::MAX): never strip user's Windows Auto-Hide
+        assert_eq!(resolve_restored_shell_state(u32::MAX, ABS_AUTOHIDE), None);
+        assert_eq!(resolve_restored_shell_state(u32::MAX, 0), None);
+
+        // User originally had Windows Auto-Hide ON: keep it ON without churning Shell state
+        assert_eq!(resolve_restored_shell_state(ABS_AUTOHIDE, ABS_AUTOHIDE), None);
+        assert_eq!(resolve_restored_shell_state(ABS_AUTOHIDE, 0), Some(ABS_AUTOHIDE));
+
+        // User originally had Windows Auto-Hide OFF: restore OFF when Gili enabled ABS_AUTOHIDE
+        assert_eq!(resolve_restored_shell_state(0, ABS_AUTOHIDE), Some(0));
+        assert_eq!(resolve_restored_shell_state(0, 0), None);
     }
 }

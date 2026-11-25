@@ -18,6 +18,44 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "5.2.2",
+    date: "26 Nov 2026",
+    highlights: [
+      {
+        icon: <Cpu size={14} />,
+        titleId: "Optimasi CPU StandBy Media & Lirik serta Perataan Kontrol",
+        titleEn: "StandBy Media & Lyrics CPU Optimization and Centered Controls",
+        descId: "Menghilangkan lonjakan CPU pada layar StandBy Media dengan menghapus fallback blur CSS layar penuh saat cover art terkena CORS, mengganti loop rAF lirik per-kata menjadi timer ringan mode hemat daya, mememoisasi baris lirik non-aktif, mengubah progress bar ke GPU scaleX, menonaktifkan blur permanen HUD Auto-Idle, serta menengahkan tombol Prev, Play/Pause, dan Next.",
+        descEn: "Eliminates intermittent CPU spikes on StandBy Media by removing the live fullscreen CSS blur fallback on CORS-blocked artwork, replacing the word-by-word rAF loop with a low-power interval timer, memoizing inactive lyric rows, switching the progress bar to GPU scaleX, disabling persistent Auto-Idle HUD blur, and centering transport controls.",
+        badge: "fix",
+      },
+      {
+        icon: <Volume2 size={14} />,
+        titleId: "Volume Mixer dengan Ikon Aplikasi, Nama Bersih & Anti-Duplikat",
+        titleEn: "Volume Mixer App Icons, Clean Names & Deduplication",
+        descId: "Menggabungkan sesi audio duplikat dari beberapa PID per aplikasi, menyaring sesi yang sudah berakhir, menampilkan nama aplikasi bersih tanpa akhiran .exe, dan menambahkan ikon aplikasi asli di seluruh panel Volume Mixer (Taskbar, Flyout, dan Notch).",
+        descEn: "Merges duplicate multi-PID audio sessions per app, filters out expired sessions, formats clean app names without .exe suffixes, and displays native app icons across all Volume Mixer panels (Taskbar, Flyout, and Notch).",
+        badge: "improve",
+      },
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Mempertahankan Auto-Hide Taskbar Windows Saat Gili Taskbar Dimatikan",
+        titleEn: "Preserve Windows Taskbar Auto-Hide When Disabling Gili Taskbar",
+        descId: "Memperbaiki bug di mana pengaturan Auto-Hide taskbar bawaan Windows ikut mati ketika Gili Taskbar dinonaktifkan, sehingga preferensi auto-hide pengguna tetap terjaga saat kembali ke taskbar Windows.",
+        descEn: "Fixes a bug where Windows' native taskbar Auto-Hide setting was turned off when disabling Gili Taskbar, ensuring the user's original Auto-Hide preference is preserved upon restore.",
+        badge: "fix",
+      },
+      {
+        icon: <ShieldCheck size={14} />,
+        titleId: "Peningkatan Alur Checkout & Panduan Pembayaran Gili Pro",
+        titleEn: "Improved Gili Pro Checkout Flow & Payment Guidance",
+        descId: "Memperjelas panduan metode pembayaran langsung Microsoft Store dan penukaran kode redeem pada banner Gili Pro serta meningkatkan keandalan fokus jendela dan penanganan error saat memproses pembelian.",
+        descEn: "Clarifies Microsoft Store direct purchase and redeem code guidance in the Gili Pro banner while hardening Store checkout window focus and error handling.",
+        badge: "improve",
+      },
+    ],
+  },
+  {
     version: "5.2.1",
     date: "22 Nov 2026",
     highlights: [

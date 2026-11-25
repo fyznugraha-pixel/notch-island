@@ -5,14 +5,26 @@ import { listen } from "@tauri-apps/api/event";
 import { NavbarModuleProps } from "../registry";
 import { NavbarPopoverShell, useNavbarIsLightSurface } from "./NavbarPopoverShell";
 import { Tooltip } from "../../components/ui/Tooltip";
+import { MixerAppIcon } from "../../components/ui/MixerAppIcon";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
+import {
+  BaseAudioSession,
+  NormalizedAudioSession,
+  dedupeAudioSessions,
+  getAudioSessionKey,
+} from "../../utils/audioSessionUtils";
 
-interface AudioSessionItem {
+type AudioSessionItem = NormalizedAudioSession<BaseAudioSession>;
+
+interface RawAudioSession {
   pid: number;
-  name: string;
-  volume: number;
-  muted: boolean;
+  pids?: number[];
+  name?: string;
+  path?: string | null;
+  icon?: string | null;
+  volume?: number;
+  muted?: boolean;
 }
 
 interface AudioEndpointItem {
@@ -43,21 +55,23 @@ export const MixerNavbarModule: React.FC<NavbarModuleProps> = ({
       }
     } catch {}
     try {
-      const list = await invoke<any[]>("get_audio_sessions");
+      const list = await invoke<RawAudioSession[]>("get_audio_sessions");
       if (Array.isArray(list)) {
-        setSessions(
-          list.map((s) => ({
-            pid: s.pid,
-            name: s.name || `App ${s.pid}`,
-            volume:
-              typeof s.volume === "number"
-                ? s.volume <= 1
-                  ? Math.round(s.volume * 100)
-                  : Math.round(s.volume)
-                : 100,
-            muted: Boolean(s.muted),
-          }))
-        );
+        const mapped = list.map((s) => ({
+          pid: s.pid,
+          pids: s.pids,
+          name: s.name || `App ${s.pid}`,
+          path: s.path ?? null,
+          icon: s.icon ?? null,
+          volume:
+            typeof s.volume === "number"
+              ? s.volume <= 1
+                ? Math.round(s.volume * 100)
+                : Math.round(s.volume)
+              : 100,
+          muted: Boolean(s.muted),
+        }));
+        setSessions(dedupeAudioSessions(mapped));
       }
     } catch {}
   }, []);
@@ -84,12 +98,23 @@ export const MixerNavbarModule: React.FC<NavbarModuleProps> = ({
   };
 
   const handleAppVolChange = async (s: AudioSessionItem, val: number) => {
+    const groupKey = getAudioSessionKey(s.name);
+    const shouldUnmute = s.muted && val > 0;
     setSessions((prev) =>
       prev.map((item) =>
-        item.pid === s.pid ? { ...item, volume: val, muted: false } : item
+        getAudioSessionKey(item.name) === groupKey
+          ? { ...item, volume: val, muted: val > 0 ? false : item.muted }
+          : item
       )
     );
     try {
+      if (shouldUnmute) {
+        await invoke("set_app_mute", {
+          pid: s.pid,
+          mute: false,
+          name: s.name,
+        });
+      }
       await invoke("set_app_volume", {
         pid: s.pid,
         volume: val / 100,
@@ -99,10 +124,13 @@ export const MixerNavbarModule: React.FC<NavbarModuleProps> = ({
   };
 
   const handleToggleAppMute = async (s: AudioSessionItem) => {
+    const groupKey = getAudioSessionKey(s.name);
     const nextMuted = !s.muted;
     setSessions((prev) =>
       prev.map((item) =>
-        item.pid === s.pid ? { ...item, muted: nextMuted } : item
+        getAudioSessionKey(item.name) === groupKey
+          ? { ...item, muted: nextMuted }
+          : item
       )
     );
     try {
@@ -182,7 +210,7 @@ export const MixerNavbarModule: React.FC<NavbarModuleProps> = ({
         moduleId="mixer_suara"
         currentView={view}
         config={config}
-        width={265}
+        width={280}
       >
         <div className="flex flex-col gap-2.5">
           <div className="flex flex-col gap-1 pb-2 border-b border-white/[0.08]">
@@ -203,7 +231,7 @@ export const MixerNavbarModule: React.FC<NavbarModuleProps> = ({
             />
           </div>
 
-          <div className="flex flex-col gap-2 max-h-[160px] overflow-y-auto pr-0.5">
+          <div className="flex flex-col gap-2.5 max-h-[210px] overflow-y-auto pr-0.5">
             {sessions.length === 0 ? (
               <div className="text-[11px] text-zinc-400 py-2 text-center">
                 {tx(
@@ -214,9 +242,23 @@ export const MixerNavbarModule: React.FC<NavbarModuleProps> = ({
               </div>
             ) : (
               sessions.map((s) => (
-                <div key={`${s.pid}_${s.name}`} className="flex flex-col gap-1">
+                <div key={getAudioSessionKey(s.name)} className="flex flex-col gap-1">
                   <div className="flex items-center justify-between gap-2 text-[11px] min-w-0">
-                    <span className="text-zinc-200 truncate flex-1 min-w-0">{s.name}</span>
+                    <span
+                      className={`w-[22px] h-[22px] rounded-[6px] border flex items-center justify-center shrink-0 overflow-hidden ${
+                        isLight
+                          ? "bg-black/[0.05] border-black/[0.08]"
+                          : "bg-white/[0.08] border-white/[0.1]"
+                      }`}
+                    >
+                      <MixerAppIcon name={s.name} exePath={s.path} icon={s.icon} size={15} />
+                    </span>
+                    <span
+                      title={s.displayName}
+                      className="text-zinc-200 font-medium truncate flex-1 min-w-0"
+                    >
+                      {s.displayName}
+                    </span>
                     <Tooltip
                       content={
                         s.muted
@@ -242,7 +284,7 @@ export const MixerNavbarModule: React.FC<NavbarModuleProps> = ({
                   </div>
                   <input
                     type="range"
-                    aria-label={tx(lang, `${s.name} volume`, `Volume ${s.name}`)}
+                    aria-label={tx(lang, `${s.displayName} volume`, `Volume ${s.displayName}`)}
                     min={0}
                     max={100}
                     value={s.muted ? 0 : s.volume}

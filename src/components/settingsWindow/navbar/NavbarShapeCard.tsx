@@ -67,8 +67,8 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
             <span className={`text-[11px] ${textSub}`}>
               {isProLocked
                 ? isId
-                  ? "Aktifkan lisensi Taskbar Pro di Microsoft Store untuk menjalankan dock"
-                  : "Activate Taskbar Pro license from Microsoft Store to run the live dock"
+                  ? "Aktifkan lisensi Gili Pro di Microsoft Store untuk menjalankan dock"
+                  : "Activate Gili Pro license from Microsoft Store to run the live dock"
                 : isId
                 ? "Nyalain dock melayang biar navigasi app makin sat-set & estetik"
                 : "Turn on floating dock for smooth app navigation & status"}
@@ -88,8 +88,8 @@ export const NavbarShapeCard: React.FC<NavbarShapeCardProps> = ({
           aria-label={
             isProLocked
               ? isId
-                ? "Beli Taskbar Pro untuk mengaktifkan Taskbar"
-                : "Buy Taskbar Pro to enable Taskbar"
+                ? "Beli Gili Pro untuk mengaktifkan Taskbar"
+                : "Buy Gili Pro to enable Taskbar"
               : isId
               ? "Aktifkan Taskbar"
               : "Toggle Taskbar"

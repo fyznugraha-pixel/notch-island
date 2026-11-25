@@ -12,11 +12,13 @@ import { AudioOutputPanel, AudioEndpoint } from "./AudioOutputPanel";
 import { Tooltip } from "./Tooltip";
 import { MixerAppIcon } from "./MixerAppIcon";
 import { t, getLanguage } from "../../services/i18n";
+import { dedupeAudioSessions, getAudioSessionKey } from "../../utils/audioSessionUtils";
 
 export interface AudioSession {
   pid: number;
   name: string;
   path?: string | null;
+  icon?: string | null;
   volume: number;
   muted: boolean;
   pids?: number[];
@@ -67,20 +69,10 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
     return () => window.clearInterval(intervalId);
   }, [onUpdateAudioSessions]);
 
-  // Aggregate sessions by case-insensitive name
-  const aggregatedSessions = useMemo(() => {
-    return audioSessions
-      .filter((s) => s.pid > 0 && s.name.trim() !== "")
-      .reduce<AudioSession[]>((acc, curr) => {
-        const existing = acc.find((s) => s.name.toLowerCase() === curr.name.toLowerCase());
-        if (!existing) {
-          acc.push({ ...curr, pids: [curr.pid] });
-        } else if (existing.pids && !existing.pids.includes(curr.pid)) {
-          existing.pids.push(curr.pid);
-        }
-        return acc;
-      }, []);
-  }, [audioSessions]);
+  const aggregatedSessions = useMemo(
+    () => dedupeAudioSessions(audioSessions),
+    [audioSessions]
+  );
 
   const [isDraggingMaster, setIsDraggingMaster] = useState(false);
   const [draggingSessionName, setDraggingSessionName] = useState<string | null>(null);
@@ -333,7 +325,7 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
 
                   return (
                     <div
-                      key={`${session.name}-${idx}`}
+                      key={`${getAudioSessionKey(session.name)}-${idx}`}
                       className={`relative flex items-center gap-2.5 h-[42px] px-3 border-b last:border-b-0 ${
                         isLightMode ? "border-black/[0.07]" : "border-[#38383a]/40"
                       }`}
@@ -344,15 +336,15 @@ export const VolumeMixerPanel: React.FC<VolumeMixerPanelProps> = ({
                           isLightMode ? "bg-black/[0.04] border-black/[0.08]" : "bg-white/10 border-white/10"
                         }`}
                       >
-                        <MixerAppIcon name={session.name} exePath={session.path} />
+                        <MixerAppIcon name={session.name} exePath={session.path} icon={session.icon} size={20} />
                       </span>
 
                       {/* Info & Slider */}
                       <div className="flex-1 min-w-0">
                         {/* Top Line: App Name & Vol */}
                         <div className="flex items-center justify-between text-[12px] mb-1.5 leading-none">
-                          <span className="font-medium text-white truncate capitalize pr-2">
-                            {session.name.replace(/\.exe$/i, "")}
+                          <span className="font-medium text-white truncate pr-2">
+                            {session.displayName}
                           </span>
                           <span
                             className={`text-[10.5px] font-mono tabular-nums shrink-0 ${

@@ -762,6 +762,80 @@ fn refresh_blocking(app: &AppHandle) -> TaskbarProStatus {
 }
 
 #[cfg(windows)]
+fn is_process_elevated() -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    unsafe {
+        let mut token = windows::Win32::Foundation::HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut returned_len: u32 = 0;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut core::ffi::c_void),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut returned_len,
+        )
+        .is_ok();
+        let _ = CloseHandle(token);
+        ok && elevation.TokenIsElevated != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn is_process_elevated() -> bool {
+    false
+}
+
+fn format_store_error_hint(code: u32) -> &'static str {
+    match code {
+        0x800704C7 => "Pembelian dibatalkan oleh pengguna.",
+        0x80070578 => "Jendela pemilik dialog Store tidak valid. Tutup lalu buka ulang Gili Settings.",
+        0x803F6107 => "Lisensi Microsoft Store belum sinkron. Pastikan sudah login akun Microsoft di aplikasi Microsoft Store (atau jalankan wsreset).",
+        0x80072EE7 | 0x80072EFD | 0x80072F8F => "Gagal terhubung ke server Microsoft Store. Periksa koneksi internet dan tanggal/jam Windows.",
+        _ => "Pastikan sudah login akun Microsoft personal di aplikasi Microsoft Store, region Windows sesuai, dan Gili tidak dijalankan sebagai Administrator.",
+    }
+}
+
+fn prepare_for_purchase_blocking(app: &AppHandle) -> TaskbarProStatus {
+    if !is_packaged_msix() {
+        mark_startup_sync_done();
+        return current_status_snapshot();
+    }
+
+    let lic_res = query_license_active_blocking();
+    apply_license_result(&lic_res);
+    mark_startup_sync_done();
+
+    if can_use_taskbar() {
+        reconcile_pro_bundle_after_license_check(app);
+        emit_status_changed(app);
+        return current_status_snapshot();
+    }
+
+    // Reuse cached store_id when available so the Microsoft Store dialog opens without extra round-trips.
+    let has_store_id = meta_store()
+        .lock()
+        .ok()
+        .and_then(|g| g.store_id.clone())
+        .is_some();
+    if !has_store_id {
+        let meta = query_product_meta_blocking();
+        if apply_product_meta(meta) {
+            emit_status_changed(app);
+        }
+    }
+    current_status_snapshot()
+}
+
+#[cfg(windows)]
 fn resolve_owner_hwnd_raw(app: &AppHandle) -> Option<isize> {
     for label in ["settings", "main"] {
         if let Some(win) = app.get_webview_window(label) {
@@ -820,7 +894,18 @@ async fn trigger_store_purchase(
     };
 
     app.run_on_main_thread(move || {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
+        };
+
         let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
+        unsafe {
+            if IsIconic(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+            }
+            let _ = SetForegroundWindow(hwnd);
+        }
+
         let init_and_start = || -> Result<IAsyncOperation<StorePurchaseResult>, String> {
             let ctx =
                 StoreContext::GetDefault().map_err(|e| format!("StoreContext::GetDefault: {e}"))?;
@@ -906,8 +991,17 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
         };
     }
 
-    let app_for_refresh = app.clone();
-    let refreshed = tauri::async_runtime::spawn_blocking(move || refresh_blocking(&app_for_refresh))
+    if is_process_elevated() {
+        return TaskbarProPurchaseOutcome {
+            status: "error".to_string(),
+            message: "Microsoft Store tidak mendukung pembelian saat aplikasi dijalankan sebagai Administrator. Tutup Gili lalu buka kembali secara normal (tanpa Run as Administrator), atau hubungi developer untuk bantuan kode redeem."
+                .to_string(),
+            license_status: current_status_snapshot(),
+        };
+    }
+
+    let app_for_prep = app.clone();
+    let refreshed = tauri::async_runtime::spawn_blocking(move || prepare_for_purchase_blocking(&app_for_prep))
         .await
         .unwrap_or_else(|_| current_status_snapshot());
 
@@ -966,9 +1060,15 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
                 status: "cancelled".to_string(),
                 message: match ext {
                     Some(code) => {
-                        format!("Pembelian dibatalkan (0x{:08X}).", code as u32)
+                        let c = code as u32;
+                        format!(
+                            "Pembelian belum selesai (0x{:08X}). {}",
+                            c,
+                            format_store_error_hint(c)
+                        )
                     }
-                    None => "Pembelian dibatalkan.".to_string(),
+                    None => "Popup Microsoft Store ditutup sebelum transaksi selesai. Jika terkendala metode bayar di Store (butuh kartu Visa/Mastercard internasional atau saldo Microsoft), gunakan bantuan kode redeem di bawah."
+                        .to_string(),
                 },
                 license_status: current_status_snapshot(),
             },
@@ -976,7 +1076,7 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
                 status: "error".to_string(),
                 message: match ext {
                     Some(code) => format!(
-                        "Gagal terhubung ke Microsoft Store (0x{:08X}). Periksa koneksi internet Anda.",
+                        "Gagal terhubung ke Microsoft Store (0x{:08X}). Periksa koneksi internet dan jam Windows Anda.",
                         code as u32
                     ),
                     None => "Gagal terhubung ke Microsoft Store. Periksa koneksi internet Anda."
@@ -988,11 +1088,15 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
                 TaskbarProPurchaseOutcome {
                     status: "error".to_string(),
                     message: match ext {
-                        Some(code) => format!(
-                            "Microsoft Store mengalami gangguan atau add-on belum terpublikasi (0x{:08X}).",
-                            code as u32
-                        ),
-                        None => "Microsoft Store mengalami gangguan atau add-on belum tersedia."
+                        Some(code) => {
+                            let c = code as u32;
+                            format!(
+                                "Microsoft Store tidak dapat memproses pembelian (0x{:08X}). {}",
+                                c,
+                                format_store_error_hint(c)
+                            )
+                        }
+                        None => "Microsoft Store mengalami gangguan atau add-on belum tersedia di akun/region ini. Coba ulangi atau gunakan bantuan kode redeem di bawah."
                             .to_string(),
                     },
                     license_status: current_status_snapshot(),
@@ -1000,7 +1104,9 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
             }
             Err(err) => TaskbarProPurchaseOutcome {
                 status: "error".to_string(),
-                message: err,
+                message: format!(
+                    "Gagal membuka dialog Microsoft Store ({err}). Pastikan aplikasi Microsoft Store sudah login dan Gili tidak dijalankan sebagai Administrator."
+                ),
                 license_status: current_status_snapshot(),
             },
         }
@@ -1138,5 +1244,10 @@ mod tests {
             outcome_json["licenseStatus"]["formattedPrice"],
             serde_json::json!("$1.99")
         );
+
+        assert!(format_store_error_hint(0x803F6107).contains("wsreset"));
+        assert!(format_store_error_hint(0x80070578).contains("Jendela"));
+        assert!(format_store_error_hint(0x80072EE7).contains("internet"));
+        assert!(format_store_error_hint(0xDEADBEEF).contains("Administrator"));
     }
 }

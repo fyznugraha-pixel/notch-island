@@ -1,12 +1,12 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Music, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { StandbyPalette } from "../standbyTheme";
 import { Language } from "../../../services/i18n";
 import { LyricsPayload, MediaPayload } from "../../../services/mediaLyricsStore";
 import { useResolvedThumbnail } from "../../ui/MediaThumbnail";
-import { WordFillLyricsLine } from "../../ui/WordFillLyricsLine";
 import { BASE_LYRICS_OFFSET } from "../../miniplayer/lyricsSync";
+import { StandbyLyricsRow } from "../StandbyLyricsRow";
 
 interface StandbyMediaWidgetProps {
   media: MediaPayload;
@@ -47,6 +47,14 @@ export const StandbyMediaWidget: React.FC<StandbyMediaWidgetProps> = ({
   const hasTrack = Boolean(media.title && media.title.trim().length > 0);
   const pct = liveDuration > 0 ? Math.min(100, Math.max(0, (livePosition / liveDuration) * 100)) : 0;
   const syncedCount = lyrics.synced ? lyrics.lines.length : 0;
+
+  const handleSeekLine = useCallback(
+    (target: number) => {
+      onSeekLocal(target);
+      invoke("smtc_seek", { positionSec: target }).catch(() => {});
+    },
+    [onSeekLocal]
+  );
 
   useEffect(() => {
     const container = lyricsContainerRef.current;
@@ -184,52 +192,23 @@ export const StandbyMediaWidget: React.FC<StandbyMediaWidgetProps> = ({
                   : undefined;
 
               return (
-                <button
+                <StandbyLyricsRow
                   key={`${idx}-${line.time}`}
-                  ref={isActive ? activeLineRef : undefined}
-                  type="button"
-                  onClick={() => {
-                    if (Number.isFinite(line.time)) {
-                      const target = Math.max(0, line.time);
-                      onSeekLocal(target);
-                      invoke("smtc_seek", { positionSec: target }).catch(() => {});
-                    }
-                  }}
-                  className={`text-left leading-snug tracking-[-0.015em] transition-all duration-300 cursor-pointer hover:opacity-100 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0a84ff] ${
-                    isActive
-                      ? "text-[clamp(16px,1.55vw,22px)] font-bold"
-                      : "text-[clamp(14px,1.3vw,18px)] font-semibold"
-                  }`}
-                  style={{
-                    color: isActive
-                      ? palette.textPrimary
-                      : palette.night
-                      ? palette.textSecondary
-                      : "rgba(255,255,255,0.74)",
-                    opacity: isActive ? 1 : isPast ? 0.34 : 0.56,
-                    transform: isActive && !reducedMotion ? "scale(1.015)" : "scale(1)",
-                    transformOrigin: "left center",
-                  }}
-                >
-                  {isActive && line.text ? (
-                    <WordFillLyricsLine
-                      line={line}
-                      nextLineTime={nextLineTime}
-                      effectiveTime={effectiveTime}
-                      isActive={isActive}
-                      isPlaying={media.is_playing && !deepEcoActive}
-                      prefersReducedMotion={reducedMotion || deepEcoActive}
-                      baseColor={
-                        palette.night
-                          ? "rgba(255, 69, 58, 0.4)"
-                          : "rgba(255, 255, 255, 0.38)"
-                      }
-                      fillColor={palette.textPrimary}
-                    />
-                  ) : (
-                    line.text || "..."
-                  )}
-                </button>
+                  line={line}
+                  nextLineTime={nextLineTime}
+                  isActive={isActive}
+                  isPast={isPast}
+                  effectiveTime={isActive ? effectiveTime : 0}
+                  isPlaying={isActive && media.is_playing && !deepEcoActive}
+                  reducedMotion={reducedMotion}
+                  deepEcoActive={deepEcoActive}
+                  night={palette.night}
+                  textPrimary={palette.textPrimary}
+                  textSecondary={palette.textSecondary}
+                  variant="widget"
+                  activeRef={isActive ? activeLineRef : undefined}
+                  onSeekLine={handleSeekLine}
+                />
               );
             })}
           </div>
@@ -282,8 +261,11 @@ export const StandbyMediaWidget: React.FC<StandbyMediaWidgetProps> = ({
               style={{ backgroundColor: palette.mutedChipBg }}
             >
               <div
-                className="h-full rounded-full transition-all duration-300"
-                style={{ width: `${pct}%`, backgroundColor: palette.night ? palette.textPrimary : "#f5f5f7" }}
+                className="w-full h-full rounded-full origin-left transition-transform duration-150 ease-linear"
+                style={{
+                  transform: `scaleX(${pct / 100})`,
+                  backgroundColor: palette.night ? palette.textPrimary : "#f5f5f7",
+                }}
               />
             </div>
           </button>
