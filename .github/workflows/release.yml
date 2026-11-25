@@ -74,10 +74,12 @@ jobs:
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           VITE_GILI_FREE_URL: ${{ secrets.VITE_GILI_FREE_URL || 'https://gili-free-proxy.gilinotch.workers.dev' }}
         with:
+          owner: fyznugraha-pixel
+          repo: notch-island
           tagName: v__VERSION__
           releaseName: 'Gili v__VERSION__'
           releaseBody: 'See the assets to download this version and install updates.'
