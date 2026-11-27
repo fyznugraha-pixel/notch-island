@@ -273,15 +273,6 @@ export function measureIdleLayoutWidth(
     }
   });
 
-  if (activeCount === 0) {
-    const emptyWidth = idleSize === "compact" ? 36 : idleSize === "large" ? 48 : 42;
-    if (camActive || micActive) {
-      const dotsCount = (camActive ? 1 : 0) + (micActive ? 1 : 0);
-      return emptyWidth + (dotsCount === 2 ? 22 : 14);
-    }
-    return emptyWidth;
-  }
-
   // Camera & Mic privacy indicators are displayed alongside the right slot (not replacing it)
   if (camActive || micActive) {
     const dotsCount = (camActive ? 1 : 0) + (micActive ? 1 : 0);
