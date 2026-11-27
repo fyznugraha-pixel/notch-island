@@ -44,7 +44,6 @@ export const FocusNavbarModule: React.FC<NavbarModuleProps> = ({
     setDnd(next);
     try {
       await invoke("set_windows_dnd", { enabled: next });
-      await invoke("set_windows_banners_hidden", { hidden: next });
     } catch {
       syncDnd();
     }

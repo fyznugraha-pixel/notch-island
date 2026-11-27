@@ -135,6 +135,10 @@ export async function resetAllAppSettings(): Promise<void> {
   } catch {}
 
   try {
+    await invoke("set_windows_banners_hidden", { hidden: false });
+  } catch {}
+
+  try {
     await invoke("broadcast_settings_sync", {
       payload: { type: "settings_reset" },
     });

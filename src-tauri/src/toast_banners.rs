@@ -3,6 +3,8 @@ use winreg::RegKey;
 
 const APP_SETTINGS_PATH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings";
 const BACKUP_PATH: &str = "Software\\Gili\\ToastBannerBackup";
+const PREF_PATH: &str = "Software\\Gili\\Preferences";
+const PREF_VALUE_NAME: &str = "HideWindowsBanners";
 const ACTIVE_MARKER: &str = "__active";
 const ABSENT: &str = "absent";
 
@@ -97,22 +99,75 @@ fn restore_banners(hkcu: &RegKey) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupBannerAction {
+    Suppress,
+    RestoreOrphanBackup,
+    Noop,
+}
+
+fn decide_startup_banner_action(
+    pref_enabled: bool,
+    has_active_backup: bool,
+) -> StartupBannerAction {
+    if pref_enabled {
+        StartupBannerAction::Suppress
+    } else if has_active_backup {
+        StartupBannerAction::RestoreOrphanBackup
+    } else {
+        StartupBannerAction::Noop
+    }
+}
+
+fn is_suppression_active(hkcu: &RegKey) -> bool {
+    hkcu.open_subkey(BACKUP_PATH)
+        .and_then(|key| key.get_value::<String, _>(ACTIVE_MARKER))
+        .is_ok()
+}
+
+fn read_hide_banners_pref(hkcu: &RegKey) -> bool {
+    hkcu.open_subkey(PREF_PATH)
+        .and_then(|key| key.get_value::<u32, _>(PREF_VALUE_NAME))
+        .ok()
+        == Some(1)
+}
+
+fn write_hide_banners_pref(hkcu: &RegKey, enabled: bool) {
+    if let Ok((key, _)) = hkcu.create_subkey(PREF_PATH) {
+        let val = if enabled { 1u32 } else { 0u32 };
+        let _ = key.set_value(PREF_VALUE_NAME, &val);
+    }
+}
+
 pub fn restore_banners_on_exit() {
-    if get_windows_banners_hidden() {
-        restore_banners(&RegKey::predef(HKEY_CURRENT_USER));
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if is_suppression_active(&hkcu) {
+        restore_banners(&hkcu);
     }
 }
 
 pub fn check_and_recover_banners_on_startup() {
-    restore_banners_on_exit();
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    match decide_startup_banner_action(read_hide_banners_pref(&hkcu), is_suppression_active(&hkcu)) {
+        StartupBannerAction::Suppress => {
+            let _ = suppress_banners(&hkcu);
+        }
+        StartupBannerAction::RestoreOrphanBackup => {
+            restore_banners(&hkcu);
+        }
+        StartupBannerAction::Noop => {}
+    }
 }
 
 #[tauri::command]
 pub fn set_windows_banners_hidden(hidden: bool) -> Result<(), String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     if hidden {
-        suppress_banners(&hkcu)
+        suppress_banners(&hkcu)?;
+        write_hide_banners_pref(&hkcu, true);
+        Ok(())
     } else {
+        write_hide_banners_pref(&hkcu, false);
         restore_banners(&hkcu);
         Ok(())
     }
@@ -120,8 +175,31 @@ pub fn set_windows_banners_hidden(hidden: bool) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_windows_banners_hidden() -> bool {
-    RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey(BACKUP_PATH)
-        .and_then(|key| key.get_value::<String, _>(ACTIVE_MARKER))
-        .is_ok()
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    read_hide_banners_pref(&hkcu) || is_suppression_active(&hkcu)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_banner_decision_respects_persisted_pref_and_orphan_backups() {
+        assert_eq!(
+            decide_startup_banner_action(true, false),
+            StartupBannerAction::Suppress
+        );
+        assert_eq!(
+            decide_startup_banner_action(true, true),
+            StartupBannerAction::Suppress
+        );
+        assert_eq!(
+            decide_startup_banner_action(false, true),
+            StartupBannerAction::RestoreOrphanBackup
+        );
+        assert_eq!(
+            decide_startup_banner_action(false, false),
+            StartupBannerAction::Noop
+        );
+    }
 }

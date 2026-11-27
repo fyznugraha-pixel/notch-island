@@ -53,6 +53,14 @@ const CHANGELOG: ChangelogEntry[] = [
         descEn: "Disables the GitHub NSIS self-updater on Microsoft Store MSIX installs so updates route exclusively through Microsoft Store, and hardens Gili Pro license IPC fallback handling to fail closed.",
         badge: "fix",
       },
+      {
+        icon: <BellOff size={14} />,
+        titleId: "Preferensi 'Pindahkan Notifikasi Windows ke Gili' Tetap Aktif Setelah Restart",
+        titleEn: "Persist 'Move Windows Notifications to Gili' Across Restarts",
+        descId: "Menyimpan preferensi 'Pindahkan notifikasi Windows ke Gili' secara permanen agar otomatis aktif kembali setiap laptop dinyalakan ulang sambil tetap mengembalikan banner Windows secara aman saat Gili ditutup, serta memisahkannya dari toggle Mode Fokus di Taskbar.",
+        descEn: "Persists the 'Move Windows notifications to Gili' preference so it automatically re-applies after every Windows reboot while still safely restoring native Windows banners on app exit, and decouples it from the Taskbar Focus Mode toggle.",
+        badge: "fix",
+      },
     ],
   },
   {
