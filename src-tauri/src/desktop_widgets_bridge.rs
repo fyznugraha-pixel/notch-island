@@ -34,6 +34,8 @@ static BRIDGE_APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static UPTIME_CONFIGS: OnceLock<Mutex<Vec<SiteMonitorConfig>>> = OnceLock::new();
 static GITHUB_REPO: OnceLock<Mutex<String>> = OnceLock::new();
 static PENDING_WIDGET_PROVIDER: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static PENDING_GALLERY_MONITOR: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static PENDING_CUSTOMIZER_SLOT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 static PHOTO_PICKER_ACTIVE: AtomicBool = AtomicBool::new(false);
 static AUDIO_LOOP_STOP: AtomicBool = AtomicBool::new(false);
 static WEATHER_FORCE_REFRESH: AtomicBool = AtomicBool::new(false);
@@ -126,6 +128,30 @@ fn persist_github_repo(repo: &str) -> Result<(), String> {
 
 fn pending_widget_provider() -> &'static Mutex<Option<String>> {
     PENDING_WIDGET_PROVIDER.get_or_init(|| Mutex::new(None))
+}
+
+fn pending_gallery_monitor() -> &'static Mutex<Option<String>> {
+    PENDING_GALLERY_MONITOR.get_or_init(|| Mutex::new(None))
+}
+
+#[tauri::command]
+pub fn take_pending_widget_gallery_monitor() -> Option<String> {
+    pending_gallery_monitor()
+        .lock()
+        .ok()
+        .and_then(|mut g| g.take())
+}
+
+fn pending_customizer_slot() -> &'static Mutex<Option<String>> {
+    PENDING_CUSTOMIZER_SLOT.get_or_init(|| Mutex::new(None))
+}
+
+#[tauri::command]
+pub fn take_pending_widget_customizer_slot() -> Option<String> {
+    pending_customizer_slot()
+        .lock()
+        .ok()
+        .and_then(|mut g| g.take())
 }
 
 fn local_tz_offset_minutes() -> i32 {
@@ -393,8 +419,20 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
             );
             let _ = app_ev.emit("desktop-widgets-config-changed", ());
         }
-        WidgetHostEvent::OpenGallery | WidgetHostEvent::OpenCustomizer { .. } => {
+        WidgetHostEvent::OpenGallery { monitor_id } => {
+            let resolved = monitor_id.unwrap_or_else(|| "primary".to_string());
+            if let Ok(mut g) = pending_gallery_monitor().lock() {
+                *g = Some(resolved.clone());
+            }
             crate::show_or_create_settings_window(&app_ev, Some("widgets".to_string()));
+            let _ = app_ev.emit("desktop-widgets-open-gallery", resolved);
+        }
+        WidgetHostEvent::OpenCustomizer { slot_id } => {
+            if let Ok(mut g) = pending_customizer_slot().lock() {
+                *g = Some(slot_id.clone());
+            }
+            crate::show_or_create_settings_window(&app_ev, Some("widgets".to_string()));
+            let _ = app_ev.emit("desktop-widgets-open-customizer", slot_id);
         }
         WidgetHostEvent::OpenFeature {
             widget_type,
@@ -571,8 +609,30 @@ pub fn start_desktop_widgets_bridge(app: AppHandle) {
             }
         }
         WidgetHostEvent::TextInputSubmitted {
-            widget_type, text, ..
+            slot_id,
+            widget_type,
+            title,
+            text,
         } => match widget_type.as_str() {
+            "paper_sticky_note" => {
+                let mut cfg = engine().get_config();
+                if let Some(slot) = cfg.slots.iter_mut().find(|s| s.slot_id == slot_id) {
+                    let idx = slot.active_index % slot.widgets.len().max(1);
+                    if let Some(w) = slot.widgets.get_mut(idx) {
+                        if !w.settings.is_object() {
+                            w.settings = serde_json::json!({});
+                        }
+                        if let Some(t) = title {
+                            w.settings["title"] = serde_json::json!(t.trim());
+                        }
+                        w.settings["text"] = serde_json::json!(text.trim_end());
+                    }
+                }
+                if let Ok(saved) = engine().save_config(cfg) {
+                    let _ = app_ev.emit("desktop-widgets-config-changed", &saved);
+                }
+                emit_widgets_data_updated("sticky_note");
+            }
             "sticky_notes" => {
                 let note_text = text.trim();
                 if !note_text.is_empty() {

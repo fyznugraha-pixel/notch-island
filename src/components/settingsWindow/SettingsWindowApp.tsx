@@ -36,6 +36,7 @@ import {
 import {
   checkForAppUpdate,
   downloadAndInstallAppUpdate,
+  openMicrosoftStoreUpdates,
   UpdateInfo,
   UpdateStatus,
 } from "../../services/updateService";
@@ -48,6 +49,8 @@ import { clearAllLyricsCache } from "../../services/lyricsService";
 import { clearArtworkCache } from "../../services/artworkService";
 import { clearShelfPreviewCache } from "../../services/shelfService";
 import { clearWeatherCache, getCachedWeather } from "../../services/weatherService";
+import { useTemperatureUnit } from "../../hooks/useTemperatureUnit";
+import { formatTemperature } from "../../utils/temperatureUnit";
 import { NotchPosition, isValidNotchPosition } from "../../utils/notchGeometry";
 
 import {
@@ -143,7 +146,7 @@ export const SettingsWindowApp: React.FC = () => {
   }, []);
 
   const [store, setStore] = useState<Store | null>(null);
-  const [currentAppVersion, setCurrentAppVersion] = useState("5.2.2");
+  const [currentAppVersion, setCurrentAppVersion] = useState("5.2.3");
 
   // Preferences State
   const [tabsPrefs, setTabsPrefs] = useState<NotchTabsPreferences>(() => loadTabsPreferences());
@@ -191,6 +194,7 @@ export const SettingsWindowApp: React.FC = () => {
   });
   const [optNotifTime, setOptNotifTime] = useState<number>(3);
   const [optNotifSound, setOptNotifSound] = useState<string>(() => getSavedNotifSound());
+  const [temperatureUnit] = useTemperatureUnit();
 
   // Appearance State
   const [optTheme, setOptTheme] = useState<"dark" | "light" | "auto">(() => {
@@ -338,6 +342,7 @@ export const SettingsWindowApp: React.FC = () => {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [taskbarProLocked, setTaskbarProLocked] = useState(false);
+  const [isPackagedMsix, setIsPackagedMsix] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [clearTempStatus, setClearTempStatus] = useState<"idle" | "cleaning" | "done" | "error">("idle");
   const [clearedResult, setClearedResult] = useState<{
@@ -379,19 +384,25 @@ export const SettingsWindowApp: React.FC = () => {
       .catch(() => {});
     getVersion().then(setCurrentAppVersion).catch(() => {});
     getTaskbarProStatus()
-      .then((status) => setTaskbarProLocked(status.isLocked))
-      .catch(() => {});
-    const unsubscribePro = subscribeTaskbarProStatus((status) => {
-      setTaskbarProLocked(status.isLocked);
-    });
-    checkForAppUpdate()
-      .then((info) => {
-        setUpdateInfo(info);
-        if (info.available) {
-          setUpdateStatus("available");
+      .then((status) => {
+        setTaskbarProLocked(status.isLocked);
+        setIsPackagedMsix(status.isPackagedMsix);
+        if (!status.isPackagedMsix && status.source !== "ipc_error") {
+          checkForAppUpdate()
+            .then((info) => {
+              setUpdateInfo(info);
+              if (info.available) {
+                setUpdateStatus("available");
+              }
+            })
+            .catch(() => {});
         }
       })
       .catch(() => {});
+    const unsubscribePro = subscribeTaskbarProStatus((status) => {
+      setTaskbarProLocked(status.isLocked);
+      setIsPackagedMsix(status.isPackagedMsix);
+    });
     invoke<[boolean, number] | null>("get_battery_status")
       .then((res) => {
         if (res && res[1] <= 100) {
@@ -1120,6 +1131,10 @@ export const SettingsWindowApp: React.FC = () => {
   };
 
   const handleCheckUpdate = async () => {
+    if (isPackagedMsix) {
+      openMicrosoftStoreUpdates().catch(() => {});
+      return;
+    }
     if (updateStatus === "checking" || updateStatus === "downloading" || updateStatus === "installing") return;
     setUpdateStatus("checking");
     try {
@@ -1132,6 +1147,10 @@ export const SettingsWindowApp: React.FC = () => {
   };
 
   const handleInstallUpdate = async () => {
+    if (isPackagedMsix) {
+      openMicrosoftStoreUpdates().catch(() => {});
+      return;
+    }
     if (!updateInfo?.update) return;
     setUpdateStatus("downloading");
     setDownloadProgress(0);
@@ -1157,7 +1176,11 @@ export const SettingsWindowApp: React.FC = () => {
       time: now,
       dateDisplay: now.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short" }),
       fullDateTitle: now.toLocaleDateString(locale, { dateStyle: "full" }),
-      weather: getCachedWeather() || { temp: "28°C", code: 1, locationName: "Jakarta" },
+      weather: getCachedWeather() || {
+        temp: formatTemperature(28, temperatureUnit),
+        code: 1,
+        locationName: "Jakarta",
+      },
       networkPing: 18,
       pendingTodosCount: 2,
       stashedFilesCount: 1,
@@ -1173,7 +1196,7 @@ export const SettingsWindowApp: React.FC = () => {
       optLanguage,
       isLightMode,
     };
-  }, [battery, optLanguage, isLightMode]);
+  }, [battery, optLanguage, isLightMode, temperatureUnit]);
 
   const currentSectionMeta =
     SIDEBAR_SECTIONS.find((s) => s.id === activeSection) || SIDEBAR_SECTIONS[0];
@@ -1466,6 +1489,7 @@ export const SettingsWindowApp: React.FC = () => {
                     optSoundFx={optSoundFx}
                     onToggleSoundFx={handleToggleSoundFx}
                     currentAppVersion={currentAppVersion}
+                    isStoreManaged={isPackagedMsix}
                     updateStatus={updateStatus}
                     updateInfo={updateInfo}
                     downloadProgress={downloadProgress}
@@ -1724,6 +1748,7 @@ export const SettingsWindowApp: React.FC = () => {
                   {activeSection === "system" && (
                     <AdvancedTab
                       currentAppVersion={currentAppVersion}
+                      isStoreManaged={isPackagedMsix}
                       updateStatus={updateStatus}
                       updateInfo={updateInfo}
                       downloadProgress={downloadProgress}

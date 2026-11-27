@@ -110,6 +110,8 @@ pub struct FrontendMirrorSnapshot {
     pub custom_lon: Option<f64>,
     #[serde(default)]
     pub language: String,
+    #[serde(default)]
+    pub temperature_unit: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

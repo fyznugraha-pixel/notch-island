@@ -26,6 +26,7 @@ import {
   User,
   ScanText,
   MapPin,
+  Thermometer,
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { NotchPosition } from "../../../utils/notchGeometry";
@@ -34,6 +35,8 @@ import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
 import { IosSelect } from "../../ios/IosSelect";
 import { NotifSoundPicker } from "./NotifSoundPicker";
 import { t, Language } from "../../../services/i18n";
+import { useTemperatureUnit } from "../../../hooks/useTemperatureUnit";
+import { TemperatureUnit } from "../../../utils/temperatureUnit";
 import { SettingsSubtab } from "./SettingsSubnav";
 import { UpdateInfo, UpdateStatus } from "../../../services/updateService";
 import {
@@ -107,6 +110,7 @@ export interface SearchResultsProps {
   onToggleSoundFx?: () => void;
   // Advanced props
   currentAppVersion: string;
+  isStoreManaged?: boolean;
   updateStatus: UpdateStatus;
   updateInfo: UpdateInfo | null;
   downloadProgress: number;
@@ -191,6 +195,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   optSoundFx = true,
   onToggleSoundFx,
   currentAppVersion,
+  isStoreManaged = false,
   updateStatus,
   updateInfo,
   downloadProgress,
@@ -202,6 +207,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onTestNotification,
   onClose,
 }) => {
+  const [temperatureUnit, setTemperatureUnit] = useTemperatureUnit();
   const [pomodoroIdle, setPomodoroIdle] = React.useState<boolean>(() => {
     return loadPomodoroSettings().showIdleTimer;
   });
@@ -242,18 +248,19 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
     }
   };
 
-  const updateSubtitle =
-    updateStatus === "checking"
-      ? t("settings_checking_update")
-      : updateStatus === "available"
-      ? `${t("settings_update_available")}: v${updateInfo?.version}`
-      : updateStatus === "downloading"
-      ? `${t("settings_update_downloading")} ${downloadProgress}%`
-      : updateStatus === "installing"
-      ? t("settings_update_installing")
-      : updateStatus === "error"
-      ? t("settings_update_error")
-      : t("settings_adv_updates_desc", { version: currentAppVersion });
+  const updateSubtitle = isStoreManaged
+    ? t("settings_adv_updates_store_desc", { version: currentAppVersion })
+    : updateStatus === "checking"
+    ? t("settings_checking_update")
+    : updateStatus === "available"
+    ? `${t("settings_update_available")}: v${updateInfo?.version}`
+    : updateStatus === "downloading"
+    ? `${t("settings_update_downloading")} ${downloadProgress}%`
+    : updateStatus === "installing"
+    ? t("settings_update_installing")
+    : updateStatus === "error"
+    ? t("settings_update_error")
+    : t("settings_adv_updates_desc", { version: currentAppVersion });
 
   const clearTempSubtitle =
     clearTempStatus === "cleaning"
@@ -460,6 +467,42 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
         >
           {t("settings_subtab_general")}
         </button>
+      ),
+    },
+    {
+      id: "temperature_unit",
+      tab: "general",
+      tabLabel: t("settings_subtab_general"),
+      title: t("settings_temperature_unit"),
+      subtitle: t("settings_temperature_unit_desc"),
+      keywords: [
+        "temperature",
+        "unit",
+        "celsius",
+        "fahrenheit",
+        "suhu",
+        "satuan",
+        "derajat",
+        "weather",
+        "cuaca",
+      ],
+      icon: <Thermometer size={18} />,
+      iconBgClass: isLightMode ? "bg-[#ff9f0a]/15" : "bg-[#2c2410]",
+      iconColorClass: "text-[#ff9f0a]",
+      control: (
+        <IosSegmentedControl
+          value={temperatureUnit}
+          onChange={(val) => {
+            setTemperatureUnit(val as TemperatureUnit);
+            import("../../../services/desktopWidgetsService")
+              .then((m) => m.syncFrontendWidgetMirror())
+              .catch(() => {});
+          }}
+          options={[
+            { value: "celsius", label: "°C", tooltip: "Celsius (°C)" },
+            { value: "fahrenheit", label: "°F", tooltip: "Fahrenheit (°F)" },
+          ]}
+        />
       ),
     },
     {
@@ -856,11 +899,26 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
       control: (
         <button
           type="button"
-          onClick={updateStatus === "available" ? onInstallUpdate : onCheckUpdate}
-          disabled={updateStatus === "checking" || updateStatus === "downloading" || updateStatus === "installing"}
+          onClick={
+            isStoreManaged
+              ? onCheckUpdate
+              : updateStatus === "available"
+              ? onInstallUpdate
+              : onCheckUpdate
+          }
+          disabled={
+            !isStoreManaged &&
+            (updateStatus === "checking" ||
+              updateStatus === "downloading" ||
+              updateStatus === "installing")
+          }
           className="px-3 py-1.5 rounded-[9px] bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[11px] font-semibold transition-colors disabled:opacity-50"
         >
-          {updateStatus === "available" ? t("settings_update_now") : t("settings_check_update")}
+          {isStoreManaged
+            ? t("settings_open_ms_store")
+            : updateStatus === "available"
+            ? t("settings_update_now")
+            : t("settings_check_update")}
         </button>
       ),
     },

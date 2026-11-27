@@ -12,6 +12,7 @@ import { IdleLayoutConfig, IdleRuntimeData } from "./IdleLayoutSetting";
 import { AppearanceTab } from "./settings/AppearanceTab";
 import { SettingRow } from "./settings/SettingRow";
 import { WeatherLocationSetting } from "./WeatherLocationSetting";
+import { TemperatureUnitSetting } from "./TemperatureUnitSetting";
 import { IosSwitch } from "../ios/IosSwitch";
 import { IosSegmentedControl } from "../ios/IosSegmentedControl";
 import { ShortcutActionId, ShortcutStatus } from "../../services/shortcuts";
@@ -329,8 +330,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               }
             />
 
-            {/* Weather Location Selector */}
+            {/* Weather Location & Temperature Unit */}
             <WeatherLocationSetting isLightMode={isLightMode} />
+            <TemperatureUnitSetting isLightMode={isLightMode} compact />
           </div>
         </div>
       </div>

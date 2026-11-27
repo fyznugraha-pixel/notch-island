@@ -3,7 +3,7 @@ members = [".", "crates/gili-widgets"]
 
 [package]
 name = "gili"
-version = "5.2.2"
+version = "5.2.3"
 description = "Gili Island for Windows"
 authors = ["Faiz Anak Telkom University"]
 edition = "2021"

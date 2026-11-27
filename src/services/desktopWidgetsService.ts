@@ -4,6 +4,7 @@ import { getSecureApiKey } from "./aiCredentialService";
 import { HABIT_STREAK_STORAGE_KEY, parseHabitStreakRecord } from "./habitHistoryService";
 import { getLanguage } from "./languageStore";
 import { loadMiniNotes } from "./noteUtils";
+import { getTemperatureUnit } from "../utils/temperatureUnit";
 
 export type WidgetSize = "small" | "medium" | "large";
 export type BackgroundMode = "none" | "subtle_tint" | "glass" | "solid";
@@ -203,6 +204,14 @@ export async function getWidgetIcalStatus(): Promise<WidgetIcalStatus> {
 
 export async function takePendingWidgetProvider(): Promise<string | null> {
   return invoke<string | null>("take_pending_widget_provider");
+}
+
+export async function takePendingWidgetGalleryMonitor(): Promise<string | null> {
+  return invoke<string | null>("take_pending_widget_gallery_monitor");
+}
+
+export async function takePendingWidgetCustomizerSlot(): Promise<string | null> {
+  return invoke<string | null>("take_pending_widget_customizer_slot");
 }
 
 export async function saveGithubWidgetToken(token: string, repo: string): Promise<void> {
@@ -491,6 +500,7 @@ export async function syncFrontendWidgetMirror(): Promise<void> {
       custom_lat: typeof rawCity?.latitude === "number" ? rawCity.latitude : null,
       custom_lon: typeof rawCity?.longitude === "number" ? rawCity.longitude : null,
       language: lang,
+      temperature_unit: getTemperatureUnit(),
     };
 
     await invoke("sync_frontend_widget_mirror", { mirror });

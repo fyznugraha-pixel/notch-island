@@ -20,6 +20,12 @@ const DIM_LABEL: Record<WidgetSize, string> = {
   large: "336 x 336 dp",
 };
 
+const STICKY_DIM_LABEL: Record<WidgetSize, string> = {
+  small: "160 x 160 dp",
+  medium: "240 x 240 dp",
+  large: "336 x 336 dp",
+};
+
 export const WidgetGalleryTile: React.FC<WidgetGalleryTileProps> = ({
   entry,
   selectedSize,
@@ -36,12 +42,19 @@ export const WidgetGalleryTile: React.FC<WidgetGalleryTileProps> = ({
     ? "bg-white border-black/[0.08] hover:border-black/[0.18]"
     : "bg-[#171921] border-white/[0.08] hover:border-white/[0.18]";
 
-  const previewScaleClass =
-    selectedSize === "small"
-      ? "scale-[0.86]"
+  const isPaperSticky = entry.widget_type === "paper_sticky_note";
+  const previewScaleClass = isPaperSticky
+    ? selectedSize === "small"
+      ? "scale-[0.70]"
       : selectedSize === "medium"
-      ? "scale-[0.78] min-[780px]:scale-[0.86]"
-      : "scale-[0.62]";
+      ? "scale-[0.68]"
+      : "scale-[0.62]"
+    : selectedSize === "small"
+    ? "scale-[0.86]"
+    : selectedSize === "medium"
+    ? "scale-[0.78] min-[780px]:scale-[0.86]"
+    : "scale-[0.62]";
+  const dimLabel = isPaperSticky ? STICKY_DIM_LABEL[selectedSize] : DIM_LABEL[selectedSize];
 
   return (
     <div className={`rounded-[18px] border overflow-hidden flex flex-col transition-colors ${tileCls}`}>
@@ -77,7 +90,7 @@ export const WidgetGalleryTile: React.FC<WidgetGalleryTileProps> = ({
           </div>
           <p className={`text-[11.5px] line-clamp-2 mt-1 ${mutedCls}`}>{entry.description}</p>
           <div className={`text-[10.5px] mt-1.5 truncate ${mutedCls}`}>
-            {entry.group_label} . {DIM_LABEL[selectedSize]}
+            {entry.group_label} . {dimLabel}
           </div>
         </div>
 

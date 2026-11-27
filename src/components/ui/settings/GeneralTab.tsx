@@ -6,6 +6,7 @@ import { IosSegmentedControl } from "../../ios/IosSegmentedControl";
 import { ShortcutActionId, ShortcutStatus } from "../../../services/shortcuts";
 import { t, Language } from "../../../services/i18n";
 import { WeatherLocationSetting } from "../WeatherLocationSetting";
+import { TemperatureUnitSetting } from "../TemperatureUnitSetting";
 
 export interface GeneralTabProps {
   optLanguage: Language;
@@ -292,8 +293,9 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({
             }
           />
 
-          {/* Lokasi Cuaca */}
+          {/* Lokasi Cuaca & Satuan Suhu */}
           <WeatherLocationSetting isLightMode={light} />
+          <TemperatureUnitSetting isLightMode={light} />
         </div>
       </div>
     </div>

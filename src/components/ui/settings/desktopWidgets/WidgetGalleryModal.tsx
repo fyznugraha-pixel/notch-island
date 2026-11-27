@@ -4,8 +4,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search, X } from "lucide-react";
 import { WidgetCatalogEntry, WidgetSize } from "../../../../services/desktopWidgetsService";
 import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
+import { IosSelect } from "../../../ios/IosSelect";
+import { MonitorInfo } from "../MonitorSelector";
 import { WidgetGalleryTile } from "./WidgetGalleryTile";
 import { localizeCatalogEntry } from "./desktopWidgetsI18n";
+import { buildMonitorSelectOptions, canonicalizeMonitorId } from "./widgetMonitorUtils";
 
 interface WidgetGalleryModalProps {
   open: boolean;
@@ -13,6 +16,9 @@ interface WidgetGalleryModalProps {
   isLightMode: boolean;
   isId?: boolean;
   activeWidgetTypes?: string[];
+  monitors?: MonitorInfo[];
+  targetMonitorId?: string;
+  onChangeTargetMonitor?: (monitorId: string) => void;
   onClose: () => void;
   onAddWidget: (entry: WidgetCatalogEntry, size: WidgetSize) => void;
 }
@@ -30,6 +36,9 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
   isLightMode,
   isId = true,
   activeWidgetTypes = [],
+  monitors = [],
+  targetMonitorId = "primary",
+  onChangeTargetMonitor,
   onClose,
   onAddWidget,
 }) => {
@@ -125,7 +134,17 @@ export const WidgetGalleryModal: React.FC<WidgetGalleryModalProps> = ({
                 </h3>
                 <p className={`text-[11.5px] mt-0.5 ${mutedCls}`}>{countLabel}</p>
               </div>
-              <div className="flex items-center gap-2.5 shrink-0">
+              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                {monitors.length > 1 && onChangeTargetMonitor && (
+                  <IosSelect<string>
+                    value={canonicalizeMonitorId(targetMonitorId, monitors)}
+                    options={buildMonitorSelectOptions(monitors, isId, targetMonitorId)}
+                    onChange={onChangeTargetMonitor}
+                    isLightMode={isLightMode}
+                    ariaLabel={tr("Monitor tujuan", "Target monitor")}
+                    minWidthClass="min-w-[164px]"
+                  />
+                )}
                 <IosSegmentedControl
                   value={sampleLightBg ? "light" : "dark"}
                   onChange={(v) => setSampleLightBg(v === "light")}

@@ -6,6 +6,8 @@ import { NavbarPopoverShell, useNavbarIsLightSurface } from "./NavbarPopoverShel
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
 import { Tooltip } from "../../components/ui/Tooltip";
+import { useTemperatureUnit } from "../../hooks/useTemperatureUnit";
+import { formatTemperature } from "../../utils/temperatureUnit";
 
 interface GpuTelemetry {
   name: string;
@@ -22,6 +24,7 @@ export const GpuTempNavbarModule: React.FC<NavbarModuleProps> = ({
   config,
 }) => {
   const lang = useTaskbarLang();
+  const [tempUnit] = useTemperatureUnit();
   const isLight = useNavbarIsLightSurface(config);
   const tooltipSide = getNavbarTooltipSide(config?.position);
   const isVertical = config?.position === "left" || config?.position === "right";
@@ -58,7 +61,7 @@ export const GpuTempNavbarModule: React.FC<NavbarModuleProps> = ({
   const loadLabel =
     typeof gpu?.usage_pct === "number" ? `${gpu.usage_pct}%` : "N/A";
   const tempLabel =
-    typeof gpu?.temp_c === "number" ? `${gpu.temp_c}°C` : "N/A";
+    typeof gpu?.temp_c === "number" ? formatTemperature(gpu.temp_c, tempUnit) : "N/A";
   const fanLabel =
     typeof gpu?.fan_pct === "number" ? `${gpu.fan_pct}%` : "Auto";
   const vramLabel =
@@ -112,7 +115,9 @@ export const GpuTempNavbarModule: React.FC<NavbarModuleProps> = ({
             <>
               <Cpu size={15} className="text-[#fb923c]" />
               <span className="gili-mod-badge absolute top-[1px] right-[1px] px-1 h-[14px] rounded-full bg-[#f97316] text-[8.5px] font-bold text-[#ffffff] flex items-center justify-center tabular-nums pointer-events-none">
-                {typeof gpu?.temp_c === "number" ? `${gpu.temp_c}°` : loadLabel}
+                {typeof gpu?.temp_c === "number"
+                  ? formatTemperature(gpu.temp_c, tempUnit, { showUnit: false })
+                  : loadLabel}
               </span>
             </>
           ) : (

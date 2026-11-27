@@ -11,6 +11,7 @@ mod migration;
 mod install_repair;
 mod windows_dnd;
 mod toast_banners;
+mod notification_watcher;
 pub mod shelf_server;
 pub mod media_lyrics_store;
 pub mod miniplayer_window;
@@ -4475,12 +4476,17 @@ fn request_notification_access() -> bool {
         if let Ok(listener) = UserNotificationListener::Current() {
             if let Ok(status) = listener.GetAccessStatus() {
                 if status == UserNotificationListenerAccessStatus::Allowed {
+                    notification_watcher::notify_access_changed();
                     return true;
                 }
             }
             if let Ok(async_op) = listener.RequestAccessAsync() {
                 if let Ok(status) = async_op.get() {
-                    return status == UserNotificationListenerAccessStatus::Allowed;
+                    let allowed = status == UserNotificationListenerAccessStatus::Allowed;
+                    if allowed {
+                        notification_watcher::notify_access_changed();
+                    }
+                    return allowed;
                 }
             }
         }
@@ -4912,7 +4918,7 @@ pub fn run() {
     windows_dnd::check_and_recover_dnd_on_startup();
     toast_banners::check_and_recover_banners_on_startup();
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .on_permission_request(|_webview, _kind| {
             tauri::webview::PermissionResponse::Allow
         })
@@ -4921,8 +4927,11 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_drag::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_drag::init());
+    if store_license::should_enable_in_app_updater() {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    builder
         .manage(PillSize(std::sync::Mutex::new(PillState::default())))
         .invoke_handler(tauri::generate_handler![
             set_pill_hover,
@@ -5121,6 +5130,7 @@ pub fn run() {
             store_license::get_taskbar_pro_status,
             store_license::refresh_taskbar_pro_license,
             store_license::purchase_taskbar_pro,
+            store_license::open_microsoft_store_updates,
             install_repair::get_autostart_state,
             install_repair::sync_autostart_state,
             standby_window::get_standby_config,
@@ -5144,6 +5154,8 @@ pub fn run() {
             desktop_widgets_bridge::clear_widget_ical_url,
             desktop_widgets_bridge::get_widget_ical_status,
             desktop_widgets_bridge::take_pending_widget_provider,
+            desktop_widgets_bridge::take_pending_widget_gallery_monitor,
+            desktop_widgets_bridge::take_pending_widget_customizer_slot,
             desktop_widgets_bridge::save_github_widget_token,
             desktop_widgets_bridge::get_widget_storage_status,
             desktop_widgets_bridge::trigger_widget_storage_scan,
@@ -5795,6 +5807,9 @@ pub fn run() {
             // 3b. Dedicated Privacy Monitor Thread (Camera & Microphone with Heartbeat)
             privacy::start_privacy_monitor(app.handle().clone());
 
+            // 3c. Event-driven Windows Notification Watcher (zero idle disk I/O)
+            notification_watcher::start_notification_watcher(app.handle().clone());
+
             // 4. Polling SMTC dan otomatis emit ke Frontend
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -5829,9 +5844,7 @@ pub fn run() {
                 let mut last_position = -1.0;
                 let mut last_duration = -1.0;
                 let mut thumbnail_retries: u32 = 0;
-                let mut seen_notifs = std::collections::HashSet::<u32>::new();
                 let mut counter = 0;
-                let mut first_notif_run = true;
                 let mut last_drives_mask = unsafe { windows::Win32::Storage::FileSystem::GetLogicalDrives() };
                 let mut last_audio_id = String::new();
                 
@@ -5860,16 +5873,6 @@ pub fn run() {
                 
                 let mut smtc_manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|r| r.get()).ok();
                 let mut last_smtc_manager_retry = std::time::Instant::now();
-                let notif_listener = windows::UI::Notifications::Management::UserNotificationListener::Current().ok();
-                let mut notif_access_allowed = false;
-                if let Some(listener) = &notif_listener {
-                    if let Ok(status) = listener.GetAccessStatus() {
-                        if status == windows::UI::Notifications::Management::UserNotificationListenerAccessStatus::Unspecified {
-                            let _ = listener.RequestAccessAsync().and_then(|r| r.get());
-                        }
-                        notif_access_allowed = status == windows::UI::Notifications::Management::UserNotificationListenerAccessStatus::Allowed;
-                    }
-                }
                 
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -5921,78 +5924,6 @@ pub fn run() {
                     
                     if counter % 5 != 0 {
                         continue;
-                    }
-                    
-                    // Real Notifications Check (every 1s with cached access status)
-                    if counter % 10 == 0 {
-                        use windows::UI::Notifications::Management::UserNotificationListenerAccessStatus;
-                        if let Some(listener) = &notif_listener {
-                            if !notif_access_allowed && counter % 50 == 0 {
-                                if let Ok(status) = listener.GetAccessStatus() {
-                                    notif_access_allowed = status == UserNotificationListenerAccessStatus::Allowed;
-                                }
-                            }
-                            if notif_access_allowed {
-                                if let Ok(notifs) = listener.GetNotificationsAsync(windows::UI::Notifications::NotificationKinds::Toast).and_then(|r| r.get()) {
-                                    let mut current_ids = std::collections::HashSet::new();
-                                    
-                                    for notif in notifs {
-                                        if let Ok(id) = notif.Id() {
-                                            current_ids.insert(id);
-                                            
-                                            if !seen_notifs.contains(&id) {
-                                                seen_notifs.insert(id);
-                                                
-                                                if !first_notif_run {
-                                                    let app_name = notif.AppInfo().and_then(|i| i.DisplayInfo()).and_then(|i| i.DisplayName()).map(|s| s.to_string()).unwrap_or_default();
-                                                    let aumid = notif.AppInfo().and_then(|i| i.AppUserModelId()).map(|s| s.to_string()).unwrap_or_default();
-                                                    let mut title = String::new();
-                                                    let mut body = String::new();
-                                                    
-                                                    if let Ok(notification) = notif.Notification() {
-                                                        if let Ok(visual) = notification.Visual() {
-                                                            if let Ok(binding) = visual.GetBinding(&windows::core::HSTRING::from("ToastGeneric")) {
-                                                                if let Ok(elements) = binding.GetTextElements() {
-                                                                    if let Ok(count) = elements.Size() {
-                                                                        if count > 0 {
-                                                                            if let Ok(elem) = elements.GetAt(0) {
-                                                                                title = elem.Text().unwrap_or_default().to_string();
-                                                                            }
-                                                                            let mut body_lines = Vec::new();
-                                                                            for i in 1..count {
-                                                                                if let Ok(elem) = elements.GetAt(i) {
-                                                                                    let text = elem.Text().unwrap_or_default().to_string();
-                                                                                    let trimmed = text.trim();
-                                                                                    if !trimmed.is_empty() {
-                                                                                        body_lines.push(trimmed.to_string());
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                            body = body_lines.join("\n");
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    
-                                                    #[derive(serde::Serialize, Clone)]
-                                                    struct RealNotifPayload {
-                                                        app_name: String,
-                                                        title: String,
-                                                        body: String,
-                                                        aumid: String,
-                                                    }
-                                                    let _ = app_handle.emit("real-notif", RealNotifPayload { app_name, title, body, aumid });
-                                                }
-                                            }
-                                        }
-                                    }
-                                    first_notif_run = false;
-                                    seen_notifs.retain(|id| current_ids.contains(id));
-                                }
-                            }
-                        }
                     }
                     
                     // Battery Check (every 1 second to save CPU)

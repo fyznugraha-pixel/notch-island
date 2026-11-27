@@ -47,6 +47,11 @@ const WIDGET_TEXT_EN: Record<string, { name: string; description: string }> = {
     name: "Mini Note",
     description: "Shows your Notch Mini Note: same notes, colors and checklists, with quick add from the desktop.",
   },
+  paper_sticky_note: {
+    name: "Sticky Note",
+    description:
+      "Stick natural tilted paper notes on your desktop with free custom color, curled corner, tape, or pin.",
+  },
   mini_kanban: {
     name: "3-Column Mini Kanban",
     description: "3-column board (To Do, Doing, Done) with quick card moves.",

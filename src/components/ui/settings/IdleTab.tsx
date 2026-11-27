@@ -28,6 +28,7 @@ import {
   getItemLabel,
   formatNetSpeed,
 } from "../IdleLayoutSetting";
+import { formatTemperature, getTemperatureUnit } from "../../../utils/temperatureUnit";
 import { IdleMascot } from "../IdleMascot";
 import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
@@ -406,7 +407,9 @@ export const IdleTab: React.FC<IdleTabProps> = ({
             }`}
           >
             <Sun size={11} />
-            <span>{runtimeData.weather?.temp ?? "27°"}</span>
+            <span>
+              {runtimeData.weather?.temp ?? formatTemperature(27, getTemperatureUnit())}
+            </span>
           </div>
         );
       case "todo":

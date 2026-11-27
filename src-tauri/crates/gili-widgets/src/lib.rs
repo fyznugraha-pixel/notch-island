@@ -571,9 +571,9 @@ mod tests {
     }
 
     #[test]
-    fn catalog_contains_all_34_widgets_and_all_build_cleanly_in_every_supported_size() {
+    fn catalog_contains_all_35_widgets_and_all_build_cleanly_in_every_supported_size() {
         let catalog = widget_catalog();
-        assert_eq!(catalog.len(), 34, "Harus tepat 34 jenis widget");
+        assert_eq!(catalog.len(), 35, "Harus tepat 35 jenis widget");
 
         let hub = WidgetDataHub::default();
         let theme = WidgetStyleConfig::default();
@@ -2331,5 +2331,311 @@ mod tests {
             !pushed,
             "Frameless todo placed below Large calendar's visual content must not be pushed away by empty outer box"
         );
+    }
+
+    #[test]
+    fn desktop_widgets_render_fahrenheit_and_celsius_temperatures() {
+        let extract_texts = |nodes: &[layout::SceneNode]| -> Vec<String> {
+            nodes
+                .iter()
+                .filter_map(|n| match n {
+                    layout::SceneNode::Text { content, .. } => Some(content.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        let style = WidgetStyleConfig::default();
+        let region = analyze_region_for_style(None, &style, 0.0, 0.0, 1.0, 1.0);
+        let large_rect = RectF::new(0.0, 0.0, 320.0, 320.0);
+        let med_rect = RectF::new(0.0, 0.0, 320.0, 170.0);
+
+        let mut hub_c = WidgetDataHub::default();
+        hub_c.frontend.language = "en".into();
+        hub_c.weather.available = true;
+        hub_c.weather.location_name = "Jakarta".into();
+        hub_c.weather.current_temp_c = 28.0;
+        hub_c.weather.current_code = 1;
+        hub_c.weather.hourly = vec![providers::network_providers::HourlyWeatherPoint {
+            hour_label: "13:00".into(),
+            temp_c: 30.0,
+            code: 1,
+        }];
+        hub_c.weather.daily = vec![providers::network_providers::DailyWeatherPoint {
+            day_label: "Today".into(),
+            min_c: 25.0,
+            max_c: 30.0,
+            code: 1,
+        }];
+        hub_c.system.cpu_cores_pct = vec![20.0, 35.0];
+        hub_c.system.gpu_pct = Some(40);
+        hub_c.system.gpu_temp_c = Some(60);
+
+        let make_slot = |wtype: &str, size: config::WidgetSize| WidgetStackSlot {
+            slot_id: format!("temp_{wtype}"),
+            size,
+            widgets: vec![WidgetInstance {
+                instance_id: "t1".into(),
+                widget_type: wtype.into(),
+                style_override: None,
+                settings: serde_json::json!({}),
+            }],
+            ..Default::default()
+        };
+
+        let wf_c = extract_texts(
+            &build_widget_render_item(
+                &make_slot("weather_forecast", config::WidgetSize::Large),
+                large_rect,
+                &style,
+                &region,
+                &hub_c,
+                0.0,
+            )
+            .nodes,
+        );
+        assert!(wf_c.contains(&"28°C".to_string()), "got {:?}", wf_c);
+        assert!(wf_c.contains(&"H:30° L:25°".to_string()), "got {:?}", wf_c);
+
+        let sys_c = extract_texts(
+            &build_widget_render_item(
+                &make_slot("system_performance", config::WidgetSize::Medium),
+                med_rect,
+                &style,
+                &region,
+                &hub_c,
+                0.0,
+            )
+            .nodes,
+        );
+        assert!(sys_c.iter().any(|t| t == "GPU 40% · 60°C"), "got {:?}", sys_c);
+
+        let mut hub_f = hub_c;
+        hub_f.frontend.temperature_unit = "fahrenheit".into();
+
+        let wf_f = extract_texts(
+            &build_widget_render_item(
+                &make_slot("weather_forecast", config::WidgetSize::Large),
+                large_rect,
+                &style,
+                &region,
+                &hub_f,
+                0.0,
+            )
+            .nodes,
+        );
+        assert!(wf_f.contains(&"82°F".to_string()), "got {:?}", wf_f);
+        assert!(wf_f.contains(&"H:86° L:77°".to_string()), "got {:?}", wf_f);
+        assert!(wf_f.contains(&"86°".to_string()), "got {:?}", wf_f);
+
+        let sys_f = extract_texts(
+            &build_widget_render_item(
+                &make_slot("system_performance", config::WidgetSize::Medium),
+                med_rect,
+                &style,
+                &region,
+                &hub_f,
+                0.0,
+            )
+            .nodes,
+        );
+        assert!(sys_f.iter().any(|t| t == "GPU 40% · 140°F"), "got {:?}", sys_f);
+    }
+
+    #[test]
+    fn paper_sticky_note_renders_natural_tilt_custom_color_and_contrast_ink() {
+        let style = WidgetStyleConfig::default();
+        let region = analyze_region_for_style(None, &style, 0.0, 0.0, 1.0, 1.0);
+        let hub = WidgetDataHub::default();
+
+        for (note_style, color, tilt, expected_dark_ink) in [
+            ("curled", "#FFF07C", None, true),
+            ("tape", "#1E293B", Some(-5.5), false),
+            ("pin", "#BAE6FD", Some(22.0), true),
+        ] {
+            let mut settings = serde_json::json!({
+                "note_style": note_style,
+                "paper_color": color,
+                "title": "Ide",
+                "text": "Baris 1\nBaris 2",
+                "show_lines": true,
+            });
+            if let Some(t) = tilt {
+                settings["tilt_deg"] = serde_json::json!(t);
+            }
+            let slot = WidgetStackSlot {
+                slot_id: "paper_slot_alpha".into(),
+                size: config::WidgetSize::Small,
+                widgets: vec![WidgetInstance {
+                    instance_id: "p1".into(),
+                    widget_type: "paper_sticky_note".into(),
+                    style_override: None,
+                    settings,
+                }],
+                ..Default::default()
+            };
+            let mut item = build_widget_render_item(
+                &slot,
+                RectF::new(40.0, 40.0, 160.0, 160.0),
+                &style,
+                &region,
+                &hub,
+                0.0,
+            );
+            item.compute_hit_regions(false);
+
+            assert_ne!(
+                item.base_rotation_deg, 0.0,
+                "Sticky note harus punya kemiringan alami non-nol"
+            );
+            assert!(
+                (-8.0..=8.0).contains(&item.base_rotation_deg),
+                "Tilt harus di-clamp -8..=8, got {}",
+                item.base_rotation_deg
+            );
+            assert!(
+                item.nodes.iter().any(|n| matches!(
+                    n,
+                    layout::SceneNode::StickyPaper {
+                        style: s,
+                        curl_left,
+                        ..
+                    } if s == note_style && *curl_left == (item.base_rotation_deg < 0.0)
+                )),
+                "StickyPaper node untuk style {note_style} harus ada dan arah lipatan mengikuti kemiringan"
+            );
+
+            let text_lum = item
+                .nodes
+                .iter()
+                .find_map(|n| match n {
+                    layout::SceneNode::Text { color: c, .. } => {
+                        Some(contrast::relative_luminance(*c))
+                    }
+                    _ => None,
+                })
+                .expect("Sticky note harus memiliki Text node");
+            if expected_dark_ink {
+                assert!(text_lum < 0.3, "Kertas terang wajib pakai tinta gelap");
+            } else {
+                assert!(text_lum > 0.7, "Kertas gelap wajib pakai tinta terang");
+            }
+        }
+    }
+
+    #[test]
+    fn paper_sticky_note_scales_square_and_proportionally_across_sizes() {
+        let style = WidgetStyleConfig::default();
+        let region = analyze_region_for_style(None, &style, 0.0, 0.0, 1.0, 1.0);
+        let hub = WidgetDataHub::default();
+
+        let make_slot = |sz: config::WidgetSize| WidgetStackSlot {
+            slot_id: "paper_scale_slot".into(),
+            size: sz,
+            widgets: vec![WidgetInstance {
+                instance_id: "p_scale".into(),
+                widget_type: "paper_sticky_note".into(),
+                style_override: None,
+                settings: serde_json::json!({
+                    "note_style": "curled",
+                    "paper_color": "#FFF07C",
+                    "title": "Judul",
+                    "text": "Isi catatan",
+                }),
+            }],
+            ..Default::default()
+        };
+
+        let r_s = layout::slot_rect_dp(&make_slot(config::WidgetSize::Small), 1.0, 0.0, 0.0);
+        let r_m = layout::slot_rect_dp(&make_slot(config::WidgetSize::Medium), 1.0, 0.0, 0.0);
+        let r_l = layout::slot_rect_dp(&make_slot(config::WidgetSize::Large), 1.0, 0.0, 0.0);
+        assert_eq!((r_s.w, r_s.h), (160.0, 160.0));
+        assert_eq!((r_m.w, r_m.h), (240.0, 240.0));
+        assert_eq!((r_l.w, r_l.h), (336.0, 336.0));
+
+        let fonts_for = |sz: config::WidgetSize, r: layout::RectF| -> (f32, f32) {
+            let item = build_widget_render_item(&make_slot(sz), r, &style, &region, &hub, 0.0);
+            let mut sizes: Vec<f32> = item
+                .nodes
+                .iter()
+                .filter_map(|n| match n {
+                    layout::SceneNode::Text { font_size, .. } => Some(*font_size),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(sizes.len(), 2);
+            (sizes.remove(0), sizes.remove(0))
+        };
+
+        let (t_s, b_s) = fonts_for(config::WidgetSize::Small, r_s);
+        let (t_m, b_m) = fonts_for(config::WidgetSize::Medium, r_m);
+        let (t_l, b_l) = fonts_for(config::WidgetSize::Large, r_l);
+
+        assert!((t_s - 13.5).abs() < 0.01 && (b_s - 12.5).abs() < 0.01);
+        assert!(t_s < t_m && t_m < t_l, "Title scale: {t_s} < {t_m} < {t_l}");
+        assert!(b_s < b_m && b_m < b_l, "Body scale: {b_s} < {b_m} < {b_l}");
+    }
+
+    #[test]
+    fn paper_sticky_note_defaults_to_tape_and_spawns_next_note_cleanly() {
+        let style = WidgetStyleConfig::default();
+        let region = analyze_region_for_style(None, &style, 0.0, 0.0, 1.0, 1.0);
+        let hub = WidgetDataHub::default();
+
+        let source_slot = WidgetStackSlot {
+            slot_id: "slot_sticky_origin".into(),
+            monitor_id: "DISPLAY2".into(),
+            size: config::WidgetSize::Medium,
+            widgets: vec![WidgetInstance {
+                instance_id: "w_origin".into(),
+                widget_type: "paper_sticky_note".into(),
+                style_override: None,
+                settings: serde_json::json!({
+                    "paper_color": "#FFF07C",
+                    "title": "Satu",
+                }),
+            }],
+            ..Default::default()
+        };
+
+        let mut item = build_widget_render_item(
+            &source_slot,
+            RectF::new(40.0, 40.0, 240.0, 240.0),
+            &style,
+            &region,
+            &hub,
+            0.0,
+        );
+        item.compute_hit_regions(false);
+
+        assert!(
+            item.nodes.iter().any(|n| matches!(
+                n,
+                layout::SceneNode::StickyPaper { style: s, .. } if s == "tape"
+            )),
+            "Sticky note default style must be 'tape'"
+        );
+        assert!(
+            item.content_hit_rects
+                .iter()
+                .any(|hr| hr.action_id.as_deref() == Some("sticky_add_new")),
+            "Sticky note must expose a quick-add (+) hit target"
+        );
+
+        let spawned = widgets::group_b::create_next_sticky_note_slot(
+            &[source_slot.clone()],
+            "slot_sticky_origin",
+            Some(RectF::new(40.0, 40.0, 240.0, 240.0)),
+            999,
+        );
+        assert_ne!(spawned.slot_id, source_slot.slot_id);
+        assert_eq!(spawned.monitor_id, "DISPLAY2");
+        assert_eq!(spawned.size, config::WidgetSize::Medium);
+        assert_eq!(spawned.pos_x, Some(40.0 + 240.0 + 16.0));
+        assert_eq!(spawned.pos_y, Some(40.0));
+        let spawned_w = spawned.active_widget().unwrap();
+        assert_eq!(spawned_w.widget_type, "paper_sticky_note");
+        assert_eq!(spawned_w.settings["note_style"], "tape");
+        assert_ne!(spawned_w.settings["paper_color"], "#FFF07C");
     }
 }

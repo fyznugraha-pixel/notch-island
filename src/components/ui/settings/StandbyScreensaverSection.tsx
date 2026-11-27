@@ -1,5 +1,5 @@
 import React from "react";
-import { Clock, Leaf, Sparkles } from "lucide-react";
+import { Clock, Leaf, Moon } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 import { IosSwitch } from "../../ios/IosSwitch";
 import { IosSelect } from "../../ios/IosSelect";
@@ -85,7 +85,7 @@ export const StandbyScreensaverSection: React.FC<StandbyScreensaverSectionProps>
 
             <SettingRow
               isLightMode={isLightMode}
-              icon={<Sparkles size={18} />}
+              icon={<Moon size={18} />}
               iconBgClass={isLightMode ? "bg-[#5e5ce6]/14" : "bg-[#1e1d36]"}
               iconColorClass="text-[#5e5ce6]"
               title={isId ? "Redupkan Layar Saat Screensaver" : "Dim Stage During Screensaver"}

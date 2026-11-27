@@ -1712,6 +1712,42 @@ function registerStandbyClockPolicySuite(getLoader) {
   });
 }
 
+function registerTemperatureUnitSuite(getLoader) {
+  describe("temperatureUnit & weatherService formatting", () => {
+    it("normalizes, converts, and formats Celsius and Fahrenheit temperatures", async () => {
+      const loader = getLoader();
+      const tempMod = await loader.loadModule("/src/utils/temperatureUnit.ts");
+      const weatherMod = await loader.loadModule("/src/services/weatherService.ts");
+
+      assert.equal(tempMod.getTemperatureUnit(), "celsius");
+      assert.equal(tempMod.normalizeTemperatureUnit("F"), "fahrenheit");
+      assert.equal(tempMod.normalizeTemperatureUnit("invalid"), "celsius");
+
+      assert.equal(tempMod.formatTemperature(0, "celsius"), "0°C");
+      assert.equal(tempMod.formatTemperature(0, "fahrenheit"), "32°F");
+      assert.equal(tempMod.formatTemperature(-17.78, "fahrenheit"), "0°F");
+      assert.equal(tempMod.formatTemperature(28, "fahrenheit", { showUnit: false }), "82°");
+      assert.equal(tempMod.parseCelsiusFallback("28°C"), 28);
+
+      weatherMod.saveCachedWeather({
+        temp: "28°",
+        tempC: 28,
+        code: 1,
+        locationName: "Jakarta",
+        source: "custom",
+      });
+      assert.equal(weatherMod.getCachedWeather()?.temp, "28°C");
+
+      tempMod.setTemperatureUnit("fahrenheit");
+      assert.equal(tempMod.getTemperatureUnit(), "fahrenheit");
+      assert.equal(weatherMod.getCachedWeather()?.temp, "82°F");
+
+      tempMod.setTemperatureUnit("celsius");
+      assert.equal(weatherMod.getCachedWeather()?.temp, "28°C");
+    });
+  });
+}
+
 export function registerNotchAndUtilsSuites(getLoader) {
   registerNotchGeometrySuite(getLoader);
   registerCalculatorSuite(getLoader);
@@ -1721,6 +1757,7 @@ export function registerNotchAndUtilsSuites(getLoader) {
   registerNotificationHistorySuite(getLoader);
   registerAiRouterAndConversationSuite(getLoader);
   registerStandbyClockPolicySuite(getLoader);
+  registerTemperatureUnitSuite(getLoader);
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {

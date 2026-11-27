@@ -396,6 +396,7 @@ export const translations = {
   settings_updates: { en: "Software Update", id: "Pembaruan Perangkat Lunak" },
   settings_updates_desc: { en: "Keep Gili updated automatically", id: "Selalu perbarui Gili otomatis" },
   settings_check_update: { en: "Check for Updates", id: "Periksa Pembaruan" },
+  settings_open_ms_store: { en: "Open Microsoft Store", id: "Buka Microsoft Store" },
   settings_checking_update: { en: "Checking...", id: "Memeriksa..." },
   settings_update_available: { en: "Update Available", id: "Pembaruan Tersedia" },
   settings_update_now: { en: "Update Now", id: "Perbarui Sekarang" },
@@ -478,6 +479,11 @@ export const translations = {
   settings_weather_searching: { en: "Searching...", id: "Mencari..." },
   settings_weather_no_results: { en: "No cities found", id: "Kota tidak ditemukan" },
   settings_weather_custom_active: { en: "Custom", id: "Manual" },
+  settings_temperature_unit: { en: "Temperature Unit", id: "Satuan Suhu" },
+  settings_temperature_unit_desc: {
+    en: "Show weather & hardware temperatures in °C or °F",
+    id: "Tampilkan suhu cuaca & perangkat dalam °C atau °F",
+  },
 
   // Onboarding
   onboarding_title: { en: "Welcome to Gili", id: "Selamat Datang di Gili" },
@@ -644,6 +650,7 @@ export const translations = {
   // Settings Panel - Advanced
   settings_adv_updates: { en: "Software Update", id: "Pembaruan perangkat lunak" },
   settings_adv_updates_desc: { en: "Version {version}, up to date", id: "Versi {version}, sudah yang terbaru" },
+  settings_adv_updates_store_desc: { en: "Version {version} · Managed via Microsoft Store", id: "Versi {version} · Dikelola melalui Microsoft Store" },
   settings_adv_clear_temp: { en: "Clean Temporary Files", id: "Bersihkan file sementara" },
   settings_adv_clear_temp_desc: { en: "Delete temporary files and Windows cache", id: "Hapus file sementara dan cache Windows" },
   settings_adv_restart_setup: { en: "Restart Initial Setup", id: "Mulai ulang penyiapan awal" },

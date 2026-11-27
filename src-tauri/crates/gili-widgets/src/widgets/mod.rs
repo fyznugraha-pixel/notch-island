@@ -64,6 +64,7 @@ pub fn widget_catalog() -> Vec<WidgetCatalogEntry> {
 
         // Group B: Produktif
         entry("sticky_notes", "B", "Produktif", "Catatan Mini", "Menampilkan Mini Note di Notch: catatan, warna, dan checklist yang sama, dengan tambah cepat dari desktop.", &[Small, Medium, Large], Medium, "Mini Note Notch (gili_mini_notes_v2)", false, None),
+        entry("paper_sticky_note", "B", "Produktif", "Sticky Note", "Tempel kertas sticky note di desktop: bebas pilih warna, sudut terlipat/selotip/pin, dan miring alami.", &[Small, Medium, Large], Small, "Lokal (Pengaturan Widget)", false, None),
         entry("mini_kanban", "B", "Produktif", "Kanban Mini 3 Kolom", "Papan tugas 3 kolom (Akan, Dikerjakan, Selesai) dengan pindah kolom.", &[Large], Large, "Penyimpanan lokal kanban_board.json", false, None),
         entry("time_tracker", "B", "Produktif", "Pelacak Waktu Proyek", "Hitung durasi kerja per proyek (mulai/henti) dengan ekspor CSV.", &[Small, Medium], Medium, "Penyimpanan lokal time_tracker.json", false, None),
         entry("site_status", "B", "Produktif", "Status Situs", "Pantau uptime URL milik pengguna (interval min 60 dtk, maks 6 situs).", &[Medium, Large], Medium, "HTTP ping HTTPS ber-timeout via ureq", true, None),
@@ -240,6 +241,7 @@ pub fn resolve_palette_with_policy(
 }
 
 pub struct WidgetBuildCtx<'a> {
+    pub slot_id: &'a str,
     pub frame: RectF,
     pub size: WidgetSize,
     pub pal: ResolvedPalette,
@@ -497,6 +499,7 @@ pub fn build_widget_render_item_with_policy(
         resolve_widget_card_gradient(&inst.widget_type, style, &pal, hub, high_contrast);
 
     let ctx = WidgetBuildCtx {
+        slot_id: &slot.slot_id,
         frame,
         size: slot.size,
         pal,
@@ -516,6 +519,7 @@ pub fn build_widget_render_item_with_policy(
         "drop_zone" => group_a::build_drop_zone(&ctx),
 
         "sticky_notes" => group_b::build_sticky_notes(&ctx),
+        "paper_sticky_note" => group_b::build_paper_sticky_note(&ctx),
         "mini_kanban" => group_b::build_mini_kanban(&ctx),
         "time_tracker" => group_b::build_time_tracker(&ctx),
         "site_status" => group_b::build_site_status(&ctx),
@@ -575,6 +579,12 @@ pub fn build_widget_render_item_with_policy(
         }
     }
 
+    let base_rotation_deg = if inst.widget_type == "paper_sticky_note" {
+        group_b::resolve_sticky_tilt_deg(&slot.slot_id, &inst.settings)
+    } else {
+        0.0
+    };
+
     WidgetRenderItem {
         slot_id: slot.slot_id.clone(),
         widget_type: inst.widget_type.clone(),
@@ -593,6 +603,7 @@ pub fn build_widget_render_item_with_policy(
         stack_count: slot.widgets.len(),
         stack_index: slot.active_index % slot.widgets.len().max(1),
         edit_jiggle_deg: 0.0,
+        base_rotation_deg,
         scale: 1.0,
         opacity: 1.0,
     }
@@ -653,6 +664,42 @@ pub fn local_utc_offset_hours() -> f64 {
 
 pub fn is_english(ctx: &WidgetBuildCtx<'_>) -> bool {
     ctx.hub.frontend.language.eq_ignore_ascii_case("en")
+}
+
+pub fn is_fahrenheit(ctx: &WidgetBuildCtx<'_>) -> bool {
+    let raw = ctx.hub.frontend.temperature_unit.trim();
+    raw.eq_ignore_ascii_case("fahrenheit") || raw.eq_ignore_ascii_case("f")
+}
+
+pub fn convert_temp_c(temp_c: f32, fahrenheit: bool) -> f32 {
+    if fahrenheit {
+        (temp_c * 9.0) / 5.0 + 32.0
+    } else {
+        temp_c
+    }
+}
+
+fn round_temp_i32(temp_c: f32, fahrenheit: bool) -> i32 {
+    let v = convert_temp_c(temp_c, fahrenheit);
+    if !v.is_finite() {
+        return 0;
+    }
+    let rounded = v.round();
+    if rounded == 0.0 { 0 } else { rounded as i32 }
+}
+
+pub fn format_temp_with_unit(temp_c: f32, fahrenheit: bool) -> String {
+    let n = round_temp_i32(temp_c, fahrenheit);
+    if fahrenheit {
+        format!("{n}°F")
+    } else {
+        format!("{n}°C")
+    }
+}
+
+pub fn format_temp_short(temp_c: f32, fahrenheit: bool) -> String {
+    let n = round_temp_i32(temp_c, fahrenheit);
+    format!("{n}°")
 }
 
 pub fn localized_day_name(dow: u32, en: bool) -> &'static str {

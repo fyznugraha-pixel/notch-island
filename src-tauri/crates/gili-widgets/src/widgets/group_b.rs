@@ -1,4 +1,4 @@
-use crate::config::{RgbaColor, WidgetSize};
+use crate::config::{RgbaColor, WidgetInstance, WidgetSize, WidgetStackSlot};
 use crate::layout::{RectF, SceneNode, TextAlign};
 use crate::widgets::{action_pill, empty_state_nodes, is_english, text_node, WidgetBuildCtx};
 
@@ -944,4 +944,298 @@ pub fn build_quick_snippets(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         });
     }
     nodes
+}
+
+pub const STICKY_PRESET_COLORS: [&str; 8] = [
+    "#FFF07C",
+    "#A7F3D0",
+    "#FED7AA",
+    "#BAE6FD",
+    "#DDD6FE",
+    "#FBCFE8",
+    "#FEF3C7",
+    "#27272A",
+];
+
+pub const STICKY_STYLES: [&str; 3] = ["tape", "curled", "pin"];
+
+pub fn default_sticky_tilt_deg(seed: &str) -> f32 {
+    const TILTS: [f32; 6] = [-3.2, 2.5, -1.8, 3.6, -2.7, 1.9];
+    let hash = seed
+        .bytes()
+        .fold(0usize, |acc, b| acc.wrapping_mul(31).wrapping_add(b as usize));
+    TILTS[hash % TILTS.len()]
+}
+
+pub fn resolve_sticky_tilt_deg(slot_id: &str, settings: &serde_json::Value) -> f32 {
+    settings
+        .get("tilt_deg")
+        .and_then(|v| v.as_f64())
+        .map(|v| (v as f32).clamp(-8.0, 8.0))
+        .unwrap_or_else(|| default_sticky_tilt_deg(slot_id))
+}
+
+pub fn sticky_visual_scale(frame: RectF) -> f32 {
+    let size_ratio = (frame.w.min(frame.h) / 160.0).clamp(0.85, 2.5);
+    1.0 + (size_ratio - 1.0) * 0.72
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct StickyNoteMetrics {
+    pub scale: f32,
+    pub top_pad: f32,
+    pub edit_top_pad: f32,
+    pub pad_x: f32,
+    pub edit_pad_x: f32,
+    pub title_font_size: f32,
+    pub title_h: f32,
+    pub title_gap: f32,
+    pub body_font_size: f32,
+    pub bottom_pad: f32,
+    pub edit_bottom_pad: f32,
+    pub divider_y: f32,
+    pub edit_body_y: f32,
+    pub footer_h: f32,
+    pub footer_font_size: f32,
+}
+
+pub fn sticky_note_metrics(frame: RectF, note_style: &str) -> StickyNoteMetrics {
+    let scale = sticky_visual_scale(frame);
+    let top_pad = (if note_style == "curled" { 25.0 } else { 29.0 }) * scale;
+    let edit_top_pad = (if note_style == "curled" { 24.0 } else { 28.0 }) * scale;
+    let title_h = 20.0 * scale;
+    let divider_y = frame.y + edit_top_pad + title_h + 2.0 * scale;
+    StickyNoteMetrics {
+        scale,
+        top_pad,
+        edit_top_pad,
+        pad_x: 14.0 * scale,
+        edit_pad_x: 13.0 * scale,
+        title_font_size: 13.5 * scale,
+        title_h,
+        title_gap: 22.0 * scale,
+        body_font_size: 12.5 * scale,
+        bottom_pad: 22.0 * scale,
+        edit_bottom_pad: 24.0 * scale,
+        divider_y,
+        edit_body_y: divider_y + 4.0 * scale,
+        footer_h: 14.0 * scale,
+        footer_font_size: 9.5 * scale,
+    }
+}
+
+/// Paper Sticky Note widget: custom free paper color, natural curved silhouette, & inline editing (S, M, L)
+pub fn build_paper_sticky_note(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
+    let en = is_english(ctx);
+    let settings = &ctx.instance.settings;
+
+    let color_hex = settings
+        .get("paper_color")
+        .and_then(|v| v.as_str())
+        .unwrap_or(STICKY_PRESET_COLORS[0]);
+    let paper_color = RgbaColor::from_hex(color_hex, 0.98)
+        .unwrap_or_else(|| RgbaColor::new(0xFF, 0xF0, 0x7C, 0.98));
+
+    let note_style = settings
+        .get("note_style")
+        .and_then(|v| v.as_str())
+        .filter(|s| STICKY_STYLES.contains(s))
+        .unwrap_or("tape")
+        .to_string();
+
+    let show_lines = settings
+        .get("show_lines")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let title = settings
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .unwrap_or("");
+    let body = settings
+        .get("text")
+        .and_then(|v| v.as_str())
+        .map(str::trim_end)
+        .unwrap_or("");
+
+    let lum = crate::contrast::relative_luminance(paper_color);
+    let (ink_primary, ink_muted, line_color) = if lum > 0.36 {
+        (
+            RgbaColor::new(0x1C, 0x19, 0x14, 0.96),
+            RgbaColor::new(0x2A, 0x24, 0x1A, 0.56),
+            RgbaColor::new(0x2A, 0x24, 0x1A, 0.11),
+        )
+    } else {
+        (
+            RgbaColor::new(0xF8, 0xFA, 0xFC, 0.96),
+            RgbaColor::new(0xCB, 0xD5, 0xE1, 0.65),
+            RgbaColor::new(0xFF, 0xFF, 0xFF, 0.11),
+        )
+    };
+
+    let tilt = resolve_sticky_tilt_deg(ctx.slot_id, settings);
+    let curl_left = tilt < 0.0;
+
+    let mut nodes = vec![SceneNode::StickyPaper {
+        rect: ctx.frame,
+        paper_color,
+        style: note_style.clone(),
+        show_lines,
+        line_color,
+        curl_left,
+        interactive_action: Some("inline_edit:paper_sticky_note".to_string()),
+    }];
+
+    let m = sticky_note_metrics(ctx.frame, &note_style);
+    let text_x = ctx.frame.x + m.pad_x;
+    let text_w = (ctx.frame.w - m.pad_x * 2.0).max(40.0);
+    let mut body_y = ctx.frame.y + m.top_pad;
+
+    if !title.is_empty() {
+        nodes.push(crate::widgets::text_node_line(
+            RectF::new(text_x, body_y, text_w, m.title_h),
+            title,
+            m.title_font_size,
+            700,
+            ink_primary,
+            TextAlign::Left,
+            false,
+        ));
+        body_y += m.title_gap;
+    }
+
+    let body_h = (ctx.frame.y + ctx.frame.h - m.bottom_pad - body_y).max(24.0);
+    let (display_text, display_color) = if !body.is_empty() {
+        (body.to_string(), ink_primary)
+    } else if title.is_empty() {
+        (
+            if en {
+                "Click to write note...\nCtrl+Enter to save"
+            } else {
+                "Klik untuk tulis catatan...\nCtrl+Enter untuk simpan"
+            }
+            .to_string(),
+            ink_muted,
+        )
+    } else {
+        (String::new(), ink_primary)
+    };
+
+    if !display_text.is_empty() {
+        let max_lines = ((body_h / (m.body_font_size * 1.32)).floor() as u32).clamp(4, 14);
+        nodes.push(SceneNode::Text {
+            rect: RectF::new(text_x, body_y, text_w, body_h),
+            content: display_text,
+            font_size: m.body_font_size,
+            font_weight: 500,
+            color: display_color,
+            align: TextAlign::Left,
+            tabular_nums: false,
+            tight_kerning: false,
+            max_lines,
+            interactive_action: Some("inline_edit:paper_sticky_note".to_string()),
+        });
+    }
+
+    // Subtle quick-add (+) button in the top-right corner so users can spawn another note in 1 click
+    let btn_sz = 18.0 * m.scale;
+    let btn_x = ctx.frame.x + ctx.frame.w - btn_sz - 6.0 * m.scale;
+    let btn_y = ctx.frame.y + 3.5 * m.scale;
+    let btn_fill = ink_primary.with_alpha(if lum > 0.36 { 0.09 } else { 0.14 });
+    let plus_col = ink_primary.with_alpha(0.76);
+    let cx = btn_x + btn_sz * 0.5;
+    let cy = btn_y + btn_sz * 0.5;
+    let arm = btn_sz * 0.24;
+    let stroke_w = (1.5 * m.scale.sqrt()).clamp(1.5, 2.2);
+    nodes.push(SceneNode::RoundedRect {
+        rect: RectF::new(btn_x, btn_y, btn_sz, btn_sz),
+        radius: btn_sz * 0.5,
+        smoothing: 0.4,
+        fill: Some(btn_fill),
+        stroke: None,
+        interactive_action: Some("sticky_add_new".to_string()),
+    });
+    nodes.push(SceneNode::Line {
+        x1: cx - arm,
+        y1: cy,
+        x2: cx + arm,
+        y2: cy,
+        color: plus_col,
+        width: stroke_w,
+    });
+    nodes.push(SceneNode::Line {
+        x1: cx,
+        y1: cy - arm,
+        x2: cx,
+        y2: cy + arm,
+        color: plus_col,
+        width: stroke_w,
+    });
+
+    nodes
+}
+
+pub fn create_next_sticky_note_slot(
+    existing_slots: &[WidgetStackSlot],
+    source_slot_id: &str,
+    source_rect: Option<RectF>,
+    unique_suffix: u64,
+) -> WidgetStackSlot {
+    const TILTS: [f32; 6] = [-3.2, 2.5, -1.8, 3.6, -2.7, 1.9];
+    let source = existing_slots.iter().find(|s| s.slot_id == source_slot_id);
+    let source_widget = source.and_then(|s| s.active_widget());
+    let paper_count = existing_slots
+        .iter()
+        .filter(|s| {
+            s.active_widget()
+                .map(|w| w.widget_type == "paper_sticky_note")
+                .unwrap_or(false)
+        })
+        .count();
+
+    let source_color = source_widget
+        .and_then(|w| w.settings.get("paper_color"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let mut color_idx = paper_count % STICKY_PRESET_COLORS.len();
+    if STICKY_PRESET_COLORS[color_idx].eq_ignore_ascii_case(source_color) {
+        color_idx = (color_idx + 1) % STICKY_PRESET_COLORS.len();
+    }
+    let note_style = source_widget
+        .and_then(|w| w.settings.get("note_style"))
+        .and_then(|v| v.as_str())
+        .filter(|s| STICKY_STYLES.contains(s))
+        .unwrap_or("tape");
+    let show_lines = source_widget
+        .and_then(|w| w.settings.get("show_lines"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    WidgetStackSlot {
+        slot_id: format!("slot_sticky_{unique_suffix}"),
+        monitor_id: source
+            .map(|s| s.monitor_id.clone())
+            .unwrap_or_else(|| "primary".to_string()),
+        size: source.map(|s| s.size).unwrap_or(WidgetSize::Small),
+        grid_col: 0,
+        grid_row: 0,
+        pos_x: source_rect.map(|r| r.x + r.w + 16.0),
+        pos_y: source_rect.map(|r| r.y),
+        active_index: 0,
+        auto_rotate_minutes: 0,
+        widgets: vec![WidgetInstance {
+            instance_id: format!("w_sticky_{unique_suffix}"),
+            widget_type: "paper_sticky_note".to_string(),
+            style_override: None,
+            settings: serde_json::json!({
+                "paper_color": STICKY_PRESET_COLORS[color_idx],
+                "note_style": note_style,
+                "tilt_deg": TILTS[paper_count % TILTS.len()],
+                "show_lines": show_lines,
+                "title": "",
+                "text": "",
+            }),
+        }],
+    }
 }

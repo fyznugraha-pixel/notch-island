@@ -59,6 +59,7 @@ import { initMediaLyricsStore, subscribeLyrics, requestLyricsRefresh } from "./s
 import { getInitialShelfFiles, loadPersistedShelfFiles, persistShelfFiles, queueFilePreviews, clearShelfPreviewCache } from "./services/shelfService";
 import { onShelfFileReceived } from "./services/shelfTransferService";
 import { startWeatherAutoSync, getCachedWeather } from "./services/weatherService";
+import { subscribeTemperatureUnit } from "./utils/temperatureUnit";
 import { checkForAppUpdate } from "./services/updateService";
 import { initCredentials } from "./services/aiCredentialService";
 import type { ClipboardItem } from "./components/ui/ClipboardPanel";
@@ -3080,6 +3081,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
     window.addEventListener("gili_widget_mirror_sync", triggerSync);
     window.addEventListener("island_language_changed", triggerSync);
     window.addEventListener("gili_notes_updated", triggerSync);
+    const unsubTempUnit = subscribeTemperatureUnit(triggerSync);
     return () => {
       if (timer !== null) window.clearTimeout(timer);
       window.clearTimeout(initialTimer);
@@ -3091,6 +3093,7 @@ export default function App({ isSecondaryWindow = false }: { isSecondaryWindow?:
       window.removeEventListener("gili_widget_mirror_sync", triggerSync);
       window.removeEventListener("island_language_changed", triggerSync);
       window.removeEventListener("gili_notes_updated", triggerSync);
+      unsubTempUnit();
     };
   }, [isSecondaryWindow]);
 

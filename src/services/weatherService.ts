@@ -1,4 +1,11 @@
 import { emitCrossWindowEvent, listenCrossWindowEvent } from "../utils/crossWindowSync";
+import {
+  TemperatureUnit,
+  formatTemperature,
+  getTemperatureUnit,
+  parseCelsiusFallback,
+  subscribeTemperatureUnit,
+} from "../utils/temperatureUnit";
 
 export interface WeatherLocation {
   name: string;
@@ -22,6 +29,7 @@ export interface GeocodingCity {
 
 export interface WeatherData {
   temp: string;
+  tempC?: number;
   code: number;
   locationName: string;
   source: "custom" | "gps" | "ip";
@@ -32,6 +40,22 @@ const CACHE_WEATHER_KEY = "island_cached_weather_data";
 const CACHE_LOC_KEY = "island_cached_weather_location";
 export const WEATHER_LOCATION_EVENT = "island_weather_location_changed";
 
+export function formatWeatherDataForUnit(
+  data: WeatherData,
+  unit: TemperatureUnit = getTemperatureUnit()
+): WeatherData {
+  const numericCelsius =
+    typeof data.tempC === "number" && Number.isFinite(data.tempC)
+      ? data.tempC
+      : parseCelsiusFallback(data.temp);
+  if (numericCelsius === null) return data;
+  return {
+    ...data,
+    tempC: numericCelsius,
+    temp: formatTemperature(numericCelsius, unit, { showUnit: true }),
+  };
+}
+
 export function getCachedWeather(): WeatherData | null {
   try {
     const raw = localStorage.getItem(CACHE_WEATHER_KEY);
@@ -39,7 +63,7 @@ export function getCachedWeather(): WeatherData | null {
     const parsed = JSON.parse(raw);
     // Cache cuaca valid selama 15 menit agar selalu sinkron dengan kondisi nyata
     if (parsed && parsed.temp && (Date.now() - (parsed.cachedAt || 0) < 15 * 60 * 1000)) {
-      return parsed;
+      return formatWeatherDataForUnit(parsed, getTemperatureUnit());
     }
   } catch {}
   return null;
@@ -119,6 +143,15 @@ export function startWeatherAutoSync(
   refresh();
   const interval = setInterval(refresh, intervalMs);
   const unsubscribeLocation = subscribeWeatherChange(refresh);
+  const unsubscribeUnit = subscribeTemperatureUnit(() => {
+    if (!isMounted) return;
+    const cached = getCachedWeather();
+    if (cached) {
+      onData(cached);
+    } else {
+      refresh();
+    }
+  });
   const onOnline = () => {
     if (Date.now() - lastSuccessAt > 60_000) {
       refresh();
@@ -132,6 +165,7 @@ export function startWeatherAutoSync(
     isMounted = false;
     clearInterval(interval);
     unsubscribeLocation();
+    unsubscribeUnit();
     if (typeof window !== "undefined") {
       window.removeEventListener("online", onOnline);
     }
@@ -323,10 +357,13 @@ export async function fetchCurrentWeather(location?: WeatherLocation): Promise<W
       code = 2; // Berawan sebagian
     }
 
-    const tempVal = current.temperature_2m !== undefined ? current.temperature_2m : current.temperature;
+    const tempVal = Number(
+      current.temperature_2m !== undefined ? current.temperature_2m : current.temperature
+    );
 
     const result: WeatherData = {
-      temp: `${Math.round(tempVal)}°`,
+      temp: formatTemperature(tempVal, getTemperatureUnit(), { showUnit: true }),
+      tempC: Number.isFinite(tempVal) ? tempVal : undefined,
       code,
       locationName: loc.name,
       source: loc.source,

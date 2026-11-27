@@ -25,6 +25,8 @@ import { IosSelect } from "../../../ios/IosSelect";
 import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
 import { HsvColorWheel } from "./HsvColorWheel";
 import { localizePresetName } from "./desktopWidgetsI18n";
+import { useTemperatureUnit } from "../../../../hooks/useTemperatureUnit";
+import { formatTemperature } from "../../../../utils/temperatureUnit";
 
 interface WidgetColorCustomizerProps {
   style: WidgetStyleConfig;
@@ -51,6 +53,7 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
   onSavePreset,
 }) => {
   const tr = (idText: string, enText: string) => (isId ? idText : enText);
+  const [tempUnit] = useTemperatureUnit();
 
   const fontSelectOptions = [
     { value: "Segoe UI Variable", label: "Segoe UI Variable", sublabel: tr("Default sistem", "System default") },
@@ -251,7 +254,10 @@ export const WidgetColorCustomizer: React.FC<WidgetColorCustomizerProps> = ({
             className="mt-1.5 text-[12px]"
             style={{ color: resolvedPreviewColor(style.text_secondary, "secondary") }}
           >
-            {tr("29° Cerah Berawan . Jakarta", "29° Partly Cloudy . Jakarta")}
+            {(() => {
+              const sampleTemp = formatTemperature(29, tempUnit);
+              return tr(`${sampleTemp} Cerah Berawan . Jakarta`, `${sampleTemp} Partly Cloudy . Jakarta`);
+            })()}
           </div>
           <div className="mt-2.5 h-1 w-full rounded-full bg-white/15 overflow-hidden">
             <div

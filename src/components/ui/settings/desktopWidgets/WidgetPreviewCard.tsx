@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { WidgetCatalogEntry, WidgetSize } from "../../../../services/desktopWidgetsService";
 import { renderExtraWidgetPreviewBody } from "./WidgetPreviewExtraBodies";
+import { useTemperatureUnit } from "../../../../hooks/useTemperatureUnit";
+import { formatTemperature } from "../../../../utils/temperatureUnit";
 
 interface WidgetPreviewCardProps {
   entry: WidgetCatalogEntry;
@@ -25,6 +27,7 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
   lightWallpaper,
   isId = true,
 }) => {
+  const [tempUnit] = useTemperatureUnit();
   const tr = (idText: string, enText: string) => (isId ? idText : enText);
   const fg = lightWallpaper ? "text-slate-900" : "text-white";
   const sub = lightWallpaper ? "text-slate-600" : "text-white/60";
@@ -212,16 +215,17 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
           </div>
         );
       case "weather_forecast": {
+        const fmt = (c: number) => formatTemperature(c, tempUnit, { showUnit: false });
         const daily = isId
           ? [
-              ["Sabtu", "25°", "30°", "w-[55%]"],
-              ["Minggu", "24°", "32°", "w-[72%]"],
-              ["Senin", "24°", "30°", "w-[60%]"],
+              ["Sabtu", fmt(25), fmt(30), "w-[55%]"],
+              ["Minggu", fmt(24), fmt(32), "w-[72%]"],
+              ["Senin", fmt(24), fmt(30), "w-[60%]"],
             ]
           : [
-              ["Sat", "25°", "30°", "w-[55%]"],
-              ["Sun", "24°", "32°", "w-[72%]"],
-              ["Mon", "24°", "30°", "w-[60%]"],
+              ["Sat", fmt(25), fmt(30), "w-[55%]"],
+              ["Sun", fmt(24), fmt(32), "w-[72%]"],
+              ["Mon", fmt(24), fmt(30), "w-[60%]"],
             ];
         return (
           <div className="h-full flex flex-col justify-between">
@@ -230,13 +234,15 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
               <CloudSun size={18} className="text-amber-400" />
             </div>
             <div className="flex items-end justify-between">
-              <span className="text-[38px] font-bold leading-none tabular-nums">29°</span>
+              <span className="text-[38px] font-bold leading-none tabular-nums">
+                {formatTemperature(29, tempUnit)}
+              </span>
               {size !== "small" && (
                 <div className="flex gap-3 text-center">
                   {[
-                    ["13:00", "30°"],
-                    ["16:00", "28°"],
-                    ["19:00", "26°"],
+                    ["13:00", fmt(30)],
+                    ["16:00", fmt(28)],
+                    ["19:00", fmt(26)],
                   ].map(([t, d]) => (
                     <div key={t}>
                       <div className={`text-[9.5px] ${sub}`}>{t}</div>
@@ -543,6 +549,33 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
             </div>
           </div>
         );
+      case "paper_sticky_note": {
+        const titleSize =
+          size === "small" ? "text-[12px]" : size === "medium" ? "text-[14.5px]" : "text-[17px]";
+        const bodySize =
+          size === "small" ? "text-[11px]" : size === "medium" ? "text-[13px]" : "text-[15.5px]";
+        const footSize =
+          size === "small" ? "text-[9.5px]" : size === "medium" ? "text-[11px]" : "text-[13px]";
+        return (
+          <div className="h-full flex flex-col justify-between text-[#1c1914] relative">
+            <div className="flex items-center justify-between gap-2">
+              <span className={`${titleSize} font-bold tracking-tight truncate`}>
+                {tr("Ide & Catatan", "Quick Note")}
+              </span>
+            </div>
+            <div className={`flex-1 mt-1.5 ${bodySize} leading-[1.5] font-medium overflow-hidden`}>
+              <div>{tr("• Pilih warna kertas bebas", "• Any custom paper color")}</div>
+              <div>{tr("• Sudut terlipat / selotip / pin", "• Curled corner / tape / pin")}</div>
+              {size !== "small" && (
+                <div>{tr("• Miring alami seperti kertas asli", "• Natural organic paper tilt")}</div>
+              )}
+            </div>
+            <div className={`${footSize} font-medium text-[#2a241a]/60`}>
+              {tr("Klik langsung untuk menulis", "Click directly to edit")}
+            </div>
+          </div>
+        );
+      }
       default: {
         const extraBody = renderExtraWidgetPreviewBody({
           entry,
@@ -575,12 +608,34 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
     }
   };
 
+  const isPaperSticky = entry.widget_type === "paper_sticky_note";
+  const stickyDim =
+    size === "small"
+      ? { width: 148, height: 148 }
+      : size === "medium"
+      ? { width: 196, height: 196 }
+      : { width: 248, height: 248 };
+  const stickyTapeCls =
+    size === "small"
+      ? "-top-2 w-12 h-3.5"
+      : size === "medium"
+      ? "-top-2.5 w-16 h-4"
+      : "-top-3 w-20 h-5";
+  const stickyPadCls = size === "small" ? "p-3.5" : size === "medium" ? "p-5" : "p-6";
   const surfaceStyle: React.CSSProperties =
     entry.widget_type === "photo_frame"
       ? {
           width: dim.height,
           height: dim.height,
           boxShadow: "0 12px 28px rgba(0,0,0,0.22)",
+        }
+      : isPaperSticky
+      ? {
+          ...stickyDim,
+          transform: "rotate(-2.4deg)",
+          background: "linear-gradient(180deg, #F6E563 0%, #FFF07C 16%, #FFF59D 100%)",
+          borderRadius: "2px 3px 5px 2px",
+          boxShadow: "2px 10px 20px rgba(0,0,0,0.28), 0 2px 5px rgba(0,0,0,0.16)",
         }
       : {
           ...dim,
@@ -596,10 +651,14 @@ export const WidgetPreviewCard: React.FC<WidgetPreviewCardProps> = ({
   return (
     <div
       style={surfaceStyle}
-      className={`rounded-[26px] ${entry.widget_type === "photo_frame" ? "p-0" : "p-4"} transition-all border ${fg} ${
-        lightWallpaper ? "border-slate-900/12" : "border-white/22"
-      }`}
+      className={`${isPaperSticky ? `relative ${stickyPadCls} border border-[#d6c24a]/70 text-[#1c1914]` : `rounded-[26px] ${entry.widget_type === "photo_frame" ? "p-0" : "p-4"} border ${fg} ${lightWallpaper ? "border-slate-900/12" : "border-white/22"}`} transition-all`}
     >
+      {isPaperSticky && (
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute left-1/2 -translate-x-1/2 ${stickyTapeCls} bg-white/60 border border-slate-400/35 rotate-[-2.5deg] shadow-sm`}
+        />
+      )}
       {renderInner()}
     </div>
   );

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Cpu, Monitor, Wifi, HardDrive } from "lucide-react";
 import { t } from "../../services/i18n";
 import { subscribeToSystemMetrics } from "../../services/systemMetricsService";
+import { useTemperatureUnit } from "../../hooks/useTemperatureUnit";
+import { formatTemperature } from "../../utils/temperatureUnit";
 
 export interface SystemMetrics {
   cpu_usage: number;
@@ -53,6 +55,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
   wifiSsid,
 }) => {
   const [subTab, setSubTab] = useState<SubTab>("summary");
+  const [tempUnit] = useTemperatureUnit();
   const [metrics, setMetrics] = useState<SystemMetrics>({
     cpu_usage: 24,
     cpu_speed_ghz: 3.6,
@@ -144,7 +147,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                     </span>
                     <span className="text-[11.5px] font-semibold">CPU</span>
                     <span className="ml-auto text-[10px] text-zinc-400 tabular-nums truncate">
-                      {metrics.cpu_speed_ghz} GHz · {metrics.cpu_temp_c}°C
+                      {metrics.cpu_speed_ghz} GHz · {formatTemperature(metrics.cpu_temp_c, tempUnit)}
                     </span>
                   </div>
                   <div className="flex items-end justify-between gap-2">
@@ -190,7 +193,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                     </span>
                     <span className="text-[11.5px] font-semibold">GPU</span>
                     <span className="ml-auto text-[10px] text-zinc-400 tabular-nums truncate">
-                      {metrics.gpu_temp_c}°C · {metrics.gpu_vram_gb} GB VRAM
+                      {formatTemperature(metrics.gpu_temp_c, tempUnit)} · {metrics.gpu_vram_gb} GB VRAM
                     </span>
                   </div>
                   <div className="flex items-end justify-between gap-2">
@@ -349,7 +352,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
               subTab === "cpu"
                 ? [
                     { k: t("sys_speed"), v: `${metrics.cpu_speed_ghz} GHz` },
-                    { k: t("sys_temp"), v: `${metrics.cpu_temp_c}°C` },
+                    { k: t("sys_temp"), v: formatTemperature(metrics.cpu_temp_c, tempUnit) },
                     { k: t("sys_processes"), v: `${metrics.process_count}` },
                     {
                       k: t("sys_heaviest"),
@@ -358,7 +361,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                   ]
                 : subTab === "gpu"
                 ? [
-                    { k: t("sys_temp"), v: `${metrics.gpu_temp_c}°C` },
+                    { k: t("sys_temp"), v: formatTemperature(metrics.gpu_temp_c, tempUnit) },
                     { k: "VRAM", v: `${metrics.gpu_vram_gb} GB` },
                     { k: "Engine", v: "3D / Compositor" },
                     { k: "Status", v: "Optimal" },
@@ -502,7 +505,7 @@ export const SystemMonitorPanel: React.FC<SystemMonitorPanelProps> = ({
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2 h-2 rounded-full bg-[#A78BFA] shrink-0" />
                       <span className="text-[10.5px] text-zinc-300 truncate">
-                        GPU VRAM: <span className="font-semibold text-white">{metrics.gpu_vram_gb} GB</span> · {metrics.gpu_temp_c}°C
+                        GPU VRAM: <span className="font-semibold text-white">{metrics.gpu_vram_gb} GB</span> · {formatTemperature(metrics.gpu_temp_c, tempUnit)}
                       </span>
                     </div>
                     <div className="w-28 h-1.5 bg-[#1d1d25] rounded-full overflow-hidden shrink-0">

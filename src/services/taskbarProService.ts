@@ -60,12 +60,24 @@ export async function getTaskbarProStatus(): Promise<TaskbarProStatus> {
   try {
     return await invoke<TaskbarProStatus>("get_taskbar_pro_status");
   } catch {
+    const isTauriRuntime =
+      typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+    if (isTauriRuntime) {
+      return {
+        ...DEFAULT_TASKBAR_PRO_STATUS,
+        hasPro: false,
+        isLocked: true,
+        checking: false,
+        source: "ipc_error",
+        lastError: "Failed to verify license status.",
+      };
+    }
     return {
       ...DEFAULT_TASKBAR_PRO_STATUS,
       hasPro: true,
       isLocked: false,
       checking: false,
-      source: "fallback",
+      source: "browser_preview",
     };
   }
 }

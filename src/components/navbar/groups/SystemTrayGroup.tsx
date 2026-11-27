@@ -234,8 +234,29 @@ export const SystemTrayGroup: React.FC<SystemTrayGroupProps> = ({
     if (!renderNotif) return;
     let isMounted = true;
 
-    const unlistenNotif = listen("real-notif", () => {
+    const unlistenNotif = listen<{
+      app_name?: string;
+      title?: string;
+      body?: string;
+      aumid?: string;
+    }>("real-notif", (event) => {
       if (!isMounted) return;
+      const p = event.payload;
+      if (!p) return;
+      const title = (p.title || "").trim();
+      const body = (p.body || "").trim();
+      if (!title && !body) return;
+      const app = (p.app_name || "").toLowerCase();
+      const aumid = (p.aumid || "").toLowerCase();
+      if (
+        app.includes("gili") ||
+        aumid.includes("gili") ||
+        app.includes("snipping tool") ||
+        app.includes("screensketch") ||
+        aumid.includes("screensketch")
+      ) {
+        return;
+      }
       setUnreadCount((c) => c + 1);
     });
 

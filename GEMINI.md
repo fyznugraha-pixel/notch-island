@@ -24,3 +24,9 @@
   - **Human-readable code**: Hindari AI-slop, komentar berlebihan, dan over-abstraction.
   - **Konsistensi Codebase**: Ikuti konvensi penamaan dan pattern yang sudah ada di repository.
 
+---
+
+## 4. LARANGAN MUTLAK ICON SPARKLE (NO SPARKLE ICONS)
+- **DILARANG KERAS** memakai ikon `Sparkles` / `Sparkle` (dari `lucide-react` atau library ikon apa pun), SVG sparkle custom, maupun emoji sparkle (`✨`) sebagai ikon UI di komponen, tombol, baris pengaturan, widget, maupun native renderer mana pun.
+- Selalu pilih ikon yang literal dan spesifik sesuai konteks fitur (contoh: `Shuffle` untuk acak, `Moon` untuk redup/mode malam, `SlidersHorizontal` untuk kustomisasi, dll — jangan pernah memakai sparkle).
+

@@ -18,6 +18,44 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "5.2.3",
+    date: "27 Nov 2026",
+    highlights: [
+      {
+        icon: <Bell size={14} />,
+        titleId: "Perbaikan Lonjakan Disk I/O Notifikasi Windows (wpndatabase.db-wal)",
+        titleEn: "Zero-Idle-I/O Windows Notification Watcher (wpndatabase.db-wal)",
+        descId: "Mengganti polling notifikasi Windows setiap 1 detik menjadi pemantau berbasis event (NotificationChanged + GetNotification) dengan fallback pasif sehingga penulisan disk ke wpndatabase.db-wal saat idle turun ke nol dan melindungi usia SSD.",
+        descEn: "Replaces the 1-second Windows notification polling loop with an event-driven watcher (NotificationChanged + GetNotification) and passive fallback, eliminating idle wpndatabase.db-wal disk writes to protect SSD health.",
+        badge: "fix",
+      },
+      {
+        icon: <MessageSquare size={14} />,
+        titleId: "Widget Sticky Note Kertas Native dengan Ketik Langsung & Multi-Catatan",
+        titleEn: "Native Paper Sticky Note Widget with Direct In-Paper Typing & Multi-Note",
+        descId: "Menambahkan widget Sticky Note kertas native Direct2D dengan ketik judul dan isi langsung di dalam kertas tanpa jendela tambahan, tombol cepat + untuk membuat banyak catatan, ukuran persegi proporsional (S / M / L), pilihan warna bebas dengan kontras tinta otomatis, serta gaya tempelan Selotip (default), Sudut Lipat, dan Pin.",
+        descEn: "Adds a native Direct2D Paper Sticky Note widget supporting direct in-paper title and body typing without extra popup windows, a quick + button for spawning multiple notes, proportional square S / M / L sizing, free custom paper colors with automatic ink contrast, and Tape (default), Curled, and Pin attachment styles.",
+        badge: "new",
+      },
+      {
+        icon: <Monitor size={14} />,
+        titleId: "Dukungan Multi-Monitor Widget Desktop & Sakelar Satuan Suhu (°C / °F)",
+        titleEn: "Multi-Monitor Desktop Widgets & Global Temperature Unit Switch (°C / °F)",
+        descId: "Mendukung pemilihan dan pemindahan widget desktop lintas monitor serta menambahkan pengaturan satuan suhu global Celcius (°C) / Fahrenheit (°F) yang tersinkron di Notch, Taskbar, StandBy, Monitor Sistem, dan Widget Desktop.",
+        descEn: "Supports placing and moving desktop widgets across multiple monitors and introduces a global Celsius (°C) / Fahrenheit (°F) temperature unit toggle synchronized across Notch, Taskbar, StandBy, System Monitor, and Desktop Widgets.",
+        badge: "new",
+      },
+      {
+        icon: <ShieldCheck size={14} />,
+        titleId: "Pemisahan Pembaruan Microsoft Store (MSIX) & Pengamanan Lisensi",
+        titleEn: "Microsoft Store (MSIX) Update Isolation & License Hardening",
+        descId: "Menonaktifkan auto-updater NSIS GitHub pada instalasi Microsoft Store agar pembaruan diarahkan langsung ke Microsoft Store serta mengamankan fallback pengecekan lisensi Gili Pro agar tidak pernah membuka akses secara keliru.",
+        descEn: "Disables the GitHub NSIS self-updater on Microsoft Store MSIX installs so updates route exclusively through Microsoft Store, and hardens Gili Pro license IPC fallback handling to fail closed.",
+        badge: "fix",
+      },
+    ],
+  },
+  {
     version: "5.2.2",
     date: "26 Nov 2026",
     highlights: [

@@ -1,11 +1,23 @@
+import { invoke } from "@tauri-apps/api/core";
 import { check, Update } from "@tauri-apps/plugin-updater";
+import { getTaskbarProStatus } from "./taskbarProService";
 
 export interface UpdateInfo {
   available: boolean;
+  storeManaged?: boolean;
   version?: string;
   currentVersion?: string;
   notes?: string;
   update?: Update;
+}
+
+export async function isStoreManagedApp(): Promise<boolean> {
+  const status = await getTaskbarProStatus();
+  return Boolean(status.isPackagedMsix || status.source === "ipc_error");
+}
+
+export async function openMicrosoftStoreUpdates(): Promise<void> {
+  await invoke("open_microsoft_store_updates");
 }
 
 export type UpdateStatus = 
@@ -18,6 +30,9 @@ export type UpdateStatus =
   | "error";
 
 export async function checkForAppUpdate(): Promise<UpdateInfo> {
+  if (await isStoreManagedApp()) {
+    return { available: false, storeManaged: true };
+  }
   try {
     const update = await check();
     if (!update) {
@@ -46,6 +61,9 @@ export async function downloadAndInstallAppUpdate(
   update: Update,
   onProgress?: (percent: number) => void
 ): Promise<void> {
+  if (await isStoreManagedApp()) {
+    throw new Error("Updates for Microsoft Store builds are managed through Microsoft Store.");
+  }
   let totalLength = 0;
   let downloadedBytes = 0;
 

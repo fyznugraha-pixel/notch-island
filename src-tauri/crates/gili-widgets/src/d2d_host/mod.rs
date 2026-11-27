@@ -1,4 +1,5 @@
 pub mod device;
+pub mod inline_text;
 pub mod renderer;
 
 use crate::config::{DesktopWidgetsConfig, DisplayMode, WidgetSize, WidgetStyleConfig};
@@ -18,7 +19,7 @@ use crate::spring::{edit_jiggle_degrees, SpringParams, SpringValue};
 use crate::widgets::{build_widget_render_item_with_policy, widget_catalog};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -85,7 +86,10 @@ pub enum WidgetHostEvent {
         widget_type: String,
         action_id: Option<String>,
     },
-    OpenGallery,
+    OpenGallery {
+        #[serde(default)]
+        monitor_id: Option<String>,
+    },
     OpenCustomizer {
         slot_id: String,
     },
@@ -95,6 +99,8 @@ pub enum WidgetHostEvent {
     TextInputSubmitted {
         slot_id: String,
         widget_type: String,
+        #[serde(default)]
+        title: Option<String>,
         text: String,
     },
     ToggleQuickControl {
@@ -125,6 +131,30 @@ pub struct MonitorInfoData {
     pub work_w: i32,
     pub work_h: i32,
     pub is_primary: bool,
+}
+
+pub fn normalize_monitor_token(id: &str) -> String {
+    id.trim().trim_start_matches(r"\\.\").to_ascii_lowercase()
+}
+
+pub fn monitor_ids_match(
+    slot_monitor_id: &str,
+    surface_id: &str,
+    surface_is_primary: bool,
+) -> bool {
+    let slot_trim = slot_monitor_id.trim();
+    if slot_trim.is_empty() || slot_trim.eq_ignore_ascii_case("primary") {
+        return surface_is_primary;
+    }
+    normalize_monitor_token(slot_trim) == normalize_monitor_token(surface_id)
+}
+
+pub fn canonical_slot_monitor_id(surface_id: &str, surface_is_primary: bool) -> String {
+    if surface_is_primary {
+        "primary".to_string()
+    } else {
+        surface_id.to_string()
+    }
 }
 
 pub fn query_process_working_set_mb() -> f32 {
@@ -331,38 +361,47 @@ mod win_host {
     use super::*;
     use crate::config::{GRID_GAP_DP, GRID_SMALL_DP};
     use crate::d2d_host::device::gpu::{D2DDeviceResources, MonitorSwapChain};
+    use crate::d2d_host::inline_text::{
+        apply_direct_edit_overlay, DirectInlineEdit, StickyEditField,
+    };
     use crate::d2d_host::renderer::render::D2DWidgetRenderer;
     use std::cell::RefCell;
     use windows::core::{w, HSTRING, PCWSTR};
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+    use windows::Win32::Foundation::{BOOL, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
         EnumDisplayMonitors, GetMonitorInfoW, ScreenToClient, HDC, HMONITOR, MONITORINFOEXW,
     };
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+    };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
     use windows::Win32::System::Threading::GetCurrentThreadId;
     use windows::Win32::UI::HiDpi::{
         GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, ReleaseCapture, SetCapture, SetFocus, VK_ESCAPE, VK_LBUTTON, VK_RETURN,
+        GetAsyncKeyState, GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_CONTROL,
+        VK_DELETE, VK_END, VK_ESCAPE, VK_HOME, VK_LBUTTON, VK_LEFT, VK_RETURN, VK_RIGHT, VK_TAB,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
         DispatchMessageW, EnumWindows, FindWindowExW, FindWindowW, GetCursorPos, GetWindow,
-        GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindowVisible,
-        MsgWaitForMultipleObjects, PeekMessageW, PostMessageW, RegisterClassExW,
-        SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu,
-        TranslateMessage, CS_DBLCLKS, ES_AUTOHSCROLL, GWLP_HWNDPARENT, GWL_EXSTYLE, GW_HWNDPREV,
-        HTCLIENT, HTTRANSPARENT, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, MF_SEPARATOR,
-        MF_STRING, MSG, PM_REMOVE, QS_ALLINPUT, SET_WINDOW_POS_FLAGS, SWP_HIDEWINDOW,
+        GetWindowLongPtrW, IsIconic, IsWindowVisible, MsgWaitForMultipleObjects, PeekMessageW,
+        PostMessageW, RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
+        ShowWindow, TrackPopupMenu, TranslateMessage, CS_DBLCLKS, GWLP_HWNDPARENT, GWL_EXSTYLE,
+        GW_HWNDPREV, HTCLIENT, HTTRANSPARENT, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST,
+        MF_SEPARATOR, MF_STRING, MSG, PM_REMOVE, QS_ALLINPUT, SET_WINDOW_POS_FLAGS, SWP_HIDEWINDOW,
         SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE,
-        SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOWPOS,
-        WM_CAPTURECHANGED, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETOBJECT, WM_KEYDOWN,
-        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_NULL,
-        WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_SHOWWINDOW, WM_WINDOWPOSCHANGING,
-        WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE,
-        WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+        SW_SHOWNOACTIVATE, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WA_INACTIVE, WINDOWPOS,
+        WM_ACTIVATE, WM_CAPTURECHANGED, WM_CHAR, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED,
+        WM_GETOBJECT, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+        WM_MOUSEWHEEL, WM_NCHITTEST, WM_NULL, WM_POWERBROADCAST, WM_RBUTTONUP, WM_SETTINGCHANGE,
+        WM_SHOWWINDOW, WM_WINDOWPOSCHANGING, WNDCLASSEXW, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE,
+        WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
+
+    const CF_UNICODETEXT_FMT: u32 = 13;
 
     const CMD_EDIT_TOGGLE: i32 = 1001;
     const CMD_SIZE_S: i32 = 1002;
@@ -376,7 +415,12 @@ mod win_host {
     const CMD_PHOTO_NEXT: i32 = 1011;
     const CMD_STORAGE_FOLDER: i32 = 1012;
     const CMD_STORAGE_SCAN: i32 = 1013;
+    const CMD_STICKY_EDIT: i32 = 1015;
+    const CMD_STICKY_NEXT_COLOR: i32 = 1016;
+    const CMD_STICKY_ADD_NEW: i32 = 1017;
+    const CMD_MOVE_MONITOR_BASE: i32 = 1100;
     const DRAG_THRESHOLD_DP: f32 = 5.0;
+    static STICKY_SPAWN_SEQ: AtomicU64 = AtomicU64::new(1);
 
     /// Lock-free atomic flags read by synchronous Win32 callbacks so `wnd_proc` never panics on re-entry.
     static STAY_BOTTOM_MODE: AtomicBool = AtomicBool::new(true);
@@ -386,9 +430,13 @@ mod win_host {
     static SHOULD_EXIT_FLAG: AtomicBool = AtomicBool::new(false);
     static REFRESH_ENV_FLAG: AtomicBool = AtomicBool::new(false);
     static SCREEN_OFF_FLAG: AtomicBool = AtomicBool::new(false);
+    static DIRECT_EDIT_READY_FLAG: AtomicBool = AtomicBool::new(false);
+    static DIRECT_EDIT_COMMIT_FLAG: AtomicBool = AtomicBool::new(false);
 
     struct ActiveDrag {
         hwnd: HWND,
+        target_hwnd: HWND,
+        target_monitor_id: String,
         slot_id: String,
         offset_x: f32,
         offset_y: f32,
@@ -414,12 +462,7 @@ mod win_host {
         work_w_dip: f32,
         work_h_dip: f32,
         can_drag: bool,
-    }
-
-    struct InlineEditor {
-        hwnd: HWND,
-        slot_id: String,
-        widget_type: String,
+        suppress_inline_edit: bool,
     }
 
     struct MonitorSurface {
@@ -439,7 +482,8 @@ mod win_host {
         slot_springs: HashMap<String, (SpringValue, SpringValue, SpringValue)>,
         dragging: Option<ActiveDrag>,
         pending_press: Option<PendingPress>,
-        inline_editor: Option<InlineEditor>,
+        direct_edit: Option<DirectInlineEdit>,
+        pending_high_surrogate: Option<u16>,
         start_time: Instant,
     }
 
@@ -545,17 +589,25 @@ mod win_host {
             })
             .unwrap_or((1920.0, 1040.0));
 
-        // Partition slots by monitor so each monitor resolves collisions within its own work area
-        let mut monitor_ids: Vec<String> = Vec::new();
+        // Partition slots by their resolved monitor surface so "primary" and primary's \\.\DISPLAY* match
+        let mut monitor_keys: Vec<String> = Vec::new();
+        let mut slot_keys: Vec<String> = Vec::with_capacity(cfg.slots.len());
         for slot in &cfg.slots {
-            if !monitor_ids.iter().any(|m| m == &slot.monitor_id) {
-                monitor_ids.push(slot.monitor_id.clone());
+            let resolved_key = surfaces
+                .iter()
+                .find(|s| monitor_ids_match(&slot.monitor_id, &s.info.id, s.info.is_primary))
+                .map(|s| s.info.id.clone())
+                .unwrap_or_else(|| normalize_monitor_token(&slot.monitor_id));
+            if !monitor_keys.iter().any(|k| k == &resolved_key) {
+                monitor_keys.push(resolved_key.clone());
             }
+            slot_keys.push(resolved_key);
         }
-        for mon_id in monitor_ids {
+
+        for mon_key in monitor_keys {
             let (work_w_dip, work_h_dip) = surfaces
                 .iter()
-                .find(|s| s.info.id == mon_id || (s.info.is_primary && mon_id == "primary"))
+                .find(|s| s.info.id == mon_key)
                 .map(|s| {
                     let dpi = unsafe { (GetDpiForWindow(s.hwnd) as f32).max(96.0) };
                     (
@@ -565,19 +617,24 @@ mod win_host {
                 })
                 .unwrap_or(primary_bounds);
 
-            let indices: Vec<usize> = cfg
-                .slots
+            let indices: Vec<usize> = slot_keys
                 .iter()
                 .enumerate()
-                .filter(|(_, s)| s.monitor_id == mon_id)
+                .filter(|(_, k)| *k == &mon_key)
                 .map(|(i, _)| i)
                 .collect();
-            let mut subset: Vec<_> = indices.iter().map(|&i| cfg.slots[i].clone()).collect();
+            let mut subset: Vec<_> = indices
+                .iter()
+                .map(|&i| {
+                    let mut cloned = cfg.slots[i].clone();
+                    cloned.monitor_id = mon_key.clone();
+                    cloned
+                })
+                .collect();
             let offsets: Vec<(f32, f32, f32, f32)> = subset
                 .iter()
                 .map(|s| {
-                    let outer =
-                        effective_slot_rect_dp(s, cfg.grid_scale, work_w_dip, work_h_dip);
+                    let outer = effective_slot_rect_dp(s, cfg.grid_scale, work_w_dip, work_h_dip);
                     crate::widgets::slot_content_offset_dp(
                         s,
                         outer.w,
@@ -597,7 +654,10 @@ mod win_host {
                 work_h_dip,
             ) {
                 for (dst_idx, updated) in indices.into_iter().zip(subset.into_iter()) {
-                    cfg.slots[dst_idx] = updated;
+                    cfg.slots[dst_idx].pos_x = updated.pos_x;
+                    cfg.slots[dst_idx].pos_y = updated.pos_y;
+                    cfg.slots[dst_idx].grid_col = updated.grid_col;
+                    cfg.slots[dst_idx].grid_row = updated.grid_row;
                 }
                 any_changed = true;
             }
@@ -605,25 +665,360 @@ mod win_host {
         any_changed
     }
 
+    fn spawn_sticky_note_beside(
+        sh: &mut HostSharedState,
+        surfaces: &[MonitorSurface],
+        source_slot_id: &str,
+    ) -> WidgetHostEvent {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(1);
+        let unique_suffix =
+            (now_ms << 8) | (STICKY_SPAWN_SEQ.fetch_add(1, Ordering::Relaxed) & 0xFF);
+        let source_rect = surfaces.iter().find_map(|surf| {
+            surf.items
+                .iter()
+                .find(|it| it.slot_id == source_slot_id)
+                .map(|it| it.frame)
+        });
+        let new_slot = crate::widgets::group_b::create_next_sticky_note_slot(
+            &sh.config.slots,
+            source_slot_id,
+            source_rect,
+            unique_suffix,
+        );
+        sh.config.slots.push(new_slot);
+        let HostSharedState {
+            ref mut config,
+            ref hub,
+            ref policy,
+            ..
+        } = *sh;
+        resolve_collisions_for_surfaces(
+            config,
+            hub,
+            policy.high_contrast,
+            surfaces,
+            Some(source_slot_id),
+        );
+        sh.mark_data_changed();
+        WidgetHostEvent::ConfigMutated {
+            config: sh.config.clone(),
+        }
+    }
+
+    fn update_active_drag_from_cursor(st: &mut HostThreadState) -> bool {
+        let mut screen_pt = POINT::default();
+        if unsafe { GetCursorPos(&mut screen_pt) }.is_err() {
+            return false;
+        }
+        let Some(drag) = st.dragging.as_ref() else {
+            return false;
+        };
+        let cur_target_hwnd = drag.target_hwnd;
+        let offset_x = drag.offset_x;
+        let offset_y = drag.offset_y;
+        let item_w = drag.item_w;
+        let item_h = drag.item_h;
+        let cur_x = drag.cur_x;
+        let cur_y = drag.cur_y;
+        let slot_id = drag.slot_id.clone();
+
+        let target = st
+            .surfaces
+            .iter()
+            .find(|s| {
+                screen_pt.x >= s.info.x
+                    && screen_pt.x < s.info.x + s.info.width_px as i32
+                    && screen_pt.y >= s.info.y
+                    && screen_pt.y < s.info.y + s.info.height_px as i32
+            })
+            .or_else(|| st.surfaces.iter().find(|s| s.hwnd == cur_target_hwnd))
+            .or_else(|| st.surfaces.first());
+        let Some(target) = target else {
+            return false;
+        };
+
+        let target_hwnd = target.hwnd;
+        let target_monitor_id = canonical_slot_monitor_id(&target.info.id, target.info.is_primary);
+        let mut local_pt = screen_pt;
+        unsafe {
+            let _ = ScreenToClient(target_hwnd, &mut local_pt);
+        }
+        let dpi = unsafe { (GetDpiForWindow(target_hwnd) as f32).max(96.0) };
+        let px = local_pt.x as f32 * 96.0 / dpi;
+        let py = local_pt.y as f32 * 96.0 / dpi;
+        let work_w_dip = target.info.work_w as f32 * 96.0 / dpi;
+        let work_h_dip = target.info.work_h as f32 * 96.0 / dpi;
+        let max_x = (work_w_dip - item_w - 8.0).max(8.0);
+        let max_y = (work_h_dip - item_h - 8.0).max(8.0);
+        let nx = (px - offset_x).clamp(8.0, max_x);
+        let ny = (py - offset_y).clamp(8.0, max_y);
+
+        let mon_changed = target_hwnd != cur_target_hwnd;
+        let moved = (nx - cur_x).abs() > 0.25 || (ny - cur_y).abs() > 0.25;
+        if !mon_changed && !moved {
+            return false;
+        }
+
+        if mon_changed {
+            st.slot_springs.remove(&slot_id);
+        }
+        if let Some(drag) = st.dragging.as_mut() {
+            drag.target_hwnd = target_hwnd;
+            drag.target_monitor_id = target_monitor_id;
+            drag.work_w_dip = work_w_dip;
+            drag.work_h_dip = work_h_dip;
+            drag.cur_x = nx;
+            drag.cur_y = ny;
+        }
+        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+        true
+    }
+
+    fn read_clipboard_unicode() -> Option<String> {
+        unsafe {
+            if OpenClipboard(HWND::default()).is_err() {
+                return None;
+            }
+            let out = GetClipboardData(CF_UNICODETEXT_FMT).ok().and_then(|h| {
+                if h.is_invalid() || h.0.is_null() {
+                    return None;
+                }
+                let hmem = windows::Win32::Foundation::HGLOBAL(h.0);
+                let ptr = GlobalLock(hmem) as *const u16;
+                if ptr.is_null() {
+                    return None;
+                }
+                let mut len = 0usize;
+                while *ptr.add(len) != 0 {
+                    len += 1;
+                }
+                let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
+                let _ = GlobalUnlock(hmem);
+                Some(text)
+            });
+            let _ = CloseClipboard();
+            out
+        }
+    }
+
+    fn write_clipboard_unicode(text: &str) {
+        let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let bytes = wide.len() * std::mem::size_of::<u16>();
+        unsafe {
+            if OpenClipboard(HWND::default()).is_err() {
+                return;
+            }
+            let _ = EmptyClipboard();
+            if let Ok(hmem) = GlobalAlloc(GMEM_MOVEABLE, bytes) {
+                let ptr = GlobalLock(hmem) as *mut u16;
+                if !ptr.is_null() {
+                    std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr, wide.len());
+                    let _ = GlobalUnlock(hmem);
+                    let _ = SetClipboardData(CF_UNICODETEXT_FMT, HANDLE(hmem.0));
+                }
+            }
+            let _ = CloseClipboard();
+        }
+    }
+
+    fn activate_surface_for_direct_edit(hwnd: HWND) {
+        if hwnd.0.is_null() {
+            return;
+        }
+        DIRECT_EDIT_READY_FLAG.store(false, Ordering::Release);
+        DIRECT_EDIT_COMMIT_FLAG.store(false, Ordering::Release);
+        unsafe {
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex & !(WS_EX_NOACTIVATE.0 as isize));
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetFocus(hwnd);
+        }
+        DIRECT_EDIT_READY_FLAG.store(true, Ordering::Release);
+    }
+
+    fn deactivate_surface_after_direct_edit(hwnd_raw: isize) {
+        DIRECT_EDIT_READY_FLAG.store(false, Ordering::Release);
+        DIRECT_EDIT_COMMIT_FLAG.store(false, Ordering::Release);
+        if hwnd_raw == 0 {
+            return;
+        }
+        let hwnd = HWND(hwnd_raw as *mut std::ffi::c_void);
+        if !hwnd.0.is_null() {
+            unsafe {
+                let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | (WS_EX_NOACTIVATE.0 as isize));
+            }
+        }
+    }
+
+    fn commit_direct_edit(shared: &Arc<Mutex<HostSharedState>>, ed: DirectInlineEdit) {
+        deactivate_surface_after_direct_edit(ed.surface_hwnd_raw);
+        if ed.widget_type == "paper_sticky_note" {
+            emit_detached(
+                shared,
+                WidgetHostEvent::TextInputSubmitted {
+                    slot_id: ed.slot_id,
+                    widget_type: ed.widget_type,
+                    title: Some(ed.title),
+                    text: ed.body,
+                },
+            );
+        }
+        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+    }
+
+    fn cancel_direct_edit(ed: DirectInlineEdit) {
+        deactivate_surface_after_direct_edit(ed.surface_hwnd_raw);
+        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+    }
+
+    enum FinalizeOutcome {
+        Emit(Arc<Mutex<HostSharedState>>, WidgetHostEvent),
+        StartDirectEdit {
+            hwnd: HWND,
+            slot_id: String,
+            widget_type: String,
+            field: StickyEditField,
+            initial_title: String,
+            initial_body: String,
+            en: bool,
+        },
+    }
+
+    fn start_direct_edit_session(
+        hwnd: HWND,
+        slot_id: String,
+        widget_type: String,
+        field: StickyEditField,
+        initial_title: String,
+        initial_body: String,
+        en: bool,
+    ) {
+        let mut old_edit: Option<(DirectInlineEdit, Arc<Mutex<HostSharedState>>)> = None;
+        let next_edit = DirectInlineEdit::new(
+            hwnd.0 as isize,
+            slot_id,
+            widget_type,
+            field,
+            initial_title,
+            initial_body,
+            en,
+        );
+        HOST_STATE.with(|cell| {
+            if let Ok(mut b) = cell.try_borrow_mut() {
+                if let Some(st) = b.as_mut() {
+                    if let Some(prev) = st.direct_edit.take() {
+                        old_edit = Some((prev, st.shared.clone()));
+                    }
+                    st.pending_high_surrogate = None;
+                    st.direct_edit = Some(next_edit);
+                }
+            }
+        });
+        if let Some((prev, prev_sh)) = old_edit {
+            commit_direct_edit(&prev_sh, prev);
+        }
+        activate_surface_for_direct_edit(hwnd);
+        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+    }
+
+    fn dispatch_finalize_outcome(outcome: Option<FinalizeOutcome>) {
+        match outcome {
+            Some(FinalizeOutcome::Emit(sh, ev)) => emit_detached(&sh, ev),
+            Some(FinalizeOutcome::StartDirectEdit {
+                hwnd,
+                slot_id,
+                widget_type,
+                field,
+                initial_title,
+                initial_body,
+                en,
+            }) => {
+                start_direct_edit_session(
+                    hwnd,
+                    slot_id,
+                    widget_type,
+                    field,
+                    initial_title,
+                    initial_body,
+                    en,
+                );
+            }
+            None => {}
+        }
+    }
+
+    fn promote_pending_press_to_drag(
+        st: &mut HostThreadState,
+        hwnd: HWND,
+        px: f32,
+        py: f32,
+    ) -> Option<(DirectInlineEdit, Arc<Mutex<HostSharedState>>)> {
+        if st.dragging.is_some() {
+            return None;
+        }
+        let should_promote = st.pending_press.as_ref().map(|p| {
+            if p.hwnd != hwnd {
+                return false;
+            }
+            let dx = px - p.start_x;
+            let dy = py - p.start_y;
+            p.can_drag && (dx * dx + dy * dy).sqrt() >= DRAG_THRESHOLD_DP
+        });
+        if should_promote != Some(true) {
+            return None;
+        }
+        let p = st.pending_press.take()?;
+        let interrupted_edit = st.direct_edit.take().map(|ed| (ed, st.shared.clone()));
+        st.pending_high_surrogate = None;
+        let off_x = p.start_x - p.item_x;
+        let off_y = p.start_y - p.item_y;
+        let max_x = (p.work_w_dip - p.item_w - 8.0).max(8.0);
+        let max_y = (p.work_h_dip - p.item_h - 8.0).max(8.0);
+        let target_monitor_id = st
+            .surfaces
+            .iter()
+            .find(|s| s.hwnd == p.hwnd)
+            .map(|s| canonical_slot_monitor_id(&s.info.id, s.info.is_primary))
+            .unwrap_or_else(|| "primary".to_string());
+        st.dragging = Some(ActiveDrag {
+            hwnd: p.hwnd,
+            target_hwnd: p.hwnd,
+            target_monitor_id,
+            slot_id: p.slot_id,
+            offset_x: off_x,
+            offset_y: off_y,
+            cur_x: (px - off_x).clamp(8.0, max_x),
+            cur_y: (py - off_y).clamp(8.0, max_y),
+            item_w: p.item_w,
+            item_h: p.item_h,
+            work_w_dip: p.work_w_dip,
+            work_h_dip: p.work_h_dip,
+        });
+        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+        interrupted_edit
+    }
+
     fn finalize_drag_or_press(
         st: &mut HostThreadState,
         fallback_hwnd: HWND,
-    ) -> Option<(Arc<Mutex<HostSharedState>>, WidgetHostEvent)> {
+    ) -> Option<FinalizeOutcome> {
         if let Some(drag) = st.dragging.take() {
             let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
             let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
             let final_x = ((drag.cur_x / 2.0).round() * 2.0).clamp(8.0, max_x);
             let final_y = ((drag.cur_y / 2.0).round() * 2.0).clamp(8.0, max_y);
+            let target_surface = st
+                .surfaces
+                .iter()
+                .find(|s| s.hwnd == drag.target_hwnd)
+                .map(|s| (s.info.id.clone(), s.info.is_primary));
 
             let mutated_cfg = if let Ok(mut sh) = st.shared.lock() {
                 let scale = sh.config.grid_scale;
-                let moved_mon = sh
-                    .config
-                    .slots
-                    .iter()
-                    .find(|s| s.slot_id == drag.slot_id)
-                    .map(|s| s.monitor_id.clone())
-                    .unwrap_or_else(|| "primary".to_string());
                 let moved_offset = sh
                     .config
                     .slots
@@ -644,7 +1039,17 @@ mod win_host {
                     .config
                     .slots
                     .iter()
-                    .filter(|s| s.slot_id != drag.slot_id && s.monitor_id == moved_mon)
+                    .filter(|s| {
+                        if s.slot_id == drag.slot_id {
+                            return false;
+                        }
+                        if let Some((ref tid, tprim)) = target_surface {
+                            monitor_ids_match(&s.monitor_id, tid, tprim)
+                        } else {
+                            normalize_monitor_token(&s.monitor_id)
+                                == normalize_monitor_token(&drag.target_monitor_id)
+                        }
+                    })
                     .map(|s| {
                         let outer =
                             effective_slot_rect_dp(s, scale, drag.work_w_dip, drag.work_h_dip);
@@ -674,6 +1079,7 @@ mod win_host {
                     .iter_mut()
                     .find(|s| s.slot_id == drag.slot_id)
                 {
+                    slot.monitor_id = drag.target_monitor_id.clone();
                     slot.pos_x = Some(safe_x);
                     slot.pos_y = Some(safe_y);
                     slot.grid_col = col.max(0);
@@ -686,8 +1092,9 @@ mod win_host {
             };
 
             FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-            return mutated_cfg
-                .map(|config| (st.shared.clone(), WidgetHostEvent::ConfigMutated { config }));
+            return mutated_cfg.map(|config| {
+                FinalizeOutcome::Emit(st.shared.clone(), WidgetHostEvent::ConfigMutated { config })
+            });
         }
 
         if let Some(press) = st.pending_press.take() {
@@ -698,9 +1105,94 @@ mod win_host {
                 FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                 return None;
             }
+            let (in_edit_mode, en) = st
+                .shared
+                .lock()
+                .map(|s| (s.edit_mode, s.hub.frontend.language.eq_ignore_ascii_case("en")))
+                .unwrap_or((false, false));
+            if in_edit_mode {
+                return None;
+            }
             if let Some(act) = press.action_id {
+                if act == "inline_edit:paper_sticky_note" {
+                    if press.suppress_inline_edit
+                        || st
+                            .direct_edit
+                            .as_ref()
+                            .map(|e| e.slot_id == press.slot_id)
+                            .unwrap_or(false)
+                    {
+                        return None;
+                    }
+                    let target_hwnd = if press.hwnd != HWND::default() {
+                        press.hwnd
+                    } else {
+                        fallback_hwnd
+                    };
+                    if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == target_hwnd) {
+                        if let Some(item) = surf.items.iter().find(|i| i.slot_id == press.slot_id)
+                        {
+                            let (note_style, initial_title, initial_body) = st
+                                .shared
+                                .lock()
+                                .ok()
+                                .and_then(|sh| {
+                                    sh.config
+                                        .slots
+                                        .iter()
+                                        .find(|s| s.slot_id == press.slot_id)
+                                        .and_then(|s| s.active_widget())
+                                        .map(|w| {
+                                            (
+                                                w.settings
+                                                    .get("note_style")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("tape")
+                                                    .to_string(),
+                                                w.settings
+                                                    .get("title")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("")
+                                                    .to_string(),
+                                                w.settings
+                                                    .get("text")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("")
+                                                    .to_string(),
+                                            )
+                                        })
+                                })
+                                .unwrap_or_else(|| {
+                                    ("tape".to_string(), String::new(), String::new())
+                                });
+                            let field = DirectInlineEdit::field_for_click(
+                                item.frame,
+                                &note_style,
+                                press.start_y,
+                            );
+                            return Some(FinalizeOutcome::StartDirectEdit {
+                                hwnd: surf.hwnd,
+                                slot_id: press.slot_id,
+                                widget_type: item.widget_type.clone(),
+                                field,
+                                initial_title,
+                                initial_body,
+                                en,
+                            });
+                        }
+                    }
+                    return None;
+                }
+                if act == "sticky_add_new" {
+                    if let Ok(mut sh) = st.shared.lock() {
+                        let ev = spawn_sticky_note_beside(&mut sh, &st.surfaces, &press.slot_id);
+                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                        return Some(FinalizeOutcome::Emit(st.shared.clone(), ev));
+                    }
+                    return None;
+                }
                 if let Some(ctrl) = act.strip_prefix("quick_toggle:") {
-                    return Some((
+                    return Some(FinalizeOutcome::Emit(
                         st.shared.clone(),
                         WidgetHostEvent::ToggleQuickControl {
                             control: ctrl.to_string(),
@@ -713,7 +1205,7 @@ mod win_host {
                     .find(|s| s.hwnd == press.hwnd || s.hwnd == fallback_hwnd)
                 {
                     if let Some(item) = surf.items.iter().find(|i| i.slot_id == press.slot_id) {
-                        return Some((
+                        return Some(FinalizeOutcome::Emit(
                             st.shared.clone(),
                             WidgetHostEvent::OpenFeature {
                                 widget_type: item.widget_type.clone(),
@@ -728,7 +1220,7 @@ mod win_host {
                 .find(|s| s.hwnd == press.hwnd || s.hwnd == fallback_hwnd)
             {
                 if let Some(item) = surf.items.iter().find(|i| i.slot_id == press.slot_id) {
-                    return Some((
+                    return Some(FinalizeOutcome::Emit(
                         st.shared.clone(),
                         WidgetHostEvent::OpenFeature {
                             widget_type: item.widget_type.clone(),
@@ -801,7 +1293,13 @@ mod win_host {
                 let r = info.monitorInfo.rcMonitor;
                 let w = info.monitorInfo.rcWork;
                 let is_primary = (info.monitorInfo.dwFlags & 1) != 0;
-                let id = if is_primary {
+                let raw_dev = String::from_utf16_lossy(&info.szDevice)
+                    .trim_matches(char::from(0))
+                    .trim()
+                    .to_string();
+                let id = if !raw_dev.is_empty() {
+                    raw_dev
+                } else if is_primary {
                     "primary".to_string()
                 } else {
                     format!("monitor_{}", list.len())
@@ -832,68 +1330,6 @@ mod win_host {
             );
         }
         list
-    }
-
-    fn spawn_inline_native_editor(
-        parent: HWND,
-        rect_dip: RectF,
-        dpi: f32,
-        slot_id: String,
-        widget_type: String,
-        initial_text: &str,
-    ) -> Option<InlineEditor> {
-        let scale = dpi / 96.0;
-        let x = (rect_dip.x * scale).round() as i32;
-        let y = (rect_dip.y * scale).round() as i32;
-        let w = (rect_dip.w * scale).round().max(120.0) as i32;
-        let h = (rect_dip.h * scale).round().max(34.0) as i32;
-        let text_w = HSTRING::from(initial_text);
-        let hwnd = unsafe {
-            CreateWindowExW(
-                Default::default(),
-                w!("EDIT"),
-                PCWSTR(text_w.as_ptr()),
-                WS_CHILD
-                    | WS_VISIBLE
-                    | WS_BORDER
-                    | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(ES_AUTOHSCROLL as u32),
-                x,
-                y,
-                w,
-                h,
-                parent,
-                None,
-                GetModuleHandleW(None).unwrap_or_default(),
-                None,
-            )
-            .ok()?
-        };
-        unsafe {
-            let _ = SetForegroundWindow(parent);
-            let _ = SetFocus(hwnd);
-        }
-        Some(InlineEditor {
-            hwnd,
-            slot_id,
-            widget_type,
-        })
-    }
-
-    fn read_and_close_inline_editor(ed: InlineEditor) -> (String, String, String) {
-        let text = unsafe {
-            let len = GetWindowTextLengthW(ed.hwnd);
-            if len > 0 {
-                let mut buf = vec![0u16; (len + 1) as usize];
-                let read = GetWindowTextW(ed.hwnd, &mut buf);
-                String::from_utf16_lossy(&buf[..read as usize])
-            } else {
-                String::new()
-            }
-        };
-        unsafe {
-            let _ = DestroyWindow(ed.hwnd);
-        }
-        (ed.slot_id, ed.widget_type, text)
     }
 
     /// Window procedure designed to NEVER panic or double-borrow `HOST_STATE` across Win32 re-entrancy.
@@ -954,9 +1390,7 @@ mod win_host {
                         let st = b.as_mut()?;
                         finalize_drag_or_press(st, hwnd)
                     });
-                    if let Some((sh, ev)) = deferred {
-                        emit_detached(&sh, ev);
-                    }
+                    dispatch_finalize_outcome(deferred);
                 }
                 return LRESULT(0);
             }
@@ -1006,6 +1440,22 @@ mod win_host {
                     _ => LRESULT(HTCLIENT as isize),
                 };
             }
+            WM_ACTIVATE => {
+                if (wparam.0 & 0xFFFF) as u32 == WA_INACTIVE
+                    && DIRECT_EDIT_READY_FLAG.load(Ordering::Acquire)
+                {
+                    DIRECT_EDIT_COMMIT_FLAG.store(true, Ordering::Release);
+                    wake_host_thread();
+                }
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            }
+            WM_KILLFOCUS => {
+                if DIRECT_EDIT_READY_FLAG.load(Ordering::Acquire) {
+                    DIRECT_EDIT_COMMIT_FLAG.store(true, Ordering::Release);
+                    wake_host_thread();
+                }
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            }
             WM_LBUTTONDOWN => {
                 let px_raw = (lparam.0 & 0xFFFF) as i16 as f32;
                 let py_raw = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32;
@@ -1013,8 +1463,9 @@ mod win_host {
                 let px = px_raw * 96.0 / dpi;
                 let py = py_raw * 96.0 / dpi;
 
-                let mut spawn_editor_req: Option<(RectF, String, String)> = None;
-                let mut close_prev_editor: Option<InlineEditor> = None;
+                let mut close_prev_editor: Option<(DirectInlineEdit, Arc<Mutex<HostSharedState>>)> =
+                    None;
+                let mut reactivate_surface = false;
                 let mut deferred_ev: Option<(Arc<Mutex<HostSharedState>>, WidgetHostEvent)> = None;
                 let mut should_capture = false;
 
@@ -1034,8 +1485,17 @@ mod win_host {
                     });
 
                     let Some(hit_res) = hit else { return };
-                    if st.inline_editor.is_some() {
-                        close_prev_editor = st.inline_editor.take();
+                    let same_slot_click = !edit_mode
+                        && matches!(
+                            (&hit_res, st.direct_edit.as_ref()),
+                            (HitTestResult::WidgetContent { slot_id, .. }, Some(ed))
+                                if ed.slot_id == *slot_id
+                        );
+                    if !same_slot_click {
+                        if let Some(prev) = st.direct_edit.take() {
+                            close_prev_editor = Some((prev, st.shared.clone()));
+                        }
+                        st.pending_high_surrogate = None;
                     }
                     match hit_res {
                         HitTestResult::Transparent => {
@@ -1047,7 +1507,14 @@ mod win_host {
                             }
                         }
                         HitTestResult::GalleryAddButton => {
-                            deferred_ev = Some((st.shared.clone(), WidgetHostEvent::OpenGallery));
+                            let monitor_id =
+                                st.surfaces.iter().find(|s| s.hwnd == hwnd).map(|s| {
+                                    canonical_slot_monitor_id(&s.info.id, s.info.is_primary)
+                                });
+                            deferred_ev = Some((
+                                st.shared.clone(),
+                                WidgetHostEvent::OpenGallery { monitor_id },
+                            ));
                         }
                         HitTestResult::RemoveBadge { slot_id } => {
                             let cfg_opt = st.shared.lock().ok().map(|mut sh| {
@@ -1064,27 +1531,38 @@ mod win_host {
                             FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                         }
                         HitTestResult::WidgetContent { slot_id, action_id } => {
-                            if let Some(act) = &action_id {
-                                if act.starts_with("inline_edit:") {
-                                    if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd)
+                            if same_slot_click {
+                                let note_style = st
+                                    .shared
+                                    .lock()
+                                    .ok()
+                                    .and_then(|sh| {
+                                        sh.config
+                                            .slots
+                                            .iter()
+                                            .find(|s| s.slot_id == slot_id)
+                                            .and_then(|s| s.active_widget())
+                                            .and_then(|w| w.settings.get("note_style"))
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                    })
+                                    .unwrap_or_else(|| "tape".to_string());
+                                if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
+                                    if let Some(item) =
+                                        surf.items.iter().find(|i| i.slot_id == slot_id)
                                     {
-                                        if let Some(item) =
-                                            surf.items.iter().find(|i| i.slot_id == slot_id)
-                                        {
-                                            if close_prev_editor.is_none() {
-                                                close_prev_editor = st.inline_editor.take();
+                                        if let Some(ed) = st.direct_edit.as_mut() {
+                                            let next_field = DirectInlineEdit::field_for_click(
+                                                item.frame,
+                                                &note_style,
+                                                py,
+                                            );
+                                            ed.switch_field(next_field);
+                                            if ed.surface_hwnd_raw != hwnd.0 as isize {
+                                                ed.surface_hwnd_raw = hwnd.0 as isize;
                                             }
-                                            spawn_editor_req = Some((
-                                                RectF::new(
-                                                    item.frame.x + 12.0,
-                                                    item.frame.y + item.frame.h - 46.0,
-                                                    item.frame.w - 24.0,
-                                                    34.0,
-                                                ),
-                                                slot_id.clone(),
-                                                item.widget_type.clone(),
-                                            ));
-                                            return;
+                                            reactivate_surface = true;
+                                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                                         }
                                     }
                                 }
@@ -1093,11 +1571,15 @@ mod win_host {
                             if let Some(surf) = st.surfaces.iter().find(|s| s.hwnd == hwnd) {
                                 let work_w_dip = surf.info.work_w as f32 * 96.0 / dpi;
                                 let work_h_dip = surf.info.work_h as f32 * 96.0 / dpi;
+                                let target_monitor_id =
+                                    canonical_slot_monitor_id(&surf.info.id, surf.info.is_primary);
                                 if let Some(item) = surf.items.iter().find(|i| i.slot_id == slot_id)
                                 {
                                     if edit_mode && !locked {
                                         st.dragging = Some(ActiveDrag {
                                             hwnd,
+                                            target_hwnd: hwnd,
+                                            target_monitor_id,
                                             slot_id: slot_id.clone(),
                                             offset_x: px - item.frame.x,
                                             offset_y: py - item.frame.y,
@@ -1125,6 +1607,7 @@ mod win_host {
                                             work_w_dip,
                                             work_h_dip,
                                             can_drag: !locked,
+                                            suppress_inline_edit: false,
                                         });
                                         should_capture = true;
                                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
@@ -1136,23 +1619,16 @@ mod win_host {
                 });
 
                 // Execute Win32 calls & host events strictly OUTSIDE HOST_STATE borrow and shared lock
-                if let Some(prev) = close_prev_editor {
-                    let _ = read_and_close_inline_editor(prev);
+                if let Some((prev, prev_sh)) = close_prev_editor {
+                    commit_direct_edit(&prev_sh, prev);
+                }
+                if reactivate_surface {
+                    activate_surface_for_direct_edit(hwnd);
                 }
                 if should_capture {
                     unsafe {
                         let _ = SetCapture(hwnd);
                     }
-                }
-                if let Some((rect, slot_id, wtype)) = spawn_editor_req {
-                    let created = spawn_inline_native_editor(hwnd, rect, dpi, slot_id, wtype, "");
-                    HOST_STATE.with(|cell| {
-                        if let Ok(mut b) = cell.try_borrow_mut() {
-                            if let Some(st) = b.as_mut() {
-                                st.inline_editor = created;
-                            }
-                        }
-                    });
                 }
                 if let Some((sh, ev)) = deferred_ev {
                     emit_detached(&sh, ev);
@@ -1166,54 +1642,25 @@ mod win_host {
                 let px = px_raw * 96.0 / dpi;
                 let py = py_raw * 96.0 / dpi;
 
+                let mut interrupted_edit: Option<(DirectInlineEdit, Arc<Mutex<HostSharedState>>)> =
+                    None;
                 HOST_STATE.with(|cell| {
                     let Ok(mut b) = cell.try_borrow_mut() else {
                         return;
                     };
                     let Some(st) = b.as_mut() else { return };
 
-                    if st.dragging.is_none() {
-                        let should_promote = st.pending_press.as_ref().map(|p| {
-                            if p.hwnd != hwnd {
-                                return false;
-                            }
-                            let dx = px - p.start_x;
-                            let dy = py - p.start_y;
-                            p.can_drag && (dx * dx + dy * dy).sqrt() >= DRAG_THRESHOLD_DP
-                        });
-                        if should_promote == Some(true) {
-                            if let Some(p) = st.pending_press.take() {
-                                let off_x = p.start_x - p.item_x;
-                                let off_y = p.start_y - p.item_y;
-                                let max_x = (p.work_w_dip - p.item_w - 8.0).max(8.0);
-                                let max_y = (p.work_h_dip - p.item_h - 8.0).max(8.0);
-                                st.dragging = Some(ActiveDrag {
-                                    hwnd: p.hwnd,
-                                    slot_id: p.slot_id,
-                                    offset_x: off_x,
-                                    offset_y: off_y,
-                                    cur_x: (px - off_x).clamp(8.0, max_x),
-                                    cur_y: (py - off_y).clamp(8.0, max_y),
-                                    item_w: p.item_w,
-                                    item_h: p.item_h,
-                                    work_w_dip: p.work_w_dip,
-                                    work_h_dip: p.work_h_dip,
-                                });
-                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                            }
-                        }
+                    if let Some(prev) = promote_pending_press_to_drag(st, hwnd, px, py) {
+                        interrupted_edit = Some(prev);
                     }
 
-                    if let Some(drag) = st.dragging.as_mut() {
-                        if drag.hwnd == hwnd {
-                            let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
-                            let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
-                            drag.cur_x = (px - drag.offset_x).clamp(8.0, max_x);
-                            drag.cur_y = (py - drag.offset_y).clamp(8.0, max_y);
-                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                        }
+                    if st.dragging.is_some() {
+                        update_active_drag_from_cursor(st);
                     }
                 });
+                if let Some((prev, prev_sh)) = interrupted_edit {
+                    commit_direct_edit(&prev_sh, prev);
+                }
                 return LRESULT(0);
             }
             WM_LBUTTONUP => {
@@ -1225,9 +1672,7 @@ mod win_host {
                     let st = b.as_mut()?;
                     finalize_drag_or_press(st, hwnd)
                 });
-                if let Some((sh, ev)) = deferred {
-                    emit_detached(&sh, ev);
-                }
+                dispatch_finalize_outcome(deferred);
                 return LRESULT(0);
             }
             WM_MOUSEWHEEL => {
@@ -1300,6 +1745,24 @@ mod win_host {
                             )
                         })
                         .unwrap_or((false, false));
+                    let other_monitors: Vec<(usize, String, String, String, bool)> = st
+                        .surfaces
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, s)| s.hwnd != hwnd)
+                        .map(|(i, s)| {
+                            let canonical =
+                                canonical_slot_monitor_id(&s.info.id, s.info.is_primary);
+                            let clean_dev = s.info.id.trim_start_matches(r"\\.\").to_string();
+                            (
+                                i + 1,
+                                s.info.id.clone(),
+                                canonical,
+                                clean_dev,
+                                s.info.is_primary,
+                            )
+                        })
+                        .collect();
                     let surf = st.surfaces.iter().find(|s| s.hwnd == hwnd)?;
                     match hit_test_scene(&surf.items, edit_mode, surf.add_btn_rect, px, py) {
                         HitTestResult::WidgetContent { slot_id, .. } => {
@@ -1309,13 +1772,13 @@ mod win_host {
                                 .find(|i| i.slot_id == slot_id)
                                 .map(|i| i.widget_type.clone())
                                 .unwrap_or_default();
-                            Some((slot_id, wtype, en))
+                            Some((slot_id, wtype, en, other_monitors))
                         }
                         _ => None,
                     }
                 });
 
-                if let Some((slot_id, wtype, en)) = hit_info {
+                if let Some((slot_id, wtype, en, other_monitors)) = hit_info {
                     let supported_sizes = widget_catalog()
                         .into_iter()
                         .find(|e| e.widget_type == wtype)
@@ -1373,7 +1836,10 @@ mod win_host {
                                 },
                             );
                         }
-                        if wtype == "calendar_agenda" || wtype == "styled_clock" {
+                        if wtype == "calendar_agenda"
+                            || wtype == "styled_clock"
+                            || wtype == "paper_sticky_note"
+                        {
                             let _ = AppendMenuW(
                                 menu,
                                 MF_STRING,
@@ -1382,6 +1848,39 @@ mod win_host {
                                     w!("Switch display style")
                                 } else {
                                     w!("Ganti tipe / gaya tampilan")
+                                },
+                            );
+                        }
+                        if wtype == "paper_sticky_note" {
+                            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_STICKY_EDIT as usize,
+                                if en {
+                                    w!("Edit Note...")
+                                } else {
+                                    w!("Edit Catatan...")
+                                },
+                            );
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_STICKY_ADD_NEW as usize,
+                                if en {
+                                    w!("New Sticky Note")
+                                } else {
+                                    w!("Tambah Sticky Note Baru")
+                                },
+                            );
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING,
+                                CMD_STICKY_NEXT_COLOR as usize,
+                                if en {
+                                    w!("Next Paper Color")
+                                } else {
+                                    w!("Ganti Warna Kertas")
                                 },
                             );
                         }
@@ -1448,6 +1947,31 @@ mod win_host {
                                 w!("Ganti widget di tumpukan")
                             },
                         );
+                        if !other_monitors.is_empty() {
+                            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                            for (i, (mon_idx, _, _, clean_dev, is_prim)) in
+                                other_monitors.iter().enumerate()
+                            {
+                                let label = if en {
+                                    if *is_prim {
+                                        format!("Move to Monitor {mon_idx} ({clean_dev} · Primary)")
+                                    } else {
+                                        format!("Move to Monitor {mon_idx} ({clean_dev})")
+                                    }
+                                } else if *is_prim {
+                                    format!("Pindah ke Monitor {mon_idx} ({clean_dev} · Utama)")
+                                } else {
+                                    format!("Pindah ke Monitor {mon_idx} ({clean_dev})")
+                                };
+                                let label_w = HSTRING::from(label);
+                                let _ = AppendMenuW(
+                                    menu,
+                                    MF_STRING,
+                                    (CMD_MOVE_MONITOR_BASE + i as i32) as usize,
+                                    PCWSTR(label_w.as_ptr()),
+                                );
+                            }
+                        }
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                         let _ = AppendMenuW(
                             menu,
@@ -1456,7 +1980,8 @@ mod win_host {
                             if en { w!("Remove") } else { w!("Hapus") },
                         );
 
-                        // Foreground owner window before TrackPopupMenu so clicking outside dismisses cleanly
+                        // Pause focus-loss auto-commit while TrackPopupMenu runs so right-click "Edit Catatan..." stays seamless
+                        DIRECT_EDIT_READY_FLAG.store(false, Ordering::Release);
                         let _ = SetForegroundWindow(hwnd);
                         // TrackPopupMenu runs a nested modal loop; HOST_STATE is NOT borrowed here!
                         let cmd = TrackPopupMenu(
@@ -1472,11 +1997,98 @@ mod win_host {
                         let _ = PostMessageW(hwnd, WM_NULL, WPARAM(0), LPARAM(0));
                         let _ = DestroyMenu(menu);
 
+                        let mut cancel_deleted_ed: Option<DirectInlineEdit> = None;
+                        let mut commit_prev_ed: Option<(DirectInlineEdit, Arc<Mutex<HostSharedState>>)> =
+                            None;
+                        let mut start_edit_args: Option<(
+                            String,
+                            String,
+                            StickyEditField,
+                            String,
+                            String,
+                            bool,
+                        )> = None;
+                        let mut reactivate_surface = false;
                         let deferred = HOST_STATE.with(|cell| {
                             let Ok(mut b) = cell.try_borrow_mut() else {
                                 return None;
                             };
                             let st = b.as_mut()?;
+                            if cmd == CMD_STICKY_EDIT {
+                                if let Some(ed) = st.direct_edit.as_mut() {
+                                    if ed.slot_id == slot_id {
+                                        ed.surface_hwnd_raw = hwnd.0 as isize;
+                                        reactivate_surface = true;
+                                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                                        return None;
+                                    }
+                                }
+                                let frame_opt = st
+                                    .surfaces
+                                    .iter()
+                                    .find(|s| s.hwnd == hwnd)
+                                    .and_then(|surf| {
+                                        surf.items
+                                            .iter()
+                                            .find(|i| i.slot_id == slot_id)
+                                            .map(|i| i.frame)
+                                    });
+                                if let Some(frame) = frame_opt {
+                                    let (note_style, initial_title, initial_body) = st
+                                        .shared
+                                        .lock()
+                                        .ok()
+                                        .and_then(|sh| {
+                                            sh.config
+                                                .slots
+                                                .iter()
+                                                .find(|s| s.slot_id == slot_id)
+                                                .and_then(|s| s.active_widget())
+                                                .map(|w| {
+                                                    (
+                                                        w.settings
+                                                            .get("note_style")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("tape")
+                                                            .to_string(),
+                                                        w.settings
+                                                            .get("title")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("")
+                                                            .to_string(),
+                                                        w.settings
+                                                            .get("text")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("")
+                                                            .to_string(),
+                                                    )
+                                                })
+                                        })
+                                        .unwrap_or_else(|| {
+                                            ("tape".to_string(), String::new(), String::new())
+                                        });
+                                    let field = DirectInlineEdit::field_for_click(
+                                        frame,
+                                        &note_style,
+                                        py,
+                                    );
+                                    start_edit_args = Some((
+                                        slot_id.clone(),
+                                        wtype.clone(),
+                                        field,
+                                        initial_title,
+                                        initial_body,
+                                        en,
+                                    ));
+                                }
+                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                                return None;
+                            }
+                            if cmd != CMD_DELETE {
+                                if let Some(prev) = st.direct_edit.take() {
+                                    commit_prev_ed = Some((prev, st.shared.clone()));
+                                }
+                            }
                             let ev_opt = if let Ok(mut sh) = st.shared.lock() {
                                 match cmd {
                                     CMD_EDIT_TOGGLE => {
@@ -1537,7 +2149,56 @@ mod win_host {
                                                         .unwrap_or(0);
                                                     w.settings["clock_style"] =
                                                         serde_json::json!(CLK[next_i]);
+                                                } else if w.widget_type == "paper_sticky_note" {
+                                                    let cur = w
+                                                        .settings
+                                                        .get("note_style")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("tape");
+                                                    let next_i = crate::widgets::group_b::STICKY_STYLES
+                                                        .iter()
+                                                        .position(|&s| s == cur)
+                                                        .map(|i| (i + 1) % crate::widgets::group_b::STICKY_STYLES.len())
+                                                        .unwrap_or(0);
+                                                    w.settings["note_style"] = serde_json::json!(
+                                                        crate::widgets::group_b::STICKY_STYLES[next_i]
+                                                    );
                                                 }
+                                            }
+                                        }
+                                        sh.mark_data_changed();
+                                        Some(WidgetHostEvent::ConfigMutated {
+                                            config: sh.config.clone(),
+                                        })
+                                    }
+                                    CMD_STICKY_ADD_NEW => {
+                                        Some(spawn_sticky_note_beside(&mut sh, &st.surfaces, &slot_id))
+                                    }
+                                    CMD_STICKY_NEXT_COLOR => {
+                                        if let Some(s) = sh
+                                            .config
+                                            .slots
+                                            .iter_mut()
+                                            .find(|s| s.slot_id == slot_id)
+                                        {
+                                            let idx = s.active_index % s.widgets.len().max(1);
+                                            if let Some(w) = s.widgets.get_mut(idx) {
+                                                if !w.settings.is_object() {
+                                                    w.settings = serde_json::json!({});
+                                                }
+                                                let cur = w
+                                                    .settings
+                                                    .get("paper_color")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or(crate::widgets::group_b::STICKY_PRESET_COLORS[0]);
+                                                let next_i = crate::widgets::group_b::STICKY_PRESET_COLORS
+                                                    .iter()
+                                                    .position(|&c| c.eq_ignore_ascii_case(cur))
+                                                    .map(|i| (i + 1) % crate::widgets::group_b::STICKY_PRESET_COLORS.len())
+                                                    .unwrap_or(1);
+                                                w.settings["paper_color"] = serde_json::json!(
+                                                    crate::widgets::group_b::STICKY_PRESET_COLORS[next_i]
+                                                );
                                             }
                                         }
                                         sh.mark_data_changed();
@@ -1617,11 +2278,79 @@ mod win_host {
                                         })
                                     }
                                     CMD_DELETE => {
+                                        if let Some(prev) = st.direct_edit.take() {
+                                            if prev.slot_id == slot_id {
+                                                cancel_deleted_ed = Some(prev);
+                                            } else {
+                                                commit_prev_ed = Some((prev, st.shared.clone()));
+                                            }
+                                        }
                                         sh.config.slots.retain(|s| s.slot_id != slot_id);
                                         sh.mark_data_changed();
                                         Some(WidgetHostEvent::ConfigMutated {
                                             config: sh.config.clone(),
                                         })
+                                    }
+                                    other if other >= CMD_MOVE_MONITOR_BASE => {
+                                        let idx = (other - CMD_MOVE_MONITOR_BASE) as usize;
+                                        if let Some((_, surf_id, canonical_id, _, is_prim)) =
+                                            other_monitors.get(idx)
+                                        {
+                                            let mut chosen = (0i32, 0i32);
+                                            'cell_search: for col in (0..=8).step_by(2) {
+                                                for row in 0..3 {
+                                                    let occupied =
+                                                        sh.config.slots.iter().any(|s| {
+                                                            s.slot_id != slot_id
+                                                                && monitor_ids_match(
+                                                                    &s.monitor_id,
+                                                                    surf_id,
+                                                                    *is_prim,
+                                                                )
+                                                                && s.grid_col == col
+                                                                && s.grid_row == row
+                                                        });
+                                                    if !occupied {
+                                                        chosen = (col, row);
+                                                        break 'cell_search;
+                                                    }
+                                                }
+                                            }
+                                            if let Some(s) = sh
+                                                .config
+                                                .slots
+                                                .iter_mut()
+                                                .find(|s| s.slot_id == slot_id)
+                                            {
+                                                s.monitor_id = canonical_id.clone();
+                                                s.pos_x = None;
+                                                s.pos_y = None;
+                                                s.grid_col = chosen.0;
+                                                s.grid_row = chosen.1;
+                                            }
+                                            {
+                                                let HostSharedState {
+                                                    ref mut config,
+                                                    ref hub,
+                                                    ref policy,
+                                                    ..
+                                                } = *sh;
+                                                resolve_collisions_for_surfaces(
+                                                    config,
+                                                    hub,
+                                                    policy.high_contrast,
+                                                    &st.surfaces,
+                                                    None,
+                                                );
+                                            }
+                                            st.slot_springs.remove(&slot_id);
+                                            sh.mark_data_changed();
+                                            Some(WidgetHostEvent::ConfigMutated {
+                                                config: sh.config.clone(),
+                                            })
+                                        } else {
+                                            None
+                                        }
                                     }
                                     _ => None,
                                 }
@@ -1631,6 +2360,22 @@ mod win_host {
                             FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                             ev_opt.map(|ev| (st.shared.clone(), ev))
                         });
+                        if let Some(ed) = cancel_deleted_ed {
+                            cancel_direct_edit(ed);
+                        }
+                        if let Some((prev, prev_sh)) = commit_prev_ed {
+                            commit_direct_edit(&prev_sh, prev);
+                        }
+                        if reactivate_surface {
+                            activate_surface_for_direct_edit(hwnd);
+                        }
+                        if let Some((sid, wt, field, init_title, init_body, is_en)) =
+                            start_edit_args
+                        {
+                            start_direct_edit_session(
+                                hwnd, sid, wt, field, init_title, init_body, is_en,
+                            );
+                        }
                         if let Some((sh, ev)) = deferred {
                             emit_detached(&sh, ev);
                         }
@@ -1638,58 +2383,182 @@ mod win_host {
                 }
                 return LRESULT(0);
             }
+            WM_CHAR => {
+                let code = (wparam.0 & 0xFFFF) as u16;
+                HOST_STATE.with(|cell| {
+                    let Ok(mut b) = cell.try_borrow_mut() else {
+                        return;
+                    };
+                    let Some(st) = b.as_mut() else { return };
+                    let Some(ed) = st.direct_edit.as_mut() else {
+                        st.pending_high_surrogate = None;
+                        return;
+                    };
+                    if ed.surface_hwnd_raw != hwnd.0 as isize {
+                        return;
+                    }
+                    if (0xD800..=0xDBFF).contains(&code) {
+                        st.pending_high_surrogate = Some(code);
+                        return;
+                    }
+                    let ch_opt = if (0xDC00..=0xDFFF).contains(&code) {
+                        if let Some(hi) = st.pending_high_surrogate.take() {
+                            char::decode_utf16([hi, code]).next().and_then(Result::ok)
+                        } else {
+                            None
+                        }
+                    } else {
+                        st.pending_high_surrogate = None;
+                        char::from_u32(code as u32)
+                    };
+                    if let Some(ch) = ch_opt {
+                        if (ch as u32) >= 0x20 && ch as u32 != 0x7F {
+                            ed.insert_char(ch);
+                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                        }
+                    }
+                });
+                return LRESULT(0);
+            }
             WM_KEYDOWN => {
                 let vk = wparam.0 as u16;
-                if vk == VK_ESCAPE.0 {
-                    let mut ed_to_close: Option<InlineEditor> = None;
-                    HOST_STATE.with(|cell| {
-                        if let Ok(mut b) = cell.try_borrow_mut() {
-                            if let Some(st) = b.as_mut() {
-                                ed_to_close = st.inline_editor.take();
-                                if ed_to_close.is_none() {
-                                    if let Ok(mut sh) = st.shared.lock() {
-                                        if sh.board_visible {
-                                            sh.board_visible = false;
-                                        } else if sh.edit_mode {
-                                            sh.edit_mode = false;
+                let ctrl_held = (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
+
+                enum KeyOutcome {
+                    NotEditing,
+                    Handled,
+                    Cancel(DirectInlineEdit),
+                    Commit(Arc<Mutex<HostSharedState>>, DirectInlineEdit),
+                    CopyText(String),
+                    PasteClipboard,
+                }
+
+                let outcome = HOST_STATE.with(|cell| {
+                    let Ok(mut b) = cell.try_borrow_mut() else {
+                        return KeyOutcome::NotEditing;
+                    };
+                    let Some(st) = b.as_mut() else {
+                        return KeyOutcome::NotEditing;
+                    };
+                    let is_editing_here = st
+                        .direct_edit
+                        .as_ref()
+                        .map(|e| e.surface_hwnd_raw == hwnd.0 as isize)
+                        .unwrap_or(false);
+                    if !is_editing_here {
+                        return KeyOutcome::NotEditing;
+                    }
+                    if vk == VK_ESCAPE.0 {
+                        st.pending_high_surrogate = None;
+                        return st
+                            .direct_edit
+                            .take()
+                            .map(KeyOutcome::Cancel)
+                            .unwrap_or(KeyOutcome::Handled);
+                    }
+                    if vk == VK_RETURN.0 && ctrl_held {
+                        st.pending_high_surrogate = None;
+                        return st
+                            .direct_edit
+                            .take()
+                            .map(|ed| KeyOutcome::Commit(st.shared.clone(), ed))
+                            .unwrap_or(KeyOutcome::Handled);
+                    }
+                    if ctrl_held && vk == b'C' as u16 {
+                        let copied = st
+                            .direct_edit
+                            .as_ref()
+                            .map(|ed| ed.active_text().to_string())
+                            .unwrap_or_default();
+                        return KeyOutcome::CopyText(copied);
+                    }
+                    if ctrl_held && vk == b'V' as u16 {
+                        return KeyOutcome::PasteClipboard;
+                    }
+
+                    let Some(ed) = st.direct_edit.as_mut() else {
+                        return KeyOutcome::NotEditing;
+                    };
+                    if vk == VK_RETURN.0 {
+                        match ed.active_field {
+                            StickyEditField::Title => ed.switch_field(StickyEditField::Body),
+                            StickyEditField::Body => ed.insert_char('\n'),
+                        }
+                    } else if vk == VK_TAB.0 {
+                        let next = match ed.active_field {
+                            StickyEditField::Title => StickyEditField::Body,
+                            StickyEditField::Body => StickyEditField::Title,
+                        };
+                        ed.switch_field(next);
+                    } else if vk == VK_BACK.0 {
+                        ed.backspace();
+                    } else if vk == VK_DELETE.0 {
+                        ed.delete_forward();
+                    } else if vk == VK_LEFT.0 {
+                        ed.move_left();
+                    } else if vk == VK_RIGHT.0 {
+                        ed.move_right();
+                    } else if vk == VK_HOME.0 {
+                        ed.move_home();
+                    } else if vk == VK_END.0 {
+                        ed.move_end();
+                    } else if ctrl_held && vk == b'A' as u16 {
+                        ed.select_all();
+                    } else {
+                        return KeyOutcome::Handled;
+                    }
+                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                    KeyOutcome::Handled
+                });
+
+                match outcome {
+                    KeyOutcome::Cancel(ed) => {
+                        cancel_direct_edit(ed);
+                        return LRESULT(0);
+                    }
+                    KeyOutcome::Commit(sh, ed) => {
+                        commit_direct_edit(&sh, ed);
+                        return LRESULT(0);
+                    }
+                    KeyOutcome::CopyText(text) => {
+                        write_clipboard_unicode(&text);
+                        return LRESULT(0);
+                    }
+                    KeyOutcome::PasteClipboard => {
+                        if let Some(clip) = read_clipboard_unicode() {
+                            HOST_STATE.with(|cell| {
+                                if let Ok(mut b) = cell.try_borrow_mut() {
+                                    if let Some(st) = b.as_mut() {
+                                        if let Some(ed) = st.direct_edit.as_mut() {
+                                            ed.insert_str(&clip);
+                                            FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                                         }
                                     }
                                 }
-                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                            }
+                            });
                         }
-                    });
-                    if let Some(ed) = ed_to_close {
-                        let _ = read_and_close_inline_editor(ed);
+                        return LRESULT(0);
                     }
-                    return LRESULT(0);
-                } else if vk == VK_RETURN.0 {
-                    let (ed_to_commit, shared_opt) = HOST_STATE.with(|cell| {
-                        cell.try_borrow_mut()
-                            .ok()
-                            .and_then(|mut b| {
-                                b.as_mut()
-                                    .map(|st| (st.inline_editor.take(), Some(st.shared.clone())))
-                            })
-                            .unwrap_or((None, None))
-                    });
-                    if let Some(ed) = ed_to_commit {
-                        let (slot_id, widget_type, text) = read_and_close_inline_editor(ed);
-                        if !text.trim().is_empty() {
-                            if let Some(sh) = shared_opt {
-                                emit_detached(
-                                    &sh,
-                                    WidgetHostEvent::TextInputSubmitted {
-                                        slot_id,
-                                        widget_type,
-                                        text,
-                                    },
-                                );
-                            }
+                    KeyOutcome::Handled => return LRESULT(0),
+                    KeyOutcome::NotEditing => {
+                        if vk == VK_ESCAPE.0 {
+                            HOST_STATE.with(|cell| {
+                                if let Ok(mut b) = cell.try_borrow_mut() {
+                                    if let Some(st) = b.as_mut() {
+                                        if let Ok(mut sh) = st.shared.lock() {
+                                            if sh.board_visible {
+                                                sh.board_visible = false;
+                                            } else if sh.edit_mode {
+                                                sh.edit_mode = false;
+                                            }
+                                        }
+                                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
+                                    }
+                                }
+                            });
+                            return LRESULT(0);
                         }
-                        FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
-                    return LRESULT(0);
                 }
             }
             WM_GETOBJECT => {
@@ -1759,11 +2628,12 @@ mod win_host {
         let mut renderer = D2DWidgetRenderer::new(&gpu_res)?;
 
         let class_name = w!("GiliDesktopWidgetsHostV1");
+        let hinstance = unsafe { GetModuleHandleW(None).unwrap_or_default().into() };
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
             style: CS_DBLCLKS,
             lpfnWndProc: Some(wnd_proc),
-            hInstance: unsafe { GetModuleHandleW(None).unwrap_or_default().into() },
+            hInstance: hinstance,
             lpszClassName: class_name,
             ..Default::default()
         };
@@ -1797,7 +2667,8 @@ mod win_host {
                 slot_springs: HashMap::new(),
                 dragging: None,
                 pending_press: None,
-                inline_editor: None,
+                direct_edit: None,
+                pending_high_surrogate: None,
                 start_time: Instant::now(),
             });
         });
@@ -1813,6 +2684,7 @@ mod win_host {
         let mut minute_tick_dirty = false;
         let mut has_rendered_initial = false;
         let mut prev_spring_active = false;
+        let mut prev_caret_visible = true;
         let mut last_target_fps: u32 = 0;
         let mut config_needs_collision_check = true;
         let mut local_data_rev: u64 = 0;
@@ -1839,46 +2711,28 @@ mod win_host {
             unsafe {
                 let mut msg = MSG::default();
                 while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE).as_bool() {
-                    if msg.message == WM_KEYDOWN {
-                        let vk = msg.wParam.0 as u16;
-                        if vk == VK_ESCAPE.0 || vk == VK_RETURN.0 {
-                            let ed_match = HOST_STATE.with(|cell| {
-                                cell.try_borrow_mut().ok().and_then(|mut b| {
-                                    let st = b.as_mut()?;
-                                    let active_hwnd = st.inline_editor.as_ref()?.hwnd;
-                                    let is_editor_msg = msg.hwnd == active_hwnd
-                                        || st.surfaces.iter().any(|s| s.hwnd == msg.hwnd);
-                                    if is_editor_msg {
-                                        Some((st.inline_editor.take()?, st.shared.clone()))
-                                    } else {
-                                        None
-                                    }
-                                })
-                            });
-                            if let Some((ed, sh)) = ed_match {
-                                let (slot_id, widget_type, text) = read_and_close_inline_editor(ed);
-                                if vk == VK_RETURN.0 && !text.trim().is_empty() {
-                                    emit_detached(
-                                        &sh,
-                                        WidgetHostEvent::TextInputSubmitted {
-                                            slot_id,
-                                            widget_type,
-                                            text,
-                                        },
-                                    );
-                                }
-                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                                continue;
-                            }
-                        }
-                    }
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
             }
 
+            if DIRECT_EDIT_COMMIT_FLAG.swap(false, Ordering::AcqRel) {
+                let commit_match = HOST_STATE.with(|cell| {
+                    cell.try_borrow_mut().ok().and_then(|mut b| {
+                        let st = b.as_mut()?;
+                        st.pending_high_surrogate = None;
+                        st.direct_edit.take().map(|ed| (st.shared.clone(), ed))
+                    })
+                });
+                if let Some((sh, ed)) = commit_match {
+                    commit_direct_edit(&sh, ed);
+                }
+            }
+
             // Poll active direct-desktop drag via GetAsyncKeyState so WS_EX_NOACTIVATE never drops drag!
             let mut ended_pointer_capture = false;
+            let mut drag_interrupted_edit: Option<(DirectInlineEdit, Arc<Mutex<HostSharedState>>)> =
+                None;
             let drag_deferred = HOST_STATE.with(|cell| {
                 let Ok(mut b) = cell.try_borrow_mut() else {
                     return None;
@@ -1891,46 +2745,13 @@ mod win_host {
                 if down {
                     if let Some(p_hwnd) = st.pending_press.as_ref().map(|p| p.hwnd) {
                         if let Some((px, py)) = cursor_pos_dip(p_hwnd) {
-                            let should_promote = st.pending_press.as_ref().map(|p| {
-                                let dx = px - p.start_x;
-                                let dy = py - p.start_y;
-                                p.can_drag && (dx * dx + dy * dy).sqrt() >= DRAG_THRESHOLD_DP
-                            });
-                            if should_promote == Some(true) {
-                                if let Some(p) = st.pending_press.take() {
-                                    let off_x = p.start_x - p.item_x;
-                                    let off_y = p.start_y - p.item_y;
-                                    let max_x = (p.work_w_dip - p.item_w - 8.0).max(8.0);
-                                    let max_y = (p.work_h_dip - p.item_h - 8.0).max(8.0);
-                                    st.dragging = Some(ActiveDrag {
-                                        hwnd: p.hwnd,
-                                        slot_id: p.slot_id,
-                                        offset_x: off_x,
-                                        offset_y: off_y,
-                                        cur_x: (px - off_x).clamp(8.0, max_x),
-                                        cur_y: (py - off_y).clamp(8.0, max_y),
-                                        item_w: p.item_w,
-                                        item_h: p.item_h,
-                                        work_w_dip: p.work_w_dip,
-                                        work_h_dip: p.work_h_dip,
-                                    });
-                                    FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                                }
+                            if let Some(prev) = promote_pending_press_to_drag(st, p_hwnd, px, py) {
+                                drag_interrupted_edit = Some(prev);
                             }
                         }
                     }
-                    if let Some(drag) = st.dragging.as_mut() {
-                        if let Some((px, py)) = cursor_pos_dip(drag.hwnd) {
-                            let max_x = (drag.work_w_dip - drag.item_w - 8.0).max(8.0);
-                            let max_y = (drag.work_h_dip - drag.item_h - 8.0).max(8.0);
-                            let nx = (px - drag.offset_x).clamp(8.0, max_x);
-                            let ny = (py - drag.offset_y).clamp(8.0, max_y);
-                            if (nx - drag.cur_x).abs() > 0.25 || (ny - drag.cur_y).abs() > 0.25 {
-                                drag.cur_x = nx;
-                                drag.cur_y = ny;
-                                FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
-                            }
-                        }
+                    if st.dragging.is_some() {
+                        update_active_drag_from_cursor(st);
                     }
                     None
                 } else {
@@ -1949,9 +2770,10 @@ mod win_host {
                     let _ = ReleaseCapture();
                 }
             }
-            if let Some((sh, ev)) = drag_deferred {
-                emit_detached(&sh, ev);
+            if let Some((prev, prev_sh)) = drag_interrupted_edit {
+                commit_direct_edit(&prev_sh, prev);
             }
+            dispatch_finalize_outcome(drag_deferred);
 
             // Process incoming commands from Tauri bridge
             let mut should_exit = SHOULD_EXIT_FLAG.load(Ordering::Relaxed);
@@ -1974,6 +2796,17 @@ mod win_host {
                     HostCommand::SetEditMode(on) => {
                         if let Ok(mut sh) = shared.lock() {
                             sh.edit_mode = on;
+                        }
+                        if on {
+                            let active_ed = HOST_STATE.with(|cell| {
+                                cell.try_borrow_mut().ok().and_then(|mut b| {
+                                    let st = b.as_mut()?;
+                                    st.direct_edit.take().map(|ed| (st.shared.clone(), ed))
+                                })
+                            });
+                            if let Some((sh, ed)) = active_ed {
+                                commit_direct_edit(&sh, ed);
+                            }
                         }
                         FORCE_REDRAW_FLAG.store(true, Ordering::Relaxed);
                     }
@@ -2170,12 +3003,21 @@ mod win_host {
 
             if should_exit {
                 WANT_VISIBLE_MODE.store(false, Ordering::Relaxed);
-                let hwnds_to_destroy: Vec<HWND> = HOST_STATE.with(|cell| {
-                    cell.borrow_mut()
-                        .take()
-                        .map(|st| st.surfaces.into_iter().map(|s| s.hwnd).collect())
-                        .unwrap_or_default()
-                });
+                let (active_ed, hwnds_to_destroy): (Option<DirectInlineEdit>, Vec<HWND>) =
+                    HOST_STATE.with(|cell| {
+                        cell.borrow_mut()
+                            .take()
+                            .map(|st| {
+                                (
+                                    st.direct_edit,
+                                    st.surfaces.into_iter().map(|s| s.hwnd).collect(),
+                                )
+                            })
+                            .unwrap_or((None, Vec::new()))
+                    });
+                if let Some(ed) = active_ed {
+                    cancel_direct_edit(ed);
+                }
                 // DestroyWindow sends WM_DESTROY synchronously; HOST_STATE is already dropped here!
                 for h in hwnds_to_destroy {
                     unsafe {
@@ -2221,10 +3063,9 @@ mod win_host {
 
             let visible_now = !screen_off
                 && ((cfg_enabled && display_mode == DisplayMode::DesktopAttached) || board_visible);
-            let render_paused = (auto_pause_fullscreen
-                && fullscreen_or_game_active
-                && !board_visible)
-                || (standby_paused && !board_visible);
+            let render_paused =
+                (auto_pause_fullscreen && fullscreen_or_game_active && !board_visible)
+                    || (standby_paused && !board_visible);
 
             STAY_BOTTOM_MODE.store(!board_visible, Ordering::Relaxed);
             WANT_VISIBLE_MODE.store(visible_now, Ordering::Relaxed);
@@ -2365,15 +3206,29 @@ mod win_host {
             let force_redraw = FORCE_REDRAW_FLAG.swap(false, Ordering::Relaxed);
             let data_changed = shared_data_rev != local_data_rev;
             let audio_changed = shared_audio_rev != local_audio_rev;
-            let interaction_active = HOST_STATE.with(|cell| {
+            let (interaction_active, direct_edit_active, caret_now) = HOST_STATE.with(|cell| {
                 cell.try_borrow()
                     .ok()
                     .and_then(|b| {
-                        b.as_ref()
-                            .map(|st| st.dragging.is_some() || st.pending_press.is_some())
+                        b.as_ref().map(|st| {
+                            let active = st.dragging.is_some() || st.pending_press.is_some();
+                            let editing = st.direct_edit.is_some();
+                            let caret = st
+                                .direct_edit
+                                .as_ref()
+                                .map(|ed| ed.caret_visible(now))
+                                .unwrap_or(false);
+                            (active, editing, caret)
+                        })
                     })
-                    .unwrap_or(false)
+                    .unwrap_or((false, false, false))
             });
+            let caret_blink_dirty = direct_edit_active && caret_now != prev_caret_visible;
+            if direct_edit_active {
+                prev_caret_visible = caret_now;
+            } else {
+                prev_caret_visible = true;
+            }
 
             let min_frame_interval = match last_target_fps {
                 0 => Duration::ZERO,
@@ -2387,6 +3242,7 @@ mod win_host {
                 || had_cmds
                 || data_changed
                 || minute_tick_dirty
+                || caret_blink_dirty
                 || interaction_active;
             let has_continuous_work = audio_changed
                 || prev_spring_active
@@ -2459,8 +3315,10 @@ mod win_host {
                     || data_changed
                     || minute_tick_dirty
                     || force_redraw
+                    || caret_blink_dirty
                     || had_cmds
                     || edit_mode
+                    || direct_edit_active
                     || interaction_active
                     || prev_spring_active
                     || last_target_fps == 1
@@ -2481,6 +3339,11 @@ mod win_host {
                     let elapsed_secs = st.start_time.elapsed().as_secs_f32();
                     let mut total_dirty = 0usize;
 
+                    let dragging_target = st
+                        .dragging
+                        .as_ref()
+                        .map(|d| (d.slot_id.clone(), d.target_hwnd));
+
                     for surf in &mut st.surfaces {
                         let dpi = unsafe { (GetDpiForWindow(surf.hwnd) as f32).max(96.0) };
                         if let Some(ref mut swap) = surf.swap {
@@ -2498,8 +3361,16 @@ mod win_host {
                             .slots
                             .iter()
                             .filter(|slot| {
-                                slot.monitor_id == surf.info.id
-                                    || (surf.info.is_primary && slot.monitor_id == "primary")
+                                if let Some((ref drag_id, target_hwnd)) = dragging_target {
+                                    if slot.slot_id == *drag_id {
+                                        return target_hwnd == surf.hwnd;
+                                    }
+                                }
+                                monitor_ids_match(
+                                    &slot.monitor_id,
+                                    &surf.info.id,
+                                    surf.info.is_primary,
+                                )
                             })
                             .collect();
 
@@ -2725,6 +3596,38 @@ mod win_host {
                                         policy.reduced_motion,
                                     );
                                 }
+                                if !edit_mode {
+                                    if let Some(ref active_edit) = st.direct_edit {
+                                        if active_edit.slot_id == slot.slot_id {
+                                            let (note_style, paper_color) = item
+                                                .nodes
+                                                .iter()
+                                                .find_map(|n| match n {
+                                                    crate::layout::SceneNode::StickyPaper {
+                                                        style,
+                                                        paper_color,
+                                                        ..
+                                                    } => Some((style.clone(), *paper_color)),
+                                                    _ => None,
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    (
+                                                        "tape".to_string(),
+                                                        crate::config::RgbaColor::new(
+                                                            0xFF, 0xF0, 0x7C, 0.98,
+                                                        ),
+                                                    )
+                                                });
+                                            apply_direct_edit_overlay(
+                                                &mut item,
+                                                active_edit,
+                                                &note_style,
+                                                paper_color,
+                                                active_edit.caret_visible(now),
+                                            );
+                                        }
+                                    }
+                                }
                                 item.compute_hit_regions(edit_mode);
                                 built.push(item);
                             }
@@ -2869,7 +3772,7 @@ mod win_host {
                 }
             }
 
-            let wait_ms: u32 =
+            let mut wait_ms: u32 =
                 if !should_render && visible_now && !render_paused && has_continuous_work {
                     min_frame_interval
                         .saturating_sub(last_render_at.elapsed())
@@ -2884,6 +3787,9 @@ mod win_host {
                         _ => 16,
                     }
                 };
+            if direct_edit_active && visible_now && !render_paused {
+                wait_ms = wait_ms.min(260);
+            }
             // Kernel wait: 0% CPU while idle, wakes up in <0.1ms on any mouse hover/click/drag message
             unsafe {
                 let _ = MsgWaitForMultipleObjects(None, false, wait_ms, QS_ALLINPUT);
@@ -2891,5 +3797,30 @@ mod win_host {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn monitor_id_matching_supports_primary_alias_and_device_names() {
+        assert_eq!(normalize_monitor_token(r"  \\.\DISPLAY2  "), "display2");
+        assert!(monitor_ids_match("primary", r"\\.\DISPLAY1", true));
+        assert!(monitor_ids_match("", r"\\.\DISPLAY1", true));
+        assert!(!monitor_ids_match("primary", r"\\.\DISPLAY2", false));
+        assert!(monitor_ids_match(r"\\.\DISPLAY2", r"\\.\DISPLAY2", false));
+        assert!(monitor_ids_match("display2", r"\\.\DISPLAY2", false));
+        assert!(!monitor_ids_match(r"\\.\DISPLAY2", r"\\.\DISPLAY1", true));
+    }
+
+    #[test]
+    fn canonical_slot_monitor_id_preserves_primary_and_secondary_device() {
+        assert_eq!(canonical_slot_monitor_id(r"\\.\DISPLAY1", true), "primary");
+        assert_eq!(
+            canonical_slot_monitor_id(r"\\.\DISPLAY2", false),
+            r"\\.\DISPLAY2"
+        );
     }
 }

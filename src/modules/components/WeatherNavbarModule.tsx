@@ -16,6 +16,8 @@ import { Tooltip } from "../../components/ui/Tooltip";
 import { makeTriggerA11yProps, TRIGGER_FOCUS_RING } from "../../utils/triggerA11y";
 import { getNavbarTooltipSide, tx, useTaskbarLang } from "../../services/taskbarI18n";
 import type { Language } from "../../services/i18n";
+import { useTemperatureUnit } from "../../hooks/useTemperatureUnit";
+import { TemperatureUnit, formatTemperature } from "../../utils/temperatureUnit";
 
 const WEATHER_KEY = "gili_weather_cache_v3";
 
@@ -42,6 +44,7 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
   config,
 }) => {
   const lang = useTaskbarLang();
+  const [tempUnit, setTempUnit] = useTemperatureUnit();
   const isLight = useNavbarIsLightSurface(config);
   const tooltipSide = getNavbarTooltipSide(config?.position);
   const isVertical = config?.position === "left" || config?.position === "right";
@@ -107,10 +110,21 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
   }, [loadWeather, setActiveCity]);
 
   const displayCity = weather?.city || cityInput || "Bandung";
-  const tempLabel = weather ? `${weather.temp}°` : "--°";
+  const compactTempLabel = weather
+    ? formatTemperature(weather.temp, tempUnit, { showUnit: false })
+    : "--°";
+  const fullTempLabel = weather
+    ? formatTemperature(weather.temp, tempUnit, { showUnit: true })
+    : "--°";
   const condLabel = localizeWeatherCondition(weather?.condition, lang);
   const isRain = Boolean(weather?.isRain);
   const handleToggle = () => setIsOpen((v) => !v);
+  const handleSelectUnit = (nextUnit: TemperatureUnit) => {
+    setTempUnit(nextUnit);
+    import("../../services/desktopWidgetsService")
+      .then((m) => m.syncFrontendWidgetMirror())
+      .catch(() => {});
+  };
   const sunClass = isLight ? "text-amber-600" : "text-[#facc15]";
   const rainClass = isLight ? "text-sky-600" : "text-sky-400";
 
@@ -119,8 +133,8 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
       <Tooltip
         content={tx(
           lang,
-          `Weather ${displayCity}: ${tempLabel}C (${condLabel})`,
-          `Cuaca ${displayCity}: ${tempLabel}C (${condLabel})`
+          `Weather ${displayCity}: ${fullTempLabel} (${condLabel})`,
+          `Cuaca ${displayCity}: ${fullTempLabel} (${condLabel})`
         )}
         side={tooltipSide}
         disabled={isOpen}
@@ -134,8 +148,8 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
             handleToggle,
             tx(
               lang,
-              `Weather ${displayCity}: ${tempLabel} ${condLabel}`,
-              `Cuaca ${displayCity}: ${tempLabel} ${condLabel}`
+              `Weather ${displayCity}: ${fullTempLabel} ${condLabel}`,
+              `Cuaca ${displayCity}: ${fullTempLabel} ${condLabel}`
             ),
             isOpen
           )}
@@ -153,7 +167,7 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
                 <Sun size={13} className={sunClass} />
               )}
               <span className="text-[9.5px] font-bold text-white leading-none mt-0.5 tabular-nums">
-                {tempLabel}
+                {compactTempLabel}
               </span>
             </>
           ) : (
@@ -165,7 +179,7 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
               )}
               <div className="flex flex-col leading-[1.15] min-w-0 max-w-[140px]">
                 <span className="text-[11.5px] font-bold text-white tabular-nums truncate">
-                  {tempLabel}C · {displayCity}
+                  {fullTempLabel} · {displayCity}
                 </span>
                 <span className="text-[10px] text-zinc-400 truncate">{condLabel}</span>
               </div>
@@ -189,7 +203,7 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
           <div className="flex items-center justify-between gap-2 p-2.5 rounded-[10px] bg-white/[0.04] min-w-0">
             <div className="min-w-0 flex-1">
               <div className="text-[20px] font-bold text-white tabular-nums">
-                {tempLabel}C
+                {fullTempLabel}
               </div>
               <div className="text-[11px] text-zinc-200 break-words">
                 {displayCity} · {condLabel}
@@ -199,11 +213,42 @@ export const WeatherNavbarModule: React.FC<NavbarModuleProps> = ({
                 {weather ? `${weather.humidity}%` : "--"}
               </div>
             </div>
-            {isRain ? (
-              <CloudRain size={26} className={`${rainClass} shrink-0`} />
-            ) : (
-              <Sun size={26} className={`${sunClass} shrink-0`} />
-            )}
+            <div className="flex flex-col items-end gap-1.5 shrink-0">
+              {isRain ? (
+                <CloudRain size={26} className={`${rainClass} shrink-0`} />
+              ) : (
+                <Sun size={26} className={`${sunClass} shrink-0`} />
+              )}
+              <div
+                className={`inline-flex rounded-[7px] p-0.5 border ${
+                  isLight
+                    ? "bg-black/[0.06] border-black/[0.10]"
+                    : "bg-white/[0.06] border-white/[0.08]"
+                }`}
+                role="group"
+                aria-label={tx(lang, "Temperature unit", "Satuan suhu")}
+              >
+                {(["celsius", "fahrenheit"] as const).map((u) => {
+                  const active = tempUnit === u;
+                  return (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => handleSelectUnit(u)}
+                      className={`px-1.5 py-0.5 rounded-[5px] text-[10px] font-semibold cursor-pointer transition-colors ${TRIGGER_FOCUS_RING} ${
+                        active
+                          ? "bg-[#3882F6] text-white"
+                          : isLight
+                            ? "text-zinc-600 hover:text-zinc-900"
+                            : "text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      {u === "celsius" ? "°C" : "°F"}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           <form

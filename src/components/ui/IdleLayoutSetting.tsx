@@ -16,6 +16,7 @@ import { Tooltip } from "./Tooltip";
 import { t, Language } from "../../services/i18n";
 import { getWeatherIcon } from "./NotifIcon";
 import { getTextWidth } from "../../utils/text";
+import { formatTemperature, getTemperatureUnit } from "../../utils/temperatureUnit";
 import {
   getImmediatePrayerSchedule,
   getNextPrayerStatus,
@@ -226,7 +227,8 @@ export function measureIdleSlotItemWidth(
       return Math.ceil(getTextWidth(pingText, statFont) + 14);
     }
     case "weather": {
-      const tempText = data.weather?.temp || "--°";
+      const tempText =
+        data.weather?.temp || formatTemperature(28, getTemperatureUnit());
       return Math.ceil(getTextWidth(tempText, statFont) + 20);
     }
     case "todo": {
@@ -462,7 +464,9 @@ export const IdleSlotView: React.FC<{
         <Tooltip content={data.weather?.locationName || undefined} side="bottom" disabled={!data.weather?.locationName}>
           <div className="flex items-center gap-1 shrink-0">
             {getWeatherIcon(data.weather?.code ?? 0)}
-            <span style={customStyle} className={baseTextClass}>{data.weather?.temp || "28°"}</span>
+            <span style={customStyle} className={baseTextClass}>
+              {data.weather?.temp || formatTemperature(28, getTemperatureUnit())}
+            </span>
           </div>
         </Tooltip>
       );

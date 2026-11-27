@@ -474,6 +474,9 @@ pub fn normalize_config(mut cfg: DesktopWidgetsConfig) -> DesktopWidgetsConfig {
     cfg.recent_colors.truncate(16);
     cfg.slots.retain(|slot| !slot.widgets.is_empty());
     for slot in &mut cfg.slots {
+        if slot.monitor_id.trim().is_empty() {
+            slot.monitor_id = "primary".to_string();
+        }
         slot.grid_col = slot.grid_col.max(0);
         slot.grid_row = slot.grid_row.max(0);
         if slot.active_index >= slot.widgets.len() {

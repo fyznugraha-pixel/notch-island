@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   Plus,
@@ -30,6 +31,8 @@ import {
   saveDesktopWidgetsConfig,
   setDesktopWidgetEditMode,
   syncFrontendWidgetMirror,
+  takePendingWidgetCustomizerSlot,
+  takePendingWidgetGalleryMonitor,
   takePendingWidgetProvider,
   toggleDesktopWidgetBoard,
 } from "../../../../services/desktopWidgetsService";
@@ -37,7 +40,9 @@ import { SettingRow } from "../SettingRow";
 import { IosSwitch } from "../../../ios/IosSwitch";
 import { IosSegmentedControl } from "../../../ios/IosSegmentedControl";
 import { IosSelect } from "../../../ios/IosSelect";
+import { MonitorInfo } from "../MonitorSelector";
 import { WidgetColorCustomizer } from "./WidgetColorCustomizer";
+import { StickyNoteEditorPanel, STICKY_NOTE_PRESET_COLORS } from "./StickyNoteEditorPanel";
 import { WidgetGalleryModal } from "./WidgetGalleryModal";
 import { ActiveWidgetThumb } from "./ActiveWidgetThumb";
 import { WidgetProvidersCard } from "./WidgetProvidersCard";
@@ -49,6 +54,13 @@ import {
   localizeCatalogEntry,
   localizePausedReason,
 } from "./desktopWidgetsI18n";
+import {
+  buildMonitorSelectOptions,
+  canonicalizeMonitorId,
+  findFreeGridCell,
+  normalizeMonitorToken,
+  resolveSlotMonitorLabel,
+} from "./widgetMonitorUtils";
 
 interface DesktopWidgetsTabProps {
   optLanguage: Language;
@@ -79,6 +91,8 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   const [catalog, setCatalog] = useState<WidgetCatalogEntry[]>([]);
   const [metrics, setMetrics] = useState<WidgetRuntimeMetrics | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
+  const [targetMonitorId, setTargetMonitorId] = useState<string>("primary");
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [focusProvider, setFocusProvider] = useState<{ id: string; nonce: number } | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -109,13 +123,38 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       })
       .catch(() => { });
 
+    const refreshMonitors = () => {
+      invoke<MonitorInfo[]>("get_available_monitors")
+        .then((list) => {
+          if (alive && Array.isArray(list)) setMonitors(list);
+        })
+        .catch(() => { });
+    };
+    refreshMonitors();
+
     takePendingWidgetProvider().then(focusProviderById).catch(() => { });
+    takePendingWidgetGalleryMonitor()
+      .then((monId) => {
+        if (!alive || !monId) return;
+        setTargetMonitorId(monId);
+        setGalleryOpen(true);
+      })
+      .catch(() => { });
+    takePendingWidgetCustomizerSlot()
+      .then((slotId) => {
+        if (alive && slotId) setEditingSlotId(slotId);
+      })
+      .catch(() => { });
     syncFrontendWidgetMirror().catch(() => { });
 
     const unlistenPromise = listen("desktop-widgets-config-changed", () => {
       getDesktopWidgetsConfig()
         .then((fresh) => {
-          if (alive) setConfig(fresh);
+          if (!alive) return;
+          if (!saveInFlightRef.current && !queuedSaveRef.current) {
+            configRef.current = fresh;
+            setConfig(fresh);
+          }
         })
         .catch(() => { });
     });
@@ -125,6 +164,21 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       takePendingWidgetProvider().catch(() => null);
       focusProviderById(event.payload);
     });
+
+    const unlistenGalleryPromise = listen<string>("desktop-widgets-open-gallery", (event) => {
+      if (!alive) return;
+      takePendingWidgetGalleryMonitor().catch(() => null);
+      if (event.payload) setTargetMonitorId(event.payload);
+      setGalleryOpen(true);
+    });
+
+    const unlistenCustomizerPromise = listen<string>("desktop-widgets-open-customizer", (event) => {
+      if (!alive || !event.payload) return;
+      takePendingWidgetCustomizerSlot().catch(() => null);
+      setEditingSlotId(event.payload);
+    });
+
+    const unlistenMonitorsPromise = listen("monitors-changed", refreshMonitors);
 
     const timer = window.setInterval(() => {
       getDesktopWidgetsRuntimeMetrics()
@@ -141,6 +195,9 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       if (saveDebounceRef.current !== null) window.clearTimeout(saveDebounceRef.current);
       unlistenPromise.then((fn) => fn()).catch(() => { });
       unlistenFocusPromise.then((fn) => fn()).catch(() => { });
+      unlistenGalleryPromise.then((fn) => fn()).catch(() => { });
+      unlistenCustomizerPromise.then((fn) => fn()).catch(() => { });
+      unlistenMonitorsPromise.then((fn) => fn()).catch(() => { });
     };
   }, []);
 
@@ -235,23 +292,34 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
   const mutedCls = isLightMode ? "text-neutral-500" : "text-zinc-400";
 
   const handleAddWidget = (entry: WidgetCatalogEntry, size: WidgetSize) => {
-    // Auto-place into columns of at most 3 rows so new widgets never clip behind the taskbar
-    const usedCells = new Set(config.slots.map((s) => `${s.grid_col},${s.grid_row}`));
-    let chosenCol = 0;
-    let chosenRow = 0;
-    outer: for (let col = 0; col <= 8; col += 2) {
-      for (let row = 0; row < 3; row++) {
-        if (!usedCells.has(`${col},${row}`)) {
-          chosenCol = col;
-          chosenRow = row;
-          break outer;
-        }
-      }
-    }
+    const resolvedMonitorId = canonicalizeMonitorId(targetMonitorId, monitors);
+    const { col: chosenCol, row: chosenRow } = findFreeGridCell(
+      config.slots,
+      resolvedMonitorId,
+      monitors
+    );
     const id = `slot_${Date.now()}`;
+    const existingPaperCount = config.slots.filter(
+      (s) => s.widgets[s.active_index]?.widget_type === "paper_sticky_note"
+    ).length;
+    const naturalTilts = [-3.2, 2.5, -1.8, 3.6, -2.7, 1.9];
+    const initialSettings: Record<string, unknown> =
+      entry.widget_type === "paper_sticky_note"
+        ? {
+            paper_color:
+              STICKY_NOTE_PRESET_COLORS[
+                existingPaperCount % STICKY_NOTE_PRESET_COLORS.length
+              ].hex,
+            note_style: "tape",
+            tilt_deg: naturalTilts[existingPaperCount % naturalTilts.length],
+            show_lines: true,
+            title: "",
+            text: "",
+          }
+        : {};
     const newSlot: WidgetStackSlot = {
       slot_id: id,
-      monitor_id: "primary",
+      monitor_id: resolvedMonitorId,
       size,
       grid_col: chosenCol,
       grid_row: chosenRow,
@@ -262,7 +330,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           instance_id: `w_${Date.now()}`,
           widget_type: entry.widget_type,
           style_override: null,
-          settings: {},
+          settings: initialSettings,
         },
       ],
     };
@@ -279,14 +347,97 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
       return;
     }
     persistConfig({ ...config, enabled: true, slots: [...config.slots, newSlot] });
+    if (entry.widget_type === "paper_sticky_note") {
+      setEditingSlotId(id);
+    }
     setGalleryOpen(false);
     const localized = localizeCatalogEntry(entry, isId);
+    const monSuffix =
+      monitors.length > 1
+        ? ` (${resolveSlotMonitorLabel(resolvedMonitorId, monitors, isId)})`
+        : "";
     flash(
       tr(
-        `Widget "${localized.name}" ditambahkan ke desktop.`,
-        `Widget "${localized.name}" added to desktop.`
+        `Widget "${localized.name}" ditambahkan ke desktop${monSuffix}.`,
+        `Widget "${localized.name}" added to desktop${monSuffix}.`
       )
     );
+  };
+
+  const handleChangeSlotMonitor = (slotId: string, nextMonitorId: string) => {
+    const resolvedMonitorId = canonicalizeMonitorId(nextMonitorId, monitors);
+    const { col, row } = findFreeGridCell(config.slots, resolvedMonitorId, monitors, slotId);
+    persistConfig((prev) => ({
+      ...prev,
+      slots: prev.slots.map((s) =>
+        s.slot_id === slotId
+          ? { ...s, monitor_id: resolvedMonitorId, pos_x: null, pos_y: null, grid_col: col, grid_row: row }
+          : s
+      ),
+    }));
+  };
+
+  const handleAddStickyNoteFromSlot = (sourceSlot: WidgetStackSlot) => {
+    const resolvedMonitorId = canonicalizeMonitorId(sourceSlot.monitor_id, monitors);
+    const { col: chosenCol, row: chosenRow } = findFreeGridCell(
+      config.slots,
+      resolvedMonitorId,
+      monitors
+    );
+    const existingPaperCount = config.slots.filter(
+      (s) => s.widgets[s.active_index]?.widget_type === "paper_sticky_note"
+    ).length;
+    const sourceSettings = (sourceSlot.widgets[sourceSlot.active_index]?.settings ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const sourceColor =
+      typeof sourceSettings.paper_color === "string" ? sourceSettings.paper_color.toUpperCase() : "";
+    let colorIdx = existingPaperCount % STICKY_NOTE_PRESET_COLORS.length;
+    if (STICKY_NOTE_PRESET_COLORS[colorIdx].hex.toUpperCase() === sourceColor) {
+      colorIdx = (colorIdx + 1) % STICKY_NOTE_PRESET_COLORS.length;
+    }
+    const naturalTilts = [-3.2, 2.5, -1.8, 3.6, -2.7, 1.9];
+    const sourceStyle =
+      sourceSettings.note_style === "curled" ||
+      sourceSettings.note_style === "pin" ||
+      sourceSettings.note_style === "tape"
+        ? sourceSettings.note_style
+        : "tape";
+    const showLines =
+      typeof sourceSettings.show_lines === "boolean" ? sourceSettings.show_lines : true;
+    const id = `slot_sticky_${Date.now()}`;
+    const newSlot: WidgetStackSlot = {
+      slot_id: id,
+      monitor_id: resolvedMonitorId,
+      size: sourceSlot.size,
+      grid_col: chosenCol,
+      grid_row: chosenRow,
+      active_index: 0,
+      auto_rotate_minutes: 0,
+      widgets: [
+        {
+          instance_id: `w_sticky_${Date.now()}`,
+          widget_type: "paper_sticky_note",
+          style_override: null,
+          settings: {
+            paper_color: STICKY_NOTE_PRESET_COLORS[colorIdx].hex,
+            note_style: sourceStyle,
+            tilt_deg: naturalTilts[existingPaperCount % naturalTilts.length],
+            show_lines: showLines,
+            title: "",
+            text: "",
+          },
+        },
+      ],
+    };
+    persistConfig((prev) => ({
+      ...prev,
+      enabled: !isProLocked ? true : prev.enabled,
+      slots: [...prev.slots, newSlot],
+    }));
+    setEditingSlotId(id);
+    flash(tr("Sticky Note baru ditambahkan ke desktop.", "New Sticky Note added to desktop."));
   };
 
   const handleRemoveSlot = (slotId: string) => {
@@ -335,7 +486,10 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
     }));
   };
 
-  const handleUpdateWidgetSetting = (slotId: string, key: string, value: unknown) => {
+  const handleUpdateWidgetSettings = (
+    slotId: string,
+    patch: Record<string, unknown>
+  ) => {
     persistConfig((prev) => ({
       ...prev,
       slots: prev.slots.map((s) => {
@@ -344,12 +498,16 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           ...s,
           widgets: s.widgets.map((w, idx) =>
             idx === s.active_index
-              ? { ...w, settings: { ...(w.settings || {}), [key]: value } }
+              ? { ...w, settings: { ...(w.settings || {}), ...patch } }
               : w
           ),
         };
       }),
     }));
+  };
+
+  const handleUpdateWidgetSetting = (slotId: string, key: string, value: unknown) => {
+    handleUpdateWidgetSettings(slotId, { [key]: value });
   };
 
   const handleSavePreset = (name: string, style: WidgetStyleConfig) => {
@@ -446,7 +604,7 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
             onClick={() => setGalleryOpen(true)}
             className="h-9 px-4 rounded-full bg-[#0a84ff] hover:bg-[#0071e3] text-white text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-[0_6px_18px_rgba(10,132,255,0.32)]"
           >
-            <Plus size={14} /> {tr("Galeri (34)", "Gallery (34)")}
+            <Plus size={14} /> {tr(`Galeri (${catalog.length || 35})`, `Gallery (${catalog.length || 35})`)}
           </button>
           <button
             type="button"
@@ -652,8 +810,8 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
           {config.slots.length === 0 ? (
             <div className={`px-3 py-4 text-[12px] ${mutedCls}`}>
               {tr(
-                "Belum ada widget terpasang. Buka Galeri (34) untuk menambahkan widget pertama Anda.",
-                "No widgets installed yet. Open Gallery (34) to add your first desktop widget."
+                `Belum ada widget terpasang. Buka Galeri (${catalog.length || 35}) untuk menambahkan widget pertama Anda.`,
+                `No widgets installed yet. Open Gallery (${catalog.length || 35}) to add your first desktop widget.`
               )}
             </div>
           ) : (
@@ -662,6 +820,9 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
               const rawMeta = catalog.find((c) => c.widget_type === active?.widget_type);
               const meta = rawMeta ? localizeCatalogEntry(rawMeta, isId) : undefined;
               const supported = meta?.supported_sizes ?? (["small", "medium", "large"] as WidgetSize[]);
+              const slotMonitorCanonical = canonicalizeMonitorId(slot.monitor_id, monitors);
+              const showMonitorControl = monitors.length > 1 || slotMonitorCanonical !== "primary";
+              const slotMonitorLabel = resolveSlotMonitorLabel(slot.monitor_id, monitors, isId);
               return (
                 <div
                   key={slot.slot_id}
@@ -669,7 +830,15 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                     }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {rawMeta ? (
+                    {active?.widget_type === "paper_sticky_note" ? (
+                      <div
+                        className="w-8 h-8 rounded-[6px] shrink-0 border border-black/15 shadow-sm"
+                        style={{
+                          backgroundColor: String(active.settings?.paper_color ?? "#FFF07C"),
+                          transform: "rotate(-4deg)",
+                        }}
+                      />
+                    ) : rawMeta ? (
                       <ActiveWidgetThumb entry={rawMeta} size={slot.size} isId={isId} />
                     ) : (
                       <div className="w-8 h-8 rounded-[9px] bg-[#34c3a0]/15 text-[#34c3a0] flex items-center justify-center shrink-0">
@@ -679,6 +848,15 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                     <div className="min-w-0">
                       <div className="text-[13px] font-semibold truncate">
                         {meta?.name ?? active?.widget_type}
+                        {active?.widget_type === "paper_sticky_note" &&
+                          String(active.settings?.title || active.settings?.text || "").trim() && (
+                            <span className={`ml-2 text-[11px] font-normal ${mutedCls}`}>
+                              ·{" "}
+                              {String(active.settings?.title || active.settings?.text)
+                                .trim()
+                                .split(/\r?\n/)[0]}
+                            </span>
+                          )}
                         {slot.widgets.length > 1 && (
                           <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-[#0a84ff]/20 text-[#0a84ff]">
                             {tr("Tumpukan", "Stack")} {slot.widgets.length}
@@ -686,15 +864,28 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
                         )}
                       </div>
                       <div className={`text-[11px] truncate ${mutedCls}`}>
-                        {tr("Kolom", "Col")} {slot.grid_col + 1}, {tr("Baris", "Row")} {slot.grid_row + 1} .{" "}
-                        {active?.style_override
+                        {showMonitorControl ? `${slotMonitorLabel} · ` : ""}
+                        {tr("Kolom", "Col")} {slot.grid_col + 1}, {tr("Baris", "Row")} {slot.grid_row + 1} ·{" "}
+                        {active?.widget_type === "paper_sticky_note"
+                          ? String(active.settings?.paper_color ?? "#FFF07C").toUpperCase()
+                          : active?.style_override
                           ? tr("Penimpaan gaya aktif", "Style override active")
                           : tr("Ikut Tema Global", "Follows Global Theme")}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-nowrap items-center justify-end gap-1.5 shrink-0">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+                    {showMonitorControl && (
+                      <IosSelect<string>
+                        value={slotMonitorCanonical}
+                        options={buildMonitorSelectOptions(monitors, isId, slotMonitorCanonical)}
+                        onChange={(v) => handleChangeSlotMonitor(slot.slot_id, v)}
+                        isLightMode={isLightMode}
+                        ariaLabel={tr("Monitor widget", "Widget monitor")}
+                        minWidthClass="w-[138px]"
+                      />
+                    )}
                     {active?.widget_type === "calendar_agenda" && (
                       <IosSelect
                         value={String(active.settings?.calendar_style ?? "bulan_minimal")}
@@ -753,34 +944,52 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         </div>
       </div>
 
-      {/* Per-Widget Style Override */}
+      {/* Per-Widget Style Override or Sticky Note Editor */}
       {editingSlot && editingWidget && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between px-1">
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#0a84ff]">
-              {tr("Penimpaan Gaya Widget Terpilih", "Selected Widget Style Override")}
+              {editingWidget.widget_type === "paper_sticky_note"
+                ? tr("Editor & Warna Sticky Note", "Sticky Note Content & Color")
+                : tr("Penimpaan Gaya Widget Terpilih", "Selected Widget Style Override")}
             </span>
-            <button
-              type="button"
-              onClick={() => handleUpdateSlotStyle(editingSlot.slot_id, null)}
-              className="text-[11.5px] text-zinc-400 hover:text-white cursor-pointer"
-            >
-              {tr("Reset ke Tema Global", "Reset to Global Theme")}
-            </button>
+            {editingWidget.widget_type !== "paper_sticky_note" && (
+              <button
+                type="button"
+                onClick={() => handleUpdateSlotStyle(editingSlot.slot_id, null)}
+                className="text-[11.5px] text-zinc-400 hover:text-white cursor-pointer"
+              >
+                {tr("Reset ke Tema Global", "Reset to Global Theme")}
+              </button>
+            )}
           </div>
-          <WidgetColorCustomizer
-            title={tr("Kustomisasi Warna & Latar Widget Ini", "Customize This Widget Style")}
-            style={editingWidget.style_override ?? config.global_theme}
-            presets={config.presets}
-            recentColors={config.recent_colors}
-            isLightMode={isLightMode}
-            isId={isId}
-            onChange={(nextStyle, recordedHex) =>
-              handleUpdateSlotStyle(editingSlot.slot_id, nextStyle, recordedHex)
-            }
-            onSavePreset={handleSavePreset}
-            onRecordRecentColor={handleRecordRecentColor}
-          />
+          {editingWidget.widget_type === "paper_sticky_note" ? (
+            <StickyNoteEditorPanel
+              key={editingSlot.slot_id}
+              slotId={editingSlot.slot_id}
+              settings={(editingWidget.settings ?? {}) as Record<string, unknown>}
+              isLightMode={isLightMode}
+              isId={isId}
+              onPatchSettings={(patch) =>
+                handleUpdateWidgetSettings(editingSlot.slot_id, patch)
+              }
+              onAddAnotherStickyNote={() => handleAddStickyNoteFromSlot(editingSlot)}
+            />
+          ) : (
+            <WidgetColorCustomizer
+              title={tr("Kustomisasi Warna & Latar Widget Ini", "Customize This Widget Style")}
+              style={editingWidget.style_override ?? config.global_theme}
+              presets={config.presets}
+              recentColors={config.recent_colors}
+              isLightMode={isLightMode}
+              isId={isId}
+              onChange={(nextStyle, recordedHex) =>
+                handleUpdateSlotStyle(editingSlot.slot_id, nextStyle, recordedHex)
+              }
+              onSavePreset={handleSavePreset}
+              onRecordRecentColor={handleRecordRecentColor}
+            />
+          )}
         </div>
       )}
 
@@ -833,7 +1042,16 @@ export const DesktopWidgetsTab: React.FC<DesktopWidgetsTabProps> = ({
         catalog={catalog}
         isLightMode={isLightMode}
         isId={isId}
-        activeWidgetTypes={config.slots.flatMap((s) => s.widgets.map((w) => w.widget_type))}
+        monitors={monitors}
+        targetMonitorId={targetMonitorId}
+        onChangeTargetMonitor={setTargetMonitorId}
+        activeWidgetTypes={config.slots
+          .filter(
+            (s) =>
+              normalizeMonitorToken(canonicalizeMonitorId(s.monitor_id, monitors)) ===
+              normalizeMonitorToken(canonicalizeMonitorId(targetMonitorId, monitors))
+          )
+          .flatMap((s) => s.widgets.map((w) => w.widget_type))}
         onClose={() => setGalleryOpen(false)}
         onAddWidget={handleAddWidget}
       />

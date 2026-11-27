@@ -415,6 +415,10 @@ pub fn can_use_pro_bundle() -> bool {
     can_use_taskbar()
 }
 
+pub fn should_enable_in_app_updater() -> bool {
+    !is_packaged_msix()
+}
+
 pub fn current_status_snapshot() -> TaskbarProStatus {
     let packaged = is_packaged_msix();
     if !packaged {
@@ -1122,6 +1126,38 @@ pub async fn purchase_taskbar_pro(app: AppHandle) -> TaskbarProPurchaseOutcome {
     }
 }
 
+#[tauri::command]
+pub fn open_microsoft_store_updates() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use windows::core::{w, PCWSTR};
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        let res = unsafe {
+            ShellExecuteW(
+                None,
+                w!("open"),
+                w!("ms-windows-store://downloadsandupdates"),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if (res.0 as isize) <= 32 {
+            return Err(format!(
+                "Gagal membuka Microsoft Store (code {})",
+                res.0 as isize
+            ));
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Microsoft Store only available on Windows".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1249,5 +1285,6 @@ mod tests {
         assert!(format_store_error_hint(0x80070578).contains("Jendela"));
         assert!(format_store_error_hint(0x80072EE7).contains("internet"));
         assert!(format_store_error_hint(0xDEADBEEF).contains("Administrator"));
+        assert_eq!(should_enable_in_app_updater(), !is_packaged_msix());
     }
 }

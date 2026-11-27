@@ -12,6 +12,7 @@ import { resetAllAppSettings } from "../../../services/settingsResetService";
 
 export interface AdvancedTabProps {
   currentAppVersion: string;
+  isStoreManaged?: boolean;
   updateStatus: UpdateStatus;
   updateInfo: UpdateInfo | null;
   downloadProgress: number;
@@ -31,6 +32,7 @@ export interface AdvancedTabProps {
 
 export const AdvancedTab: React.FC<AdvancedTabProps> = ({
   currentAppVersion,
+  isStoreManaged = false,
   updateStatus,
   updateInfo,
   downloadProgress,
@@ -61,18 +63,19 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
     }
   };
 
-  const updateSubtitle =
-    updateStatus === "checking"
-      ? t("settings_checking_update")
-      : updateStatus === "available"
-      ? `${t("settings_update_available")}: v${updateInfo?.version}`
-      : updateStatus === "downloading"
-      ? `${t("settings_update_downloading")} ${downloadProgress}%`
-      : updateStatus === "installing"
-      ? t("settings_update_installing")
-      : updateStatus === "error"
-      ? t("settings_update_error")
-      : t("settings_adv_updates_desc", { version: currentAppVersion });
+  const updateSubtitle = isStoreManaged
+    ? t("settings_adv_updates_store_desc", { version: currentAppVersion })
+    : updateStatus === "checking"
+    ? t("settings_checking_update")
+    : updateStatus === "available"
+    ? `${t("settings_update_available")}: v${updateInfo?.version}`
+    : updateStatus === "downloading"
+    ? `${t("settings_update_downloading")} ${downloadProgress}%`
+    : updateStatus === "installing"
+    ? t("settings_update_installing")
+    : updateStatus === "error"
+    ? t("settings_update_error")
+    : t("settings_adv_updates_desc", { version: currentAppVersion });
 
   const clearTempSubtitle =
     clearTempStatus === "cleaning"
@@ -109,11 +112,24 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
         control={
           <button
             type="button"
-            onClick={updateStatus === "available" ? onInstallUpdate : onCheckUpdate}
-            disabled={updateStatus === "checking" || updateStatus === "downloading" || updateStatus === "installing"}
+            onClick={
+              isStoreManaged
+                ? onCheckUpdate
+                : updateStatus === "available"
+                ? onInstallUpdate
+                : onCheckUpdate
+            }
+            disabled={
+              !isStoreManaged &&
+              (updateStatus === "checking" ||
+                updateStatus === "downloading" ||
+                updateStatus === "installing")
+            }
             className={neutralBtnClass}
           >
-            {updateStatus === "available"
+            {isStoreManaged
+              ? t("settings_open_ms_store")
+              : updateStatus === "available"
               ? t("settings_update_now")
               : t("settings_check_update")}
           </button>

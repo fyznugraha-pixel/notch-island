@@ -13,7 +13,7 @@ pub mod render {
     use windows::Foundation::Numerics::Matrix3x2;
     use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Direct2D::Common::{
-        D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
+        D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BEZIER_SEGMENT, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
         D2D1_FIGURE_END_CLOSED, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F,
         D2D_SIZE_U,
     };
@@ -23,22 +23,23 @@ pub mod render {
         D2D1_ARC_SIZE_SMALL, D2D1_BITMAP_OPTIONS_NONE, D2D1_BITMAP_OPTIONS_TARGET,
         D2D1_BITMAP_PROPERTIES1, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH,
         D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
-        D2D1_EXTEND_MODE_CLAMP, D2D1_GAMMA_2_2,
-        D2D1_INTERPOLATION_MODE_LINEAR, D2D1_LAYER_PARAMETERS1,
-        D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES1,
-        D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+        D2D1_EXTEND_MODE_CLAMP, D2D1_GAMMA_2_2, D2D1_INTERPOLATION_MODE_LINEAR,
+        D2D1_LAYER_PARAMETERS1, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT,
+        D2D1_STROKE_STYLE_PROPERTIES1, D2D1_SWEEP_DIRECTION_CLOCKWISE,
+        D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
     };
     use windows::Win32::Graphics::DirectWrite::{
         IDWriteInlineObject, IDWriteTextFormat, IDWriteTextLayout, DWRITE_FONT_STRETCH_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-        DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_TEXT_ALIGNMENT_CENTER,
-        DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_RANGE,
-        DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_HIT_TEST_METRICS,
+        DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+        DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING,
+        DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_TRIMMING,
+        DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
         DWRITE_WORD_WRAPPING_WRAP,
     };
     use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 
-    const SLOT_CACHE_PAD_DP: f32 = 16.0;
+    const SLOT_CACHE_PAD_DP: f32 = 28.0;
 
     fn d2d_color(c: RgbaColor) -> D2D1_COLOR_F {
         D2D1_COLOR_F {
@@ -319,6 +320,54 @@ pub mod render {
                 wave_phase.to_bits().hash(h);
                 interactive_action.hash(h);
             }
+            SceneNode::StickyPaper {
+                rect,
+                paper_color,
+                style,
+                show_lines,
+                line_color,
+                curl_left,
+                interactive_action,
+            } => {
+                14u8.hash(h);
+                hash_rect(*rect, h);
+                hash_color(*paper_color, h);
+                style.hash(h);
+                show_lines.hash(h);
+                hash_color(*line_color, h);
+                curl_left.hash(h);
+                interactive_action.hash(h);
+            }
+            SceneNode::EditableText {
+                rect,
+                content,
+                placeholder,
+                font_size,
+                font_weight,
+                color,
+                placeholder_color,
+                caret_color,
+                selection_fill,
+                caret_utf16,
+                show_caret,
+                select_all,
+                max_lines,
+            } => {
+                15u8.hash(h);
+                hash_rect(*rect, h);
+                content.hash(h);
+                placeholder.hash(h);
+                font_size.to_bits().hash(h);
+                font_weight.hash(h);
+                hash_color(*color, h);
+                hash_color(*placeholder_color, h);
+                hash_color(*caret_color, h);
+                hash_color(*selection_fill, h);
+                caret_utf16.hash(h);
+                show_caret.hash(h);
+                select_all.hash(h);
+                max_lines.hash(h);
+            }
         }
     }
 
@@ -371,6 +420,7 @@ pub mod render {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         content_hash.hash(&mut h);
         item.edit_jiggle_deg.to_bits().hash(&mut h);
+        item.base_rotation_deg.to_bits().hash(&mut h);
         item.scale.to_bits().hash(&mut h);
         item.opacity.to_bits().hash(&mut h);
         let _ = (edit_mode, policy);
@@ -428,7 +478,8 @@ pub mod render {
         brush: ID2D1SolidColorBrush,
         dashed_stroke: ID2D1StrokeStyle,
         round_stroke: ID2D1StrokeStyle,
-        text_formats: HashMap<(String, u16, u32, u8), (IDWriteTextFormat, Option<IDWriteInlineObject>)>,
+        text_formats:
+            HashMap<(String, u16, u32, u8), (IDWriteTextFormat, Option<IDWriteInlineObject>)>,
         /// Cached offscreen bitmaps for text shadow/halo passes so shadows are never recomputed every frame.
         shadow_cache: HashMap<String, CachedBitmapEntry>,
         /// Per-slot rendered GPU bitmaps so static widgets blit in one DrawBitmap call during visualizer/animations.
@@ -524,12 +575,11 @@ pub mod render {
                     && k.starts_with(slot_id)
                     && k.as_bytes().get(prefix_len) == Some(&b':')
             };
-            self.digit_rolls
-                .iter()
-                .any(|(k, r)| matches_slot(k) && !r.progress.is_settled() && r.prev_text != r.current_text)
-                || self.photo_transitions.iter().any(|(k, t)| {
-                    matches_slot(k) && !t.progress.is_settled() && t.prev_path != t.current_path
-                })
+            self.digit_rolls.iter().any(|(k, r)| {
+                matches_slot(k) && !r.progress.is_settled() && r.prev_text != r.current_text
+            }) || self.photo_transitions.iter().any(|(k, t)| {
+                matches_slot(k) && !t.progress.is_settled() && t.prev_path != t.current_path
+            })
         }
 
         fn get_text_format_with_trim(
@@ -663,7 +713,13 @@ pub mod render {
             let oy = rect.y + (rect.h - s) * 0.5;
             let ctx = &res.d2d_context;
 
-            let draw_sun = |cx: f32, cy: f32, r: f32, ray_in: f32, ray_out: f32, sw: f32, col: RgbaColor| unsafe {
+            let draw_sun = |cx: f32,
+                            cy: f32,
+                            r: f32,
+                            ray_in: f32,
+                            ray_out: f32,
+                            sw: f32,
+                            col: RgbaColor| unsafe {
                 self.brush.SetColor(&d2d_color(col));
                 ctx.FillEllipse(
                     &D2D1_ELLIPSE {
@@ -707,7 +763,11 @@ pub mod render {
                     },
                     &self.brush,
                 );
-                for (dx, dy, r) in [(-0.19, -0.02, 0.18), (0.02, -0.11, 0.22), (0.22, 0.01, 0.15)] {
+                for (dx, dy, r) in [
+                    (-0.19, -0.02, 0.18),
+                    (0.02, -0.11, 0.22),
+                    (0.22, 0.01, 0.15),
+                ] {
                     ctx.FillEllipse(
                         &D2D1_ELLIPSE {
                             point: D2D_POINT_2F {
@@ -845,12 +905,7 @@ pub mod render {
                             );
                         }
                         self.brush.SetColor(&d2d_color(accent_color));
-                        let pts = [
-                            (0.53, 0.56),
-                            (0.43, 0.70),
-                            (0.53, 0.70),
-                            (0.45, 0.87),
-                        ];
+                        let pts = [(0.53, 0.56), (0.43, 0.70), (0.53, 0.70), (0.45, 0.87)];
                         for w in pts.windows(2) {
                             ctx.DrawLine(
                                 D2D_POINT_2F {
@@ -1022,7 +1077,8 @@ pub mod render {
                 .any(|it| self.slot_has_active_animation(&it.slot_id));
             let force_full = force_full || this_mon_anims_active;
             let mut dirty_rects_px: Vec<RECT> = Vec::new();
-            let mut next_hashes: HashMap<String, (u64, RectF)> = HashMap::with_capacity(items.len());
+            let mut next_hashes: HashMap<String, (u64, RectF)> =
+                HashMap::with_capacity(items.len());
             let mut content_hashes: Vec<u64> = Vec::with_capacity(items.len());
             let mut active_roll_keys: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
@@ -1067,8 +1123,13 @@ pub mod render {
                             .map(|(ph, pr)| *ph != h || *pr != item.frame)
                             .unwrap_or(true);
                     if changed {
-                        let pad = 20.0;
-                        if let Some((_, old_r)) = prev_mon_hashes.and_then(|m| m.get(&item.slot_id)) {
+                        let pad = if item.base_rotation_deg.abs() > 0.1 {
+                            56.0
+                        } else {
+                            36.0
+                        };
+                        if let Some((_, old_r)) = prev_mon_hashes.and_then(|m| m.get(&item.slot_id))
+                        {
                             dirty_rects_px.push(RECT {
                                 left: ((old_r.x - pad) * dpi_scale).floor() as i32,
                                 top: ((old_r.y - pad) * dpi_scale).floor() as i32,
@@ -1090,7 +1151,7 @@ pub mod render {
                 if let Some(prev_mon) = prev_mon_hashes {
                     for (old_id, (_, old_r)) in prev_mon {
                         if !next_hashes.contains_key(old_id) {
-                            let pad = 20.0;
+                            let pad = 56.0;
                             dirty_rects_px.push(RECT {
                                 left: ((old_r.x - pad) * dpi_scale).floor() as i32,
                                 top: ((old_r.y - pad) * dpi_scale).floor() as i32,
@@ -1295,7 +1356,7 @@ pub mod render {
                     let transform = Matrix3x2::translation(-cx, -cy)
                         * scale_mat
                         * Matrix3x2::translation(cx, cy)
-                        * Matrix3x2::rotation(item.edit_jiggle_deg, cx, cy);
+                        * Matrix3x2::rotation(item.base_rotation_deg + item.edit_jiggle_deg, cx, cy);
                     let dest = D2D_RECT_F {
                         left: item.frame.x - SLOT_CACHE_PAD_DP,
                         top: item.frame.y - SLOT_CACHE_PAD_DP,
@@ -1376,7 +1437,7 @@ pub mod render {
                 Matrix3x2::translation(-cx, -cy)
                     * scale_mat
                     * Matrix3x2::translation(cx, cy)
-                    * Matrix3x2::rotation(item.edit_jiggle_deg, cx, cy)
+                    * Matrix3x2::rotation(item.base_rotation_deg + item.edit_jiggle_deg, cx, cy)
             };
 
             unsafe {
@@ -1398,6 +1459,7 @@ pub mod render {
                     .nodes
                     .iter()
                     .any(|n| matches!(n, crate::layout::SceneNode::ImageRef { .. }));
+            let is_custom_paper = item.widget_type == "paper_sticky_note";
 
             let is_light_surface = item
                 .card_fill
@@ -1420,7 +1482,7 @@ pub mod render {
                 });
             let chrome_rgb = if is_light_surface { 0.08 } else { 1.0 };
 
-            if effective_bg != BackgroundMode::None {
+            if effective_bg != BackgroundMode::None && !is_custom_paper {
                 if !is_loaded_photo {
                     let downgraded_to_solid = effective_bg == BackgroundMode::Solid
                         && item.background_mode == BackgroundMode::Glass;
@@ -1544,7 +1606,7 @@ pub mod render {
                         }
                     }
                 }
-            } else if edit_mode {
+            } else if edit_mode && !is_custom_paper {
                 // Frameless widget shows a dashed rounded outline around its visual content ONLY while in edit mode
                 let edit_rect = item.visual_content_bounds();
                 if let Some(geom) = self.build_superellipse_geometry(
@@ -1566,7 +1628,10 @@ pub mod render {
             }
 
             // Cached shadow / halo bitmap pass for frameless legibility
-            if (item.shadow_enabled || item.halo_enabled) && effective_bg == BackgroundMode::None {
+            if (item.shadow_enabled || item.halo_enabled)
+                && effective_bg == BackgroundMode::None
+                && !is_custom_paper
+            {
                 self.draw_cached_text_shadow(
                     res,
                     item,
@@ -2375,7 +2440,9 @@ pub mod render {
                         let w = if idx + 1 == items.len() {
                             remaining
                         } else {
-                            (usable_w * (weights[idx] / weight_sum)).min(remaining).max(8.0)
+                            (usable_w * (weights[idx] / weight_sum))
+                                .min(remaining)
+                                .max(8.0)
                         };
                         let tile = RectF::new(x_cursor, rect.y, w, rect.h);
                         let tile_luma =
@@ -2764,6 +2831,162 @@ pub mod render {
                         *wave_phase,
                     );
                 }
+                SceneNode::StickyPaper {
+                    rect,
+                    paper_color,
+                    style,
+                    show_lines,
+                    line_color,
+                    curl_left,
+                    ..
+                } => {
+                    self.draw_sticky_paper(
+                        res,
+                        *rect,
+                        *paper_color,
+                        style,
+                        *show_lines,
+                        *line_color,
+                        *curl_left,
+                    );
+                }
+                SceneNode::EditableText {
+                    rect,
+                    content,
+                    placeholder,
+                    font_size,
+                    font_weight,
+                    color,
+                    placeholder_color,
+                    caret_color,
+                    selection_fill,
+                    caret_utf16,
+                    show_caret,
+                    select_all,
+                    max_lines,
+                } => {
+                    let scaled_size = font_size * text_scale;
+                    let Some((fmt, trim_sign)) = self.get_text_format_with_trim(
+                        res,
+                        font_family,
+                        *font_weight,
+                        scaled_size,
+                        TextAlign::Left,
+                    ) else {
+                        return;
+                    };
+
+                    let showing_placeholder = content.is_empty();
+                    let display_str = if showing_placeholder {
+                        placeholder.as_str()
+                    } else {
+                        content.as_str()
+                    };
+                    let text_w: Vec<u16> = display_str.encode_utf16().collect();
+                    let Ok(layout) = (unsafe {
+                        res.dwrite_factory.CreateTextLayout(
+                            &text_w,
+                            &fmt,
+                            rect.w.max(1.0),
+                            rect.h.max(1.0),
+                        )
+                    }) else {
+                        return;
+                    };
+
+                    if *max_lines == 1 {
+                        if *show_caret && !showing_placeholder {
+                            unsafe {
+                                let _ = layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                            }
+                        } else {
+                            Self::apply_single_line_trimming(trim_sign.as_ref(), &layout);
+                        }
+                    }
+
+                    if *select_all && !showing_placeholder {
+                        let mut metrics = DWRITE_TEXT_METRICS::default();
+                        if unsafe { layout.GetMetrics(&mut metrics) }.is_ok() {
+                            let sel_rect = D2D_RECT_F {
+                                left: rect.x + metrics.left.max(0.0),
+                                top: rect.y + metrics.top.max(0.0),
+                                right: (rect.x + metrics.left + metrics.width + 2.0)
+                                    .min(rect.x + rect.w),
+                                bottom: (rect.y + metrics.top + metrics.height)
+                                    .min(rect.y + rect.h),
+                            };
+                            unsafe {
+                                self.brush.SetColor(&d2d_color(*selection_fill));
+                                ctx.FillRectangle(&sel_rect, &self.brush);
+                            }
+                        }
+                    }
+
+                    let draw_col = if showing_placeholder {
+                        *placeholder_color
+                    } else {
+                        *color
+                    };
+                    unsafe {
+                        self.brush.SetColor(&d2d_color(draw_col));
+                        ctx.DrawTextLayout(
+                            D2D_POINT_2F {
+                                x: rect.x,
+                                y: rect.y,
+                            },
+                            &layout,
+                            &self.brush,
+                            D2D1_DRAW_TEXT_OPTIONS_CLIP,
+                        );
+                    }
+
+                    if *show_caret {
+                        let default_h = (scaled_size * 1.2).clamp(10.0, rect.h.max(10.0));
+                        let (rel_x, rel_y, caret_h) = if showing_placeholder {
+                            (0.0, 0.0, default_h)
+                        } else {
+                            let mut hx = 0.0f32;
+                            let mut hy = 0.0f32;
+                            let mut htm = DWRITE_HIT_TEST_METRICS::default();
+                            let pos = (*caret_utf16).min(text_w.len() as u32);
+                            if unsafe {
+                                layout.HitTestTextPosition(
+                                    pos,
+                                    false,
+                                    &mut hx,
+                                    &mut hy,
+                                    &mut htm,
+                                )
+                            }
+                            .is_ok()
+                            {
+                                let ch = if htm.height > 2.0 {
+                                    htm.height
+                                } else {
+                                    default_h
+                                };
+                                (hx, hy, ch.min(rect.h.max(8.0)))
+                            } else {
+                                (0.0, 0.0, default_h)
+                            }
+                        };
+                        let cx = (rect.x + rel_x).clamp(rect.x, rect.x + (rect.w - 1.5).max(0.0));
+                        let cy = (rect.y + rel_y).clamp(rect.y, rect.y + (rect.h - caret_h).max(0.0));
+                        unsafe {
+                            self.brush.SetColor(&d2d_color(*caret_color));
+                            ctx.DrawLine(
+                                D2D_POINT_2F { x: cx, y: cy + 1.0 },
+                                D2D_POINT_2F {
+                                    x: cx,
+                                    y: cy + caret_h - 1.0,
+                                },
+                                &self.brush,
+                                1.6,
+                                Some(&self.round_stroke),
+                            );
+                        }
+                    }
+                }
                 SceneNode::IconGlyph {
                     rect,
                     glyph,
@@ -3002,6 +3225,383 @@ pub mod render {
                             &self.round_stroke,
                         );
                     }
+                }
+            }
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn draw_sticky_paper(
+            &mut self,
+            res: &D2DDeviceResources,
+            rect: RectF,
+            paper_color: RgbaColor,
+            style: &str,
+            show_lines: bool,
+            line_color: RgbaColor,
+            curl_left: bool,
+        ) {
+            let ctx = &res.d2d_context;
+            let x = rect.x;
+            let y = rect.y;
+            let w = rect.w.max(40.0);
+            let h = rect.h.max(40.0);
+            let deco = crate::widgets::group_b::sticky_visual_scale(rect);
+            let deco_stroke = deco.sqrt();
+            let effective_style = if style == "curled" || style == "pin" {
+                style
+            } else {
+                "tape"
+            };
+            let curled = effective_style == "curled";
+            let curl_sz = if curled {
+                (w.min(h) * 0.16).clamp(20.0, 56.0)
+            } else {
+                0.0
+            };
+
+            let pt = |px: f32, py: f32| D2D_POINT_2F { x: px, y: py };
+            let shade = |c: RgbaColor, delta: i16, alpha: f32| -> RgbaColor {
+                RgbaColor::new(
+                    (c.r as i16 + delta).clamp(0, 255) as u8,
+                    (c.g as i16 + delta).clamp(0, 255) as u8,
+                    (c.b as i16 + delta).clamp(0, 255) as u8,
+                    alpha,
+                )
+            };
+
+            let build_paper_geom = |dx: f32, dy: f32, drop_lift: f32| -> Option<ID2D1PathGeometry> {
+                let geom = unsafe { res.d2d_factory.CreatePathGeometry().ok()? };
+                let sink = unsafe { geom.Open().ok()? };
+                let lx = x + dx;
+                let rx = x + w + dx;
+                let ty = y + dy;
+                let by = y + h + dy;
+                let bow_l = 1.6 * deco;
+                let bow_r = 1.8 * deco;
+                let arch = 3.2 * deco;
+
+                unsafe {
+                    sink.BeginFigure(pt(lx + 1.5, ty), D2D1_FIGURE_BEGIN_FILLED);
+                    sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                        point1: pt(lx + w * 0.34, ty + 0.8 * deco),
+                        point2: pt(lx + w * 0.68, ty - 0.6 * deco),
+                        point3: pt(rx - 1.5, ty + 0.6 * deco),
+                    });
+
+                    if curled && !curl_left {
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(rx + bow_r * 0.6, ty + h * 0.35),
+                            point2: pt(rx - bow_r, ty + h * 0.72),
+                            point3: pt(rx - 0.5, by - curl_sz + drop_lift * 0.35),
+                        });
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(rx - curl_sz * 0.32, by - curl_sz * 0.28 + drop_lift),
+                            point2: pt(rx - curl_sz * 0.68, by - curl_sz * 0.14 + drop_lift),
+                            point3: pt(rx - curl_sz, by - 2.0 + drop_lift * 0.5),
+                        });
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(lx + w * 0.60, by - arch + drop_lift),
+                            point2: pt(lx + w * 0.28, by - 0.5 + drop_lift * 0.5),
+                            point3: pt(lx + 1.0, by - 0.8 + drop_lift * 0.2),
+                        });
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(lx - bow_l, ty + h * 0.66),
+                            point2: pt(lx + bow_l * 0.7, ty + h * 0.30),
+                            point3: pt(lx + 1.5, ty),
+                        });
+                    } else if curled && curl_left {
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(rx + bow_r * 0.6, ty + h * 0.35),
+                            point2: pt(rx - bow_r * 0.8, ty + h * 0.72),
+                            point3: pt(rx - 1.0, by - 0.8 + drop_lift * 0.2),
+                        });
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(lx + w * 0.72, by - 0.5 + drop_lift * 0.5),
+                            point2: pt(lx + w * 0.40, by - arch + drop_lift),
+                            point3: pt(lx + curl_sz, by - 2.0 + drop_lift * 0.5),
+                        });
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(lx + curl_sz * 0.68, by - curl_sz * 0.14 + drop_lift),
+                            point2: pt(lx + curl_sz * 0.32, by - curl_sz * 0.28 + drop_lift),
+                            point3: pt(lx + 0.5, by - curl_sz + drop_lift * 0.35),
+                        });
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(lx - bow_l, ty + h * 0.55),
+                            point2: pt(lx + bow_l * 0.7, ty + h * 0.25),
+                            point3: pt(lx + 1.5, ty),
+                        });
+                    } else {
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(rx + bow_r * 0.7, ty + h * 0.34),
+                            point2: pt(rx - bow_r * 0.9, ty + h * 0.74),
+                            point3: pt(rx - 1.2, by - 1.6 + drop_lift * 0.4),
+                        });
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(lx + w * 0.68, by - arch + drop_lift),
+                            point2: pt(lx + w * 0.32, by + 0.6 + drop_lift * 0.4),
+                            point3: pt(lx + 1.2, by - 1.4 + drop_lift * 0.3),
+                        });
+                        sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                            point1: pt(lx - bow_l, ty + h * 0.66),
+                            point2: pt(lx + bow_l * 0.8, ty + h * 0.30),
+                            point3: pt(lx + 1.5, ty),
+                        });
+                    }
+
+                    sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                    let _ = sink.Close();
+                }
+                Some(geom.into())
+            };
+
+            if let Some(wide_shadow) =
+                build_paper_geom(2.0 * deco, 5.5 * deco, (5.5 * deco).min(9.5))
+            {
+                unsafe {
+                    self.brush.SetColor(&d2d_color(RgbaColor::new(0, 0, 0, 0.11)));
+                    ctx.FillGeometry(&wide_shadow, &self.brush, None);
+                }
+            }
+            if let Some(tight_shadow) =
+                build_paper_geom(1.0 * deco, 2.8 * deco, (3.0 * deco).min(5.5))
+            {
+                unsafe {
+                    self.brush.SetColor(&d2d_color(RgbaColor::new(0, 0, 0, 0.18)));
+                    ctx.FillGeometry(&tight_shadow, &self.brush, None);
+                }
+            }
+
+            if let Some(body_geom) = build_paper_geom(0.0, 0.0, 0.0) {
+                let top_col = shade(paper_color, -14, paper_color.a);
+                let bot_col = shade(paper_color, 8, paper_color.a);
+                if let Some(grad_brush) =
+                    self.create_vertical_gradient_brush(res, rect, top_col, bot_col)
+                {
+                    unsafe {
+                        ctx.FillGeometry(&body_geom, &grad_brush, None);
+                    }
+                } else {
+                    unsafe {
+                        self.brush.SetColor(&d2d_color(paper_color));
+                        ctx.FillGeometry(&body_geom, &self.brush, None);
+                    }
+                }
+
+                let lum = crate::contrast::relative_luminance(paper_color);
+                let band_col = if lum > 0.36 {
+                    shade(paper_color, -22, 0.24)
+                } else {
+                    shade(paper_color, 20, 0.16)
+                };
+                unsafe {
+                    self.brush.SetColor(&d2d_color(band_col));
+                    ctx.FillRectangle(
+                        &D2D_RECT_F {
+                            left: x + 2.0,
+                            top: y + 1.0,
+                            right: x + w - 2.0,
+                            bottom: y + 20.0 * deco,
+                        },
+                        &self.brush,
+                    );
+                }
+
+                let edge_col = if lum > 0.36 {
+                    shade(paper_color, -45, 0.42)
+                } else {
+                    shade(paper_color, 42, 0.28)
+                };
+                unsafe {
+                    self.brush.SetColor(&d2d_color(edge_col));
+                    ctx.DrawGeometry(
+                        &body_geom,
+                        &self.brush,
+                        (0.85 * deco_stroke).clamp(0.85, 1.3),
+                        None,
+                    );
+                }
+            }
+
+            if show_lines {
+                let mut ly = y + 39.0 * deco;
+                let max_y = y + h - 22.0 * deco;
+                let margin_x = 13.0 * deco;
+                let line_w = (0.8 * deco_stroke).clamp(0.8, 1.15);
+                unsafe {
+                    self.brush.SetColor(&d2d_color(line_color));
+                }
+                while ly <= max_y {
+                    let near_curl = curled && ly > y + h - curl_sz - 6.0 * deco;
+                    let left_x = if near_curl && curl_left {
+                        x + curl_sz + 8.0 * deco
+                    } else {
+                        x + margin_x
+                    };
+                    let right_x = if near_curl && !curl_left {
+                        x + w - curl_sz - 8.0 * deco
+                    } else {
+                        x + w - margin_x
+                    };
+                    if right_x > left_x + 16.0 {
+                        unsafe {
+                            ctx.DrawLine(
+                                pt(left_x, ly),
+                                pt(right_x, ly),
+                                &self.brush,
+                                line_w,
+                                None,
+                            );
+                        }
+                    }
+                    ly += 21.0 * deco;
+                }
+            }
+
+            let lum = crate::contrast::relative_luminance(paper_color);
+            if curled {
+                if let Ok(flap_geom) = unsafe { res.d2d_factory.CreatePathGeometry() } {
+                    if let Ok(sink) = unsafe { flap_geom.Open() } {
+                        unsafe {
+                            if !curl_left {
+                                let rx = x + w;
+                                let by = y + h;
+                                sink.BeginFigure(pt(rx - curl_sz, by - 2.0), D2D1_FIGURE_BEGIN_FILLED);
+                                sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                                    point1: pt(rx - curl_sz * 0.68, by - curl_sz * 0.14),
+                                    point2: pt(rx - curl_sz * 0.32, by - curl_sz * 0.28),
+                                    point3: pt(rx - 0.5, by - curl_sz),
+                                });
+                                sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                                    point1: pt(rx - curl_sz * 0.48, by - curl_sz * 0.78),
+                                    point2: pt(rx - curl_sz * 0.80, by - curl_sz * 0.45),
+                                    point3: pt(rx - curl_sz, by - 2.0),
+                                });
+                            } else {
+                                let by = y + h;
+                                sink.BeginFigure(pt(x + curl_sz, by - 2.0), D2D1_FIGURE_BEGIN_FILLED);
+                                sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                                    point1: pt(x + curl_sz * 0.68, by - curl_sz * 0.14),
+                                    point2: pt(x + curl_sz * 0.32, by - curl_sz * 0.28),
+                                    point3: pt(x + 0.5, by - curl_sz),
+                                });
+                                sink.AddBezier(&D2D1_BEZIER_SEGMENT {
+                                    point1: pt(x + curl_sz * 0.48, by - curl_sz * 0.78),
+                                    point2: pt(x + curl_sz * 0.80, by - curl_sz * 0.45),
+                                    point3: pt(x + curl_sz, by - 2.0),
+                                });
+                            }
+                            sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                            let _ = sink.Close();
+                        }
+                        let underside = if lum > 0.36 {
+                            shade(paper_color, -32, 0.96)
+                        } else {
+                            shade(paper_color, 26, 0.96)
+                        };
+                        let flap_rim = if lum > 0.36 {
+                            shade(paper_color, -52, 0.55)
+                        } else {
+                            shade(paper_color, 46, 0.45)
+                        };
+                        unsafe {
+                            self.brush.SetColor(&d2d_color(underside));
+                            ctx.FillGeometry(&flap_geom, &self.brush, None);
+                            self.brush.SetColor(&d2d_color(flap_rim));
+                            ctx.DrawGeometry(
+                                &flap_geom,
+                                &self.brush,
+                                (0.85 * deco_stroke).clamp(0.85, 1.3),
+                                None,
+                            );
+                        }
+                    }
+                }
+            } else if effective_style == "tape" {
+                let tape_w = 58.0 * deco;
+                let tape_h = 17.0 * deco;
+                let tx = x + w * 0.5 - tape_w * 0.5;
+                let ty = y - 7.5 * deco;
+                if let Ok(tape_geom) = unsafe { res.d2d_factory.CreatePathGeometry() } {
+                    if let Ok(sink) = unsafe { tape_geom.Open() } {
+                        unsafe {
+                            sink.BeginFigure(pt(tx + 2.0 * deco, ty + 1.5 * deco), D2D1_FIGURE_BEGIN_FILLED);
+                            sink.AddLine(pt(tx + tape_w, ty));
+                            sink.AddLine(pt(tx + tape_w - 3.5 * deco, ty + tape_h * 0.35));
+                            sink.AddLine(pt(tx + tape_w - 0.8 * deco, ty + tape_h * 0.70));
+                            sink.AddLine(pt(tx + tape_w - 3.0 * deco, ty + tape_h));
+                            sink.AddLine(pt(tx + 1.0 * deco, ty + tape_h + 1.2 * deco));
+                            sink.AddLine(pt(tx + 3.2 * deco, ty + tape_h * 0.62));
+                            sink.AddLine(pt(tx + 0.5 * deco, ty + tape_h * 0.32));
+                            sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                            let _ = sink.Close();
+                        }
+                        let tape_fill = RgbaColor::new(0xF8, 0xFA, 0xFC, 0.58);
+                        let tape_edge = RgbaColor::new(0x94, 0xA3, 0xB8, 0.34);
+                        unsafe {
+                            self.brush.SetColor(&d2d_color(tape_fill));
+                            ctx.FillGeometry(&tape_geom, &self.brush, None);
+                            self.brush.SetColor(&d2d_color(tape_edge));
+                            ctx.DrawGeometry(
+                                &tape_geom,
+                                &self.brush,
+                                (0.75 * deco_stroke).clamp(0.75, 1.15),
+                                None,
+                            );
+                        }
+                    }
+                }
+            } else if effective_style == "pin" {
+                let px = x + w * 0.5;
+                let py = y + 9.0 * deco;
+                unsafe {
+                    self.brush.SetColor(&d2d_color(RgbaColor::new(0, 0, 0, 0.28)));
+                    ctx.FillEllipse(
+                        &D2D1_ELLIPSE {
+                            point: pt(px + 2.6 * deco, py + 3.8 * deco),
+                            radiusX: 7.2 * deco,
+                            radiusY: 6.2 * deco,
+                        },
+                        &self.brush,
+                    );
+                    self.brush
+                        .SetColor(&d2d_color(RgbaColor::new(0x64, 0x74, 0x8B, 0.85)));
+                    ctx.DrawLine(
+                        pt(px, py + 4.0 * deco),
+                        pt(px + 1.8 * deco, py + 9.5 * deco),
+                        &self.brush,
+                        1.5 * deco,
+                        &self.round_stroke,
+                    );
+                    self.brush
+                        .SetColor(&d2d_color(RgbaColor::new(0xBE, 0x12, 0x3C, 1.0)));
+                    ctx.FillEllipse(
+                        &D2D1_ELLIPSE {
+                            point: pt(px, py + 1.0 * deco),
+                            radiusX: 7.4 * deco,
+                            radiusY: 7.4 * deco,
+                        },
+                        &self.brush,
+                    );
+                    self.brush
+                        .SetColor(&d2d_color(RgbaColor::new(0xEF, 0x44, 0x44, 1.0)));
+                    ctx.FillEllipse(
+                        &D2D1_ELLIPSE {
+                            point: pt(px - 0.5 * deco, py - 0.5 * deco),
+                            radiusX: 6.0 * deco,
+                            radiusY: 6.0 * deco,
+                        },
+                        &self.brush,
+                    );
+                    self.brush
+                        .SetColor(&d2d_color(RgbaColor::new(255, 255, 255, 0.72)));
+                    ctx.FillEllipse(
+                        &D2D1_ELLIPSE {
+                            point: pt(px - 2.3 * deco, py - 2.3 * deco),
+                            radiusX: 2.0 * deco,
+                            radiusY: 1.6 * deco,
+                        },
+                        &self.brush,
+                    );
                 }
             }
         }

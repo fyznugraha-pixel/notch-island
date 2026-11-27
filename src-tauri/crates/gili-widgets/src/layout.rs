@@ -221,6 +221,30 @@ pub enum SceneNode {
         wave_phase: f32,
         interactive_action: Option<String>,
     },
+    StickyPaper {
+        rect: RectF,
+        paper_color: RgbaColor,
+        style: String,
+        show_lines: bool,
+        line_color: RgbaColor,
+        curl_left: bool,
+        interactive_action: Option<String>,
+    },
+    EditableText {
+        rect: RectF,
+        content: String,
+        placeholder: String,
+        font_size: f32,
+        font_weight: u16,
+        color: RgbaColor,
+        placeholder_color: RgbaColor,
+        caret_color: RgbaColor,
+        selection_fill: RgbaColor,
+        caret_utf16: u32,
+        show_caret: bool,
+        select_all: bool,
+        max_lines: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -256,6 +280,8 @@ pub struct WidgetRenderItem {
     pub stack_count: usize,
     pub stack_index: usize,
     pub edit_jiggle_deg: f32,
+    #[serde(default)]
+    pub base_rotation_deg: f32,
     pub scale: f32,
     pub opacity: f32,
 }
@@ -315,7 +341,9 @@ impl WidgetRenderItem {
             | SceneNode::ImageRef { rect, .. }
             | SceneNode::IconGlyph { rect, .. }
             | SceneNode::WeatherIcon { rect, .. }
-            | SceneNode::GiliMascot { rect, .. } => Some(*rect),
+            | SceneNode::GiliMascot { rect, .. }
+            | SceneNode::StickyPaper { rect, .. }
+            | SceneNode::EditableText { rect, .. } => Some(*rect),
             SceneNode::ProgressRing {
                 cx,
                 cy,
@@ -482,6 +510,11 @@ impl WidgetRenderItem {
                     rect,
                     interactive_action,
                     ..
+                }
+                | SceneNode::StickyPaper {
+                    rect,
+                    interactive_action,
+                    ..
                 } => {
                     self.content_hit_rects.push(HitRegion {
                         bounds: *rect,
@@ -500,7 +533,7 @@ impl WidgetRenderItem {
                         action_id: None,
                     });
                 }
-                SceneNode::Line { .. } => {}
+                SceneNode::Line { .. } | SceneNode::EditableText { .. } => {}
             }
         }
     }
@@ -580,20 +613,26 @@ pub fn slot_rect_dp(
 ) -> RectF {
     let cell = GRID_SMALL_DP * grid_scale;
     let gap = GRID_GAP_DP * grid_scale;
-    let is_photo_frame = slot
-        .active_widget()
-        .map(|w| w.widget_type.as_str() == "photo_frame")
-        .unwrap_or(false);
-    let (w, h) = if is_photo_frame {
-        let s = crate::config::sanitize_grid_scale(grid_scale);
-        let side = match slot.size {
-            WidgetSize::Small => 220.0 * s,
-            WidgetSize::Medium => 268.0 * s,
-            WidgetSize::Large => 336.0 * s,
-        };
-        (side, side)
-    } else {
-        slot.size.dimensions_dp(grid_scale)
+    let widget_type = slot.active_widget().map(|w| w.widget_type.as_str());
+    let s = crate::config::sanitize_grid_scale(grid_scale);
+    let (w, h) = match widget_type {
+        Some("photo_frame") => {
+            let side = match slot.size {
+                WidgetSize::Small => 220.0 * s,
+                WidgetSize::Medium => 268.0 * s,
+                WidgetSize::Large => 336.0 * s,
+            };
+            (side, side)
+        }
+        Some("paper_sticky_note") => {
+            let side = match slot.size {
+                WidgetSize::Small => 160.0 * s,
+                WidgetSize::Medium => 240.0 * s,
+                WidgetSize::Large => 336.0 * s,
+            };
+            (side, side)
+        }
+        _ => slot.size.dimensions_dp(grid_scale),
     };
     let x = slot
         .pos_x
@@ -946,6 +985,7 @@ mod tests {
             stack_count: 1,
             stack_index: 0,
             edit_jiggle_deg: 0.0,
+            base_rotation_deg: 0.0,
             scale: 1.0,
             opacity: 1.0,
         };

@@ -904,8 +904,13 @@ pub fn build_system_performance(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             });
 
             // GPU & Network summary
+            let is_f = crate::widgets::is_fahrenheit(ctx);
             let gpu_label = match (sys.gpu_pct, sys.gpu_temp_c) {
-                (Some(p), Some(t)) => format!("GPU {}% . {}C", p, t),
+                (Some(p), Some(t)) => format!(
+                    "GPU {}% · {}",
+                    p,
+                    crate::widgets::format_temp_with_unit(t as f32, is_f)
+                ),
                 (Some(p), None) => format!("GPU {}%", p),
                 _ => sys
                     .gpu_name
@@ -1296,6 +1301,7 @@ fn weather_icon_accent(ctx: &WidgetBuildCtx<'_>, code: i32) -> crate::config::Rg
 /// 6. Cuaca: sekarang, per jam, 5 hari (S, M, L)
 pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     let en = is_english(ctx);
+    let is_f = crate::widgets::is_fahrenheit(ctx);
     let w = &ctx.hub.weather;
     if !w.available {
         return empty_state_nodes(
@@ -1316,6 +1322,14 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
     } else {
         100.0
     };
+    let hero_temp = crate::widgets::format_temp_with_unit(w.current_temp_c, is_f);
+    let hero_font_size = if ctx.size == WidgetSize::Small {
+        38.0
+    } else if hero_temp.chars().count() >= 5 {
+        31.0
+    } else {
+        36.0
+    };
     let mut nodes = vec![
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y, inner.w - 30.0, 16.0),
@@ -1334,8 +1348,8 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
         },
         crate::widgets::text_node_line(
             RectF::new(inner.x, inner.y + 15.0, left_col_w, 48.0),
-            format!("{:.0}°", w.current_temp_c),
-            42.0,
+            hero_temp,
+            hero_font_size,
             300,
             ctx.pal.primary,
             TextAlign::Left,
@@ -1354,12 +1368,14 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
 
     if let Some(today) = w.daily.first() {
         if inner.y + 78.0 + 14.0 <= inner.y + inner.h {
+            let max_s = crate::widgets::format_temp_short(today.max_c, is_f);
+            let min_s = crate::widgets::format_temp_short(today.min_c, is_f);
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(inner.x, inner.y + 78.0, left_col_w, 14.0),
                 if en {
-                    format!("H:{:.0}° L:{:.0}°", today.max_c, today.min_c)
+                    format!("H:{max_s} L:{min_s}")
                 } else {
-                    format!("T:{:.0}° R:{:.0}°", today.max_c, today.min_c)
+                    format!("T:{max_s} R:{min_s}")
                 },
                 10.5,
                 600,
@@ -1393,7 +1409,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             });
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(x, inner.y + 58.0, col_w, 17.0),
-                format!("{:.0}°", pt.temp_c),
+                crate::widgets::format_temp_short(pt.temp_c, is_f),
                 13.0,
                 700,
                 ctx.pal.primary,
@@ -1461,7 +1477,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             });
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(lo_x, y, 32.0, 18.0),
-                format!("{:.0}°", d.min_c),
+                crate::widgets::format_temp_short(d.min_c, is_f),
                 12.0,
                 500,
                 ctx.pal.secondary,
@@ -1493,7 +1509,7 @@ pub fn build_weather_forecast(ctx: &WidgetBuildCtx<'_>) -> Vec<SceneNode> {
             });
             nodes.push(crate::widgets::text_node_line(
                 RectF::new(hi_x, y, 32.0, 18.0),
-                format!("{:.0}°", d.max_c),
+                crate::widgets::format_temp_short(d.max_c, is_f),
                 12.5,
                 600,
                 ctx.pal.primary,
