@@ -333,3 +333,4 @@ export const IdleMascot: React.FC<IdleMascotProps> = ({
     </div>
   );
 };
+

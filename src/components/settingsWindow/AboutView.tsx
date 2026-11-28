@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2 } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Repeat, ScanText, Maximize2, Bug, Zap, MessageSquare, CheckSquare, SlidersHorizontal, Music, Eye, Cpu, LayoutGrid, Monitor, Smartphone, Palette, Layers, Minimize2, Smile, Bell, FolderDown, Gamepad2, MousePointerClick } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Language } from "../../services/i18n";
 
@@ -17,6 +17,60 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "4.5.0",
+    date: "28 Nov 2026",
+    highlights: [
+      {
+        icon: <Smile size={14} />,
+        titleId: "Animasi Maskot Idle Saat Notch Kosong",
+        titleEn: "Idle Mascot Peek Animation for Empty Notch",
+        descId: "Saat seluruh slot Idle Bar dikosongkan, maskot Gili yang lucu akan muncul mengintip setiap 5 menit sekali lengkap dengan animasi interaktif dan pratinjau langsung di Pengaturan.",
+        descEn: "When all Idle Bar slots are set to empty, the adorable Gili mascot peeks out every 5 minutes with interactive animations and live preview in Settings.",
+        badge: "new",
+      },
+      {
+        icon: <Maximize2 size={14} />,
+        titleId: "Bentuk Kapsul Proporsional Saat Idle Kosong",
+        titleEn: "Proportional Capsule Pill for Empty Idle",
+        descId: "Notch idle saat kosong kini tetap mempertahankan bentuk kapsul memanjang yang rapi dan elegan, konsisten dengan ukuran saat berisi indikator.",
+        descEn: "The empty idle notch now retains a sleek, proportional elongated capsule shape consistent with active indicator pill dimensions.",
+        badge: "improve",
+      },
+      {
+        icon: <MousePointerClick size={14} />,
+        titleId: "Tooltip Kustom Desain Elegan di Seluruh Aplikasi",
+        titleEn: "Custom Modern Tooltip Across App",
+        descId: "Mengganti seluruh tooltip native browser bawaan OS dengan komponen Tooltip kustom bergaya minimalis, halus, dan serasi dengan estetika Gili.",
+        descEn: "Replaced all default OS native browser tooltips with custom minimalist, smooth tooltips matching Gili's design language.",
+        badge: "improve",
+      },
+      {
+        icon: <Bell size={14} />,
+        titleId: "Slot Idle Baru: Notifikasi & File Shelf",
+        titleEn: "New Idle Slots: Notifications & File Shelf",
+        descId: "Layout Idle Bar kini mendukung indikator jumlah notifikasi belum dibaca, jumlah berkas di File Shelf, serta opsi untuk mengosongkan slot manapun.",
+        descEn: "Idle Bar layout now supports unread notification count, File Shelf stash counter, and the ability to empty any slot.",
+        badge: "new",
+      },
+      {
+        icon: <FolderDown size={14} />,
+        titleId: "Proteksi Drag File Shelf & Tab Pengaturan Khusus",
+        titleEn: "File Shelf Drag Protection & Dedicated Settings Tab",
+        descId: "Berkas di File Shelf kini tetap tersimpan aman saat di-drag keluar tanpa target drop. Tombol pengaturan di shelf kini langsung mengarah ke tab pengaturan khusus Shelf.",
+        descEn: "Files in File Shelf remain safely stored when dragged out without a drop target. Shelf gear button now directly opens the dedicated Shelf settings tab.",
+        badge: "new",
+      },
+      {
+        icon: <Gamepad2 size={14} />,
+        titleId: "Kestabilan Mode Gaming & Focus Assist",
+        titleEn: "Gaming Mode & Focus Assist Stability",
+        descId: "Mencegah mode Gaming berganti otomatis ke Do Not Disturb (DND) akibat sinkronisasi Windows Focus Assist — mode tetap normal kecuali diganti sendiri oleh pengguna.",
+        descEn: "Prevents Gaming Mode from unexpectedly flipping to DND due to Windows Focus Assist sync — default mode remains normal unless manually switched.",
+        badge: "fix",
+      },
+    ],
+  },
   {
     version: "4.4.0",
     date: "2 Nov 2026",
