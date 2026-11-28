@@ -18,7 +18,7 @@ interface ChangelogEntry {
 
 const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "4.5.0",
+    version: "4.4.0",
     date: "28 Nov 2026",
     highlights: [
       {
@@ -69,12 +69,6 @@ const CHANGELOG: ChangelogEntry[] = [
         descEn: "Prevents Gaming Mode from unexpectedly flipping to DND due to Windows Focus Assist sync — default mode remains normal unless manually switched.",
         badge: "fix",
       },
-    ],
-  },
-  {
-    version: "4.4.0",
-    date: "2 Nov 2026",
-    highlights: [
       {
         icon: <Palette size={14} />,
         titleId: "Kustomisasi Warna Notch & Teks Idle",
