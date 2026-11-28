@@ -22,6 +22,14 @@ const CHANGELOG: ChangelogEntry[] = [
     date: "28 Nov 2026",
     highlights: [
       {
+        icon: <Smartphone size={14} />,
+        titleId: "Transfer File Shelf ke Ponsel & HP",
+        titleEn: "Phone File Shelf Transfer",
+        descId: "Kirim dan terima file antara PC dan ponsel via QR code secara instan melalui jaringan Wi-Fi lokal tanpa internet.",
+        descEn: "Instantly send and receive files between PC and mobile phones via QR code over local Wi-Fi without internet.",
+        badge: "new",
+      },
+      {
         icon: <Smile size={14} />,
         titleId: "Animasi Maskot Idle Saat Notch Kosong",
         titleEn: "Idle Mascot Peek Animation for Empty Notch",
@@ -91,14 +99,6 @@ const CHANGELOG: ChangelogEntry[] = [
         titleEn: "Dual Monitor Support on All Displays",
         descId: "Gili Notch kini dapat aktif dan berjalan di semua layar monitor yang terhubung secara bersamaan lewat opsi Semua Layar (Notch Ganda) pada Pengaturan Monitor.",
         descEn: "Gili Notch can now run seamlessly across all connected monitors simultaneously via the All Displays (Dual Notch) option in Monitor Settings.",
-        badge: "new",
-      },
-      {
-        icon: <Smartphone size={14} />,
-        titleId: "Transfer File Shelf ke Ponsel & HP",
-        titleEn: "Phone File Shelf Transfer",
-        descId: "Kirim dan terima file antara PC dan ponsel via QR code secara instan melalui jaringan Wi-Fi lokal tanpa internet.",
-        descEn: "Instantly send and receive files between PC and mobile phones via QR code over local Wi-Fi without internet.",
         badge: "new",
       },
       {
