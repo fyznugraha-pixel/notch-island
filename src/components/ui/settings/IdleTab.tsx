@@ -27,6 +27,7 @@ import {
   getItemLabel,
   formatNetSpeed,
 } from "../IdleLayoutSetting";
+import { IdleMascot } from "../IdleMascot";
 import { Tooltip } from "../Tooltip";
 import { t } from "../../../services/i18n";
 
@@ -528,21 +529,27 @@ export const IdleTab: React.FC<IdleTabProps> = ({
         }`}
       >
         <div
-          className={`h-[28px] rounded-full px-3.5 flex items-center justify-between w-full max-w-[280px] idle-preview-notch ${
+          className={`h-[28px] rounded-full px-3.5 flex items-center justify-between w-full max-w-[280px] idle-preview-notch relative overflow-hidden ${
             isLightMode
               ? "bg-white border border-black/10 shadow-sm"
               : "bg-black border border-white/[0.08] shadow-sm"
           }`}
         >
-          <div className="flex items-center justify-start min-w-[50px]">
-            {renderPreviewItem(layout.left)}
-          </div>
-          <div className="flex items-center justify-center">
-            {renderPreviewItem(layout.center)}
-          </div>
-          <div className="flex items-center justify-end min-w-[50px]">
-            {renderPreviewItem(layout.right)}
-          </div>
+          {layout.left === "none" && layout.center === "none" && layout.right === "none" ? (
+            <IdleMascot idleHeight={28} loop={true} isLightMode={isLightMode} />
+          ) : (
+            <>
+              <div className="flex items-center justify-start min-w-[50px]">
+                {renderPreviewItem(layout.left)}
+              </div>
+              <div className="flex items-center justify-center">
+                {renderPreviewItem(layout.center)}
+              </div>
+              <div className="flex items-center justify-end min-w-[50px]">
+                {renderPreviewItem(layout.right)}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

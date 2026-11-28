@@ -109,6 +109,7 @@ import {
 } from "./components/ui/IdleLayoutSetting";
 import type { QueueTrackItem } from "./components/ui/MediaQueueView";
 import { IdleLyrics } from "./components/ui/IdleLyrics";
+import { IdleMascot } from "./components/ui/IdleMascot";
 
 const ControlCenterPanel = React.lazy(() =>
   import("./components/ui/ControlCenterPanel").then((m) => ({ default: m.ControlCenterPanel }))
@@ -4257,6 +4258,10 @@ export default function App() {
     (idleLayout.center !== "none" ? 1 : 0) +
     (idleLayout.right !== "none" ? 1 : 0) +
     (camActive || micActive ? 1 : 0);
+  const isIdleEmpty =
+    idleLayout.left === "none" &&
+    idleLayout.center === "none" &&
+    idleLayout.right === "none";
   const idleSideWidth = Math.round(
     (effectiveIdleSize === "compact" ? 64 : effectiveIdleSize === "large" ? 80 : 72) *
       (optFontSize === "large" ? 1.08 : optFontSize === "small" ? 0.94 : 1.0)
@@ -5100,10 +5105,17 @@ export default function App() {
                 }`}
                 onClick={() => openLastOrPreferredTab()}
               >
+                {isIdleEmpty && !isSideCenter && !camActive && !micActive && (
+                  <IdleMascot
+                    idleHeight={idleHeight}
+                    notchColor={optIdleColorEnabled && isIdle ? optIdleColor : null}
+                    isLightMode={effectiveIsLight}
+                  />
+                )}
                 <div
                   className={`flex ${
                     isSideCenter ? "flex-col gap-1" : effectiveIdleSize === "compact" ? "gap-2" : effectiveIdleSize === "large" ? "gap-3" : "gap-2.5"
-                  } items-center justify-center w-full`}
+                  } items-center justify-center w-full relative z-10`}
                 >
                   {idleLayout.left !== "none" && (
                     <motion.div key={`idle-left-${idleLayout.left}`} layout transition={smoothSpring} className="flex items-center shrink-0">
