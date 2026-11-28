@@ -468,11 +468,7 @@ export const IdleTab: React.FC<IdleTabProps> = ({
         );
       case "none":
       default:
-        return (
-          <span className={`text-[10px] ${isLightMode ? "text-black/30" : "text-white/20"}`}>
-            —
-          </span>
-        );
+        return null;
     }
   };
 

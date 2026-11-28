@@ -65,8 +65,8 @@ const CHANGELOG: ChangelogEntry[] = [
         icon: <Gamepad2 size={14} />,
         titleId: "Kestabilan Mode Gaming & Focus Assist",
         titleEn: "Gaming Mode & Focus Assist Stability",
-        descId: "Mencegah mode Gaming berganti otomatis ke Do Not Disturb (DND) akibat sinkronisasi Windows Focus Assist — mode tetap normal kecuali diganti sendiri oleh pengguna.",
-        descEn: "Prevents Gaming Mode from unexpectedly flipping to DND due to Windows Focus Assist sync — default mode remains normal unless manually switched.",
+        descId: "Mencegah mode Gaming berganti otomatis ke Do Not Disturb (DND) akibat sinkronisasi Windows Focus Assist. Mode tetap normal kecuali diganti sendiri oleh pengguna.",
+        descEn: "Prevents Gaming Mode from unexpectedly flipping to DND due to Windows Focus Assist sync. Default mode remains normal unless manually switched.",
         badge: "fix",
       },
       {
@@ -81,8 +81,8 @@ const CHANGELOG: ChangelogEntry[] = [
         icon: <Minimize2 size={14} />,
         titleId: "Auto-Compact Mode: Pilihan Semua App Max",
         titleEn: "Auto-Compact Mode: All Max Apps Option",
-        descId: "Mode ringkas otomatis kini dilengkapi pilihan Semua App Max — notch akan otomatis mengecil saat ada jendela aplikasi yang dimaksimalkan agar pandangan layar tetap lapang.",
-        descEn: "Auto-compact mode now features an All Max Apps trigger — the notch automatically shrinks whenever any application window is maximized to keep your view unobstructed.",
+        descId: "Mode ringkas otomatis kini dilengkapi pilihan Semua App Max sehingga notch akan otomatis mengecil saat ada jendela aplikasi yang dimaksimalkan agar pandangan layar tetap lapang.",
+        descEn: "Auto-compact mode now features an All Max Apps trigger so the notch automatically shrinks whenever any application window is maximized to keep your view unobstructed.",
         badge: "new",
       },
       {
